@@ -35,12 +35,15 @@ app.get('/api/all-data', (req, res) => {
       ...shortage,
       clientInquiry: !!shortage.clientInquiry, // Convert 0/1 back to false/true
     }));
+    
+    const cashClosings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
 
     res.json({
       users: { documents: users },
       orders: { documents: orders },
       shortages: { documents: shortages },
       logs: { documents: logs },
+      cashClosings: { documents: cashClosings },
     });
   } catch (err) {
     console.error('Error fetching all data:', err);
@@ -238,6 +241,114 @@ app.post('/api/logs', (req, res) => {
   } catch (err) {
     console.error('Error creating log:', err);
     res.status(500).json({ error: 'Failed to create log.' });
+  }
+});
+
+// --- Cash Closings CUD ---
+// GET all cash closings
+app.get('/api/cash-closings', (req, res) => {
+  try {
+    const closings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
+    res.json(closings);
+  } catch (err) {
+    console.error('Error fetching cash closings:', err);
+    res.status(500).json({ error: 'Failed to fetch cash closings.' });
+  }
+});
+
+// CREATE cash closing
+app.post('/api/cash-closings', (req, res) => {
+  try {
+    const closing = req.body;
+    console.log('Received closing data:', closing); // Debugging line
+    const insertClosingStmt = db.prepare(`
+      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, debit, pix, pixDirect)
+      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @debit, @pix, @pixDirect)
+    `);
+    
+    const insertTransactionStmt = db.prepare(`
+      INSERT INTO checking_account_transactions (id, date, description, type, value, cashClosingId)
+      VALUES (@id, @date, @description, @type, @value, @cashClosingId)
+    `);
+
+    db.transaction(() => {
+      insertClosingStmt.run(closing);
+
+      const transactionDate = new Date().toISOString();
+      
+      if (closing.credit > 0) {
+        insertTransactionStmt.run({
+          id: `txn_credit_${closing.id}`,
+          date: transactionDate,
+          description: 'Cartão de Crédito',
+          type: 'Entrada',
+          value: closing.credit,
+          cashClosingId: closing.id
+        });
+      }
+      if (closing.debit > 0) {
+        insertTransactionStmt.run({
+          id: `txn_debit_${closing.id}`,
+          date: transactionDate,
+          description: 'Cartão de Débito',
+          type: 'Entrada',
+          value: closing.debit,
+          cashClosingId: closing.id
+        });
+      }
+      if (closing.pix > 0) {
+        insertTransactionStmt.run({
+          id: `txn_pix_${closing.id}`,
+          date: transactionDate,
+          description: 'Pix (Maquininha)',
+          type: 'Entrada',
+          value: closing.pix,
+          cashClosingId: closing.id
+        });
+      }
+      if (closing.pixDirect > 0) {
+        insertTransactionStmt.run({
+          id: `txn_pix_direct_${closing.id}`,
+          date: transactionDate,
+          description: 'Pix Direto na Conta',
+          type: 'Entrada',
+          value: closing.pixDirect,
+          cashClosingId: closing.id
+        });
+      }
+    })();
+
+    res.status(201).json({ id: closing.id });
+  } catch (err) {
+    console.error('Error creating cash closing:', err);
+    res.status(500).json({ error: 'Failed to create cash closing.', details: err.message });
+  }
+});
+
+// --- Checking Account CUD ---
+// GET all checking account transactions
+app.get('/api/checking-account/transactions', (req, res) => {
+  try {
+    const transactions = db.prepare('SELECT * FROM checking_account_transactions ORDER BY date DESC').all();
+    res.json(transactions);
+  } catch (err) {
+    console.error('Error fetching checking account transactions:', err);
+    res.status(500).json({ error: 'Failed to fetch checking account transactions.' });
+  }
+});
+
+// GET checking account balance
+app.get('/api/checking-account/balance', (req, res) => {
+  try {
+    const result = db.prepare(`
+      SELECT 
+        (SELECT COALESCE(SUM(value), 0) FROM checking_account_transactions WHERE type = 'Entrada') -
+        (SELECT COALESCE(SUM(value), 0) FROM checking_account_transactions WHERE type = 'Saída') AS balance
+    `).get();
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching checking account balance:', err);
+    res.status(500).json({ error: 'Failed to fetch checking account balance.' });
   }
 });
 

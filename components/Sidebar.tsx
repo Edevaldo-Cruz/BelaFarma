@@ -17,7 +17,8 @@ import {
   Calculator,
   Lock,
   Receipt,
-  History
+  History,
+  Banknote,
 } from 'lucide-react';
 import { View, User, UserRole } from '../types';
 
@@ -50,6 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
       { id: 'safe', label: 'Cofre', icon: Lock },
       { id: 'financial', label: 'Financeiro', icon: Wallet },
+      { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
       { id: 'users', label: 'Usuários', icon: UsersIcon },
       { id: 'logs', label: 'Auditoria', icon: History }
     ] : []),

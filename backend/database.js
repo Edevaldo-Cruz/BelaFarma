@@ -63,11 +63,45 @@ try {
       );
     `;
 
+    const createCashClosingsTable = `
+      CREATE TABLE IF NOT EXISTS cash_closings (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        totalSales REAL NOT NULL,
+        initialCash REAL NOT NULL,
+        receivedExtra REAL NOT NULL,
+        totalDigital REAL NOT NULL,
+        totalInDrawer REAL NOT NULL,
+        difference REAL NOT NULL,
+        safeDeposit REAL NOT NULL,
+        expenses REAL NOT NULL,
+        userName TEXT NOT NULL,
+        credit REAL,
+        debit REAL,
+        pix REAL,
+        pixDirect REAL
+      );
+    `;
+
+    const createCheckingAccountTransactionsTable = `
+      CREATE TABLE IF NOT EXISTS checking_account_transactions (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        type TEXT NOT NULL,
+        value REAL NOT NULL,
+        cashClosingId TEXT,
+        FOREIGN KEY (cashClosingId) REFERENCES cash_closings(id)
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
     db.exec(createShortagesTable);
     db.exec(createLogsTable);
+    db.exec(createCashClosingsTable);
+    db.exec(createCheckingAccountTransactionsTable);
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

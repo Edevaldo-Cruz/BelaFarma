@@ -12,6 +12,7 @@ import { CashClosing } from "./components/CashClosing";
 import { Safe } from "./components/Safe";
 import { DailyRecords } from "./components/DailyRecords";
 import { Logs } from "./components/Logs";
+import { CheckingAccount } from "./components/CheckingAccount";
 import {
   Order,
   View,
@@ -300,7 +301,7 @@ const App: React.FC = () => {
         setIsOpen={setIsSidebarOpen}
       />
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto pb-10">
           {isLoading ? (
             <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
               <Loader2 className="w-10 h-10 text-red-600 animate-spin" />
@@ -361,10 +362,16 @@ const App: React.FC = () => {
               {currentView === "logs" && user.role === UserRole.ADM && (
                 <Logs logs={logs} />
               )}
+              {currentView === "checking-account" && user.role === UserRole.ADM && (
+                <CheckingAccount user={user} />
+              )}
               {currentView === "settings" && <Settings user={user} />}
             </>
           )}
         </div>
+        <footer className="w-full text-center py-4 text-xs text-slate-400 font-medium absolute bottom-0 left-0">
+          <p>Versão Beta - Desenvolvido por Edevaldo Cruz</p>
+        </footer>
       </main>
     </div>
   );

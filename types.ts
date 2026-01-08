@@ -70,6 +70,9 @@ export interface CashClosingRecord {
   safeDeposit: number;
   expenses: number;
   pixDirect: number;
+  credit: number;
+  debit: number;
+  pix: number;
   userName: string;
 }
 
@@ -129,4 +132,4 @@ export interface MedicationInfo {
   contraindications: string;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs';
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account';

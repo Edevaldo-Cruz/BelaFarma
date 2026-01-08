@@ -8,7 +8,9 @@ import {
   ShoppingCart,
   Pill,
   ClipboardList,
-  Lock
+  Lock,
+  AlertTriangle,
+  Truck,
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -32,6 +34,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages })
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
+
+  const overdueOrders = orders.filter(o => {
+    const forecast = new Date(o.arrivalForecast);
+    forecast.setHours(0, 0, 0, 0);
+    return o.status === OrderStatus.PENDENTE && forecast < now;
+  });
+
+  const upcomingOrders = orders.filter(o => {
+    const forecast = new Date(o.arrivalForecast);
+    forecast.setHours(0, 0, 0, 0);
+    const twoDaysFromNow = new Date(now);
+    twoDaysFromNow.setDate(now.getDate() + 2);
+    return o.status === OrderStatus.PENDENTE && forecast >= now && forecast <= twoDaysFromNow;
+  });
+
   const currentMonthName = now.toLocaleString('pt-BR', { month: 'long' });
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   
@@ -48,11 +65,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages })
     }
   }, 0);
 
-  const overdueCount = orders.filter(o => {
-    const forecast = new Date(o.arrivalForecast);
-    forecast.setHours(0, 0, 0, 0);
-    return o.status === OrderStatus.PENDENTE && forecast < now;
-  }).length;
+  const overdueCount = overdueOrders.length;
 
   const mainDistributorMap = orders.reduce((acc: any, curr) => {
     acc[curr.distributor] = (acc[curr.distributor] || 0) + curr.totalValue;
@@ -104,6 +117,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages })
           {now.toLocaleDateString('pt-BR')}
         </div>
       </header>
+
+      {overdueOrders.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-3xl p-6 animate-in fade-in duration-500">
+          <h2 className="text-base font-bold text-red-700 mb-4 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" />
+            Entregas em Atraso
+          </h2>
+          <div className="space-y-3">
+            {overdueOrders.map(order => (
+              <div key={order.id} className="flex justify-between items-center bg-white/60 p-3 rounded-xl border border-red-100">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">{order.distributor}</p>
+                  <p className="text-xs text-slate-500">
+                    Previsão: {new Date(order.arrivalForecast).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+                <p className="text-xs font-bold text-red-600">Atrasado</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {upcomingOrders.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-3xl p-6 animate-in fade-in duration-500">
+          <h2 className="text-base font-bold text-blue-700 mb-4 flex items-center gap-2">
+            <Truck className="w-5 h-5" />
+            Próximas Entregas
+          </h2>
+          <div className="space-y-3">
+            {upcomingOrders.map(order => (
+              <div key={order.id} className="flex justify-between items-center bg-white/60 p-3 rounded-xl border border-blue-100">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">{order.distributor}</p>
+                  <p className="text-xs text-slate-500">
+                    Previsão: {new Date(order.arrivalForecast).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+                <p className="text-xs font-bold text-blue-600">
+                  {Math.ceil((new Date(order.arrivalForecast).getTime() - now.getTime()) / (1000 * 3600 * 24))} dias
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">

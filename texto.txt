@@ -1,7 +1,0 @@
-installHook.js:1 cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
-overrideMethod @ installHook.js:1Entenda o aviso
-App.tsx:245 App Component: user state is null
-installHook.js:1 App Component: user state is null
-:5173/favicon.ico:1  Failed to load resource: the server responded with a status of 404 (Not Found)Entenda o erro
-App.tsx:245 App Component: user state is Object
-installHook.js:1 App Component: user state is Object

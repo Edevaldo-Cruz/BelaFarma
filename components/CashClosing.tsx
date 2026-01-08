@@ -75,6 +75,24 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
   };
 
   useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/cash-closings');
+        const data = await response.json();
+        setHistory(data);
+      } catch (error) {
+        console.error('Failed to fetch cash closing history:', error);
+      }
+    };
+
+    fetchHistory();
+
+    const savedNextInitial = localStorage.getItem('belafarma_next_initial_balance');
+    if (savedNextInitial) {
+      setInitialCash(JSON.parse(savedNextInitial));
+      localStorage.removeItem('belafarma_next_initial_balance');
+    }
+
     // Load daily expenses/non-registered items
     const savedDaily = localStorage.getItem('belafarma_daily_temp');
     if (savedDaily) {
@@ -83,17 +101,15 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
       setNonRegisteredList(data.nonRegistered || []);
     }
 
-    // Load closing history
-    const savedHistory = localStorage.getItem('belafarma_closing_history');
-    if (savedHistory) setHistory(JSON.parse(savedHistory));
-
     // Load saved form state
     const savedFormState = localStorage.getItem('belafarma_closing_form_state');
     if (savedFormState) {
       const state = JSON.parse(savedFormState);
       setTotalSales(state.totalSales || 0);
       setReceivedExtra(state.receivedExtra || 0);
-      setInitialCash(state.initialCash || 0);
+      if (!savedNextInitial) { // Only use saved initial cash if there's no "next day" value
+        setInitialCash(state.initialCash || 0);
+      }
       setCurrencyCount(state.currencyCount || denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {}));
       setCredit(state.credit || 0);
       setDebit(state.debit || 0);
@@ -168,8 +184,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
 
   const handleNext = () => {
     const idx = steps.findIndex(s => s.id === currentStep);
-    if (idx < steps.length - 1) setCurrentStep(steps[idx+1].id as Step);
-    else if (currentStep === 'summary') setIsDepositModalOpen(true);
+    if (idx < steps.length - 1) {
+      setCurrentStep(steps[idx + 1].id as Step);
+    } else if (currentStep === 'summary') {
+      setIsDepositModalOpen(true);
+    }
   };
 
   const handleBack = () => {
@@ -191,35 +210,56 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
     }
   };
 
-  const handleFinalSave = () => {
+  const saveClosingData = async () => {
     const newRecord: CashClosingRecord = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
       totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer,
-      difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses, userName: user.name
+      difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses, userName: user.name,
+      credit, debit, pix, pixDirect,
     };
 
-    const newHistory = [newRecord, ...history];
-    setHistory(newHistory);
-    localStorage.setItem('belafarma_closing_history', JSON.stringify(newHistory));
+    try {
+      const response = await fetch('http://localhost:3001/api/cash-closings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord),
+      });
 
-    if (safeDepositValue > 0) {
-      const savedSafe = localStorage.getItem('belafarma_safe_db');
-      const safeEntries: SafeEntry[] = savedSafe ? JSON.parse(savedSafe) : [];
-      const newSafeEntry: SafeEntry = {
-        id: 'S' + Date.now().toString(),
-        date: new Date().toISOString(),
-        description: `Depósito Fechamento de Caixa`,
-        type: 'Entrada', value: safeDepositValue, userName: user.name
-      };
-      localStorage.setItem('belafarma_safe_db', JSON.stringify([newSafeEntry, ...safeEntries]));
+      if (!response.ok) {
+        const errData = await response.json();
+        const errorDetails = errData.details || 'Nenhum detalhe fornecido.';
+        throw new Error(`Falha ao salvar o fechamento de caixa. \nO servidor diz: ${errorDetails}`);
+      }
+
+      const nextInitialBalance = totalInDrawer - safeDepositValue;
+      localStorage.setItem('belafarma_next_initial_balance', JSON.stringify(nextInitialBalance));
+
+      const newHistory = [newRecord, ...history];
+      setHistory(newHistory);
+
+      if (safeDepositValue > 0) {
+        // This part could also be moved to the backend if needed
+        const savedSafe = localStorage.getItem('belafarma_safe_db');
+        const safeEntries: SafeEntry[] = savedSafe ? JSON.parse(savedSafe) : [];
+        const newSafeEntry: SafeEntry = {
+          id: 'S' + Date.now().toString(),
+          date: new Date().toISOString(),
+          description: `Depósito Fechamento de Caixa`,
+          type: 'Entrada', value: safeDepositValue, userName: user.name
+        };
+        localStorage.setItem('belafarma_safe_db', JSON.stringify([newSafeEntry, ...safeEntries]));
+      }
+
+      onLog('Fechamento de Caixa', `Total Vendas: ${formatCurrency(totalSales)}, Diferença: ${formatCurrency(diff)}, Dep. Cofre: ${formatCurrency(safeDepositValue)}`);
+      localStorage.removeItem('belafarma_daily_temp');
+      localStorage.removeItem('belafarma_closing_form_state'); // Clear saved form state
+      alert("Fechamento concluído!");
+      if (onFinish) onFinish();
+    } catch (error) {
+      console.error('Error saving cash closing:', error);
+      alert('Erro ao salvar o fechamento de caixa. Tente novamente.\nDetalhes: ' + error.message);
     }
-
-    onLog('Fechamento de Caixa', `Total Vendas: ${formatCurrency(totalSales)}, Diferença: ${formatCurrency(diff)}, Dep. Cofre: ${formatCurrency(safeDepositValue)}`);
-    localStorage.removeItem('belafarma_daily_temp');
-    localStorage.removeItem('belafarma_closing_form_state'); // Clear saved form state
-    alert("Fechamento concluído!");
-    if (onFinish) onFinish();
   };
 
   return (
@@ -228,20 +268,28 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
         <div><h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">FECHAMENTO</h1><p className="text-slate-500 font-bold italic text-sm">Use ENTER para avançar e ESC para voltar.</p></div>
         <div className="flex bg-white p-1 rounded-2xl border-2 border-slate-100 shadow-sm">
           <button onClick={() => setActiveTab('history')} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'history' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400'}`}>Histórico</button>
-          <button onClick={() => { 
-            localStorage.removeItem('belafarma_closing_form_state'); // Clear saved state
-            setTotalSales(0); 
+          <button onClick={() => {
+            // Reset all fields to start a fresh closing
+            localStorage.removeItem('belafarma_closing_form_state');
+            setTotalSales(0);
             setReceivedExtra(0);
-            setInitialCash(0);
-            setCurrencyCount(denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {})); // Reset currency counts
+            // Check for a carried-over initial balance
+            const savedNextInitial = localStorage.getItem('belafarma_next_initial_balance');
+            if (savedNextInitial) {
+              setInitialCash(JSON.parse(savedNextInitial));
+              localStorage.removeItem('belafarma_next_initial_balance');
+            } else {
+              setInitialCash(0);
+            }
+            setCurrencyCount(denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {}));
             setCredit(0);
             setDebit(0);
             setPix(0);
             setPixDirect(0);
             setOthers(0);
             setSafeDepositValue(0);
-            setCurrentStep('sales'); 
-            setActiveTab('closing'); 
+            setCurrentStep('sales');
+            setActiveTab('closing');
           }} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'closing' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400'}`}>Novo</button>
         </div>
       </header>
@@ -447,7 +495,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
                   className="w-full px-6 py-5 bg-emerald-50 border-2 border-emerald-100 rounded-3xl font-black text-slate-900 text-2xl outline-none" 
                 />
               </div>
-              <button onClick={handleFinalSave} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase shadow-xl">Confirmar (ENTER)</button>
+              <button onClick={saveClosingData} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase shadow-xl">Confirmar (ENTER)</button>
               <button onClick={() => setIsDepositModalOpen(false)} className="text-[10px] font-black uppercase text-slate-400">Cancelar (ESC)</button>
             </div>
           </div>
