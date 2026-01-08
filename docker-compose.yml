@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      # Monta um volume para persistir o banco de dados SQLite
+      - ./backend/data:/usr/src/app/
+    restart: unless-stopped
+
+# Nota: O Docker Compose não gerencia o frontend.
+# O frontend (Vite) deve ser construído separadamente ('npm run build')
+# e seus arquivos estáticos servidos por um servidor web como Nginx ou Caddy.
+# Para desenvolvimento, você continuaria a rodar 'npm run dev' localmente.
