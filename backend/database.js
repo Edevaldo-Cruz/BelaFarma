@@ -95,6 +95,28 @@ try {
       );
     `;
 
+    const createBoletosTable = `
+      CREATE TABLE IF NOT EXISTS boletos (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        value REAL NOT NULL,
+        status TEXT NOT NULL,
+        installment_number INTEGER,
+        invoice_number TEXT,
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+      );
+    `;
+
+    const createMonthlyLimitsTable = `
+      CREATE TABLE IF NOT EXISTS monthly_limits (
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        "limit" REAL NOT NULL,
+        PRIMARY KEY (month, year)
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -102,6 +124,8 @@ try {
     db.exec(createLogsTable);
     db.exec(createCashClosingsTable);
     db.exec(createCheckingAccountTransactionsTable);
+    db.exec(createBoletosTable);
+    db.exec(createMonthlyLimitsTable);
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

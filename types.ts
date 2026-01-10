@@ -132,4 +132,26 @@ export interface MedicationInfo {
   contraindications: string;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account';
+export enum BoletoStatus {
+  PENDENTE = 'Pendente',
+  PAGO = 'Pago',
+  VENCIDO = 'Vencido',
+}
+
+export interface Boleto {
+  id: string;
+  order_id: string;
+  due_date: string;
+  value: number;
+  status: BoletoStatus;
+  installment_number: number;
+  invoice_number?: string;
+}
+
+export interface MonthlyLimit {
+  month: number;
+  year: number;
+  limit: number;
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt';

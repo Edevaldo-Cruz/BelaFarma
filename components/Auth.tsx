@@ -54,7 +54,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest italic mt-4">API Local Ativa</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
           <div className="space-y-2">
             <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Chave de Segurança</label>
             <div className="relative">
@@ -65,6 +65,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Insira sua chave..."
                 autoFocus
+                autocomplete="new-password"
               />
               <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-600">
                 {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}

@@ -19,6 +19,8 @@ import {
   Receipt,
   History,
   Banknote,
+  Landmark,
+  TrendingUp,
 } from 'lucide-react';
 import { View, User, UserRole } from '../types';
 
@@ -52,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'safe', label: 'Cofre', icon: Lock },
       { id: 'financial', label: 'Financeiro', icon: Wallet },
       { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
+      { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Landmark },
+      { id: 'days-in-debt', label: 'Dias Comprometidos', icon: TrendingUp },
       { id: 'users', label: 'Usuários', icon: UsersIcon },
       { id: 'logs', label: 'Auditoria', icon: History }
     ] : []),

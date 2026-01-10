@@ -19,7 +19,14 @@ import {
   ChevronRight,
   RotateCcw
 } from 'lucide-react';
-import { Order, OrderStatus, User, UserRole } from '../types';
+import { 
+  Order, 
+  OrderStatus, 
+  User, 
+  UserRole,
+  Boleto,
+  BoletoStatus
+} from '../types';
 import { OrderForm } from './OrderForm';
 
 interface OrdersProps {
@@ -28,9 +35,10 @@ interface OrdersProps {
   onAdd: (order: Order) => void;
   onUpdate: (order: Order) => void;
   onDelete: (id: string) => void;
+  onUpdateBoletos: (orderId: string, boletos: Boleto[]) => void;
 }
 
-export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, onDelete }) => {
+export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, onDelete, onUpdateBoletos }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +49,9 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
   const [tempStatus, setTempStatus] = useState<OrderStatus | null>(null);
   const [invoiceInput, setInvoiceInput] = useState('');
   const [receiptDateInput, setReceiptDateInput] = useState(new Date().toISOString().split('T')[0]);
+
+  const [boletosForConfirmation, setBoletosForConfirmation] = useState<Boleto[]>([]);
+  const [isBoletoModalOpen, setIsBoletoModalOpen] = useState(false);
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -75,10 +86,39 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
     setReceiptDateInput(order.receiptDate || new Date().toISOString().split('T')[0]);
   };
 
+  const generateAndSaveBoletos = (order: Order) => {
+    if (!order.installments || order.installments.length === 0) {
+      onUpdateBoletos(order.id, []);
+      return;
+    }
+    const boletos: Boleto[] = order.installments.map((inst, index) => ({
+      id: `${order.id}-boleto-${index + 1}`,
+      order_id: order.id,
+      due_date: inst.dueDate,
+      value: inst.value,
+      status: BoletoStatus.PENDENTE,
+      installment_number: index + 1,
+      invoice_number: order.invoiceNumber || '',
+    }));
+    
+    setBoletosForConfirmation(boletos);
+    setIsBoletoModalOpen(true);
+  }
+
+  const handleConfirmBoletos = () => {
+    if (statusModalOrder) {
+      onUpdateBoletos(statusModalOrder.id, boletosForConfirmation);
+    }
+    setIsBoletoModalOpen(false);
+    setBoletosForConfirmation([]);
+    setStatusModalOrder(null);
+  };
+
   const handleSaveStatus = () => {
     if (!statusModalOrder || !tempStatus) return;
 
     const updatedData: Partial<Order> = { status: tempStatus };
+    let fullOrderData: Order;
 
     if (tempStatus === OrderStatus.ENTREGUE) {
       if (!invoiceInput) {
@@ -88,9 +128,33 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
       updatedData.invoiceNumber = invoiceInput;
       updatedData.receiptDate = receiptDateInput;
     }
+    
+    fullOrderData = { ...statusModalOrder, ...updatedData };
+    onUpdate(fullOrderData);
 
-    onUpdate({ ...statusModalOrder, ...updatedData });
-    setStatusModalOrder(null);
+    if (tempStatus === OrderStatus.ENTREGUE) {
+      generateAndSaveBoletos(fullOrderData);
+    } else {
+      setStatusModalOrder(null);
+    }
+  };
+
+  const handleBoletoChange = (index: number, field: 'due_date' | 'value', value: string | number) => {
+    const updatedBoletos = [...boletosForConfirmation];
+    const boleto = updatedBoletos[index];
+
+    if (field === 'due_date') {
+      // Ensure the value is a string and handle timezone correctly
+      boleto.due_date = value as string;
+    } else if (field === 'value') {
+      // Ensure the value is a number
+      const numericValue = typeof value === 'string' ? parseFloat(value) : value;
+      if (!isNaN(numericValue)) {
+        boleto.value = numericValue;
+      }
+    }
+    
+    setBoletosForConfirmation(updatedBoletos);
   };
 
   const getStatusBadge = (order: Order) => {
@@ -373,6 +437,50 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
           }} 
           onCancel={() => setIsModalOpen(false)} 
         />
+      )}
+
+      {isBoletoModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100">
+            <div className="px-8 py-6 border-b border-slate-100">
+              <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Confirmar Boletos Gerados</h2>
+              <p className="text-sm text-slate-500">Confira os valores e vencimentos antes de salvar.</p>
+            </div>
+            <div className="p-8 space-y-4 max-h-[60vh] overflow-y-auto">
+              {boletosForConfirmation.map((boleto, index) => (
+                <div key={index} className="grid grid-cols-3 gap-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div className="col-span-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Parcela {boleto.installment_number}</label>
+                     <input 
+                        type="date"
+                        className="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none font-bold text-sm"
+                        value={boleto.due_date}
+                        onChange={e => handleBoletoChange(index, 'due_date', e.target.value)}
+                      />
+                  </div>
+                  <div className="col-span-2">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor</label>
+                     <input 
+                        type="number"
+                        className="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none font-black text-lg text-slate-900"
+                        value={boleto.value}
+                        onChange={e => handleBoletoChange(index, 'value', e.target.value)}
+                      />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-8 py-6 bg-slate-50/50 border-t border-slate-100">
+               <button 
+                onClick={handleConfirmBoletos}
+                className="w-full flex items-center justify-center gap-2 py-4 bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all active:scale-[0.98] uppercase tracking-widest text-sm"
+              >
+                <CheckCircle2 className="w-5 h-5" />
+                Salvar Boletos e Concluir
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

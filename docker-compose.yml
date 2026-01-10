@@ -5,14 +5,19 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "3001:3001"
     volumes:
-      # Monta um volume para persistir o banco de dados SQLite
-      - ./backend/data:/usr/src/app/
+      # Monta o arquivo do banco de dados para garantir que os dados sejam persistidos
+      - ./backend/belafarma.db:/usr/src/app/belafarma.db
     restart: unless-stopped
+    # A porta 3001 não precisa ser exposta ao host, 
+    # pois o Nginx se comunicará com ele pela rede interna do Docker.
 
-# Nota: O Docker Compose não gerencia o frontend.
-# O frontend (Vite) deve ser construído separadamente ('npm run build')
-# e seus arquivos estáticos servidos por um servidor web como Nginx ou Caddy.
-# Para desenvolvimento, você continuaria a rodar 'npm run dev' localmente.
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "80:80" # Expõe a porta 80 do Nginx para o mundo exterior
+    depends_on:
+      - backend # Garante que o backend inicie antes do frontend
+    restart: unless-stopped

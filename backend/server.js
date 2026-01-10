@@ -37,6 +37,8 @@ app.get('/api/all-data', (req, res) => {
     }));
     
     const cashClosings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
+    const boletos = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
+    const monthlyLimits = db.prepare('SELECT * FROM monthly_limits').all();
 
     res.json({
       users: { documents: users },
@@ -44,12 +46,32 @@ app.get('/api/all-data', (req, res) => {
       shortages: { documents: shortages },
       logs: { documents: logs },
       cashClosings: { documents: cashClosings },
+      boletos: { documents: boletos },
+      monthlyLimits: { documents: monthlyLimits },
     });
   } catch (err) {
     console.error('Error fetching all data:', err);
     res.status(500).json({ error: 'Failed to fetch data from the database.' });
   }
 });
+
+// --- Monthly Limits CUD ---
+app.post('/api/monthly-limits', (req, res) => {
+  try {
+    const { month, year, limit } = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO monthly_limits (month, year, "limit")
+      VALUES (@month, @year, @limit)
+      ON CONFLICT(month, year) DO UPDATE SET "limit" = excluded."limit";
+    `);
+    stmt.run({ month, year, limit });
+    res.status(201).json({ message: 'Monthly limit saved successfully.' });
+  } catch (err) {
+    console.error('Error saving monthly limit:', err);
+    res.status(500).json({ error: 'Failed to save monthly limit.' });
+  }
+});
+
 
 // --- AUTH ---
 app.post('/api/login', (req, res) => {
@@ -224,6 +246,67 @@ app.delete('/api/users/:id', (req, res) => {
   } catch (err) {
     console.error('Error deleting user:', err);
     res.status(500).json({ error: 'Failed to delete user.' });
+  }
+});
+
+// --- Boletos CUD ---
+// GET all boletos
+app.get('/api/boletos', (req, res) => {
+  try {
+    const boletos = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
+    res.json(boletos);
+  } catch (err) {
+    console.error('Error fetching boletos:', err);
+    res.status(500).json({ error: 'Failed to fetch boletos.' });
+  }
+});
+
+// CREATE/UPDATE boletos for an order
+app.post('/api/orders/:order_id/boletos', (req, res) => {
+  const { order_id } = req.params;
+  const boletos = req.body; // Expects an array of boleto objects
+
+  const deleteStmt = db.prepare('DELETE FROM boletos WHERE order_id = ?');
+  const insertStmt = db.prepare(`
+    INSERT INTO boletos (id, order_id, due_date, value, status, installment_number, invoice_number)
+    VALUES (@id, @order_id, @due_date, @value, @status, @installment_number, @invoice_number)
+  `);
+
+  try {
+    db.transaction(() => {
+      // 1. Delete existing boletos for this order
+      deleteStmt.run(order_id);
+
+      // 2. Insert new boletos
+      for (const boleto of boletos) {
+        insertStmt.run({
+          ...boleto,
+          order_id: order_id, // Ensure order_id is set from the URL param
+        });
+      }
+    })();
+    res.status(201).json({ message: 'Boletos created/updated successfully.' });
+  } catch (err) {
+    console.error('Error creating/updating boletos:', err);
+    res.status(500).json({ error: 'Failed to create/update boletos.' });
+  }
+});
+
+// UPDATE boleto status
+app.put('/api/boletos/:id/status', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const stmt = db.prepare('UPDATE boletos SET status = ? WHERE id = ?');
+    const result = stmt.run(status, id);
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Boleto status updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Boleto not found.' });
+    }
+  } catch (err) {
+    console.error('Error updating boleto status:', err);
+    res.status(500).json({ error: 'Failed to update boleto status.' });
   }
 });
 

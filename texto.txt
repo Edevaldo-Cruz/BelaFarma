@@ -1,0 +1,30 @@
+(índice):64 cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
+(anônimo) @ (índice):64
+App.tsx:83 fetchData: Iniciando...
+App.tsx:86 fetchData: Resposta da API recebida. Response
+App.tsx:91 fetchData: Dados processados. Object
+App.tsx:104 fetchData: Finalizado. isLoading set para false.
+installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+overrideMethod @ installHook.js:1
+installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,       please check the style of container, or the props width(100%) and height(100%),       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the       height and width.
+overrideMethod @ installHook.js:1
+App.tsx:430 Uncaught ReferenceError: UserR is not defined
+    at App (App.tsx:430:56)
+    at Object.react_stack_bottom_frame (react-dom_client.js?v=b25adf7a:18509:20)
+    at renderWithHooks (react-dom_client.js?v=b25adf7a:5654:24)
+    at updateFunctionComponent (react-dom_client.js?v=b25adf7a:7475:21)
+    at beginWork (react-dom_client.js?v=b25adf7a:8525:20)
+    at runWithFiberInDEV (react-dom_client.js?v=b25adf7a:997:72)
+    at performUnitOfWork (react-dom_client.js?v=b25adf7a:12561:98)
+    at workLoopSync (react-dom_client.js?v=b25adf7a:12424:43)
+    at renderRootSync (react-dom_client.js?v=b25adf7a:12408:13)
+    at performWorkOnRoot (react-dom_client.js?v=b25adf7a:11827:37)
+installHook.js:1 An error occurred in the <App> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+overrideMethod @ installHook.js:1

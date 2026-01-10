@@ -13,6 +13,8 @@ import { Safe } from "./components/Safe";
 import { DailyRecords } from "./components/DailyRecords";
 import { Logs } from "./components/Logs";
 import { CheckingAccount } from "./components/CheckingAccount";
+import { ContasAPagar } from "./components/ContasAPagar";
+import { DaysInDebt } from "./components/DaysInDebt";
 import {
   Order,
   View,
@@ -21,6 +23,9 @@ import {
   OrderStatus,
   ProductShortage,
   SystemLog,
+  Boleto,
+  BoletoStatus,
+  MonthlyLimit,
 } from "./types";
 import { Loader2 } from "lucide-react";
 
@@ -33,6 +38,8 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [shortages, setShortages] = useState<ProductShortage[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
+  const [boletos, setBoletos] = useState<Boleto[]>([]);
+  const [monthlyLimits, setMonthlyLimits] = useState<MonthlyLimit[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -87,6 +94,8 @@ const App: React.FC = () => {
       setUsers(data.users.documents || []);
       setShortages(data.shortages.documents || []);
       setLogs(data.logs.documents || []);
+      setBoletos(data.boletos.documents || []);
+      setMonthlyLimits(data.monthlyLimits.documents || []);
     } catch (err) {
       console.error("fetchData: Erro ao buscar dados do backend:", err);
       // Aqui você poderia implementar uma lógica de fallback ou mostrar um erro para o usuário
@@ -169,6 +178,64 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to update order:", e);
       // TODO: Implement rollback logic
+    }
+  };
+
+  const updateBoletoStatus = async (boletoId: string, status: BoletoStatus) => {
+    const originalBoletos = [...boletos];
+    const updatedBoletos = boletos.map(b => 
+      b.id === boletoId ? { ...b, status } : b
+    );
+    setBoletos(updatedBoletos);
+    
+    createLog("Financeiro", "Pagou Boleto", `Boleto ID: ${boletoId}`);
+
+    try {
+       await fetch(`http://localhost:3001/api/boletos/${boletoId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+    } catch(e) {
+      console.error("Failed to update boleto status:", e);
+      setBoletos(originalBoletos); // Rollback on error
+    }
+  };
+
+  const handleUpdateBoletos = async (orderId: string, boletos: Boleto[]) => {
+    // Optimistic update of the UI is tricky here, because IDs might change.
+    // A simple refetch might be the most reliable approach.
+    try {
+      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/boletos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(boletos),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to update boletos on the server.');
+      }
+      // Refetch boletos to ensure UI is in sync with the database
+      fetchData(); 
+    } catch(e) {
+      console.error("Failed to update boletos:", e);
+      // Optional: show an error message to the user
+    }
+  };
+
+  const handleSaveLimit = async (limit: MonthlyLimit) => {
+    try {
+      const response = await fetch("http://localhost:3001/api/monthly-limits", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(limit),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save limit on the server.');
+      }
+      // Refetch all data to ensure consistency
+      fetchData(); 
+    } catch(e) {
+      console.error("Failed to save limit:", e);
     }
   };
 
@@ -318,6 +385,7 @@ const App: React.FC = () => {
                   onAdd={addOrder}
                   onUpdate={updateOrder}
                   onDelete={deleteOrder}
+                  onUpdateBoletos={handleUpdateBoletos}
                 />
               )}
               {currentView === "shortages" && (
@@ -365,7 +433,18 @@ const App: React.FC = () => {
               {currentView === "checking-account" && user.role === UserRole.ADM && (
                 <CheckingAccount user={user} />
               )}
-              {currentView === "settings" && <Settings user={user} />}
+              {currentView === "contas-a-pagar" && user.role === UserRole.ADM && (
+                <ContasAPagar 
+                  boletos={boletos} 
+                  orders={orders}
+                  onUpdateBoletoStatus={updateBoletoStatus} 
+                  monthlyLimits={monthlyLimits}
+                />
+              )}
+              {currentView === 'days-in-debt' && user.role === UserRole.ADM && (
+                <DaysInDebt boletos={boletos} orders={orders} />
+              )}
+              {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>
           )}
         </div>
@@ -376,5 +455,6 @@ const App: React.FC = () => {
     </div>
   );
 };
+
 
 export default App;

@@ -105,15 +105,33 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
   const generateInstallments = () => {
     if (isOperator) return;
     const baseDate = new Date(formData.orderDate);
+    // Ajuste para o fuso horário local
+    const timezoneOffset = baseDate.getTimezoneOffset() * 60000;
+    const localBaseDate = new Date(baseDate.getTime() + timezoneOffset);
+
     const valuePerInstallment = parseFloat((formData.totalValue / installmentCount).toFixed(2));
     const newInstallments: Installment[] = [];
+    
+    // Assegura que o daysArray tenha o tamanho correto
+    const currentDays = [...daysArray];
+    while(currentDays.length < installmentCount) {
+        const lastValue = currentDays.length > 0 ? currentDays[currentDays.length - 1] : 0;
+        currentDays.push(lastValue + 30);
+    }
+    if(currentDays.length > installmentCount) {
+      currentDays.splice(installmentCount);
+    }
+    setDaysArray(currentDays);
+
     for (let i = 0; i < installmentCount; i++) {
-      const dueDate = new Date(baseDate);
-      const daysToAdd = daysArray[i] || (i + 1) * 30;
-      dueDate.setDate(baseDate.getDate() + daysToAdd);
+      const dueDate = new Date(localBaseDate);
+      const daysToAdd = currentDays[i] || (i + 1) * 30; // Fallback para o caso de o array não estar populado
+      dueDate.setDate(localBaseDate.getDate() + daysToAdd);
+
       const finalValue = (i === installmentCount - 1)
         ? parseFloat((formData.totalValue - (valuePerInstallment * (installmentCount - 1))).toFixed(2))
         : valuePerInstallment;
+
       newInstallments.push({
         id: Math.random().toString(36).substr(2, 5),
         value: finalValue,
@@ -249,30 +267,44 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
 
               {installments.length > 0 && (
                 <div className="mt-6 space-y-4">
+                   <div className="grid grid-cols-4 gap-2 items-center text-[10px] font-black text-slate-400 uppercase ml-1">
+                      <div className="col-span-1">Parcela</div>
+                      <div className="col-span-1">Dias</div>
+                      <div className="col-span-2">Vencimento</div>
+                  </div>
                   {installments.map((inst, index) => (
-                    <div key={index} className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl">
-                      <span className="text-sm font-black text-slate-700 w-8">{index + 1}x</span>
-                      <div className="flex-1">
-                        <input
-                          type="text"
-                          value={formatCurrency(inst.value)}
-                          onChange={(e) => updateInstallment(index, 'value', parseCurrency(e.target.value))}
+                    <div key={index} className="grid grid-cols-4 gap-2 items-center">
+                       <div className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl col-span-1">
+                          <span className="text-sm font-black text-slate-700">{index + 1}x</span>
+                          <input
+                            type="text"
+                            value={formatCurrency(inst.value)}
+                            onChange={(e) => updateInstallment(index, 'value', parseCurrency(e.target.value))}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 outline-none"
+                          />
+                      </div>
+                      <div className="col-span-1">
+                         <input
+                          type="number"
+                          value={daysArray[index] || ''}
+                          onChange={(e) => handleDayChange(index, e.target.value)}
                           className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 outline-none"
                         />
                       </div>
-                      <div className="w-32">
+                       <div className="flex items-center gap-2 col-span-2">
                         <input
                           type="date"
+                          readOnly
                           value={inst.dueDate}
-                          onChange={(e) => updateInstallment(index, 'dueDate', e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 outline-none"
+                          className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-sm font-bold text-slate-500 outline-none cursor-not-allowed"
                         />
+                        <button type="button" onClick={() => removeInstallment(index)} className="p-2 text-slate-400 hover:text-red-700">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button type="button" onClick={() => removeInstallment(index)} className="p-2 text-slate-400 hover:text-red-700">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
                   ))}
+                   <button type="button" onClick={generateInstallments} className="w-full mt-2 px-6 py-2.5 bg-blue-500 text-white rounded-xl font-black text-[10px] uppercase">Aplicar Dias</button>
                 </div>
               )}
             </div>

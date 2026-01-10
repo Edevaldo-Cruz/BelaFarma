@@ -1,12 +1,17 @@
 
 import React from 'react';
 import { User as UserIcon, Bell, Database, PlusSquare, MapPin, Trash2, Download, Cloud } from 'lucide-react';
-import { User } from '../types';
+import { User, UserRole, MonthlyLimit } from '../types';
 import { isAtlasConfigured } from '../lib/mongodb';
+import { MonthlyLimits } from './MonthlyLimits';
 
-interface SettingsProps { user: User; }
+interface SettingsProps { 
+  user: User;
+  limits: MonthlyLimit[];
+  onSaveLimit: (limit: MonthlyLimit) => void;
+}
 
-export const Settings: React.FC<SettingsProps> = ({ user }) => {
+export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit }) => {
   const handleReset = () => {
     if (confirm('ATENÇÃO: Isso apagará TODOS os registros salvos localmente no navegador. Se o Atlas estiver ativo, os dados na nuvem permanecerão. Deseja continuar?')) {
       localStorage.removeItem('belafarma_orders_db');
@@ -41,6 +46,10 @@ export const Settings: React.FC<SettingsProps> = ({ user }) => {
         <h1 className="text-2xl font-bold text-slate-900">Configurações</h1>
         <p className="text-slate-500 font-medium">Bela Farma Sul • Painel de Controle</p>
       </header>
+
+      {user.role === UserRole.ADM && (
+        <MonthlyLimits limits={limits} onSaveLimit={onSaveLimit} />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
