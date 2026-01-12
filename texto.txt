@@ -1,30 +1,43 @@
-(índice):64 cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
-(anônimo) @ (índice):64
-App.tsx:83 fetchData: Iniciando...
-App.tsx:86 fetchData: Resposta da API recebida. Response
-App.tsx:91 fetchData: Dados processados. Object
-App.tsx:104 fetchData: Finalizado. isLoading set para false.
-installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,
-       please check the style of container, or the props width(100%) and height(100%),
-       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
-       height and width.
+index-BAkLgnCQ.js:712  POST http://localhost:3001/api/users net::ERR_CONNECTION_REFUSED
+Q @ index-BAkLgnCQ.js:712
+p @ index-BAkLgnCQ.js:458
+$w @ index-BAkLgnCQ.js:48
+(anônimo) @ index-BAkLgnCQ.js:48
+Zb @ index-BAkLgnCQ.js:48
+Xm @ index-BAkLgnCQ.js:48
+fv @ index-BAkLgnCQ.js:49
+VL @ index-BAkLgnCQ.js:49Entenda o erro
+installHook.js:1 Failed to add user: TypeError: Failed to fetch
+    at Q (index-BAkLgnCQ.js:712:45694)
+    at p (index-BAkLgnCQ.js:458:84677)
+    at $w (index-BAkLgnCQ.js:48:127851)
+    at index-BAkLgnCQ.js:48:133030
+    at Zb (index-BAkLgnCQ.js:48:15133)
+    at Xm (index-BAkLgnCQ.js:48:129087)
+    at fv (index-BAkLgnCQ.js:49:28714)
+    at VL (index-BAkLgnCQ.js:49:28536)
 overrideMethod @ installHook.js:1
-installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,       please check the style of container, or the props width(100%) and height(100%),       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the       height and width.
-overrideMethod @ installHook.js:1
-App.tsx:430 Uncaught ReferenceError: UserR is not defined
-    at App (App.tsx:430:56)
-    at Object.react_stack_bottom_frame (react-dom_client.js?v=b25adf7a:18509:20)
-    at renderWithHooks (react-dom_client.js?v=b25adf7a:5654:24)
-    at updateFunctionComponent (react-dom_client.js?v=b25adf7a:7475:21)
-    at beginWork (react-dom_client.js?v=b25adf7a:8525:20)
-    at runWithFiberInDEV (react-dom_client.js?v=b25adf7a:997:72)
-    at performUnitOfWork (react-dom_client.js?v=b25adf7a:12561:98)
-    at workLoopSync (react-dom_client.js?v=b25adf7a:12424:43)
-    at renderRootSync (react-dom_client.js?v=b25adf7a:12408:13)
-    at performWorkOnRoot (react-dom_client.js?v=b25adf7a:11827:37)
-installHook.js:1 An error occurred in the <App> component.
-
-Consider adding an error boundary to your tree to customize error handling behavior.
-Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
-
-overrideMethod @ installHook.js:1
+Q @ index-BAkLgnCQ.js:712
+await in Q
+p @ index-BAkLgnCQ.js:458
+$w @ index-BAkLgnCQ.js:48
+(anônimo) @ index-BAkLgnCQ.js:48
+Zb @ index-BAkLgnCQ.js:48
+Xm @ index-BAkLgnCQ.js:48
+fv @ index-BAkLgnCQ.js:49
+VL @ index-BAkLgnCQ.js:49Entenda o erro
+index-BAkLgnCQ.js:712 fetchData: Iniciando...
+index-BAkLgnCQ.js:712  GET http://localhost:3001/api/all-data net::ERR_CONNECTION_REFUSED
+j @ index-BAkLgnCQ.js:712
+Q @ index-BAkLgnCQ.js:712
+await in Q
+p @ index-BAkLgnCQ.js:458
+$w @ index-BAkLgnCQ.js:48
+(anônimo) @ index-BAkLgnCQ.js:48
+Zb @ index-BAkLgnCQ.js:48
+Xm @ index-BAkLgnCQ.js:48
+fv @ index-BAkLgnCQ.js:49
+VL @ index-BAkLgnCQ.js:49Entenda o erro
+installHook.js:1 fetchData: Erro ao buscar dados do backend: TypeError: Failed to fetch
+    at j (index-BAkLgnCQ.js:712:42215)
+    at Q (index-BAkLgnCQ.js:712:45989)
