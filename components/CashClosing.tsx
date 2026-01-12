@@ -77,7 +77,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/cash-closings');
+        const response = await fetch('/api/cash-closings');
         const data = await response.json();
         setHistory(data);
       } catch (error) {
@@ -220,7 +220,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
     };
 
     try {
-      const response = await fetch('http://localhost:3001/api/cash-closings', {
+      const response = await fetch('/api/cash-closings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRecord),

@@ -31,8 +31,8 @@ export const CheckingAccount: React.FC<CheckingAccountProps> = ({ user }) => {
       setIsLoading(true);
       try {
         const [transRes, balRes] = await Promise.all([
-          fetch('http://localhost:3001/api/checking-account/transactions'),
-          fetch('http://localhost:3001/api/checking-account/balance'),
+          fetch('/api/checking-account/transactions'),
+          fetch('/api/checking-account/balance'),
         ]);
         const transData = await transRes.json();
         const balData = await balRes.json();
