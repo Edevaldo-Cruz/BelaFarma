@@ -8,22 +8,20 @@ import { TaskCard } from './TaskCard';
 interface KanbanBoardProps {
   tasks: Task[];
   user: User;
-  onEditTask: (task: Task) => void;
-  onDeleteTask: (taskId: string) => void;
+  onViewTask: (task: Task) => void; // Changed
   onUpdateTaskStatus: (taskId: string, newStatus: Task['status']) => void;
 }
 
-// KanbanColumn Component
+// KanbanColumn Component (not used, but type updated for consistency)
 interface KanbanColumnProps {
   id: Task['status'];
   title: string;
   tasks: Task[];
   user: User;
-  onEditTask: (task: Task) => void;
-  onDeleteTask: (taskId: string) => void;
+  onViewTask: (task: Task) => void; // Changed
 }
 
-const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, user, onEditTask, onDeleteTask }) => {
+const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, user, onViewTask }) => { // Changed
   return (
     <div className="bg-slate-100 rounded-2xl p-4 flex flex-col gap-3 min-h-[200px]">
       <h3 className="text-sm font-black text-slate-600 uppercase mb-2">{title}</h3>
@@ -33,8 +31,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, user, onE
             key={task.id} 
             task={task} 
             user={user}
-            onEdit={onEditTask} 
-            onDelete={onDeleteTask} 
+            onView={onViewTask} // Changed
           />
         ))}
       </SortableContext>
@@ -46,11 +43,10 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, user, onE
 interface SortableTaskCardProps {
   task: Task;
   user: User;
-  onEdit: (task: Task) => void;
-  onDelete: (taskId: string) => void;
+  onView: (task: Task) => void; // Changed
 }
 
-const SortableTaskCard: React.FC<SortableTaskCardProps> = ({ task, user, onEdit, onDelete }) => {
+const SortableTaskCard: React.FC<SortableTaskCardProps> = ({ task, user, onView }) => { // Changed
   const {
     attributes,
     listeners,
@@ -66,13 +62,13 @@ const SortableTaskCard: React.FC<SortableTaskCardProps> = ({ task, user, onEdit,
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <TaskCard task={task} user={user} onEdit={onEdit} onDelete={onDelete} />
+      <TaskCard task={task} user={user} onView={onView} /> {/* Changed */}
     </div>
   );
 };
 
 
-export const KanbanBoard: React.FC<KanbanBoardProps> = ({ tasks, user, onEditTask, onDeleteTask, onUpdateTaskStatus }) => {
+export const KanbanBoard: React.FC<KanbanBoardProps> = ({ tasks, user, onViewTask, onUpdateTaskStatus }) => { // Changed
   const statuses: Task['status'][] = ['A Fazer', 'Em Progresso', 'Pausada', 'Cancelada', 'Concluída'];
 
   const sensors = useSensors(
@@ -131,8 +127,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ tasks, user, onEditTas
             title={status} 
             tasks={getTasksByStatus(status)} 
             user={user} 
-            onEditTask={onEditTask} 
-            onDeleteTask={onDeleteTask} 
+            onViewTask={onViewTask} // Changed
           />
         ))}
       </div>
@@ -146,11 +141,10 @@ interface DroppableColumnProps {
   title: string;
   tasks: Task[];
   user: User;
-  onEditTask: (task: Task) => void;
-  onDeleteTask: (taskId: string) => void;
+  onViewTask: (task: Task) => void; // Changed
 }
 
-const DroppableColumn: React.FC<DroppableColumnProps> = ({ id, title, tasks, user, onEditTask, onDeleteTask }) => {
+const DroppableColumn: React.FC<DroppableColumnProps> = ({ id, title, tasks, user, onViewTask }) => { // Changed
   const { setNodeRef } = useDroppable({ id });
   
   return (
@@ -162,8 +156,7 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({ id, title, tasks, use
             key={task.id} 
             task={task} 
             user={user}
-            onEdit={onEditTask} 
-            onDelete={onDeleteTask} 
+            onView={onViewTask} // Changed
           />
         ))}
       </SortableContext>

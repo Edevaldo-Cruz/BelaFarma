@@ -489,7 +489,10 @@ app.post('/api/crediario', (req, res) => {
 // --- Tasks CUD ---
 // CREATE Task
 app.post('/api/tasks', (req, res) => {
-  const { id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color } = req.body;
+  const {
+    id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color,
+    recurrence, originalDueDate, annotations, needsAdminAttention, adminAttentionMessage
+  } = req.body;
 
   // Basic validation
   if (!id || !title || !assignedUser || !creator || !priority || !status || !dueDate || !creationDate || !color) {
@@ -498,10 +501,34 @@ app.post('/api/tasks', (req, res) => {
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO tasks (id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color, isArchived, completionDate)
-      VALUES (@id, @title, @description, @assignedUser, @creator, @priority, @status, @dueDate, @creationDate, @color, 0, NULL)
+      INSERT INTO tasks (
+        id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color, 
+        isArchived, completionDate, 
+        recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceDayOfMonth, recurrenceMonthOfYear, recurrenceEndDate, 
+        recurrenceId, originalDueDate, annotations, needsAdminAttention, adminAttentionMessage
+      )
+      VALUES (
+        @id, @title, @description, @assignedUser, @creator, @priority, @status, @dueDate, @creationDate, @color, 
+        0, NULL,
+        @recurrenceType, @recurrenceInterval, @recurrenceDaysOfWeek, @recurrenceDayOfMonth, @recurrenceMonthOfYear, @recurrenceEndDate, 
+        @recurrenceId, @originalDueDate, @annotations, @needsAdminAttention, @adminAttentionMessage
+      )
     `);
-    const result = stmt.run({ id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color });
+
+    const result = stmt.run({
+      id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color,
+      recurrenceType: recurrence?.type || 'none',
+      recurrenceInterval: recurrence?.interval || 0,
+      recurrenceDaysOfWeek: recurrence?.daysOfWeek ? JSON.stringify(recurrence.daysOfWeek) : '[]',
+      recurrenceDayOfMonth: recurrence?.dayOfMonth || 0,
+      recurrenceMonthOfYear: recurrence?.monthOfYear || 0,
+      recurrenceEndDate: recurrence?.endDate || null,
+      recurrenceId: (recurrence?.type && recurrence.type !== 'none') ? id : null, // If it's a recurring template, its own ID is its recurrenceId
+      originalDueDate: originalDueDate || null,
+      annotations: annotations ? JSON.stringify(annotations) : '[]',
+      needsAdminAttention: needsAdminAttention ? 1 : 0,
+      adminAttentionMessage: adminAttentionMessage || null,
+    });
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
     console.error('Error creating task:', err);
@@ -511,23 +538,46 @@ app.post('/api/tasks', (req, res) => {
 
 // GET all tasks (with RBAC)
 app.get('/api/tasks', (req, res) => {
-  const { userId, userRole } = req.query; // Assuming user info is passed in query for now
+  const { userId, userRole, includeArchived, includeRecurringTemplates } = req.query;
 
   if (!userId || !userRole) {
     return res.status(401).json({ error: 'Authentication required for task access.' });
   }
 
-  let query = 'SELECT * FROM tasks';
+  let query = 'SELECT * FROM tasks WHERE 1=1'; // Start with a always-true condition
   let params = [];
 
   if (userRole !== 'Administrador') { // Assuming 'Administrador' is the admin role
-    query += ' WHERE assignedUser = ? OR assignedUser = "all_users" OR creator = ?';
+    query += ' AND (assignedUser = ? OR assignedUser = "all_users" OR creator = ?)';
     params.push(userId, userId);
   }
+
+  // Filter out archived tasks by default
+  if (includeArchived !== 'true') {
+    query += ' AND isArchived = 0';
+  }
+
+  // Filter out recurring task templates by default
+  if (includeRecurringTemplates !== 'true') {
+    query += " AND NOT (recurrenceType != 'none' AND recurrenceId = id)"; // Only show instances, not the template itself
+  }
+  
   query += ' ORDER BY creationDate DESC';
 
   try {
-    const tasks = db.prepare(query).all(params);
+    const tasks = db.prepare(query).all(params).map(task => ({
+      ...task,
+      recurrence: task.recurrenceType !== 'none' ? {
+        type: task.recurrenceType,
+        interval: task.recurrenceInterval,
+        daysOfWeek: task.recurrenceDaysOfWeek ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
+        dayOfMonth: task.recurrenceDayOfMonth,
+        monthOfYear: task.recurrenceMonthOfYear,
+        endDate: task.recurrenceEndDate,
+      } : undefined,
+      annotations: task.annotations ? JSON.parse(task.annotations) : [],
+      needsAdminAttention: !!task.needsAdminAttention, // Convert 0/1 to boolean
+    }));
     res.json(tasks);
   } catch (err) {
     console.error('Error fetching tasks:', err);
@@ -559,7 +609,22 @@ app.get('/api/tasks/:id', (req, res) => {
       }
     }
     
-    res.json(task);
+    // Parse JSON fields
+    const parsedTask = {
+      ...task,
+      recurrence: task.recurrenceType !== 'none' ? {
+        type: task.recurrenceType,
+        interval: task.recurrenceInterval,
+        daysOfWeek: task.recurrenceDaysOfWeek ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
+        dayOfMonth: task.recurrenceDayOfMonth,
+        monthOfYear: task.recurrenceMonthOfYear,
+        endDate: task.recurrenceEndDate,
+      } : undefined,
+      annotations: task.annotations ? JSON.parse(task.annotations) : [],
+      needsAdminAttention: !!task.needsAdminAttention,
+    };
+    
+    res.json(parsedTask);
   } catch (err) {
     console.error('Error fetching task:', err);
     res.status(500).json({ error: 'Failed to fetch task.' });
@@ -570,7 +635,10 @@ app.get('/api/tasks/:id', (req, res) => {
 app.put('/api/tasks/:id', (req, res) => {
   const taskId = req.params.id;
   const { userId, userRole } = req.query; // Assuming user info is passed in query for now
-  const { title, description, assignedUser, priority, status, dueDate, color, isArchived } = req.body;
+  const {
+    title, description, assignedUser, priority, status, dueDate, color, isArchived,
+    recurrence, originalDueDate, annotations, needsAdminAttention, adminAttentionMessage
+  } = req.body;
 
   if (!userId || !userRole) {
     return res.status(401).json({ error: 'Authentication required for task update.' });
@@ -610,7 +678,18 @@ app.put('/api/tasks/:id', (req, res) => {
           dueDate = @dueDate,
           color = @color,
           isArchived = @isArchived,
-          completionDate = @completionDate
+          completionDate = @completionDate,
+          recurrenceType = @recurrenceType,
+          recurrenceInterval = @recurrenceInterval,
+          recurrenceDaysOfWeek = @recurrenceDaysOfWeek,
+          recurrenceDayOfMonth = @recurrenceDayOfMonth,
+          recurrenceMonthOfYear = @recurrenceMonthOfYear,
+          recurrenceEndDate = @recurrenceEndDate,
+          recurrenceId = @recurrenceId,
+          originalDueDate = @originalDueDate,
+          annotations = @annotations,
+          needsAdminAttention = @needsAdminAttention,
+          adminAttentionMessage = @adminAttentionMessage
       WHERE id = @id
     `);
 
@@ -625,6 +704,17 @@ app.put('/api/tasks/:id', (req, res) => {
       color: color !== undefined ? color : existingTask.color,
       isArchived: isArchived !== undefined ? isArchived : existingTask.isArchived,
       completionDate: completionDate,
+      recurrenceType: recurrence?.type || existingTask.recurrenceType,
+      recurrenceInterval: recurrence?.interval || existingTask.recurrenceInterval,
+      recurrenceDaysOfWeek: recurrence?.daysOfWeek ? JSON.stringify(recurrence.daysOfWeek) : (existingTask.recurrenceDaysOfWeek || '[]'),
+      recurrenceDayOfMonth: recurrence?.dayOfMonth || existingTask.recurrenceDayOfMonth,
+      recurrenceMonthOfYear: recurrence?.monthOfYear || existingTask.recurrenceMonthOfYear,
+      recurrenceEndDate: recurrence?.endDate || existingTask.recurrenceEndDate,
+      recurrenceId: (recurrence?.type && recurrence.type !== 'none') ? (existingTask.recurrenceId || taskId) : null, // If it becomes recurring or was, ensure recurrenceId
+      originalDueDate: originalDueDate || existingTask.originalDueDate,
+      annotations: annotations ? JSON.stringify(annotations) : (existingTask.annotations || '[]'),
+      needsAdminAttention: needsAdminAttention !== undefined ? (needsAdminAttention ? 1 : 0) : existingTask.needsAdminAttention,
+      adminAttentionMessage: adminAttentionMessage !== undefined ? adminAttentionMessage : existingTask.adminAttentionMessage,
     });
 
     if (result.changes > 0) {
@@ -667,64 +757,86 @@ app.post('/api/tasks/auto-archive', (req, res) => {
     res.status(500).json({ error: 'Failed to auto-archive tasks.' });
   }
 });
-app.delete('/api/tasks/:id', (req, res) => {
-  const taskId = req.params.id;
-  const { userId, userRole } = req.query; // Assuming user info is passed in query for now
 
-  if (!userId || !userRole) {
-    return res.status(401).json({ error: 'Authentication required for task deletion.' });
-  }
 
-  // RBAC Check - Only admin can delete tasks
-  if (userRole !== 'Administrador') {
-    return res.status(403).json({ error: 'Access denied. Only administrators can delete tasks.' });
+// ADD Annotation to Task
+app.post('/api/tasks/:taskId/annotation', (req, res) => {
+  const taskId = req.params.taskId;
+  const { annotationText, userName, userId } = req.body; // Assuming userId is for logged-in user for RBAC
+
+  if (!annotationText || !userName || !userId) {
+    return res.status(400).json({ error: 'Annotation text, user name, and user ID are required.' });
   }
 
   try {
-    const stmt = db.prepare('DELETE FROM tasks WHERE id = ?');
-    const result = stmt.run(taskId);
+    const existingTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+
+    if (!existingTask) {
+      return res.status(404).json({ error: 'Task not found.' });
+    }
+
+    // RBAC: Only assignee or admin can add annotations
+    if (existingTask.assignedUser !== userId && existingTask.assignedUser !== 'all_users' && req.query.userRole !== 'Administrador') {
+      return res.status(403).json({ error: 'Access denied to add annotation to this task.' });
+    }
+
+    let annotations = existingTask.annotations ? JSON.parse(existingTask.annotations) : [];
+    annotations.push({
+      timestamp: new Date().toISOString(),
+      text: annotationText,
+      userName: userName,
+    });
+
+    const stmt = db.prepare('UPDATE tasks SET annotations = ? WHERE id = ?');
+    const result = stmt.run(JSON.stringify(annotations), taskId);
 
     if (result.changes > 0) {
-      res.status(200).json({ message: 'Task deleted successfully.' });
+      res.status(200).json({ message: 'Annotation added successfully.' });
     } else {
-      res.status(404).json({ error: 'Task not found.' });
+      res.status(404).json({ error: 'Task not found or no changes made.' });
     }
   } catch (err) {
-    console.error('Error deleting task:', err);
-    res.status(500).json({ error: 'Failed to delete task.' });
+    console.error('Error adding annotation:', err);
+    res.status(500).json({ error: 'Failed to add annotation.' });
   }
 });
 
-// GET Dashboard Metrics (Admin only)
-app.get('/api/tasks/dashboard-metrics', (req, res) => {
-  const { userRole } = req.query; // Assuming user info is passed in query for now
+// NOTIFY Admin about Task
+app.put('/api/tasks/:taskId/admin-attention', (req, res) => {
+  const taskId = req.params.taskId;
+  const { message, userId } = req.body; // userId for RBAC, message for adminAttentionMessage
 
-  if (userRole !== 'Administrador') {
-    return res.status(403).json({ error: 'Access denied. Only administrators can view task dashboard metrics.' });
+  if (!message || !userId) {
+    return res.status(400).json({ error: 'Notification message and user ID are required.' });
   }
 
   try {
-    const totalTasks = db.prepare('SELECT COUNT(*) AS count FROM tasks').get().count;
-    const completedTasks = db.prepare('SELECT COUNT(*) AS count FROM tasks WHERE status = "Concluída"').get().count;
-    const inProgressTasks = db.prepare('SELECT COUNT(*) AS count FROM tasks WHERE status = "Em Progresso"').get().count;
-    const overdueTasks = db.prepare('SELECT COUNT(*) AS count FROM tasks WHERE dueDate < ? AND status != "Concluída" AND status != "Cancelada"').get(new Date().toISOString()).count;
+    const existingTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
 
-    const tasksByPriority = db.prepare('SELECT priority, COUNT(*) AS count FROM tasks GROUP BY priority').all();
-    const tasksByStatus = db.prepare('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status').all();
+    if (!existingTask) {
+      return res.status(404).json({ error: 'Task not found.' });
+    }
 
-    res.json({
-      totalTasks,
-      completedTasks,
-      inProgressTasks,
-      overdueTasks,
-      tasksByPriority,
-      tasksByStatus,
-    });
+    // RBAC: Only assignee or creator can notify admin
+    if (existingTask.assignedUser !== userId && existingTask.creator !== userId && req.query.userRole !== 'Administrador') {
+      return res.status(403).json({ error: 'Access denied to notify admin for this task.' });
+    }
+
+    const stmt = db.prepare('UPDATE tasks SET needsAdminAttention = ?, adminAttentionMessage = ? WHERE id = ?');
+    const result = stmt.run(1, message, taskId); // 1 for true
+
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Admin notified successfully.' });
+    } else {
+      res.status(404).json({ error: 'Task not found or no changes made.' });
+    }
   } catch (err) {
-    console.error('Error fetching task dashboard metrics:', err);
-    res.status(500).json({ error: 'Failed to fetch task dashboard metrics.' });
+    console.error('Error notifying admin:', err);
+    res.status(500).json({ error: 'Failed to notify admin.' });
   }
 });
+
+
 
 // --- Checking Account CUD ---
 // GET all checking account transactions

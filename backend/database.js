@@ -98,7 +98,18 @@ try {
         creationDate TEXT NOT NULL,
         color TEXT NOT NULL,
         isArchived INTEGER DEFAULT 0,
-        completionDate TEXT
+        completionDate TEXT,
+        recurrenceType TEXT DEFAULT 'none',
+        recurrenceInterval INTEGER DEFAULT 0,
+        recurrenceDaysOfWeek TEXT DEFAULT '[]', -- JSON string "[0,1,2]"
+        recurrenceDayOfMonth INTEGER DEFAULT 0,
+        recurrenceMonthOfYear INTEGER DEFAULT 0,
+        recurrenceEndDate TEXT,
+        recurrenceId TEXT,
+        originalDueDate TEXT,
+        annotations TEXT DEFAULT '[]', -- JSON string of array of objects
+        needsAdminAttention INTEGER DEFAULT 0, -- 0 for false, 1 for true
+        adminAttentionMessage TEXT
       );
     `;
 
@@ -176,6 +187,21 @@ try {
       );
     `;
     db.exec(createSafeEntriesTable);
+
+    // ALTER TABLE statements for new task columns (if they don't exist)
+    // Recurrence
+    try { db.prepare('SELECT recurrenceType FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceType TEXT DEFAULT 'none'"); }
+    try { db.prepare('SELECT recurrenceInterval FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceInterval INTEGER DEFAULT 0"); }
+    try { db.prepare('SELECT recurrenceDaysOfWeek FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceDaysOfWeek TEXT DEFAULT '[]'"); }
+    try { db.prepare('SELECT recurrenceDayOfMonth FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceDayOfMonth INTEGER DEFAULT 0"); }
+    try { db.prepare('SELECT recurrenceMonthOfYear FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceMonthOfYear INTEGER DEFAULT 0"); }
+    try { db.prepare('SELECT recurrenceEndDate FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceEndDate TEXT"); }
+    try { db.prepare('SELECT recurrenceId FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN recurrenceId TEXT"); }
+    try { db.prepare('SELECT originalDueDate FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN originalDueDate TEXT"); }
+    // Annotations & Admin Attention
+    try { db.prepare('SELECT annotations FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN annotations TEXT DEFAULT '[]'"); }
+    try { db.prepare('SELECT needsAdminAttention FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN needsAdminAttention INTEGER DEFAULT 0"); }
+    try { db.prepare('SELECT adminAttentionMessage FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN adminAttentionMessage TEXT"); }
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

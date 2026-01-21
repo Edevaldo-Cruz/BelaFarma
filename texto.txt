@@ -1,12 +1,18 @@
-ed@laisaTech:~/projects/BelaFarma $ sudo ufw disable
-Firewall stopped and disabled on system startup
-ed@laisaTech:~/projects/BelaFarma $ docker-compose ps
-WARN[0000] /home/ed/projects/BelaFarma/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
-NAME                   IMAGE                COMMAND                  SERVICE    CREATED          STATUS          PORTS
-belafarma-backend-1    belafarma-backend    "docker-entrypoint.s…"   backend    16 minutes ago   Up 16 minutes   3001/tcp
-belafarma-frontend-1   belafarma-frontend   "/docker-entrypoint.…"   frontend   16 minutes ago   Up 9 minutes
-ed@laisaTech:~/projects/BelaFarma $ docker-compose up -d
-WARN[0000] /home/ed/projects/BelaFarma/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
-[+] Running 2/0
- ✔ Container belafarma-backend-1   Running                                                                                           0.0s 
- ✔ Container belafarma-frontend-1  Running
+[nodemon] watching extensions: js,mjs,cjs,json
+[nodemon] starting `node server.js`
+F:\Documentos\Desenvolvimento\BelaFarma\backend\server.js:762
+const app = express();
+      ^
+
+SyntaxError: Identifier 'app' has already been declared
+    at internalCompileFunction (node:internal/vm:77:18)
+    at wrapSafe (node:internal/modules/cjs/loader:1288:20)
+    at Module._compile (node:internal/modules/cjs/loader:1340:27)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:135:12)
+    at node:internal/main/run_main_module:28:49
+
+Node.js v20.10.0
+[nodemon] app crashed - waiting for file changes before starting...

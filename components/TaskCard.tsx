@@ -1,25 +1,14 @@
 import React from 'react';
 import { Task, User } from '../types';
-import { Pencil, Trash2, Flag, AlertCircle, Clock } from 'lucide-react';
+import { Flag, AlertCircle, Clock } from 'lucide-react';
 
 interface TaskCardProps {
   task: Task;
   user: User;
-  onEdit: (task: Task) => void;
-  onDelete: (taskId: string) => void;
+  onView: (task: Task) => void; // Changed
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, user, onEdit, onDelete }) => {
-  const isAdmin = user.role === 'Administrador';
-  // Use user.id from the logged-in user, not the passed 'user' which might be master-admin
-  const isAssignedToMe = task.assignedUser === user.id; 
-  const isAssignedToAll = task.assignedUser === 'all_users';
-
-  // Only Admin can edit/delete tasks not assigned to them or all users.
-  // Operators can edit/delete tasks assigned to them or all users.
-  const canEdit = isAdmin || isAssignedToMe || isAssignedToAll;
-  const canDelete = isAdmin; // Only admin can delete
-
+export const TaskCard: React.FC<TaskCardProps> = ({ task, user, onView }) => { // Changed
   const dueDate = new Date(task.dueDate);
   const now = new Date();
   const timeDiff = dueDate.getTime() - now.getTime();
@@ -43,7 +32,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, user, onEdit, onDelete
   };
 
   return (
-    <div className={`rounded-xl p-4 shadow-sm ${colorMap[task.color] || 'bg-white border-slate-200'} ${isOverdue ? 'border-red-500 ring-2 ring-red-500' : ''} ${isNearDeadline && !isOverdue ? 'border-orange-500 ring-2 ring-orange-500' : ''}`}>
+    <button
+      onClick={() => onView(task)}
+      className={`rounded-xl p-4 shadow-sm w-full text-left cursor-pointer transition-all duration-200 hover:shadow-md
+        ${colorMap[task.color] || 'bg-white border-slate-200'} 
+        ${isOverdue ? 'border-red-500 ring-2 ring-red-500' : ''} 
+        ${isNearDeadline && !isOverdue ? 'border-orange-500 ring-2 ring-orange-500' : ''}`}
+    >
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-base font-bold text-slate-800">{task.title}</h4>
         <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full text-white ${priorityBadgeColors[task.priority] || 'bg-gray-500'}`}>
@@ -71,21 +66,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, user, onEdit, onDelete
           )}
         </div>
       )}
-
-      {(canEdit || canDelete) && (
-        <div className="flex justify-end items-center gap-2 mt-3 pt-3 border-t border-slate-200">
-          {canEdit && (
-            <button onClick={() => onEdit(task)} className="text-slate-400 hover:text-blue-600 p-1 rounded-md">
-              <Pencil size={16} />
-            </button>
-          )}
-          {canDelete && (
-            <button onClick={() => onDelete(task.id)} className="text-slate-400 hover:text-red-600 p-1 rounded-md">
-              <Trash2 size={16} />
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    </button>
   );
 };

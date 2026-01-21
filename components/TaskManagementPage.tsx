@@ -3,7 +3,7 @@ import { Plus, LayoutDashboard } from 'lucide-react';
 import { User, Task } from '../types';
 import { KanbanBoard } from './KanbanBoard';
 import { TaskForm } from './TaskForm';
-import { AdminTaskDashboard } from './AdminTaskDashboard';
+import { TaskDetailsModal } from './TaskDetailsModal'; // Import TaskDetailsModal
 
 interface TaskManagementPageProps {
   user: User;
@@ -15,7 +15,8 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [activeTab, setActiveTab] = useState<'kanban' | 'admin-dashboard'>(user.role === 'Administrador' ? 'admin-dashboard' : 'kanban');
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false); // State for details modal
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null); // State for selected task in details modal
   const isAdmin = user.role === 'Administrador';
 
   const fetchTasks = useCallback(async () => {
@@ -124,6 +125,25 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
     }
   };
 
+  const handleViewTask = (task: Task) => {
+    setSelectedTask(task);
+    setIsDetailsModalOpen(true);
+  };
+
+  const handleAddAnnotation = async (taskId: string, annotationText: string) => {
+    // TODO: Implement API call to add annotation to the task
+    console.log(`Adding annotation to task ${taskId}: ${annotationText}`);
+    // For now, just refresh tasks to simulate an update
+    // You'll need to update the Task type and backend to persist annotations
+    fetchTasks(); 
+  };
+
+  const handleNotifyAdmin = async (taskId: string, message: string) => {
+    // TODO: Implement API call to notify admin about the task
+    console.log(`Notifying admin about task ${taskId}: ${message}`);
+    // You'll need a new backend endpoint for notifications or update task with a flag
+    fetchTasks();
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
@@ -133,35 +153,20 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
           <p className="text-slate-500 font-bold italic text-sm">Organize e acompanhe o progresso das suas tarefas.</p>
         </div>
         <div className="flex items-center gap-4">
-          {isAdmin && (
-            <div className="flex bg-white p-1 rounded-2xl border-2 border-slate-100 shadow-sm">
-              <button 
-                onClick={() => setActiveTab('kanban')} 
-                className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'kanban' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400'}`}>Kanban</button>
-              <button 
-                onClick={() => setActiveTab('admin-dashboard')} 
-                className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'admin-dashboard' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400'}`}>Dashboard Admin</button>
-            </div>
-          )}
           <button onClick={handleAddTask} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase shadow-xl flex items-center gap-2">
             <Plus className="w-5 h-5" /> Nova Tarefa
           </button>
         </div>
       </header>
 
-      {activeTab === 'kanban' && (
+      
         <KanbanBoard 
           tasks={tasks} 
           user={user} 
-          onEditTask={handleEditTask} 
-          onDeleteTask={handleDeleteTask} 
+          onViewTask={handleViewTask} // New prop
           onUpdateTaskStatus={handleUpdateTaskStatus} 
         />
-      )}
-
-      {activeTab === 'admin-dashboard' && isAdmin && (
-        <AdminTaskDashboard user={user} users={users} />
-      )}
+      
 
       {isFormOpen && (
         <TaskForm
@@ -170,6 +175,25 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
           task={editingTask}
           onSave={handleSaveTask}
           onClose={() => setIsFormOpen(false)}
+        />
+      )}
+
+      {isDetailsModalOpen && selectedTask && (
+        <TaskDetailsModal
+          task={selectedTask}
+          user={user}
+          users={users}
+          onClose={() => setIsDetailsModalOpen(false)}
+          onEdit={(taskToEdit) => {
+            setIsDetailsModalOpen(false); // Close details modal
+            handleEditTask(taskToEdit);    // Open edit form
+          }}
+          onDelete={(taskId) => {
+            setIsDetailsModalOpen(false); // Close details modal
+            handleDeleteTask(taskId);     // Perform delete
+          }}
+          onAddAnnotation={handleAddAnnotation}
+          onNotifyAdmin={handleNotifyAdmin}
         />
       )}
     </div>

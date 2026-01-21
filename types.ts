@@ -193,6 +193,29 @@ export interface Task {
   dueDate: string; // ISO string
   creationDate: string; // ISO string
   color: string; // e.g., 'red', 'orange', 'blue', 'gray'
+  
+  // Recurrence fields
+  recurrence?: { // Optional recurrence object
+    type: 'none' | 'daily' | 'weekly' | 'monthly' | 'annually';
+    interval?: number; // e.g., every 2 weeks, every 3 months
+    daysOfWeek?: number[]; // For weekly recurrence: 0=Sunday, 1=Monday...
+    dayOfMonth?: number; // For monthly recurrence
+    monthOfYear?: number; // For annually recurrence
+    endDate?: string; // ISO string, when recurrence stops
+  };
+  recurrenceId?: string; // To group tasks generated from the same recurrence rule
+  originalDueDate?: string; // Store original due date for recurring tasks if it shifts
+
+  // Annotations
+  annotations?: {
+    timestamp: string;
+    text: string;
+    userName: string;
+  }[];
+
+  // Admin notification fields
+  needsAdminAttention?: boolean; // Flag if user reported a problem
+  adminAttentionMessage?: string; // Message from user if reported a problem
 }
 
 export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management';
