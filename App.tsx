@@ -15,6 +15,8 @@ import { Logs } from "./components/Logs";
 import { CheckingAccount } from "./components/CheckingAccount";
 import { ContasAPagar } from "./components/ContasAPagar";
 import { DaysInDebt } from "./components/DaysInDebt";
+import { CrediarioReport } from "./components/CrediarioReport";
+import { TaskManagementPage } from "./components/TaskManagementPage";
 import {
   Order,
   View,
@@ -40,6 +42,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [boletos, setBoletos] = useState<Boleto[]>([]);
   const [monthlyLimits, setMonthlyLimits] = useState<MonthlyLimit[]>([]);
+  const [cashClosings, setCashClosings] = useState<CashClosingRecord[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -96,6 +99,7 @@ const App: React.FC = () => {
       setLogs(data.logs.documents || []);
       setBoletos(data.boletos.documents || []);
       setMonthlyLimits(data.monthlyLimits.documents || []);
+      setCashClosings(data.cashClosings.documents || []);
     } catch (err) {
       console.error("fetchData: Erro ao buscar dados do backend:", err);
       // Aqui você poderia implementar uma lógica de fallback ou mostrar um erro para o usuário
@@ -146,10 +150,22 @@ const App: React.FC = () => {
     );
 
     try {
+      const formData = new FormData();
+      Object.keys(order).forEach(key => {
+        if (key === 'boletoFile') {
+          if (order.boletoFile) {
+            formData.append('boletoFile', order.boletoFile);
+          }
+        } else if (key === 'installments') {
+          formData.append('installments', JSON.stringify(order.installments || []));
+        } else {
+          formData.append(key, order[key]);
+        }
+      });
+
       await fetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(order),
+        body: formData,
       });
     } catch (e) {
       console.error("Failed to add order:", e);
@@ -170,10 +186,22 @@ const App: React.FC = () => {
     );
 
     try {
+      const formData = new FormData();
+      Object.keys(updatedOrder).forEach(key => {
+        if (key === 'boletoFile') {
+          if (updatedOrder.boletoFile) {
+            formData.append('boletoFile', updatedOrder.boletoFile);
+          }
+        } else if (key === 'installments') {
+          formData.append('installments', JSON.stringify(updatedOrder.installments || []));
+        } else {
+          formData.append(key, updatedOrder[key]);
+        }
+      });
+
       await fetch(`/api/orders/${updatedOrder.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedOrder),
+        body: formData,
       });
     } catch (e) {
       console.error("Failed to update order:", e);
@@ -344,6 +372,46 @@ const App: React.FC = () => {
     }
   };
 
+  const addBoleto = async (boleto: Partial<Boleto> & { boletoFile?: File }) => {
+    const newBoleto = {
+      ...boleto,
+      id: Math.random().toString(36).substr(2, 9),
+      status: BoletoStatus.PENDENTE,
+    };
+
+    const updatedBoletos = [newBoleto, ...boletos];
+    setBoletos(updatedBoletos as Boleto[]);
+
+    createLog(
+      "Financeiro",
+      "Adicionou Boleto",
+      `ID: ${newBoleto.id}, Valor: R$ ${newBoleto.value}`
+    );
+
+    try {
+      const formData = new FormData();
+      Object.keys(newBoleto).forEach(key => {
+        if (key === 'boletoFile') {
+          if (newBoleto.boletoFile) {
+            formData.append('boletoFile', newBoleto.boletoFile);
+          }
+        } else {
+          formData.append(key, newBoleto[key]);
+        }
+      });
+
+      await fetch("/api/boletos", {
+        method: "POST",
+        body: formData,
+      });
+
+      fetchData();
+    } catch (e) {
+      console.error("Failed to add boleto:", e);
+      // TODO: Implement rollback logic
+    }
+  };
+
   if (!user)
     return (
       <Auth
@@ -376,7 +444,7 @@ const App: React.FC = () => {
           ) : (
             <>
               {currentView === "dashboard" && (
-                <Dashboard user={user} orders={orders} shortages={shortages} />
+                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} />
               )}
               {currentView === "orders" && (
                 <Orders
@@ -435,14 +503,22 @@ const App: React.FC = () => {
               )}
               {currentView === "contas-a-pagar" && user.role === UserRole.ADM && (
                 <ContasAPagar 
+                  user={user}
                   boletos={boletos} 
                   orders={orders}
                   onUpdateBoletoStatus={updateBoletoStatus} 
+                  onAddBoleto={addBoleto}
                   monthlyLimits={monthlyLimits}
                 />
               )}
               {currentView === 'days-in-debt' && user.role === UserRole.ADM && (
                 <DaysInDebt boletos={boletos} orders={orders} />
+              )}
+              {currentView === 'crediario-report' && user.role === UserRole.ADM && (
+                <CrediarioReport />
+              )}
+              {currentView === 'task-management' && (
+                <TaskManagementPage user={user} users={users} onLog={(act, det) => createLog("Tarefas", act, det)} />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

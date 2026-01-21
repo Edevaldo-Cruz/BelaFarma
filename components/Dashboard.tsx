@@ -22,15 +22,17 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
+import SalesChart from './SalesChart';
 import { Order, OrderStatus, User, UserRole, ProductShortage } from '../types';
 
 interface DashboardProps {
   user: User;
   orders: Order[];
   shortages: ProductShortage[];
+  cashClosings: CashClosingRecord[];
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings }) => {
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -75,35 +77,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages })
   const topDistributor = Object.keys(mainDistributorMap).length > 0 
     ? Object.keys(mainDistributorMap).reduce((a, b) => mainDistributorMap[a] > mainDistributorMap[b] ? a : b)
     : 'Nenhum';
-
-  const chartDataRaw = orders
-    .filter(o => o.status !== OrderStatus.CANCELADO)
-    .reduce((acc: Record<string, number>, curr) => {
-      if (curr.installments && curr.installments.length > 0) {
-        curr.installments.forEach(inst => {
-          const d = new Date(inst.dueDate);
-          const month = isNaN(d.getTime()) ? curr.paymentMonth : capitalize(d.toLocaleString('pt-BR', { month: 'long' }));
-          acc[month] = (acc[month] || 0) + inst.value;
-        });
-      } else {
-        const month = curr.paymentMonth;
-        acc[month] = (acc[month] || 0) + curr.totalValue;
-      }
-      return acc;
-    }, {});
-
-  const monthsOrder = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
-
-  const chartData = Object.keys(chartDataRaw)
-    .sort((a, b) => monthsOrder.indexOf(a) - monthsOrder.indexOf(b))
-    .map(month => ({
-      month,
-      value: chartDataRaw[month]
-    }))
-    .slice(-6);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -207,42 +180,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages })
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm min-h-[350px] flex flex-col">
-          <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <div className="w-1.5 h-6 bg-red-600 rounded-full" />
-            {isAdmin ? 'Movimentação Financeira' : 'Fluxo de Abastecimento'}
-          </h2>
-          
-          {isAdmin ? (
-            <div className="h-64 flex-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 800, textAnchor: 'middle'}} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 700}} />
-                  <Tooltip 
-                    cursor={{fill: '#fef2f2'}} 
-                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: number) => [`R$ ${value.toFixed(2)}`, 'Saída Prevista']}
-                  />
-                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.month.toLowerCase() === currentMonthName.toLowerCase() ? '#dc2626' : '#cbd5e1'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-10 space-y-4">
-              <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center">
-                <Lock className="w-10 h-10 text-slate-200" />
-              </div>
-              <div>
-                <p className="text-slate-900 font-black uppercase tracking-widest text-xs">Visão Restrita</p>
-                <p className="text-slate-400 text-sm font-medium">Dados financeiros são visíveis apenas para administradores.</p>
-              </div>
-            </div>
-          )}
+          <SalesChart cashClosings={cashClosings} />
         </div>
 
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">

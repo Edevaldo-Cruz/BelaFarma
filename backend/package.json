@@ -8,11 +8,13 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.1.2",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "better-sqlite3": "^11.1.2"
+    "multer": "^2.0.2"
   },
   "devDependencies": {
+    "@types/multer": "^2.0.0",
     "nodemon": "^3.1.4"
   }
 }

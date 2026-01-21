@@ -21,6 +21,8 @@ import {
   Banknote,
   Landmark,
   TrendingUp,
+  CreditCard,
+  ClipboardCheck, // New import
 } from 'lucide-react';
 import { View, User, UserRole } from '../types';
 
@@ -49,10 +51,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
+    { id: 'task-management', label: 'Ger. Tarefas', icon: ClipboardCheck },
     ...(isAdmin ? [
       { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
       { id: 'safe', label: 'Cofre', icon: Lock },
       { id: 'financial', label: 'Financeiro', icon: Wallet },
+      { id: 'crediario-report', label: 'Rel. Crediário', icon: CreditCard },
       { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
       { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Landmark },
       { id: 'days-in-debt', label: 'Dias Comprometidos', icon: TrendingUp },

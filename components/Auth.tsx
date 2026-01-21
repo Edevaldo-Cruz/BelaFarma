@@ -65,7 +65,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Insira sua chave..."
                 autoFocus
-                autocomplete="new-password"
+                autoComplete="new-password"
               />
               <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-600">
                 {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}

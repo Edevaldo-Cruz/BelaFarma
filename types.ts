@@ -74,6 +74,8 @@ export interface CashClosingRecord {
   debit: number;
   pix: number;
   userName: string;
+  totalCrediario: number;
+  crediarioList: Array<{ id: string, client: string, val: number }>;
 }
 
 export interface SafeEntry {
@@ -86,11 +88,37 @@ export interface SafeEntry {
 }
 
 export interface DailyRecordEntry {
+
   id: string;
+
   date: string;
+
   expenses: Array<{ id: string, desc: string, val: number }>;
+
   nonRegistered: Array<{ id: string, desc: string, val: number }>;
+
+  pixDiretoList?: Array<{ id: string, desc: string, val: number }>;
+
+  crediarioList?: Array<{ id: string, client: string, val: number }>;
+
   userName: string;
+
+}
+
+
+
+export interface CrediarioRecord {
+
+  id: string;
+
+  date: string;
+
+  client: string;
+
+  value: number;
+
+  userName: string;
+
 }
 
 export interface User {
@@ -154,4 +182,17 @@ export interface MonthlyLimit {
   limit: number;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt';
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  assignedUser: string; // User ID or 'all_users'
+  creator: string; // User ID
+  priority: 'Muito Urgente' | 'Urgente' | 'Normal' | 'Sem Prioridade';
+  status: 'A Fazer' | 'Em Progresso' | 'Concluída' | 'Pausada' | 'Cancelada';
+  dueDate: string; // ISO string
+  creationDate: string; // ISO string
+  color: string; // e.g., 'red', 'orange', 'blue', 'gray'
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management';

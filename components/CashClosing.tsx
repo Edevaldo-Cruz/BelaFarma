@@ -4,7 +4,9 @@ import {
   Calculator, Save, ChevronRight, ChevronLeft, CheckCircle2, DollarSign, 
   CreditCard, Smartphone, Wallet, TrendingUp, ArrowDown,
   Coins, History, X, Search, Lock, Plus, Calendar, Receipt, ShoppingBag,
-  Banknote
+  Banknote,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { User, SafeEntry, CashClosingRecord } from '../types';
 
@@ -55,9 +57,12 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
   const [history, setHistory] = useState<CashClosingRecord[]>([]);
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [expandedClosing, setExpandedClosing] = useState<string | null>(null);
 
   const [expensesList, setExpensesList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [nonRegisteredList, setNonRegisteredList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
+  const [pixDiretoList, setPixDiretoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
+  const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
 
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -99,6 +104,15 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
       const data = JSON.parse(savedDaily);
       setExpensesList(data.expenses || []);
       setNonRegisteredList(data.nonRegistered || []);
+      
+      const pixList = data.pixDiretoList || [];
+      setPixDiretoList(pixList);
+      if (pixList.length > 0) {
+        const totalPix = pixList.reduce((acc: number, curr: { val: number }) => acc + curr.val, 0);
+        setPixDirect(totalPix);
+      }
+
+      setCrediarioList(data.crediarioList || []);
     }
 
     // Load saved form state
@@ -114,7 +128,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
       setCredit(state.credit || 0);
       setDebit(state.debit || 0);
       setPix(state.pix || 0);
-      setPixDirect(state.pixDirect || 0);
+      // Only set pixDirect from saved state if it wasn't populated from daily records
+      if ((!savedDaily || (JSON.parse(savedDaily).pixDiretoList || []).length === 0)) {
+        setPixDirect(state.pixDirect || 0);
+      }
       setOthers(state.others || 0);
       setSafeDepositValue(state.safeDepositValue || 0);
       setCurrentStep(state.currentStep || 'sales');
@@ -154,6 +171,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
   }, [totalSales, receivedExtra, initialCash, currencyCount, credit, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
 
   const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0) + nonRegisteredList.reduce((acc, curr) => acc + curr.val, 0), [expensesList, nonRegisteredList]);
+  const totalCrediario = useMemo(() => crediarioList.reduce((acc, curr) => acc + curr.val, 0), [crediarioList]);
 
   const totalInDrawer = useMemo(() => {
     return Object.entries(currencyCount).reduce((acc: number, [key, count]) => {
@@ -163,7 +181,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
   }, [currencyCount]);
 
   const totalDigital = useMemo(() => credit + debit + pix + others, [credit, debit, pix + others]);
-  const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + pixDirect - totalExpenses, [totalSales, receivedExtra, initialCash, pixDirect, totalExpenses]);
+  const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + pixDirect - totalExpenses - totalCrediario, [totalSales, receivedExtra, initialCash, pixDirect, totalExpenses, totalCrediario]);
   const totalConferido = useMemo(() => totalInDrawer + totalDigital, [totalInDrawer, totalDigital]);
   const diff = totalConferido - subtotalSoma;
 
@@ -217,6 +235,8 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
       totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer,
       difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses, userName: user.name,
       credit, debit, pix, pixDirect,
+      totalCrediario,
+      crediarioList,
     };
 
     try {
@@ -398,6 +418,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
                           <li>+ Saldo Inicial: R$ {initialCash.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
                           <li>+ Pix Direto na Conta (Entrada): R$ {pixDirect.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
                           <li>- Lançamentos do Dia: R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+                          <li>- Vendas em Crediário: R$ {totalCrediario.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
                         </ul>
                       </div>
                       <div>
@@ -415,17 +436,17 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
                       {formatCurrency(diff)}
                     </h3>
                     <button ref={firstInputRef} onClick={handleNext} className="mt-8 px-10 py-4 bg-red-600 text-white rounded-2xl font-black uppercase shadow-xl transition-all">Finalizar (ENTER)</button>
-                  {totalExpenses > 0 && (
+                  {(totalExpenses > 0 || totalCrediario > 0) && (
                     <div className="mt-8 p-6 bg-slate-50 rounded-2xl border border-slate-100 text-left space-y-4">
                       <h4 className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2">
-                        <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados ({totalExpenses.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                        <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados ({formatCurrency(totalExpenses + totalCrediario)})
                       </h4>
                       {expensesList.length > 0 && (
                         <ul className="space-y-1">
                           {expensesList.map((item, idx) => (
                             <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
                               <span>{item.desc}</span>
-                              <span>- R$ {item.val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                              <span>- {formatCurrency(item.val)}</span>
                             </li>
                           ))}
                         </ul>
@@ -435,7 +456,18 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
                           {nonRegisteredList.map((item, idx) => (
                             <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
                               <span>{item.desc} (s/ cadastro)</span>
-                              <span>- R$ {item.val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                              <span>- {formatCurrency(item.val)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {crediarioList.length > 0 && (
+                        <ul className="space-y-1 mt-2">
+                          <h5 className="text-[10px] font-black uppercase text-amber-500">Crediário</h5>
+                          {crediarioList.map((item, idx) => (
+                            <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+                              <span>{item.client}</span>
+                              <span>- {formatCurrency(item.val)}</span>
                             </li>
                           ))}
                         </ul>
@@ -462,14 +494,68 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
           </div>
           <div className="overflow-x-auto">
              <table className="w-full text-left">
-               <thead><tr className="bg-slate-50/50"><th className="px-8 py-4 text-[10px] font-black uppercase">Data</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase">Venda</th><th className="px-8 py-4 text-center text-[10px] font-black uppercase">Diferença</th></tr></thead>
+               <thead><tr className="bg-slate-50/50"><th className="px-8 py-4 text-[10px] font-black uppercase">Data</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase">Venda</th><th className="px-8 py-4 text-center text-[10px] font-black uppercase">Diferença</th><th className="w-24 px-8 py-4 text-center text-[10px] font-black uppercase">Ações</th></tr></thead>
                <tbody className="divide-y divide-slate-100">
                  {filteredHistory.map(record => (
-                   <tr key={record.id} className="hover:bg-slate-50/50">
-                     <td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(record.date).toLocaleDateString('pt-BR')}</td>
-                     <td className="px-8 py-4 text-right font-black text-slate-900">{formatCurrency(record.totalSales)}</td>
-                     <td className="px-8 py-4 text-center"><span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${Math.abs(record.difference) < 0.1 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{formatCurrency(record.difference)}</span></td>
-                   </tr>
+                   <React.Fragment key={record.id}>
+                     <tr className="hover:bg-slate-50/50">
+                       <td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(record.date).toLocaleDateString('pt-BR')}</td>
+                       <td className="px-8 py-4 text-right font-black text-slate-900">{formatCurrency(record.totalSales)}</td>
+                       <td className="px-8 py-4 text-center"><span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${Math.abs(record.difference) < 0.1 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{formatCurrency(record.difference)}</span></td>
+                       <td className="px-8 py-4 text-center">
+                         <button onClick={() => setExpandedClosing(expandedClosing === record.id ? null : record.id)} className="p-2 rounded-full hover:bg-slate-200">
+                           {expandedClosing === record.id ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                         </button>
+                       </td>
+                     </tr>
+                     {expandedClosing === record.id && (
+                        <tr className="bg-slate-50">
+                          <td colSpan={4} className="p-4">
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4 bg-white rounded-2xl border border-slate-200">
+                              {Object.entries(record).map(([key, value]) => {
+                                // Simple mapping for display labels
+                                const keyMap: { [key: string]: string } = {
+                                  id: 'ID',
+                                  date: 'Data',
+                                  totalSales: 'Total de Vendas',
+                                  initialCash: 'Caixa Inicial',
+                                  receivedExtra: 'Recebimento Extra',
+                                  totalDigital: 'Total Digital',
+                                  totalInDrawer: 'Total em Gaveta',
+                                  difference: 'Diferença',
+                                  safeDeposit: 'Depósito em Cofre',
+                                  expenses: 'Despesas',
+                                  pixDirect: 'Pix Direto',
+                                  credit: 'Crédito',
+                                  debit: 'Débito',
+                                  pix: 'Pix (Maquininha)',
+                                  userName: 'Usuário',
+                                  totalCrediario: 'Total Crediário',
+                                  crediarioList: 'Lista Crediário'
+                                };
+                                const label = keyMap[key] || key;
+                                let displayValue: string;
+                                if (key === 'crediarioList') {
+                                  displayValue = (value as Array<{ client: string, val: number }>).map(c => `${c.client}: ${formatCurrency(c.val)}`).join(', ');
+                                } else if (typeof value === 'number' && key !== 'id') {
+                                  displayValue = formatCurrency(value);
+                                } else if (key === 'date') {
+                                  displayValue = new Date(value).toLocaleString('pt-BR', { timeZone: 'UTC' });
+                                } else {
+                                  displayValue = String(value);
+                                }
+                                return (
+                                  <div key={key} className="text-xs">
+                                    <p className="font-bold text-slate-400 uppercase">{label}</p>
+                                    <p className="font-mono text-slate-800">{displayValue}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                   </React.Fragment>
                  ))}
                </tbody>
              </table>

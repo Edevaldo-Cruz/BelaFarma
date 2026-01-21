@@ -79,7 +79,36 @@ try {
         credit REAL,
         debit REAL,
         pix REAL,
-        pixDirect REAL
+        pixDirect REAL,
+        totalCrediario REAL,
+        crediarioList TEXT
+      );
+    `;
+
+    const createTasksTable = `
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        assignedUser TEXT NOT NULL,
+        creator TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        status TEXT NOT NULL,
+        dueDate TEXT NOT NULL,
+        creationDate TEXT NOT NULL,
+        color TEXT NOT NULL,
+        isArchived INTEGER DEFAULT 0,
+        completionDate TEXT
+      );
+    `;
+
+    const createCrediarioRecordsTable = `
+      CREATE TABLE IF NOT EXISTS crediario_records (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        client TEXT NOT NULL,
+        value REAL NOT NULL,
+        userName TEXT NOT NULL
       );
     `;
 
@@ -123,9 +152,30 @@ try {
     db.exec(createShortagesTable);
     db.exec(createLogsTable);
     db.exec(createCashClosingsTable);
+    db.exec(createCrediarioRecordsTable);
+    db.exec(createTasksTable);
     db.exec(createCheckingAccountTransactionsTable);
     db.exec(createBoletosTable);
     db.exec(createMonthlyLimitsTable);
+
+    // Add boletoPath column to orders table if it doesn't exist
+    try {
+      db.prepare('SELECT boletoPath FROM orders LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE orders ADD COLUMN boletoPath TEXT');
+    }
+
+    const createSafeEntriesTable = `
+      CREATE TABLE IF NOT EXISTS safe_entries (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        type TEXT NOT NULL, -- 'Entrada' or 'Saída'
+        value REAL NOT NULL,
+        userName TEXT NOT NULL
+      );
+    `;
+    db.exec(createSafeEntriesTable);
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

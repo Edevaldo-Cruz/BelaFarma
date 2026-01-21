@@ -1,43 +1,12 @@
-index-BAkLgnCQ.js:712  POST http://localhost:3001/api/users net::ERR_CONNECTION_REFUSED
-Q @ index-BAkLgnCQ.js:712
-p @ index-BAkLgnCQ.js:458
-$w @ index-BAkLgnCQ.js:48
-(anônimo) @ index-BAkLgnCQ.js:48
-Zb @ index-BAkLgnCQ.js:48
-Xm @ index-BAkLgnCQ.js:48
-fv @ index-BAkLgnCQ.js:49
-VL @ index-BAkLgnCQ.js:49Entenda o erro
-installHook.js:1 Failed to add user: TypeError: Failed to fetch
-    at Q (index-BAkLgnCQ.js:712:45694)
-    at p (index-BAkLgnCQ.js:458:84677)
-    at $w (index-BAkLgnCQ.js:48:127851)
-    at index-BAkLgnCQ.js:48:133030
-    at Zb (index-BAkLgnCQ.js:48:15133)
-    at Xm (index-BAkLgnCQ.js:48:129087)
-    at fv (index-BAkLgnCQ.js:49:28714)
-    at VL (index-BAkLgnCQ.js:49:28536)
-overrideMethod @ installHook.js:1
-Q @ index-BAkLgnCQ.js:712
-await in Q
-p @ index-BAkLgnCQ.js:458
-$w @ index-BAkLgnCQ.js:48
-(anônimo) @ index-BAkLgnCQ.js:48
-Zb @ index-BAkLgnCQ.js:48
-Xm @ index-BAkLgnCQ.js:48
-fv @ index-BAkLgnCQ.js:49
-VL @ index-BAkLgnCQ.js:49Entenda o erro
-index-BAkLgnCQ.js:712 fetchData: Iniciando...
-index-BAkLgnCQ.js:712  GET http://localhost:3001/api/all-data net::ERR_CONNECTION_REFUSED
-j @ index-BAkLgnCQ.js:712
-Q @ index-BAkLgnCQ.js:712
-await in Q
-p @ index-BAkLgnCQ.js:458
-$w @ index-BAkLgnCQ.js:48
-(anônimo) @ index-BAkLgnCQ.js:48
-Zb @ index-BAkLgnCQ.js:48
-Xm @ index-BAkLgnCQ.js:48
-fv @ index-BAkLgnCQ.js:49
-VL @ index-BAkLgnCQ.js:49Entenda o erro
-installHook.js:1 fetchData: Erro ao buscar dados do backend: TypeError: Failed to fetch
-    at j (index-BAkLgnCQ.js:712:42215)
-    at Q (index-BAkLgnCQ.js:712:45989)
+ed@laisaTech:~/projects/BelaFarma $ sudo ufw disable
+Firewall stopped and disabled on system startup
+ed@laisaTech:~/projects/BelaFarma $ docker-compose ps
+WARN[0000] /home/ed/projects/BelaFarma/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+NAME                   IMAGE                COMMAND                  SERVICE    CREATED          STATUS          PORTS
+belafarma-backend-1    belafarma-backend    "docker-entrypoint.s…"   backend    16 minutes ago   Up 16 minutes   3001/tcp
+belafarma-frontend-1   belafarma-frontend   "/docker-entrypoint.…"   frontend   16 minutes ago   Up 9 minutes
+ed@laisaTech:~/projects/BelaFarma $ docker-compose up -d
+WARN[0000] /home/ed/projects/BelaFarma/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] Running 2/0
+ ✔ Container belafarma-backend-1   Running                                                                                           0.0s 
+ ✔ Container belafarma-frontend-1  Running

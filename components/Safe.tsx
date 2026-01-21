@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Lock, Plus, ArrowUpRight, ArrowDownLeft, Trash2, History, Wallet, DollarSign } from 'lucide-react';
 import { SafeEntry, User } from '../types';
 
@@ -8,34 +8,92 @@ interface SafeProps {
   onLog: (action: string, details: string) => void;
 }
 
+const API_URL = 'http://localhost:3001/api';
+
 export const Safe: React.FC<SafeProps> = ({ user, onLog }) => {
   const [entries, setEntries] = useState<SafeEntry[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ desc: '', val: 0, type: 'Entrada' as 'Entrada' | 'Saída' });
 
-  useEffect(() => {
-    const saved = localStorage.getItem('belafarma_safe_db');
-    if (saved) setEntries(JSON.parse(saved));
+  const fetchEntries = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/safe-entries`);
+      if (!response.ok) throw new Error('Failed to fetch safe entries');
+      const data: SafeEntry[] = await response.json();
+      setEntries(data);
+    } catch (error) {
+      console.error(error);
+      // Aqui você poderia mostrar um toast de erro para o usuário
+    }
   }, []);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [fetchEntries]);
 
   const totalBalance = entries.reduce((acc, curr) => acc + (curr.type === 'Entrada' ? curr.value : -curr.value), 0);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!formData.desc || !formData.val) return;
     const newEntry: SafeEntry = {
-      id: Date.now().toString(),
+      id: `safe_${Date.now()}`,
       date: new Date().toISOString(),
       description: formData.desc,
       type: formData.type,
       value: formData.val,
       userName: user.name
     };
-    const newList = [newEntry, ...entries];
-    setEntries(newList);
-    localStorage.setItem('belafarma_safe_db', JSON.stringify(newList));
-    onLog(`Movimentação Cofre (${formData.type})`, `Desc: ${formData.desc}, Valor: R$ ${formData.val}`);
+
+    // Optimistic update
+    setEntries(prevEntries => [newEntry, ...prevEntries]);
     setIsModalOpen(false);
     setFormData({ desc: '', val: 0, type: 'Entrada' });
+
+    try {
+      const response = await fetch(`${API_URL}/safe-entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEntry),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save entry');
+      }
+      
+      onLog(`Movimentação Cofre (${formData.type})`, `Desc: ${formData.desc}, Valor: R$ ${formData.val}`);
+      
+      // Optional: refetch to ensure consistency if optimistic update is not preferred
+      // await fetchEntries();
+
+    } catch (error) {
+      console.error(error);
+      // Revert optimistic update
+      setEntries(prevEntries => prevEntries.filter(entry => entry.id !== newEntry.id));
+      // Show error toast to user
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const originalEntries = [...entries];
+    // Optimistic update
+    setEntries(prevEntries => prevEntries.filter(entry => entry.id !== id));
+
+    try {
+      const response = await fetch(`${API_URL}/safe-entries/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete entry');
+      }
+      onLog('Remoção Cofre', `Entrada com ID ${id} removida.`);
+
+    } catch (error) {
+      console.error(error);
+      // Revert optimistic update
+      setEntries(originalEntries);
+      // Show error toast to user
+    }
   };
 
   return (
@@ -63,7 +121,7 @@ export const Safe: React.FC<SafeProps> = ({ user, onLog }) => {
 
       <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-8 py-6 bg-slate-50/30 border-b border-slate-100 flex items-center justify-between"><h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><History className="w-4 h-4" /> Movimentações</h3></div>
-        <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="bg-slate-50/50"><th className="px-8 py-4 text-[10px] font-black uppercase">Data</th><th className="px-8 py-4 text-[10px] font-black uppercase">Descrição</th><th className="px-8 py-4 text-center text-[10px] font-black uppercase">Tipo</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase">Valor</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase">Responsável</th></tr></thead><tbody className="divide-y divide-slate-100">{entries.map((entry) => (<tr key={entry.id} className="hover:bg-slate-50/50"><td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(entry.date).toLocaleDateString('pt-BR')}</td><td className="px-8 py-4 font-black text-slate-800 uppercase tracking-tighter">{entry.description}</td><td className="px-8 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${entry.type === 'Entrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{entry.type}</span></td><td className={`px-8 py-4 text-right font-black ${entry.type === 'Entrada' ? 'text-emerald-600' : 'text-red-600'}`}>R$ {entry.value.toLocaleString('pt-BR')}</td><td className="px-8 py-4 text-right text-[10px] font-black text-slate-400 uppercase">{entry.userName}</td></tr>))}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="bg-slate-50/50"><th className="px-8 py-4 text-[10px] font-black uppercase">Data</th><th className="px-8 py-4 text-[10px] font-black uppercase">Descrição</th><th className="px-8 py-4 text-center text-[10px] font-black uppercase">Tipo</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase">Valor</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase">Responsável</th><th className="px-8 py-4 text-center text-[10px] font-black uppercase">Ações</th></tr></thead><tbody className="divide-y divide-slate-100">{entries.map((entry) => (<tr key={entry.id} className="hover:bg-slate-50/50 group"><td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(entry.date).toLocaleDateString('pt-BR')}</td><td className="px-8 py-4 font-black text-slate-800 uppercase tracking-tighter">{entry.description}</td><td className="px-8 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${entry.type === 'Entrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{entry.type}</span></td><td className={`px-8 py-4 text-right font-black ${entry.type === 'Entrada' ? 'text-emerald-600' : 'text-red-600'}`}>R$ {entry.value.toLocaleString('pt-BR')}</td><td className="px-8 py-4 text-right text-[10px] font-black text-slate-400 uppercase">{entry.userName}</td><td className="px-8 py-4 text-center"><button onClick={() => handleDelete(entry.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button></td></tr>))}</tbody></table></div>
       </div>
 
       {isModalOpen && (

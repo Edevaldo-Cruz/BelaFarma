@@ -15,6 +15,8 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
   const [activeTab, setActiveTab] = useState<'entry' | 'history'>('entry');
   const [expenses, setExpenses] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [nonRegistered, setNonRegistered] = useState<Array<{ id: string, desc: string, val: number }>>([]);
+  const [pixDiretoList, setPixDiretoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
+  const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
   const [isSaved, setIsSaved] = useState(false);
   
   const [history, setHistory] = useState<DailyRecordEntry[]>([]);
@@ -42,6 +44,8 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
       const data = JSON.parse(savedTemp);
       setExpenses(data.expenses || []);
       setNonRegistered(data.nonRegistered || []);
+      setPixDiretoList(data.pixDiretoList || []);
+      setCrediarioList(data.crediarioList || []);
     }
     const savedHistory = localStorage.getItem('belafarma_daily_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
@@ -55,16 +59,38 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const today = new Date().toISOString().split('T')[0];
-    const data = { expenses, nonRegistered, date: today };
+    const data = { expenses, nonRegistered, pixDiretoList, crediarioList, date: today };
     localStorage.setItem('belafarma_daily_temp', JSON.stringify(data));
+
+    // Save crediario records to the database
+    for (const item of crediarioList) {
+      try {
+        await fetch('/api/crediario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: item.id,
+            date: new Date().toISOString(),
+            client: item.client,
+            value: item.val,
+            userName: user.name,
+          }),
+        });
+      } catch (error) {
+        console.error('Failed to save crediario item:', error);
+        // Optionally, show an error to the user
+      }
+    }
     
     const newEntry: DailyRecordEntry = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
       expenses,
       nonRegistered,
+      pixDiretoList,
+      crediarioList,
       userName: user.name
     };
 
@@ -73,11 +99,15 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
     localStorage.setItem('belafarma_daily_history', JSON.stringify(updatedHistory));
 
     const totalExp = expenses.reduce((s, e) => s + e.val, 0);
+    const totalPix = pixDiretoList.reduce((s, p) => s + p.val, 0);
+    const totalCred = crediarioList.reduce((s, c) => s + c.val, 0);
     const expDetails = expenses.map(e => `${e.desc}: ${formatCurrency(e.val)}`).join(', ');
     const prodDetails = nonRegistered.map(p => p.desc).join(', ');
     
-    let logMsg = `Total Despesas: ${formatCurrency(totalExp)}.`;
-    if (expenses.length > 0) logMsg += ` Itens: [${expDetails}].`;
+    let logMsg = `Total Despesas: ${formatCurrency(totalExp)}, Total Pix Direto: ${formatCurrency(totalPix)}, Total Crediário: ${formatCurrency(totalCred)}.`;
+    if (expenses.length > 0) logMsg += ` Despesas: [${expDetails}].`;
+    if (pixDiretoList.length > 0) logMsg += ` Pix: [${pixDiretoList.map(p => `${p.desc}: ${formatCurrency(p.val)}`).join(', ')}].`;
+    if (crediarioList.length > 0) logMsg += ` Crediário: [${crediarioList.map(c => `${c.client}: ${formatCurrency(c.val)}`).join(', ')}].`;
     if (nonRegistered.length > 0) logMsg += ` Produtos s/ Cadastro: [${prodDetails}].`;
 
     onLog('Lançamento Diário', logMsg);
@@ -93,6 +123,12 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
   const addNonRegistered = () => setNonRegistered([...nonRegistered, { id: Date.now().toString(), desc: '', val: 0 }]);
   const removeExpense = (id: string) => setExpenses(expenses.filter(e => e.id !== id));
   const removeNonRegistered = (id: string) => setNonRegistered(nonRegistered.filter(p => p.id !== id));
+  
+  const addPixDireto = () => setPixDiretoList([...pixDiretoList, { id: Date.now().toString(), desc: '', val: 0 }]);
+  const removePixDireto = (id: string) => setPixDiretoList(pixDiretoList.filter(p => p.id !== id));
+
+  const addCrediario = () => setCrediarioList([...crediarioList, { id: Date.now().toString(), client: '', val: 0 }]);
+  const removeCrediario = (id: string) => setCrediarioList(crediarioList.filter(c => c.id !== id));
 
   const filteredHistory = useMemo(() => {
     return history.filter(h => {
@@ -134,17 +170,66 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
                       placeholder="Descrição..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" 
                       value={exp.desc} onChange={(e) => { const n = [...expenses]; n[idx].desc = e.target.value; setExpenses(n); }} 
                     />
-                                          <input 
-                                          placeholder="R$" type="text" 
-                                          className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-red-600 outline-none" 
-                                          value={formatCurrency(exp.val)} 
-                                          onChange={(e) => { const n = [...expenses]; n[idx].val = parseCurrency(e.target.value); setExpenses(n); }} 
-                                        />                    <button onClick={() => removeExpense(exp.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
+                    <input 
+                      placeholder="R$" type="text" 
+                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-red-600 outline-none" 
+                      value={formatCurrency(exp.val)} 
+                      onChange={(e) => { const n = [...expenses]; n[idx].val = parseCurrency(e.target.value); setExpenses(n); }} 
+                    />
+                    <button onClick={() => removeExpense(exp.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
                   </div>
                 ))}
               </div>
             </div>
-            {/* Bloco de Produtos s/ Cadastro mantido */}
+            
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
+              <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
+                <div className="flex items-center gap-3 text-cyan-600 font-black uppercase text-sm">Pix Direto na Conta</div>
+                <button onClick={addPixDireto} className="p-2 bg-cyan-50 text-cyan-600 rounded-xl"><Plus className="w-5 h-5" /></button>
+              </div>
+              <div className="space-y-3">
+                {pixDiretoList.map((pix, idx) => (
+                  <div key={pix.id} className="flex gap-2">
+                    <input 
+                      placeholder="Descrição..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" 
+                      value={pix.desc} onChange={(e) => { const n = [...pixDiretoList]; n[idx].desc = e.target.value; setPixDiretoList(n); }} 
+                    />
+                    <input 
+                      placeholder="R$" type="text" 
+                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-cyan-600 outline-none" 
+                      value={formatCurrency(pix.val)} 
+                      onChange={(e) => { const n = [...pixDiretoList]; n[idx].val = parseCurrency(e.target.value); setPixDiretoList(n); }} 
+                    />
+                    <button onClick={() => removePixDireto(pix.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
+              <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
+                <div className="flex items-center gap-3 text-amber-600 font-black uppercase text-sm">Vendas em Crediário</div>
+                <button onClick={addCrediario} className="p-2 bg-amber-50 text-amber-600 rounded-xl"><Plus className="w-5 h-5" /></button>
+              </div>
+              <div className="space-y-3">
+                {crediarioList.map((cred, idx) => (
+                  <div key={cred.id} className="flex gap-2">
+                    <input 
+                      placeholder="Nome do Cliente..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" 
+                      value={cred.client} onChange={(e) => { const n = [...crediarioList]; n[idx].client = e.target.value; setCrediarioList(n); }} 
+                    />
+                    <input 
+                      placeholder="R$" type="text" 
+                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-amber-600 outline-none" 
+                      value={formatCurrency(cred.val)} 
+                      onChange={(e) => { const n = [...crediarioList]; n[idx].val = parseCurrency(e.target.value); setCrediarioList(n); }} 
+                    />
+                    <button onClick={() => removeCrediario(cred.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
             <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
               <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
                 <div className="flex items-center gap-3 text-blue-600 font-black uppercase text-sm">Produtos s/ Cadastro</div>
@@ -154,12 +239,12 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
                 {nonRegistered.map((prod, idx) => (
                   <div key={prod.id} className="flex gap-2">
                     <input placeholder="Nome..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" value={prod.desc} onChange={(e) => { const n = [...nonRegistered]; n[idx].desc = e.target.value; setNonRegistered(n); }} />
-                                        <input 
-                                          placeholder="R$" type="text" 
-                                          className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-blue-600 outline-none" 
-                                          value={formatCurrency(prod.val)} 
-                                          onChange={(e) => { const n = [...nonRegistered]; n[idx].val = parseCurrency(e.target.value); setNonRegistered(n); }} 
-                                        />
+                    <input 
+                      placeholder="R$" type="text" 
+                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-blue-600 outline-none" 
+                      value={formatCurrency(prod.val)} 
+                      onChange={(e) => { const n = [...nonRegistered]; n[idx].val = parseCurrency(e.target.value); setNonRegistered(n); }} 
+                    />
                     <button onClick={() => removeNonRegistered(prod.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
                   </div>
                 ))}
@@ -181,6 +266,8 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
                  <h4 className="font-black text-slate-700 uppercase mb-4">{new Date(h.date).toLocaleDateString('pt-BR')}</h4>
                  <div className="grid grid-cols-2 gap-4">
                     <div className="text-xs font-bold text-red-600 uppercase">Despesas: {formatCurrency(h.expenses.reduce((s, e) => s + e.val, 0))}</div>
+                    <div className="text-xs font-bold text-cyan-600 uppercase">Pix Direto: {formatCurrency(h.pixDiretoList?.reduce((s, e) => s + e.val, 0) || 0)}</div>
+                    <div className="text-xs font-bold text-amber-600 uppercase">Crediário: {formatCurrency(h.crediarioList?.reduce((s, e) => s + e.val, 0) || 0)}</div>
                     <div className="text-xs font-bold text-blue-600 uppercase">Produtos: {h.nonRegistered.length} itens</div>
                  </div>
               </div>

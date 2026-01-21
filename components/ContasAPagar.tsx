@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   DollarSign, 
@@ -8,21 +7,26 @@ import {
   AlertTriangle,
   X,
   Save,
+  Plus,
   Calendar as CalendarIcon
 } from 'lucide-react';
-import { Boleto, BoletoStatus, Order, MonthlyLimit } from '../types';
+import { Boleto, BoletoStatus, Order, MonthlyLimit, User } from '../types';
+import { BoletoForm } from './BoletoForm';
 
 interface ContasAPagarProps {
+  user: User;
   boletos: Boleto[];
   orders: Order[];
   onUpdateBoletoStatus: (boletoId: string, status: BoletoStatus) => void;
+  onAddBoleto: (boleto: Partial<Boleto> & { boletoFile?: File }) => void;
   monthlyLimits: MonthlyLimit[];
 }
 
-export const ContasAPagar: React.FC<ContasAPagarProps> = ({ boletos, orders, onUpdateBoletoStatus, monthlyLimits }) => {
+export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, orders, onUpdateBoletoStatus, onAddBoleto, monthlyLimits }) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [isBoletoFormOpen, setIsBoletoFormOpen] = useState(false);
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -107,20 +111,45 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ boletos, orders, onU
     return { value: i, label: d.toLocaleString('pt-BR', { month: 'long' }) };
   });
 
+  const handleSaveBoleto = (boleto: Partial<Boleto> & { boletoFile?: File }) => {
+    onAddBoleto(boleto);
+    setIsBoletoFormOpen(false);
+  };
+
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      {isBoletoFormOpen && (
+        <BoletoForm
+          user={user}
+          onSave={handleSaveBoleto}
+          onCancel={() => setIsBoletoFormOpen(false)}
+          orders={orders}
+        />
+      )}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tighter leading-none">Contas a Pagar</h1>
           <p className="text-slate-500 font-medium text-sm">Gerenciamento de boletos e pagamentos.</p>
         </div>
-        <div className="p-4 bg-red-50 border-2 border-red-100 rounded-2xl text-right">
-            <p className="text-[10px] font-black text-red-700/60 uppercase tracking-widest">Total em Aberto (Geral)</p>
-            <p className="text-2xl font-black text-red-800 tracking-tighter">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente)}
-            </p>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setIsBoletoFormOpen(true)}
+            className="flex items-center gap-2 px-4 py-3 bg-red-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl transition-all active:scale-[0.98]"
+          >
+            <Plus className="w-4 h-4" />
+            Novo Boleto
+          </button>
+          <div className="p-4 bg-red-50 border-2 border-red-100 rounded-2xl text-right">
+              <p className="text-[10px] font-black text-red-700/60 uppercase tracking-widest">Total em Aberto (Geral)</p>
+              <p className="text-2xl font-black text-red-800 tracking-tighter">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente)}
+              </p>
+          </div>
         </div>
-         <div className="p-4 bg-blue-50 border-2 border-blue-100 rounded-2xl text-right w-full md:w-72">
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="p-4 bg-blue-50 border-2 border-blue-100 rounded-2xl text-right w-full">
             <div className="flex justify-between items-center">
               <p className="text-[10px] font-black text-blue-700/60 uppercase tracking-widest">Total do Mês</p>
               <p className="text-[10px] font-black text-blue-700/60 uppercase tracking-widest">Limite: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentMonthLimit)}</p>
@@ -135,40 +164,39 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ boletos, orders, onU
               ></div>
             </div>
         </div>
-      </header>
-
-      <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="relative w-full md:w-48">
-          <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <select 
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(Number(e.target.value))}
-          >
-            {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label.toUpperCase()}</option>)}
-          </select>
-        </div>
-        <div className="relative w-full md:w-32">
-           <select 
-            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(Number(e.target.value))}
-          >
-            {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-        <div className="relative w-full md:w-56">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <select 
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">Todos os Status</option>
-            {Object.values(BoletoStatus).map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+        <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="relative w-full md:w-48">
+            <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select 
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            >
+              {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label.toUpperCase()}</option>)}
+            </select>
+          </div>
+          <div className="relative w-full md:w-32">
+             <select 
+              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+            >
+              {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <div className="relative w-full md:w-56">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select 
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos os Status</option>
+              {Object.values(BoletoStatus).map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

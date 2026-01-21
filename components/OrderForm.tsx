@@ -47,6 +47,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
     notes: order?.notes || '',
   });
 
+  const [boletoFile, setBoletoFile] = useState<File | null>(null);
   const [installments, setInstallments] = useState<Installment[]>(order?.installments || []);
   const [installmentCount, setInstallmentCount] = useState(order?.installments?.length || 1);
   const [daysArray, setDaysArray] = useState<number[]>([]);
@@ -80,9 +81,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
     const finalData = {
       ...formData,
       status: isNewOrder ? OrderStatus.PENDENTE : formData.status,
-      installments: formData.paymentMethod === PaymentMethod.BOLETO ? installments : undefined
+      installments: formData.paymentMethod === PaymentMethod.BOLETO ? installments : undefined,
+      boletoFile: boletoFile,
     };
-    onSave(finalData);
+    onSave(finalData as any);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -93,6 +95,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
       ...prev,
       [name]: name === 'totalValue' ? parseCurrency(value) : value
     }));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setBoletoFile(e.target.files[0]);
+    }
   };
 
   const handleDayChange = (index: number, value: string) => {
@@ -254,6 +262,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
             <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-200 space-y-6">
               <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                 <h3 className="font-black text-sm uppercase tracking-wider text-red-700 flex items-center gap-2"><Calculator className="w-5 h-5" /> Parcelamento</h3>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Anexar Boleto</label>
+                  <input 
+                    type="file" 
+                    onChange={handleFileChange} 
+                    className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-50 file:text-red-700 hover:file:bg-red-100"
+                  />
+                </div>
               </div>
               <div className="flex gap-4 items-end">
                 <div className="flex-1">
