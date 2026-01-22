@@ -179,9 +179,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {user.role !== UserRole.OPERADOR && (
         <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm min-h-[350px] flex flex-col">
           <SalesChart cashClosings={cashClosings} />
         </div>
+      )}
 
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
           <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">

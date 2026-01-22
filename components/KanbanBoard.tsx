@@ -43,10 +43,10 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, user, onV
 interface SortableTaskCardProps {
   task: Task;
   user: User;
-  onView: (task: Task) => void; // Changed
+  onViewTaskClick: (task: Task) => void; // Renamed to avoid confusion with dnd-kit's listeners
 }
 
-const SortableTaskCard: React.FC<SortableTaskCardProps> = ({ task, user, onView }) => { // Changed
+const SortableTaskCard: React.FC<SortableTaskCardProps> = ({ task, user, onViewTaskClick }) => {
   const {
     attributes,
     listeners,
@@ -60,9 +60,19 @@ const SortableTaskCard: React.FC<SortableTaskCardProps> = ({ task, user, onView 
     transition,
   };
 
+  const handleClick = (e: React.MouseEvent) => {
+    // This stopPropagation is crucial to prevent the click from being
+    // swallowed by dnd-kit's drag listeners on the outer div.
+    e.stopPropagation();
+    console.log('Inner div handleClick triggered for task:', task.title); // ADDED LOG
+    onViewTaskClick(task);
+  };
+
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <TaskCard task={task} user={user} onView={onView} /> {/* Changed */}
+      <div onClick={handleClick}> {/* New inner div for click handler */}
+        <TaskCard task={task} user={user} />
+      </div>
     </div>
   );
 };

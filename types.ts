@@ -168,7 +168,8 @@ export enum BoletoStatus {
 
 export interface Boleto {
   id: string;
-  order_id: string;
+  order_id?: string; // Made optional
+  supplierName?: string; // New field for free-text supplier
   due_date: string;
   value: number;
   status: BoletoStatus;

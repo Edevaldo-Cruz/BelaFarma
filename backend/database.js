@@ -138,13 +138,15 @@ try {
     const createBoletosTable = `
       CREATE TABLE IF NOT EXISTS boletos (
         id TEXT PRIMARY KEY,
-        order_id TEXT NOT NULL,
+        supplierName TEXT,
+        order_id TEXT, -- Made nullable
         due_date TEXT NOT NULL,
         value REAL NOT NULL,
-        status TEXT NOT NULL,
-        installment_number INTEGER,
-        invoice_number TEXT,
-        FOREIGN KEY (order_id) REFERENCES orders(id)
+        status TEXT NOT NULL
+        -- installment_number INTEGER, -- Removed
+        -- invoice_number TEXT,     -- Removed
+        -- boletoPath TEXT          -- Removed, as file upload is removed
+        -- FOREIGN KEY (order_id) REFERENCES orders(id) -- Foreign key might need to be removed or adjusted if order_id is nullable
       );
     `;
 
@@ -167,7 +169,71 @@ try {
     db.exec(createTasksTable);
     db.exec(createCheckingAccountTransactionsTable);
     db.exec(createBoletosTable);
+    // --- Boletos Table Migrations ---
+    // Add supplierName column if it doesn't exist
+    try {
+      db.prepare('SELECT supplierName FROM boletos LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE boletos ADD COLUMN supplierName TEXT');
+      console.log('Added supplierName column to boletos table.');
+    }
+
+    // Make order_id nullable if it's currently NOT NULL
+    const boletosInfo = db.prepare('PRAGMA table_info(boletos)').all();
+    const orderIdColumn = boletosInfo.find(col => col.name === 'order_id');
+
+    // If order_id exists and is NOT NULL
+    if (orderIdColumn && orderIdColumn.notnull === 1) {
+      console.log('Migrating boletos table: making order_id nullable...');
+      db.transaction(() => {
+        // 1. Rename existing table
+        db.exec('ALTER TABLE boletos RENAME TO boletos_old;');
+
+        // 2. Create new table with desired schema (order_id TEXT)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS boletos (
+            id TEXT PRIMARY KEY,
+            supplierName TEXT,
+            order_id TEXT, -- Now nullable
+            due_date TEXT NOT NULL,
+            value REAL NOT NULL,
+            status TEXT NOT NULL,
+            installment_number INTEGER,
+            invoice_number TEXT
+            -- FOREIGN KEY (order_id) REFERENCES orders(id) -- Foreign key constraint removed for nullable order_id
+          );
+        `);
+
+        // 3. Copy data from old table to new table
+        // We handle missing supplierName column in old table gracefully
+        db.exec(`
+          INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, installment_number, invoice_number)
+          SELECT 
+            id, 
+            COALESCE(supplierName, NULL) AS supplierName, -- Handle potential missing supplierName in old table
+            order_id, 
+            due_date, 
+            value, 
+            status, 
+            installment_number, 
+            invoice_number 
+          FROM boletos_old;
+        `);
+
+        // 4. Drop old table
+        db.exec('DROP TABLE boletos_old;');
+      })();
+      console.log('Boletos table migration for order_id nullable completed.');
+    }
+    // --- End Boletos Table Migrations ---
     db.exec(createMonthlyLimitsTable);
+
+    // Add supplierName column to boletos table if it doesn't exist
+    try {
+      db.prepare('SELECT supplierName FROM boletos LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE boletos ADD COLUMN supplierName TEXT');
+    }
 
     // Add boletoPath column to orders table if it doesn't exist
     try {

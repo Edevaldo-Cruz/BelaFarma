@@ -377,6 +377,7 @@ const App: React.FC = () => {
       ...boleto,
       id: Math.random().toString(36).substr(2, 9),
       status: BoletoStatus.PENDENTE,
+      order_id: boleto.order_id || null, // Ensure order_id is explicitly null if not provided
     };
 
     const updatedBoletos = [newBoleto, ...boletos];
@@ -389,20 +390,11 @@ const App: React.FC = () => {
     );
 
     try {
-      const formData = new FormData();
-      Object.keys(newBoleto).forEach(key => {
-        if (key === 'boletoFile') {
-          if (newBoleto.boletoFile) {
-            formData.append('boletoFile', newBoleto.boletoFile);
-          }
-        } else {
-          formData.append(key, newBoleto[key]);
-        }
-      });
-
+      // Send boleto data as application/json instead of FormData, as file upload is no longer present.
       await fetch('/api/boletos', {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" }, // Specify JSON content type
+        body: JSON.stringify(newBoleto), // Send the newBoleto object as JSON
       });
 
       fetchData();
@@ -524,7 +516,7 @@ const App: React.FC = () => {
             </>
           )}
         </div>
-        <footer className="w-full text-center py-4 text-xs text-slate-400 font-medium absolute bottom-0 left-0">
+        <footer className="w-full text-center py-4 text-xs text-slate-400 font-medium absolute bottom-0 left-0 bg-slate-100">
           <p>Versão Beta - Desenvolvido por Edevaldo Cruz</p>
         </footer>
       </main>

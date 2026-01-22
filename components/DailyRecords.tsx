@@ -38,18 +38,52 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
     return num / 100;
   };
 
+  // Function to reset all temporary daily record states
+  const resetDailyTempStates = useCallback(() => {
+    setExpenses([]);
+    setNonRegistered([]);
+    setPixDiretoList([]);
+    setCrediarioList([]);
+  }, []);
+
   useEffect(() => {
-    const savedTemp = localStorage.getItem('belafarma_daily_temp');
-    if (savedTemp) {
-      const data = JSON.parse(savedTemp);
-      setExpenses(data.expenses || []);
-      setNonRegistered(data.nonRegistered || []);
-      setPixDiretoList(data.pixDiretoList || []);
-      setCrediarioList(data.crediarioList || []);
-    }
+    const loadData = () => {
+      const savedTemp = localStorage.getItem('belafarma_daily_temp');
+      if (savedTemp) {
+        const data = JSON.parse(savedTemp);
+        setExpenses(data.expenses || []);
+        setNonRegistered(data.nonRegistered || []);
+        setPixDiretoList(data.pixDiretoList || []);
+        setCrediarioList(data.crediarioList || []);
+      } else {
+        resetDailyTempStates();
+      }
+    };
+
+    loadData();
+
     const savedHistory = localStorage.getItem('belafarma_daily_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-  }, []);
+  }, [resetDailyTempStates]);
+
+  useEffect(() => {
+    // This effect ensures states are reset if belafarma_daily_temp is cleared while this component is mounted
+    const checkLocalStorage = () => {
+      const savedTemp = localStorage.getItem('belafarma_daily_temp');
+      if (!savedTemp) {
+        resetDailyTempStates();
+      }
+    };
+
+    // Check immediately if we're on the 'entry' tab
+    if (activeTab === 'entry') {
+      checkLocalStorage();
+    }
+
+    // Add a listener for storage events (e.g., if another tab clears it) - less relevant for same-tab, but good practice
+    window.addEventListener('storage', checkLocalStorage);
+    return () => window.removeEventListener('storage', checkLocalStorage);
+  }, [activeTab, resetDailyTempStates]);
 
   const handleGlobalKeyDown = (e: React.KeyboardEvent) => {
     if (activeTab === 'entry') {

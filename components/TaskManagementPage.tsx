@@ -126,6 +126,7 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
   };
 
   const handleViewTask = (task: Task) => {
+    console.log('handleViewTask called with task:', task);
     setSelectedTask(task);
     setIsDetailsModalOpen(true);
   };

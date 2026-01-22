@@ -56,6 +56,9 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
   };
   
   const getOrderForBoleto = (boleto: Boleto): Order | undefined => {
+    // If supplierName is used, order_id might be null or undefined.
+    // In this case, we don't need to find an order by id.
+    if (!boleto.order_id) return undefined;
     return orders.find(o => o.id === boleto.order_id);
   }
 
@@ -112,6 +115,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
   });
 
   const handleSaveBoleto = (boleto: Partial<Boleto> & { boletoFile?: File }) => {
+    // console.log("Boleto data received in ContasAPagar:", boleto); // Debug log
     onAddBoleto(boleto);
     setIsBoletoFormOpen(false);
   };
@@ -205,7 +209,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Fornecedor / NF</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Fornecedor</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
@@ -230,7 +234,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
                   <tr key={boleto.id} className={rowClass}>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <span className={`font-black uppercase group-hover:text-red-700 transition-colors tracking-tighter text-slate-900`}>{order?.distributor || 'N/A'}</span>
+                        <span className={`font-black uppercase group-hover:text-red-700 transition-colors tracking-tighter text-slate-900`}>{boleto.supplierName || order?.distributor || 'N/A'}</span>
                         {boleto.invoice_number && (
                           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{boleto.invoice_number}</span>
                         )}

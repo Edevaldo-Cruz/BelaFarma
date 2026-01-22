@@ -5,10 +5,10 @@ import { Flag, AlertCircle, Clock } from 'lucide-react';
 interface TaskCardProps {
   task: Task;
   user: User;
-  onView: (task: Task) => void; // Changed
+  // onView: (task: Task) => void; // Removed
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, user, onView }) => { // Changed
+export const TaskCard: React.FC<TaskCardProps> = ({ task, user }) => { // Removed onView
   const dueDate = new Date(task.dueDate);
   const now = new Date();
   const timeDiff = dueDate.getTime() - now.getTime();
@@ -33,7 +33,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, user, onView }) => { /
 
   return (
     <button
-      onClick={() => onView(task)}
+      // onClick={() => onView(task)} // Removed
       className={`rounded-xl p-4 shadow-sm w-full text-left cursor-pointer transition-all duration-200 hover:shadow-md
         ${colorMap[task.color] || 'bg-white border-slate-200'} 
         ${isOverdue ? 'border-red-500 ring-2 ring-red-500' : ''} 

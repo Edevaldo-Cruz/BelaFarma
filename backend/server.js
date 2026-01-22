@@ -321,21 +321,20 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
 });
 
 // CREATE a new boleto
-app.post('/api/boletos', upload.single('boletoFile'), (req, res) => {
+app.post('/api/boletos', (req, res) => { // Removed upload.single('boletoFile')
   try {
     const boleto = req.body;
-    if (req.file) {
-      boleto.boletoPath = req.file.path;
-    }
+    // No req.file block as multer is removed and no file upload
     const stmt = db.prepare(`
-      INSERT INTO boletos (id, order_id, due_date, value, status, installment_number, invoice_number, boletoPath)
-      VALUES (@id, @order_id, @due_date, @value, @status, @installment_number, @invoice_number, @boletoPath)
+      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status)
+      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status)
     `);
     const result = stmt.run(boleto);
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
     console.error('Error creating boleto:', err);
-    res.status(500).json({ error: 'Failed to create boleto.' });
+    console.error('SQL Error details:', err.message, err); // Added detailed logging
+    res.status(500).json({ error: 'Failed to create boleto.', details: err.message });
   }
 });
 
