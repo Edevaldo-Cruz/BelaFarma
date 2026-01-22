@@ -1,18 +1,21 @@
-[nodemon] watching extensions: js,mjs,cjs,json
-[nodemon] starting `node server.js`
-F:\Documentos\Desenvolvimento\BelaFarma\backend\server.js:762
-const app = express();
-      ^
-
-SyntaxError: Identifier 'app' has already been declared
-    at internalCompileFunction (node:internal/vm:77:18)
-    at wrapSafe (node:internal/modules/cjs/loader:1288:20)
-    at Module._compile (node:internal/modules/cjs/loader:1340:27)
-    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
-    at Module.load (node:internal/modules/cjs/loader:1207:32)
-    at Module._load (node:internal/modules/cjs/loader:1023:12)
-    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:135:12)
-    at node:internal/main/run_main_module:28:49
-
-Node.js v20.10.0
-[nodemon] app crashed - waiting for file changes before starting...
+installHook.js:1 cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
+overrideMethod @ installHook.js:1
+index-Bqp39D4y.js:741 fetchData: Iniciando...
+index-Bqp39D4y.js:741 fetchData: Resposta da API recebida. Response
+installHook.js:1 fetchData: Erro ao buscar dados do backend: SyntaxError: Unexpected token '<', "
+<!DOCTYPE "... is not valid JSON
+overrideMethod @ installHook.js:1
+index-Bqp39D4y.js:741 fetchData: Finalizado. isLoading set para false.
+installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+overrideMethod @ installHook.js:1
+installHook.js:1 Failed to fetch cash closing history: SyntaxError: Unexpected token '<', "
+<!DOCTYPE "... is not valid JSON
+overrideMethod @ installHook.js:1
+/undefined/api/cash-closings:1  Failed to load resource: the server responded with a status of 405 (Not Allowed)
+installHook.js:1 Error saving cash closing: SyntaxError: Unexpected token '<', "<html>
+<h"... is not valid JSON
+overrideMethod @ installHook.js:1
+,

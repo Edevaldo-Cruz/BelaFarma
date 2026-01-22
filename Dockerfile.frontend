@@ -1,6 +1,9 @@
 # Etapa 1: Build do ambiente
 FROM node:18-alpine as build
 
+# Declara o argumento de build
+ARG VITE_API_URL
+
 WORKDIR /app
 
 # Copiar package.json e package-lock.json
@@ -11,6 +14,9 @@ RUN npm install
 
 # Copiar o resto dos arquivos do aplicativo
 COPY . .
+
+# Define a variável de ambiente para o processo de build
+ENV VITE_API_URL=$VITE_API_URL
 
 # Construir o aplicativo para produção
 RUN npx vite build

@@ -82,7 +82,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch('/api/cash-closings');
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/cash-closings`);
         const data = await response.json();
         setHistory(data);
       } catch (error) {
@@ -300,7 +300,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
 
       try {
 
-        const response = await fetch('/api/cash-closings', {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/cash-closings`, {
 
           method: 'POST',
 
@@ -890,7 +890,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog 
 
                                   if (key === 'crediarioList') {
 
-                                    displayValue = (value as Array<{ client: string, val: number }>).map(c => `${c.client}: ${formatCurrency(c.val)}`).join(', ');
+                                    displayValue = Array.isArray(value) ? (value as Array<{ client: string, val: number }>).map(c => `${c.client}: ${formatCurrency(c.val)}`).join(', ') : 'N/A';
 
                                   } else if (typeof value === 'number' && key !== 'id') {
 
