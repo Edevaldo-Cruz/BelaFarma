@@ -1,21 +1,149 @@
 installHook.js:1 cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
 overrideMethod @ installHook.js:1
-index-Bqp39D4y.js:741 fetchData: Iniciando...
-index-Bqp39D4y.js:741 fetchData: Resposta da API recebida. Response
-installHook.js:1 fetchData: Erro ao buscar dados do backend: SyntaxError: Unexpected token '<', "
-<!DOCTYPE "... is not valid JSON
+(anônimo) @ (índice):64
+(anônimo) @ (índice):64
+index-e2A2wPiK.js:741 fetchData: Iniciando...
+index-e2A2wPiK.js:741  GET http://backend:3001/api/all-data net::ERR_NAME_NOT_RESOLVED
+L @ index-e2A2wPiK.js:741
+(anônimo) @ index-e2A2wPiK.js:741
+Ks @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+NE @ index-e2A2wPiK.js:48
+(anônimo) @ index-e2A2wPiK.js:48
+U @ index-e2A2wPiK.js:25
+installHook.js:1 fetchData: Erro ao buscar dados do backend: TypeError: Failed to fetch
+    at L (index-e2A2wPiK.js:741:20266)
+    at index-e2A2wPiK.js:741:19974
+    at Ks (index-e2A2wPiK.js:48:93063)
+    at rE (index-e2A2wPiK.js:48:108354)
+    at Kr (index-e2A2wPiK.js:48:108238)
+    at rE (index-e2A2wPiK.js:48:109120)
+    at Kr (index-e2A2wPiK.js:48:108238)
+    at rE (index-e2A2wPiK.js:48:108400)
+    at NE (index-e2A2wPiK.js:48:121555)
+    at index-e2A2wPiK.js:48:118872
 overrideMethod @ installHook.js:1
-index-Bqp39D4y.js:741 fetchData: Finalizado. isLoading set para false.
+L @ index-e2A2wPiK.js:741
+await in L
+(anônimo) @ index-e2A2wPiK.js:741
+Ks @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+NE @ index-e2A2wPiK.js:48
+(anônimo) @ index-e2A2wPiK.js:48
+U @ index-e2A2wPiK.js:25
+index-e2A2wPiK.js:741 fetchData: Finalizado. isLoading set para false.
 installHook.js:1 The width(-1) and height(-1) of chart should be greater than 0,
        please check the style of container, or the props width(100%) and height(100%),
        or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
        height and width.
 overrideMethod @ installHook.js:1
-installHook.js:1 Failed to fetch cash closing history: SyntaxError: Unexpected token '<', "
-<!DOCTYPE "... is not valid JSON
+zf @ index-e2A2wPiK.js:440
+(anônimo) @ index-e2A2wPiK.js:440
+Tm @ index-e2A2wPiK.js:48
+DS @ index-e2A2wPiK.js:48
+qS @ index-e2A2wPiK.js:48
+gE @ index-e2A2wPiK.js:48
+EL @ index-e2A2wPiK.js:48
+hv @ index-e2A2wPiK.js:48
+dE @ index-e2A2wPiK.js:48
+ME @ index-e2A2wPiK.js:48
+U @ index-e2A2wPiK.js:25
+index-e2A2wPiK.js:731  GET http://backend:3001/api/cash-closings net::ERR_NAME_NOT_RESOLVED
+(anônimo) @ index-e2A2wPiK.js:731
+(anônimo) @ index-e2A2wPiK.js:731
+Ks @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+NE @ index-e2A2wPiK.js:48
+Sd @ index-e2A2wPiK.js:48
+EE @ index-e2A2wPiK.js:48
+bE @ index-e2A2wPiK.js:48
+fE @ index-e2A2wPiK.js:48
+dE @ index-e2A2wPiK.js:48
+RE @ index-e2A2wPiK.js:48
+tu @ index-e2A2wPiK.js:48
+AE @ index-e2A2wPiK.js:48
+(anônimo) @ index-e2A2wPiK.js:48
+installHook.js:1 Failed to fetch cash closing history: TypeError: Failed to fetch
+    at index-e2A2wPiK.js:731:11414
+    at index-e2A2wPiK.js:731:11546
+    at Ks (index-e2A2wPiK.js:48:93063)
+    at rE (index-e2A2wPiK.js:48:108354)
+    at Kr (index-e2A2wPiK.js:48:108238)
+    at rE (index-e2A2wPiK.js:48:109120)
+    at Kr (index-e2A2wPiK.js:48:108238)
+    at rE (index-e2A2wPiK.js:48:109120)
+    at Kr (index-e2A2wPiK.js:48:108238)
+    at rE (index-e2A2wPiK.js:48:109120)
 overrideMethod @ installHook.js:1
-/undefined/api/cash-closings:1  Failed to load resource: the server responded with a status of 405 (Not Allowed)
-installHook.js:1 Error saving cash closing: SyntaxError: Unexpected token '<', "<html>
-<h"... is not valid JSON
+(anônimo) @ index-e2A2wPiK.js:731
+await in (anônimo)
+(anônimo) @ index-e2A2wPiK.js:731
+Ks @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+Kr @ index-e2A2wPiK.js:48
+rE @ index-e2A2wPiK.js:48
+NE @ index-e2A2wPiK.js:48
+Sd @ index-e2A2wPiK.js:48
+EE @ index-e2A2wPiK.js:48
+bE @ index-e2A2wPiK.js:48
+fE @ index-e2A2wPiK.js:48
+dE @ index-e2A2wPiK.js:48
+RE @ index-e2A2wPiK.js:48
+tu @ index-e2A2wPiK.js:48
+AE @ index-e2A2wPiK.js:48
+(anônimo) @ index-e2A2wPiK.js:48
+index-e2A2wPiK.js:731  POST http://backend:3001/api/cash-closings net::ERR_NAME_NOT_RESOLVED
+Lt @ index-e2A2wPiK.js:731
+PE @ index-e2A2wPiK.js:48
+(anônimo) @ index-e2A2wPiK.js:48
+zw @ index-e2A2wPiK.js:48
+Ev @ index-e2A2wPiK.js:48
+Lv @ index-e2A2wPiK.js:49
+u5 @ index-e2A2wPiK.js:49
+installHook.js:1 Error saving cash closing: TypeError: Failed to fetch
+    at Lt (index-e2A2wPiK.js:731:14023)
+    at PE (index-e2A2wPiK.js:48:127948)
+    at index-e2A2wPiK.js:48:133195
+    at zw (index-e2A2wPiK.js:48:15140)
+    at Ev (index-e2A2wPiK.js:48:129184)
+    at Lv (index-e2A2wPiK.js:49:28796)
+    at u5 (index-e2A2wPiK.js:49:28618)
 overrideMethod @ installHook.js:1
-,
+Lt @ index-e2A2wPiK.js:732
+await in Lt
+PE @ index-e2A2wPiK.js:48
+(anônimo) @ index-e2A2wPiK.js:48
+zw @ index-e2A2wPiK.js:48
+Ev @ index-e2A2wPiK.js:48
+Lv @ index-e2A2wPiK.js:49
+u5 @ index-e2A2wPiK.js:49

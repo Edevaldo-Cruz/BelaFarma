@@ -16,8 +16,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-      args:
-        - VITE_API_URL=http://backend:3001
     ports:
       - "80:80" # Expõe a porta 80 do Nginx para o mundo exterior
     depends_on:

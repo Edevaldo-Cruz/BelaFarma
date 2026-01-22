@@ -85,7 +85,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     console.log("fetchData: Iniciando...");
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/all-data`);
+      const response = await fetch('/api/all-data');
       console.log("fetchData: Resposta da API recebida.", response);
       if (!response.ok) {
         throw new Error(`Network response was not ok: ${response.statusText}`);
@@ -128,7 +128,7 @@ const App: React.FC = () => {
     setLogs(updatedLogs);
 
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/logs`, {
+      await fetch('/api/logs', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newLog),
@@ -163,7 +163,7 @@ const App: React.FC = () => {
         }
       });
 
-      await fetch(`${import.meta.env.VITE_API_URL}/api/orders`, {
+      await fetch('/api/orders', {
         method: "POST",
         body: formData,
       });
@@ -199,7 +199,7 @@ const App: React.FC = () => {
         }
       });
 
-      await fetch(`${import.meta.env.VITE_API_URL}/api/orders/${updatedOrder.id}`, {
+      await fetch(`/api/orders/${updatedOrder.id}`, {
         method: "PUT",
         body: formData,
       });
@@ -219,7 +219,7 @@ const App: React.FC = () => {
     createLog("Financeiro", "Pagou Boleto", `Boleto ID: ${boletoId}`);
 
     try {
-       await fetch(`${import.meta.env.VITE_API_URL}/api/boletos/${boletoId}/status`, {
+       await fetch(`/api/boletos/${boletoId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
@@ -234,7 +234,7 @@ const App: React.FC = () => {
     // Optimistic update of the UI is tricky here, because IDs might change.
     // A simple refetch might be the most reliable approach.
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/orders/${orderId}/boletos`, {
+      const response = await fetch(`/api/orders/${orderId}/boletos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(boletos),
@@ -252,7 +252,7 @@ const App: React.FC = () => {
 
   const handleSaveLimit = async (limit: MonthlyLimit) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/monthly-limits`, {
+      const response = await fetch('/api/monthly-limits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(limit),
@@ -279,7 +279,7 @@ const App: React.FC = () => {
     );
 
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/orders/${id}`, {
+      await fetch(`/api/orders/${id}`, {
         method: "DELETE",
       });
     } catch (e) {
@@ -294,7 +294,7 @@ const App: React.FC = () => {
     createLog("Faltas", "Registrou Falta", `Produto: ${shortage.productName}`);
 
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/shortages`, {
+      await fetch('/api/shortages', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(shortage),
@@ -312,7 +312,7 @@ const App: React.FC = () => {
     createLog("Faltas", "Removeu Falta", `Produto: ${sToDelete?.productName}`);
 
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/shortages/${id}`, {
+      await fetch(`/api/shortages/${id}`, {
         method: "DELETE",
       });
     } catch (e) {
@@ -332,7 +332,7 @@ const App: React.FC = () => {
     );
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/users`, {
+      const response = await fetch('/api/users', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newUser),
@@ -362,7 +362,7 @@ const App: React.FC = () => {
     createLog("Usuários", "Excluiu Usuário", `Nome: ${userToDelete.name}`);
 
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/users/${id}`, {
+      await fetch(`/api/users/${id}`, {
         method: "DELETE",
       });
     } catch (e) {
@@ -400,7 +400,7 @@ const App: React.FC = () => {
         }
       });
 
-      await fetch(`${import.meta.env.VITE_API_URL}/api/boletos`, {
+      await fetch('/api/boletos', {
         method: "POST",
         body: formData,
       });
