@@ -1198,6 +1198,280 @@ app.delete('/api/safe-entries/:id', (req, res) => {
 });
 
 
+// ===== CRM MODULE ENDPOINTS =====
+
+// --- Customers CRUD ---
+// GET all customers
+app.get('/api/customers', (req, res) => {
+  try {
+    const customers = db.prepare('SELECT * FROM customers ORDER BY name ASC').all();
+    res.json(customers);
+  } catch (err) {
+    console.error('Error fetching customers:', err);
+    res.status(500).json({ error: 'Failed to fetch customers.' });
+  }
+});
+
+// GET single customer by ID
+app.get('/api/customers/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+    if (customer) {
+      res.json(customer);
+    } else {
+      res.status(404).json({ error: 'Customer not found.' });
+    }
+  } catch (err) {
+    console.error('Error fetching customer:', err);
+    res.status(500).json({ error: 'Failed to fetch customer.' });
+  }
+});
+
+// CREATE customer
+app.post('/api/customers', (req, res) => {
+  try {
+    const customer = req.body;
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO customers (id, name, nickname, cpf, phone, email, address, notes, creditLimit, dueDay, createdAt, updatedAt)
+      VALUES (@id, @name, @nickname, @cpf, @phone, @email, @address, @notes, @creditLimit, @dueDay, @createdAt, @updatedAt)
+    `);
+    stmt.run({
+      id: customer.id,
+      name: customer.name,
+      nickname: customer.nickname || null,
+      cpf: customer.cpf || null,
+      phone: customer.phone || null,
+      email: customer.email || null,
+      address: customer.address || null,
+      notes: customer.notes || null,
+      creditLimit: customer.creditLimit || 0,
+      dueDay: customer.dueDay || null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    res.status(201).json({ ...customer, creditLimit: customer.creditLimit || 0, dueDay: customer.dueDay || null, createdAt: now, updatedAt: now });
+  } catch (err) {
+    console.error('Error creating customer:', err);
+    res.status(500).json({ error: 'Failed to create customer.' });
+  }
+});
+
+// UPDATE customer
+app.put('/api/customers/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const customer = req.body;
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      UPDATE customers
+      SET name = @name, nickname = @nickname, cpf = @cpf, phone = @phone, 
+          email = @email, address = @address, notes = @notes, creditLimit = @creditLimit, dueDay = @dueDay, updatedAt = @updatedAt
+      WHERE id = @id
+    `);
+    const result = stmt.run({
+      id,
+      name: customer.name,
+      nickname: customer.nickname || null,
+      cpf: customer.cpf || null,
+      phone: customer.phone || null,
+      email: customer.email || null,
+      address: customer.address || null,
+      notes: customer.notes || null,
+      creditLimit: customer.creditLimit || 0,
+      dueDay: customer.dueDay || null,
+      updatedAt: now,
+    });
+    if (result.changes > 0) {
+      res.status(200).json({ ...customer, id, updatedAt: now });
+    } else {
+      res.status(404).json({ error: 'Customer not found.' });
+    }
+  } catch (err) {
+    console.error('Error updating customer:', err);
+    res.status(500).json({ error: 'Failed to update customer.' });
+  }
+});
+
+// DELETE customer (only if no debts)
+app.delete('/api/customers/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if customer has debts
+    const debts = db.prepare('SELECT COUNT(*) as count FROM customer_debts WHERE customerId = ?').get(id);
+    if (debts.count > 0) {
+      return res.status(400).json({ error: 'Cannot delete customer with existing debts. Remove debts first.' });
+    }
+    
+    const stmt = db.prepare('DELETE FROM customers WHERE id = ?');
+    const result = stmt.run(id);
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Customer deleted successfully.' });
+    } else {
+      res.status(404).json({ error: 'Customer not found.' });
+    }
+  } catch (err) {
+    console.error('Error deleting customer:', err);
+    res.status(500).json({ error: 'Failed to delete customer.' });
+  }
+});
+
+// --- Customer Debts CRUD ---
+// GET all customer debts (with customer names via JOIN)
+app.get('/api/customer-debts', (req, res) => {
+  try {
+    const debts = db.prepare(`
+      SELECT cd.*, c.name as customerName, c.nickname as customerNickname
+      FROM customer_debts cd
+      LEFT JOIN customers c ON cd.customerId = c.id
+      ORDER BY cd.purchaseDate DESC
+    `).all();
+    res.json(debts);
+  } catch (err) {
+    console.error('Error fetching customer debts:', err);
+    res.status(500).json({ error: 'Failed to fetch customer debts.' });
+  }
+});
+
+// GET debts for a specific customer
+app.get('/api/customers/:id/debts', (req, res) => {
+  try {
+    const { id } = req.params;
+    const debts = db.prepare(`
+      SELECT * FROM customer_debts 
+      WHERE customerId = ? 
+      ORDER BY purchaseDate DESC
+    `).all(id);
+    res.json(debts);
+  } catch (err) {
+    console.error('Error fetching customer debts:', err);
+    res.status(500).json({ error: 'Failed to fetch customer debts.' });
+  }
+});
+
+// GET customer with total pending debt (for limit validation)
+app.get('/api/customers/:id/balance', (req, res) => {
+  try {
+    const { id } = req.params;
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found.' });
+    }
+    
+    const debtTotal = db.prepare(`
+      SELECT COALESCE(SUM(totalValue), 0) as total 
+      FROM customer_debts 
+      WHERE customerId = ? AND status IN ('Pendente', 'Atrasado')
+    `).get(id);
+    
+    res.json({
+      ...customer,
+      totalDebt: debtTotal.total,
+      availableCredit: (customer.creditLimit || 0) - debtTotal.total,
+    });
+  } catch (err) {
+    console.error('Error fetching customer balance:', err);
+    res.status(500).json({ error: 'Failed to fetch customer balance.' });
+  }
+});
+
+// CREATE customer debt
+app.post('/api/customer-debts', (req, res) => {
+  try {
+    const debt = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO customer_debts (id, customerId, purchaseDate, description, totalValue, status, userName)
+      VALUES (@id, @customerId, @purchaseDate, @description, @totalValue, @status, @userName)
+    `);
+    stmt.run({
+      ...debt,
+      status: debt.status || 'Pendente',
+    });
+    res.status(201).json(debt);
+  } catch (err) {
+    console.error('Error creating customer debt:', err);
+    res.status(500).json({ error: 'Failed to create customer debt.' });
+  }
+});
+
+// UPDATE customer debt (change status, mark as paid)
+app.put('/api/customer-debts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, paidAt } = req.body;
+    
+    const stmt = db.prepare(`
+      UPDATE customer_debts
+      SET status = @status, paidAt = @paidAt
+      WHERE id = @id
+    `);
+    const result = stmt.run({ id, status, paidAt: paidAt || null });
+    
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Debt updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Debt not found.' });
+    }
+  } catch (err) {
+    console.error('Error updating customer debt:', err);
+    res.status(500).json({ error: 'Failed to update customer debt.' });
+  }
+});
+
+// DELETE customer debt
+app.delete('/api/customer-debts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const stmt = db.prepare('DELETE FROM customer_debts WHERE id = ?');
+    const result = stmt.run(id);
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Debt deleted successfully.' });
+    } else {
+      res.status(404).json({ error: 'Debt not found.' });
+    }
+  } catch (err) {
+    console.error('Error deleting customer debt:', err);
+    res.status(500).json({ error: 'Failed to delete customer debt.' });
+  }
+});
+
+// --- Debtors Report (aggregated) ---
+// GET customers with pending/overdue debts, ordered by total owed (highest first)
+app.get('/api/debtors-report', (req, res) => {
+  try {
+    const debtors = db.prepare(`
+      SELECT 
+        c.id,
+        c.name,
+        c.nickname,
+        c.phone,
+        c.dueDay,
+        COUNT(cd.id) as debtCount,
+        SUM(cd.totalValue) as totalOwed,
+        MAX(CASE WHEN cd.status = 'Atrasado' THEN 1 ELSE 0 END) as hasOverdueManual
+      FROM customers c
+      INNER JOIN customer_debts cd ON c.id = cd.customerId
+      WHERE cd.status IN ('Pendente', 'Atrasado')
+      GROUP BY c.id
+      ORDER BY totalOwed DESC
+    `).all();
+
+    const currentDay = new Date().getDate();
+    const debtorsWithStatus = debtors.map(d => ({
+      ...d,
+      hasOverdue: (d.hasOverdueManual === 1) || (d.dueDay && currentDay > d.dueDay) ? 1 : 0
+    }));
+
+    res.json(debtorsWithStatus);
+  } catch (err) {
+    console.error('Error fetching debtors report:', err);
+    res.status(500).json({ error: 'Failed to fetch debtors report.' });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });

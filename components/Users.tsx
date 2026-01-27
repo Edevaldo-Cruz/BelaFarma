@@ -13,6 +13,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { useToast } from './ToastContext';
 
 interface UsersProps {
   currentUser: User;
@@ -22,6 +23,7 @@ interface UsersProps {
 }
 
 export const Users: React.FC<UsersProps> = ({ currentUser, users, onAdd, onDelete }) => {
+  const { addToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -45,7 +47,7 @@ export const Users: React.FC<UsersProps> = ({ currentUser, users, onAdd, onDelet
 
   const handleDeleteClick = async (userToDelete: User) => {
     if (userToDelete.id === currentUser.id) {
-      alert('Ação Negada: Você não pode excluir seu próprio acesso de administrador enquanto está logado.');
+      addToast('Ação Negada: Você não pode excluir seu próprio acesso de administrador enquanto está logado.', 'error');
       return;
     }
 

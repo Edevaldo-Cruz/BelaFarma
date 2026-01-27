@@ -76,7 +76,7 @@ export interface CashClosingRecord {
   pix: number;
   userName: string;
   totalCrediario: number;
-  crediarioList: Array<{ id: string, client: string, val: number }>;
+  crediarioList: Array<{ id: string, client: string, val: number, customerId?: string }>;
 }
 
 export interface SafeEntry {
@@ -100,7 +100,7 @@ export interface DailyRecordEntry {
 
   pixDiretoList?: Array<{ id: string, desc: string, val: number }>;
 
-  crediarioList?: Array<{ id: string, client: string, val: number }>;
+  crediarioList?: Array<{ id: string, client: string, val: number, customerId?: string }>;
 
   userName: string;
 
@@ -232,4 +232,44 @@ export interface FixedAccount {
   isActive: boolean;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts';
+// CRM Module Types
+export interface Customer {
+  id: string;
+  name: string;           // Required identifier
+  nickname?: string;
+  cpf?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+  creditLimit?: number;   // Credit limit for crediário
+  dueDay?: number;        // Due day for payment (1-31)
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerDebt {
+  id: string;
+  customerId: string;
+  customerName?: string;  // Populated via JOIN for display
+  customerNickname?: string;
+  purchaseDate: string;
+  description?: string;
+  totalValue: number;
+  status: 'Pendente' | 'Pago' | 'Atrasado';
+  paidAt?: string;
+  userName: string;
+}
+
+export interface DebtorReport {
+  id: string;
+  name: string;
+  nickname?: string;
+  phone?: string;
+  dueDay?: number;
+  debtCount: number;
+  totalOwed: number;
+  hasOverdue: number;  // 0 or 1
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report';

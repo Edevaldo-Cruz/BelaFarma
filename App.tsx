@@ -18,6 +18,8 @@ import { DaysInDebt } from "./components/DaysInDebt";
 import { CrediarioReport } from "./components/CrediarioReport";
 import { TaskManagementPage } from "./components/TaskManagementPage";
 import { FixedAccountsPage } from "./components/FixedAccountsPage";
+import { CustomersPage } from "./components/CustomersPage";
+import { DebtorsReport } from "./components/DebtorsReport";
 import {
   Order,
   View,
@@ -35,6 +37,7 @@ import {
   FixedAccount,
 } from "./types";
 import { Loader2 } from "lucide-react";
+import { useToast } from "./components/ToastContext";
 
 const LOGOUT_TIME = 15 * 60 * 1000;
 
@@ -57,6 +60,7 @@ const App: React.FC = () => {
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const { addToast } = useToast();
 
   const logoutTimerRef = useRef<number | null>(null);
 
@@ -72,7 +76,7 @@ const App: React.FC = () => {
     if (user) {
       logoutTimerRef.current = window.setTimeout(() => {
         handleLogout();
-        alert("Sessão expirada por inatividade.");
+        addToast("Sessão expirada por inatividade.", "warning");
       }, LOGOUT_TIME);
     }
   };
@@ -371,7 +375,7 @@ const App: React.FC = () => {
       if (!response.ok) {
         // Handle specific errors, like duplicate access key
         if (response.status === 409) {
-          alert("Erro: Chave de acesso já está em uso.");
+          addToast("Erro: Chave de acesso já está em uso.", "error");
         }
         throw new Error("Server responded with an error.");
       }
@@ -622,6 +626,15 @@ const App: React.FC = () => {
                   onLog={(act, det) => createLog("Tarefas", act, det)} 
                   onRefreshTasks={fetchData}
                 />
+              )}
+              {currentView === 'customers' && (
+                <CustomersPage 
+                  user={user} 
+                  onLog={(act, det) => createLog('Sistema', act, det)}
+                />
+              )}
+              {currentView === 'debtors-report' && user.role === UserRole.ADM && (
+                <DebtorsReport />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

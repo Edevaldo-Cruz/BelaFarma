@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Trash2, Pencil, Save, X, AlertCircle, 
-  CheckCircle2, ShoppingBag, DollarSign
+  CheckCircle2, ShoppingBag, DollarSign, UserPlus, Search, AlertTriangle
 } from 'lucide-react';
-import { User, DailyRecordEntry } from '../types';
+import { useToast } from './ToastContext';
+import { User, DailyRecordEntry, Customer } from '../types';
 
 interface DailyRecordsProps {
   user: User;
@@ -30,6 +31,7 @@ interface CrediarioItem {
   id: string;
   client: string;
   val: number;
+  customerId?: string;
 }
 
 interface NonRegisteredItem {
@@ -39,14 +41,26 @@ interface NonRegisteredItem {
 }
 
 export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRecords, onSave }) => {
+  const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('expenses');
   const [todayRecord, setTodayRecord] = useState<DailyRecordEntry | null>(null);
   
   // Form states for each category
   const [expenseForm, setExpenseForm] = useState({ desc: '', val: '' });
   const [pixForm, setPixForm] = useState({ desc: '', val: '' });
-  const [crediarioForm, setCrediarioForm] = useState({ client: '', val: '' });
+  const [crediarioForm, setCrediarioForm] = useState({ customerId: '', client: '', val: '' });
   const [nonRegForm, setNonRegForm] = useState({ desc: '', val: '' });
+  
+  // Customer selection states
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerBalance, setCustomerBalance] = useState<{ totalDebt: number; availableCredit: number; creditLimit: number } | null>(null);
+  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerDueDay, setNewCustomerDueDay] = useState('');
+  const [creditLimitWarning, setCreditLimitWarning] = useState<string | null>(null);
   
   // Editing states
   const [editingItem, setEditingItem] = useState<{ type: TabType; id: string } | null>(null);
@@ -55,6 +69,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   // Loading and feedback states
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
 
   // Get today's date in YYYY-MM-DD format
   const getTodayDate = () => {
@@ -109,6 +124,100 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
     }
   }, [dailyRecords, user.name]);
 
+  // Fetch customers for crediário dropdown
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        const response = await fetch('/api/customers');
+        const data = await response.json();
+        setCustomers(data);
+      } catch (error) {
+        console.error('Error fetching customers:', error);
+      }
+    };
+    fetchCustomers();
+  }, []);
+
+  // Filtered customers based on search
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch) return customers;
+    const term = customerSearch.toLowerCase();
+    return customers.filter(c => 
+      c.name.toLowerCase().includes(term) ||
+      c.nickname?.toLowerCase().includes(term)
+    );
+  }, [customers, customerSearch]);
+
+  // Fetch customer balance when selected
+  const selectCustomer = async (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setCrediarioForm({ ...crediarioForm, customerId: customer.id, client: customer.name });
+    setCustomerSearch(customer.nickname ? `${customer.name} (${customer.nickname})` : customer.name);
+    setShowCustomerDropdown(false);
+    setCreditLimitWarning(null);
+
+    // Fetch balance for limit validation
+    try {
+      const response = await fetch(`/api/customers/${customer.id}/balance`);
+      const data = await response.json();
+      setCustomerBalance({
+        totalDebt: data.totalDebt,
+        availableCredit: data.availableCredit,
+        creditLimit: data.creditLimit || 0,
+      });
+    } catch (error) {
+      console.error('Error fetching customer balance:', error);
+    }
+  };
+
+  // Validate credit limit when value changes
+  const validateCreditLimit = (value: string) => {
+    if (!selectedCustomer || !customerBalance) return;
+    
+    const newValue = parseCurrency(value);
+    const creditLimit = customerBalance.creditLimit;
+    
+    if (creditLimit > 0) {
+      const newTotal = customerBalance.totalDebt + newValue;
+      if (newTotal > creditLimit) {
+        setCreditLimitWarning(`Atenção: Este cliente tem limite de ${formatCurrency(creditLimit)} e já possui ${formatCurrency(customerBalance.totalDebt)} em débitos. O novo total será ${formatCurrency(newTotal)}.`);
+      } else {
+        setCreditLimitWarning(null);
+      }
+    }
+  };
+
+  // Create new customer inline
+  const createNewCustomer = async () => {
+    if (!newCustomerName.trim()) return;
+    
+    const newCustomer = {
+      id: Date.now().toString(),
+      name: newCustomerName.trim(),
+      creditLimit: 150.00, // Default credit limit
+      dueDay: newCustomerDueDay ? parseInt(newCustomerDueDay, 10) : undefined,
+    };
+
+    try {
+      const response = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCustomer),
+      });
+      if (response.ok) {
+        const created = await response.json();
+        setCustomers([...customers, created]);
+        selectCustomer(created);
+        setShowNewCustomerForm(false);
+        setNewCustomerName('');
+        setNewCustomerDueDay('');
+        onLog('Cadastrou Cliente', `Cliente: ${newCustomerName} (via crediário)`);
+      }
+    } catch (error) {
+      console.error('Error creating customer:', error);
+    }
+  };
+
   // Format currency
   const formatCurrency = (value: number) => {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -118,6 +227,18 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   const parseCurrency = (value: string): number => {
     const cleaned = value.replace(/\D/g, '');
     return (parseInt(cleaned, 10) || 0) / 100;
+  };
+
+  // Currency Mask Handler
+  const handleCurrencyMask = (value: string, setFunction: (val: string) => void) => {
+    let numeric = value.replace(/\D/g, ''); // Remove all non-digits
+    if (!numeric) {
+      setFunction('');
+      return;
+    }
+    const floatValue = parseInt(numeric, 10) / 100;
+    const formatted = floatValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    setFunction(formatted);
   };
 
   // Save record to backend
@@ -150,7 +271,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
       onLog('Lançamento Diário', `${isNew ? 'Criou' : 'Atualizou'} lançamento diário`);
     } catch (error) {
       console.error('Error saving record:', error);
-      alert('Erro ao salvar lançamento. Tente novamente.');
+      addToast('Erro ao salvar lançamento. Tente novamente.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -188,13 +309,54 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
 
       case 'crediario':
         if (!crediarioForm.client || !crediarioForm.val) return;
+        
+        const numericVal = parseCurrency(crediarioForm.val);
+        const debtId = Date.now().toString();
+        
+        // If linked to a customer, create the debt in the backend immediately
+        if (crediarioForm.customerId) {
+          try {
+            const debtPayload = {
+              id: debtId,
+              customerId: crediarioForm.customerId,
+              purchaseDate: getTodayDate(),
+              description: 'Compra Crediário',
+              totalValue: numericVal,
+              status: 'Pendente',
+              userName: user.name
+            };
+            
+            const response = await fetch('/api/customer-debts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(debtPayload)
+            });
+            
+            if (!response.ok) {
+              addToast('Erro ao criar registro de dívida. Verifique sua conexão.', 'error');
+              return;
+            }
+          } catch (error) {
+            console.error('Error creating debt:', error);
+            addToast('Erro ao criar registro de dívida.', 'error');
+            return;
+          }
+        }
+
         newItem = {
-          id: Date.now().toString(),
+          id: debtId,
           client: crediarioForm.client,
-          val: parseCurrency(crediarioForm.val),
+          val: numericVal,
+          customerId: crediarioForm.customerId || undefined
         };
         updatedRecord.crediarioList = [...updatedRecord.crediarioList, newItem];
-        setCrediarioForm({ client: '', val: '' });
+        
+        // Reset form
+        setCrediarioForm({ customerId: '', client: '', val: '' });
+        setCustomerSearch('');
+        setSelectedCustomer(null);
+        setCustomerBalance(null);
+        setCreditLimitWarning(null);
         break;
 
       case 'non-registered':
@@ -297,6 +459,15 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         updatedRecord.pixDiretoList = updatedRecord.pixDiretoList.filter(p => p.id !== id);
         break;
       case 'crediario':
+        // If item has a linked customer debt, delete it from backend
+        const itemToDelete = updatedRecord.crediarioList.find(c => c.id === id);
+        if (itemToDelete?.customerId) {
+          try {
+            await fetch(`/api/customer-debts/${id}`, { method: 'DELETE' });
+          } catch (error) {
+            console.error('Error deleting debt:', error);
+          }
+        }
         updatedRecord.crediarioList = updatedRecord.crediarioList.filter(c => c.id !== id);
         break;
       case 'non-registered':
@@ -390,7 +561,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
                 type="text"
                 placeholder="R$ 0,00"
                 value={expenseForm.val}
-                onChange={(e) => setExpenseForm({ ...expenseForm, val: e.target.value })}
+                onChange={(e) => handleCurrencyMask(e.target.value, (val) => setExpenseForm({ ...expenseForm, val: val }))}
                 className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-red-600 outline-none focus:ring-2 focus:ring-red-500"
               />
               <button
@@ -407,7 +578,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
             <div className="flex gap-3">
               <input
                 type="text"
-                placeholder="Descrição do PIX..."
+                placeholder="Descrição do Pix..."
                 value={pixForm.desc}
                 onChange={(e) => setPixForm({ ...pixForm, desc: e.target.value })}
                 className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-cyan-500"
@@ -416,7 +587,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
                 type="text"
                 placeholder="R$ 0,00"
                 value={pixForm.val}
-                onChange={(e) => setPixForm({ ...pixForm, val: e.target.value })}
+                onChange={(e) => handleCurrencyMask(e.target.value, (val) => setPixForm({ ...pixForm, val: val }))}
                 className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-cyan-600 outline-none focus:ring-2 focus:ring-cyan-500"
               />
               <button
@@ -430,28 +601,166 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
           )}
 
           {activeTab === 'crediario' && (
-            <div className="flex gap-3">
-              <input
-                type="text"
-                placeholder="Nome do cliente..."
-                value={crediarioForm.client}
-                onChange={(e) => setCrediarioForm({ ...crediarioForm, client: e.target.value })}
-                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-amber-500"
-              />
-              <input
-                type="text"
-                placeholder="R$ 0,00"
-                value={crediarioForm.val}
-                onChange={(e) => setCrediarioForm({ ...crediarioForm, val: e.target.value })}
-                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-amber-600 outline-none focus:ring-2 focus:ring-amber-500"
-              />
-              <button
-                onClick={() => addItem('crediario')}
-                disabled={isSaving}
-                className="px-6 py-3 bg-amber-600 text-white rounded-2xl font-black text-sm hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                {/* Customer Search Dropdown */}
+                <div className="flex-1 relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar cliente cadastrado..."
+                      value={customerSearch}
+                      onChange={(e) => {
+                        setCustomerSearch(e.target.value);
+                        setShowCustomerDropdown(true);
+                        if (!e.target.value) {
+                          setSelectedCustomer(null);
+                          setCrediarioForm({ ...crediarioForm, customerId: '', client: '' });
+                          setCustomerBalance(null);
+                          setCreditLimitWarning(null);
+                        }
+                      }}
+                      onFocus={() => setShowCustomerDropdown(true)}
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  
+                  {/* Dropdown */}
+                  {showCustomerDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
+                      {filteredCustomers.length > 0 ? (
+                        filteredCustomers.map(customer => (
+                          <button
+                            key={customer.id}
+                            onClick={() => selectCustomer(customer)}
+                            className="w-full px-4 py-3 text-left hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors flex justify-between items-center"
+                          >
+                            <div>
+                              <span className="font-bold text-slate-800 dark:text-white">{customer.name}</span>
+                              {customer.nickname && (
+                                <span className="text-xs text-slate-500 ml-2">({customer.nickname})</span>
+                              )}
+                            </div>
+                            {customer.creditLimit && customer.creditLimit > 0 && (
+                              <span className="text-xs text-slate-500">
+                                Limite: {formatCurrency(customer.creditLimit)}
+                              </span>
+                            )}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="p-3 text-center text-slate-500 text-sm">
+                          Nenhum cliente encontrado
+                        </div>
+                      )}
+                      
+                      {/* Create new customer option */}
+                      <button
+                        onClick={() => {
+                          setShowNewCustomerForm(true);
+                          setShowCustomerDropdown(false);
+                          setShowCustomerDropdown(false);
+                          setNewCustomerName(customerSearch);
+                          setNewCustomerDueDay('');
+                        }}
+                        className="w-full px-4 py-3 text-left bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors flex items-center gap-2 border-t border-slate-200 dark:border-slate-700"
+                      >
+                        <UserPlus className="w-4 h-4 text-amber-600" />
+                        <span className="font-bold text-amber-700">Cadastrar novo cliente</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Value input */}
+                <input
+                  type="text"
+                  placeholder="R$ 0,00"
+                  value={crediarioForm.val}
+                  onChange={(e) => {
+                    handleCurrencyMask(e.target.value, (val) => {
+                        setCrediarioForm({ ...crediarioForm, val: val });
+                        validateCreditLimit(val);
+                    });
+                  }}
+                  className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-amber-600 outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                
+                <button
+                  onClick={() => addItem('crediario')}
+                  disabled={isSaving || !crediarioForm.customerId}
+                  className="px-6 py-3 bg-amber-600 text-white rounded-2xl font-black text-sm hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* New Customer Inline Form */}
+              {showNewCustomerForm && (
+                <div className="flex gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                  <input
+                    type="text"
+                    placeholder="Nome do novo cliente..."
+                    value={newCustomerName}
+                    onChange={(e) => setNewCustomerName(e.target.value)}
+                    className="flex-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none focus:border-amber-500"
+                    autoFocus
+                  />
+                  <select
+                    value={newCustomerDueDay}
+                    onChange={(e) => setNewCustomerDueDay(e.target.value)}
+                    className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none focus:border-amber-500"
+                  >
+                    <option value="">Vencimento</option>
+                    {[...Array(31)].map((_, i) => (
+                      <option key={i + 1} value={i + 1}>Dia {i + 1}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={createNewCustomer}
+                    className="px-4 py-2 bg-amber-600 text-white rounded-xl font-bold text-sm hover:bg-amber-700 transition-colors"
+                  >
+                    Cadastrar
+                  </button>
+                  <button
+                    onClick={() => { setShowNewCustomerForm(false); setNewCustomerName(''); setNewCustomerDueDay(''); }}
+                    className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-sm hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+
+              {/* Credit Limit Warning */}
+              {creditLimitWarning && (
+                <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-700 dark:text-red-400 font-medium">{creditLimitWarning}</p>
+                </div>
+              )}
+
+              {/* Customer Balance Info */}
+              {selectedCustomer && customerBalance && customerBalance.creditLimit > 0 && (
+                <div className="flex items-center justify-between px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                  <span className="text-xs font-bold text-slate-500 uppercase">
+                    {selectedCustomer.name}
+                  </span>
+                  <div className="flex gap-4 text-xs">
+                    <span>
+                      Limite: <span className="font-black text-slate-800 dark:text-white">{formatCurrency(customerBalance.creditLimit)}</span>
+                    </span>
+                    <span>
+                      Usado: <span className="font-black text-amber-600">{formatCurrency(customerBalance.totalDebt)}</span>
+                    </span>
+                    <span>
+                      Disponível: <span className={`font-black ${customerBalance.availableCredit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {formatCurrency(customerBalance.availableCredit)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -468,7 +777,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
                 type="text"
                 placeholder="R$ 0,00"
                 value={nonRegForm.val}
-                onChange={(e) => setNonRegForm({ ...nonRegForm, val: e.target.value })}
+                onChange={(e) => handleCurrencyMask(e.target.value, (val) => setNonRegForm({ ...nonRegForm, val: val }))}
                 className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-blue-600 outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button

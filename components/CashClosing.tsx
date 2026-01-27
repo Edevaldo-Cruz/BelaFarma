@@ -8,6 +8,7 @@ import {
   ChevronUp,
   ChevronDown
 } from 'lucide-react';
+import { useToast } from './ToastContext';
 import { User, SafeEntry, CashClosingRecord, DailyRecordEntry } from '../types';
 
 interface CashClosingProps {
@@ -36,6 +37,7 @@ const denominations = [
 ];
 
 export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog, onSave, dailyRecords, onMarkDailyRecordsProcessed }) => {
+  const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState<'closing' | 'history'>('history');
   const [currentStep, setCurrentStep] = useState<Step>('sales');
   
@@ -339,7 +341,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
           
           // Validate safe deposit before processing
           if (safeDepositValue > totalInDrawer) {
-            alert(`O valor de retirada (R$ ${safeDepositValue}) não pode ser maior que o valor em gaveta (R$ ${totalInDrawer}).`);
+            addToast(`O valor de retirada (R$ ${safeDepositValue}) não pode ser maior que o valor em gaveta (R$ ${totalInDrawer}).`, 'error');
             return;
           }
 
@@ -483,7 +485,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   
 
-            alert("Fechamento concluído!");
+            addToast("Fechamento concluído!", 'success');
 
   
 
@@ -500,14 +502,14 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   
 
-            alert('Erro ao salvar o fechamento de caixa. Tente novamente.\nDetalhes: ' + error.message);
+            addToast('Erro ao salvar o fechamento de caixa. Tente novamente.', 'error');
 
           }
         };
 
         const handleSavePrevDaySales = async () => {
           if (prevSalesValue <= 0 || !selectedPrevDate) {
-            alert('Por favor, informe a data e o valor da venda.');
+            addToast('Por favor, informe a data e o valor da venda.', 'warning');
             return;
           }
 
@@ -547,10 +549,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
             if (onSave) onSave();
             onLog('Venda Retroativa', `Data: ${selectedPrevDate}, Valor: ${formatCurrency(prevSalesValue)}`);
             setIsPrevDayModalOpen(false);
-            alert("Venda lançada com sucesso!");
-          } catch (error) {
+            addToast("Venda lançada com sucesso!", 'success');
+          } catch (error: any) {
             console.error('Error saving prev day sales:', error);
-            alert('Erro ao salvar: ' + (error as any).message);
+            addToast('Erro ao salvar: ' + (error as any).message, 'error');
           }
         };
 
@@ -587,7 +589,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                 }
                 
                 if (!found) {
-                  alert("Não há dias disponíveis para lançamento nos últimos 45 dias.");
+                  addToast("Não há dias disponíveis para lançamento nos últimos 45 dias.", 'info');
                   return;
                 }
                 

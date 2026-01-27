@@ -27,6 +27,7 @@ import {
   Boleto,
   BoletoStatus
 } from '../types';
+import { useToast } from './ToastContext';
 import { OrderForm } from './OrderForm';
 
 interface OrdersProps {
@@ -39,6 +40,7 @@ interface OrdersProps {
 }
 
 export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, onDelete, onUpdateBoletos }) => {
+  const { addToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -122,7 +124,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
 
     if (tempStatus === OrderStatus.ENTREGUE) {
       if (!invoiceInput) {
-        alert("O número da Nota Fiscal é obrigatório para entregas.");
+        addToast("O número da Nota Fiscal é obrigatório para entregas.", "warning");
         return;
       }
       updatedData.invoiceNumber = invoiceInput;

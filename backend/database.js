@@ -182,6 +182,36 @@ try {
       );
     `;
 
+    // CRM Module Tables
+    const createCustomersTable = `
+      CREATE TABLE IF NOT EXISTS customers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        nickname TEXT,
+        cpf TEXT,
+        phone TEXT,
+        email TEXT,
+        address TEXT,
+        notes TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `;
+
+    const createCustomerDebtsTable = `
+      CREATE TABLE IF NOT EXISTS customer_debts (
+        id TEXT PRIMARY KEY,
+        customerId TEXT NOT NULL,
+        purchaseDate TEXT NOT NULL,
+        description TEXT,
+        totalValue REAL NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        paidAt TEXT,
+        userName TEXT NOT NULL,
+        FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE RESTRICT
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -195,6 +225,8 @@ try {
     db.exec(createMonthlyLimitsTable);
     db.exec(createDailyRecordsTable);
     db.exec(createFixedAccountsTable);
+    db.exec(createCustomersTable);
+    db.exec(createCustomerDebtsTable);
     // --- Boletos Table Migrations ---
     // Add supplierName column if it doesn't exist
     try {
@@ -327,6 +359,23 @@ try {
       }
     } catch (e) {
       console.error('Error migrating old records:', e);
+    }
+
+    // CRM: Add creditLimit column to customers table if it doesn't exist
+    try {
+      db.prepare('SELECT creditLimit FROM customers LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE customers ADD COLUMN creditLimit REAL DEFAULT 0');
+      console.log('Added creditLimit column to customers table.');
+    }
+
+    // CRM: Add dueDay column to customers table if it doesn't exist
+    try {
+      db.prepare('SELECT dueDay FROM customers LIMIT 1').get();
+    } catch (e) {
+      // Default dueDay to current day or null? Null is better.
+      db.exec('ALTER TABLE customers ADD COLUMN dueDay INTEGER');
+      console.log('Added dueDay column to customers table.');
     }
 
     console.log('Tabelas verificadas/criadas com sucesso.');

@@ -25,7 +25,8 @@ import {
   Sun,
   Moon,
   Database,
-  Bell // Added Bell icon
+  Bell,
+  AlertTriangle // Added for Devedores menu item
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -59,11 +60,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const notificationRef = React.useRef<HTMLDivElement>(null);
   const isAdmin = user.role === UserRole.ADM;
 
+  const [hasOverdue, setHasOverdue] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    const checkOverdue = async () => {
+      try {
+        const res = await fetch('/api/debtors-report');
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setHasOverdue(data.some((d: any) => d.hasOverdue === 1));
+        }
+      } catch (error) {
+        console.error('Error checking overdue status:', error);
+      }
+    };
+    checkOverdue();
+    // Check every minute
+    const interval = setInterval(checkOverdue, 60000);
+    return () => clearInterval(interval);
+  }, [isAdmin, currentView]);
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'logs', label: 'Auditoria', icon: History },
+    { id: 'customers', label: 'Clientes', icon: UsersIcon },
     { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
+    { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'financial', label: 'Financeiro', icon: Wallet },
     { id: 'task-management', label: 'Ger. Tarefas', icon: ClipboardCheck },
@@ -78,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'crediario-report']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'crediario-report', 'debtors-report']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });
@@ -246,7 +269,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }`}
                 >
                   <Icon className={`w-5 h-5 ${isActive ? 'text-red-600 dark:text-red-500' : 'text-slate-400 dark:text-slate-600'}`} />
-                  {item.label}
+                  <span className="truncate">{item.label}</span>
+                  {item.id === 'debtors-report' && hasOverdue && (
+                    <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
+                  )}
                 </button>
               );
             })}
