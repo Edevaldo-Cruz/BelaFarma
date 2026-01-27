@@ -17,10 +17,12 @@ import { ContasAPagar } from "./components/ContasAPagar";
 import { DaysInDebt } from "./components/DaysInDebt";
 import { CrediarioReport } from "./components/CrediarioReport";
 import { TaskManagementPage } from "./components/TaskManagementPage";
+import { FixedAccountsPage } from "./components/FixedAccountsPage";
 import {
   Order,
   View,
   User,
+  Task,
   UserRole,
   OrderStatus,
   ProductShortage,
@@ -28,6 +30,9 @@ import {
   Boleto,
   BoletoStatus,
   MonthlyLimit,
+  DailyRecordEntry,
+  CashClosingRecord,
+  FixedAccount,
 } from "./types";
 import { Loader2 } from "lucide-react";
 
@@ -43,6 +48,13 @@ const App: React.FC = () => {
   const [boletos, setBoletos] = useState<Boleto[]>([]);
   const [monthlyLimits, setMonthlyLimits] = useState<MonthlyLimit[]>([]);
   const [cashClosings, setCashClosings] = useState<CashClosingRecord[]>([]);
+  const [dailyRecords, setDailyRecords] = useState<DailyRecordEntry[]>([]);
+  const [fixedAccounts, setFixedAccounts] = useState<FixedAccount[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('belafarma_theme');
+    return (saved as 'light' | 'dark') || 'light';
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -81,6 +93,15 @@ const App: React.FC = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    localStorage.setItem('belafarma_theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
   const fetchData = async () => {
     setIsLoading(true);
     console.log("fetchData: Iniciando...");
@@ -93,6 +114,14 @@ const App: React.FC = () => {
       const data = await response.json();
       console.log("fetchData: Dados processados.", data);
 
+      // Fetch tasks separately since it was not in all-data earlier, 
+      // but let's assume we'll update the backend or just fetch it here for now.
+      const tasksResponse = await fetch('/api/tasks?includeArchived=false');
+      if (tasksResponse.ok) {
+        const tasksData = await tasksResponse.json();
+        setTasks(tasksData);
+      }
+
       setOrders(data.orders.documents || []);
       setUsers(data.users.documents || []);
       setShortages(data.shortages.documents || []);
@@ -100,6 +129,8 @@ const App: React.FC = () => {
       setBoletos(data.boletos.documents || []);
       setMonthlyLimits(data.monthlyLimits.documents || []);
       setCashClosings(data.cashClosings.documents || []);
+      setDailyRecords(data.dailyRecords.documents || []);
+      setFixedAccounts(data.fixedAccounts.documents || []);
     } catch (err) {
       console.error("fetchData: Erro ao buscar dados do backend:", err);
       // Aqui você poderia implementar uma lógica de fallback ou mostrar um erro para o usuário
@@ -404,6 +435,74 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateBoleto = async (updatedBoleto: Boleto) => {
+    const originalBoletos = [...boletos];
+    setBoletos(boletos.map(b => b.id === updatedBoleto.id ? updatedBoleto : b));
+    createLog("Financeiro", "Atualizou Boleto", `ID: ${updatedBoleto.id}, Valor: R$ ${updatedBoleto.value}`);
+
+    try {
+      const response = await fetch(`/api/boletos/${updatedBoleto.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedBoleto),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to update boleto on server.');
+      }
+    } catch (e) {
+      console.error("Failed to update boleto:", e);
+      setBoletos(originalBoletos); // Rollback on error
+    }
+  };
+
+  const handleDeleteBoleto = async (boletoId: string) => {
+    const originalBoletos = [...boletos];
+    const boletoToDelete = boletos.find(b => b.id === boletoId);
+    if (!boletoToDelete) return;
+
+    setBoletos(boletos.filter(b => b.id !== boletoId));
+    createLog("Financeiro", "Excluiu Boleto", `Fornecedor: ${boletoToDelete.supplierName}, Valor: R$ ${boletoToDelete.value}`);
+
+    try {
+      const response = await fetch(`/api/boletos/${boletoId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete boleto on server.');
+      }
+    } catch (e) {
+      console.error("Failed to delete boleto:", e);
+      setBoletos(originalBoletos); // Rollback on error
+    }
+  };
+
+  const markDailyRecordsProcessed = async (recordIds: string[], cashClosingId: string) => {
+    console.log('=== App.tsx markDailyRecordsProcessed called ===');
+    console.log('Record IDs:', recordIds);
+    console.log('Cash Closing ID:', cashClosingId);
+    
+    try {
+      const response = await fetch('/api/daily-records/mark-processed', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordIds }),
+      });
+      
+      console.log('Mark processed response:', response.status, response.statusText);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Mark processed result:', data);
+      }
+      
+      console.log('Calling fetchData to refresh...');
+      await fetchData(); // Refresh daily records after processing
+      console.log('fetchData completed');
+    } catch (e) {
+      console.error("Failed to mark daily records as processed:", e);
+    }
+  };
+
   if (!user)
     return (
       <Auth
@@ -415,7 +514,7 @@ const App: React.FC = () => {
     );
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
       <Sidebar
         user={user}
         currentView={currentView}
@@ -424,8 +523,12 @@ const App: React.FC = () => {
           createLog("Sistema", "Logout", "Sessão encerrada");
           handleLogout();
         }}
+        theme={theme}
+        setTheme={setTheme}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
+        tasks={tasks}
+        boletos={boletos}
       />
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="max-w-7xl mx-auto pb-10">
@@ -436,7 +539,7 @@ const App: React.FC = () => {
           ) : (
             <>
               {currentView === "dashboard" && (
-                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} />
+                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} />
               )}
               {currentView === "orders" && (
                 <Orders
@@ -461,6 +564,8 @@ const App: React.FC = () => {
                 <DailyRecords
                   user={user}
                   onLog={(act, det) => createLog("Financeiro", act, det)}
+                  dailyRecords={dailyRecords}
+                  onSave={fetchData} // Use fetchData to refresh parent state
                 />
               )}
               {currentView === "cash-closing" && user.role === UserRole.ADM && (
@@ -468,6 +573,9 @@ const App: React.FC = () => {
                   user={user}
                   onFinish={() => setCurrentView("dashboard")}
                   onLog={(act, det) => createLog("Financeiro", act, det)}
+                  onSave={fetchData}
+                  dailyRecords={dailyRecords}
+                  onMarkDailyRecordsProcessed={markDailyRecordsProcessed}
                 />
               )}
               {currentView === "safe" && user.role === UserRole.ADM && (
@@ -477,7 +585,18 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === "financial" && user.role === UserRole.ADM && (
-                <Financial orders={orders} />
+                <Financial 
+                  user={user}
+                  orders={orders} 
+                  boletos={boletos} 
+                  fixedAccounts={fixedAccounts} 
+                  monthlyLimits={monthlyLimits}
+                  onUpdateBoletoStatus={updateBoletoStatus} 
+                  onAddBoleto={addBoleto}
+                  onUpdateBoleto={handleUpdateBoleto}
+                  onDeleteBoleto={handleDeleteBoleto}
+                  onLog={(act, det) => createLog("Financeiro", act, det)}
+                />
               )}
               {currentView === "users" && user.role === UserRole.ADM && (
                 <Users
@@ -493,24 +612,16 @@ const App: React.FC = () => {
               {currentView === "checking-account" && user.role === UserRole.ADM && (
                 <CheckingAccount user={user} />
               )}
-              {currentView === "contas-a-pagar" && user.role === UserRole.ADM && (
-                <ContasAPagar 
-                  user={user}
-                  boletos={boletos} 
-                  orders={orders}
-                  onUpdateBoletoStatus={updateBoletoStatus} 
-                  onAddBoleto={addBoleto}
-                  monthlyLimits={monthlyLimits}
-                />
-              )}
-              {currentView === 'days-in-debt' && user.role === UserRole.ADM && (
-                <DaysInDebt boletos={boletos} orders={orders} />
-              )}
               {currentView === 'crediario-report' && user.role === UserRole.ADM && (
                 <CrediarioReport />
               )}
               {currentView === 'task-management' && (
-                <TaskManagementPage user={user} users={users} onLog={(act, det) => createLog("Tarefas", act, det)} />
+                <TaskManagementPage 
+                  user={user} 
+                  users={users} 
+                  onLog={(act, det) => createLog("Tarefas", act, det)} 
+                  onRefreshTasks={fetchData}
+                />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

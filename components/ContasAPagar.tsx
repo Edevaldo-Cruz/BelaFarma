@@ -8,6 +8,8 @@ import {
   X,
   Save,
   Plus,
+  Pencil, // Added
+  Trash2, // Added
   Calendar as CalendarIcon
 } from 'lucide-react';
 import { Boleto, BoletoStatus, Order, MonthlyLimit, User } from '../types';
@@ -18,21 +20,33 @@ interface ContasAPagarProps {
   boletos: Boleto[];
   orders: Order[];
   onUpdateBoletoStatus: (boletoId: string, status: BoletoStatus) => void;
-  onAddBoleto: (boleto: Partial<Boleto> & { boletoFile?: File }) => void;
+  onAddBoleto: (boleto: Partial<Boleto>) => void;
+  onUpdateBoleto: (boleto: Boleto) => void;
+  onDeleteBoleto: (boletoId: string) => void;
   monthlyLimits: MonthlyLimit[];
 }
 
-export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, orders, onUpdateBoletoStatus, onAddBoleto, monthlyLimits }) => {
+export const ContasAPagar: React.FC<ContasAPagarProps> = ({ 
+  user, 
+  boletos, 
+  orders, 
+  onUpdateBoletoStatus, 
+  onAddBoleto, 
+  onUpdateBoleto,
+  onDeleteBoleto,
+  monthlyLimits 
+}) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [isBoletoFormOpen, setIsBoletoFormOpen] = useState(false);
+  const [boletoToEdit, setBoletoToEdit] = useState<Boleto | null>(null);
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
   const getDueDateStatus = (dueDateStr: string): 'overdue' | 'due-today' | 'due-tomorrow' | 'default' => {
-    const dueDate = new Date(dueDateStr);
+    const dueDate = new Date(dueDateStr + 'T00:00:00');
     dueDate.setHours(0, 0, 0, 0);
     
     const tomorrow = new Date(now);
@@ -46,7 +60,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
   };
 
   const getEffectiveStatus = (boleto: Boleto): BoletoStatus => {
-    const dueDate = new Date(boleto.due_date);
+    const dueDate = new Date(boleto.due_date + 'T00:00:00');
     dueDate.setHours(0, 0, 0, 0);
     
     if (boleto.status === BoletoStatus.PENDENTE && dueDate < now) {
@@ -56,15 +70,13 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
   };
   
   const getOrderForBoleto = (boleto: Boleto): Order | undefined => {
-    // If supplierName is used, order_id might be null or undefined.
-    // In this case, we don't need to find an order by id.
     if (!boleto.order_id) return undefined;
     return orders.find(o => o.id === boleto.order_id);
   }
 
   const filteredBoletos = useMemo(() => {
     return boletos.filter(boleto => {
-      const boletoDate = new Date(boleto.due_date);
+      const boletoDate = new Date(boleto.due_date + 'T00:00:00');
       const matchesMonth = boletoDate.getMonth() === selectedMonth && boletoDate.getFullYear() === selectedYear;
       if (!matchesMonth) return false;
 
@@ -114,10 +126,31 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
     return { value: i, label: d.toLocaleString('pt-BR', { month: 'long' }) };
   });
 
-  const handleSaveBoleto = (boleto: Partial<Boleto> & { boletoFile?: File }) => {
-    // console.log("Boleto data received in ContasAPagar:", boleto); // Debug log
-    onAddBoleto(boleto);
+  const handleSaveBoleto = (boletoData: Partial<Boleto>) => {
+    if (boletoToEdit) {
+      onUpdateBoleto({ ...boletoToEdit, ...boletoData } as Boleto);
+    } else {
+      onAddBoleto(boletoData);
+    }
     setIsBoletoFormOpen(false);
+    setBoletoToEdit(null);
+  };
+  
+  const handleEdit = (boleto: Boleto) => {
+    setBoletoToEdit(boleto);
+    setIsBoletoFormOpen(true);
+  };
+
+  const handleDelete = (boletoId: string) => {
+    // Using window.confirm as a quick solution. A custom modal would be better for UX.
+    if (window.confirm('Tem certeza que deseja excluir este boleto? Esta ação não pode ser desfeita.')) {
+      onDeleteBoleto(boletoId);
+    }
+  };
+  
+  const handleAddNew = () => {
+    setBoletoToEdit(null);
+    setIsBoletoFormOpen(true);
   };
 
   return (
@@ -126,8 +159,12 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
         <BoletoForm
           user={user}
           onSave={handleSaveBoleto}
-          onCancel={() => setIsBoletoFormOpen(false)}
+          onCancel={() => {
+            setIsBoletoFormOpen(false);
+            setBoletoToEdit(null);
+          }}
           orders={orders}
+          boletoToEdit={boletoToEdit}
         />
       )}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -137,7 +174,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
         </div>
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setIsBoletoFormOpen(true)}
+            onClick={handleAddNew}
             className="flex items-center gap-2 px-4 py-3 bg-red-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl transition-all active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" />
@@ -252,7 +289,15 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center justify-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button 
+                          onClick={() => handleEdit(boleto)}
+                          className="p-2 text-slate-400 hover:text-blue-600 rounded-xl transition-colors" 
+                          title="Editar Boleto"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        
                         {getEffectiveStatus(boleto) !== BoletoStatus.PAGO && (
                             <button 
                                 onClick={() => onUpdateBoletoStatus(boleto.id, BoletoStatus.PAGO)}
@@ -262,6 +307,14 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({ user, boletos, order
                                 <CheckCircle2 className="w-4 h-4" />
                             </button>
                         )}
+
+                        <button 
+                          onClick={() => handleDelete(boleto.id)}
+                          className="p-2 text-slate-400 hover:text-red-600 rounded-xl transition-colors" 
+                          title="Excluir Boleto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>

@@ -62,15 +62,15 @@ const SalesChart: React.FC<SalesChartProps> = ({ cashClosings }) => {
     <>
       <div className="flex justify-between items-center mb-6">
         <div>
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <div className="w-1.5 h-6 bg-red-600 rounded-full" />
+            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
                 Vendas Realizadas (por Dia)
             </h2>
-            <p className="text-2xl font-black text-slate-900 mt-1">
+            <p className="text-2xl font-black text-slate-900 dark:text-slate-50 mt-1">
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalMonthSales)}
             </p>
         </div>
-        <select onChange={handleMonthChange} value={`${selectedYear}-${selectedMonth}`} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold">
+        <select onChange={handleMonthChange} value={`${selectedYear}-${selectedMonth}`} className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-slate-200 outline-none">
           {availableMonths.map(({ year, month }) => (
             <option key={`${year}-${month}`} value={`${year}-${month}`}>
               {new Date(year, month).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
@@ -82,16 +82,17 @@ const SalesChart: React.FC<SalesChartProps> = ({ cashClosings }) => {
       <div className="h-64 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={salesByDay} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} />
-            <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `R$${value/1000}k`} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-100 dark:text-slate-800" />
+            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: 'currentColor', fontSize: 10, fontWeight: 'bold' }} className="text-slate-400 dark:text-slate-500" />
+            <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `R$${value/1000}k`} tick={{ fill: 'currentColor', fontSize: 10, fontWeight: 'bold' }} className="text-slate-400 dark:text-slate-500" />
             <Tooltip
-              cursor={{ fill: '#fef2f2' }}
-              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+              cursor={{ fill: 'currentColor', opacity: 0.1 }}
+              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              itemStyle={{ fontWeight: 'bold' }}
               formatter={(value: number) => [new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value), 'Vendas']}
               labelFormatter={(label) => `Dia ${label}`}
             />
-            <Line type="monotone" dataKey="value" name="Vendas" stroke="#dc2626" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+            <Line type="monotone" dataKey="value" name="Vendas" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>

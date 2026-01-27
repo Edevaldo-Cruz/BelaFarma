@@ -11,6 +11,7 @@ import {
   Lock,
   AlertTriangle,
   Truck,
+  BellRing // Added for Sunday alert
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -23,16 +24,19 @@ import {
   Cell
 } from 'recharts';
 import SalesChart from './SalesChart';
-import { Order, OrderStatus, User, UserRole, ProductShortage } from '../types';
+import ExpensesChart from './ExpensesChart';
+import PaymentMethodsChart from './PaymentMethodsChart';
+import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord } from '../types';
 
 interface DashboardProps {
   user: User;
   orders: Order[];
   shortages: ProductShortage[];
   cashClosings: CashClosingRecord[];
+  boletos: Boleto[]; // ADDED
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos }) => { // ADDED boletos
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -49,6 +53,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     const twoDaysFromNow = new Date(now);
     twoDaysFromNow.setDate(now.getDate() + 2);
     return o.status === OrderStatus.PENDENTE && forecast >= now && forecast <= twoDaysFromNow;
+  });
+
+  // Boleto Logic
+  const overdueBoletos = boletos.filter(b => {
+    const dueDate = new Date(b.due_date + 'T00:00:00'); // Ensure local date parsing
+    return b.status === BoletoStatus.PENDENTE && dueDate < now;
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const nextSunday = new Date(today);
+  nextSunday.setDate(today.getDate() + (7 - today.getDay()) % 7);
+  nextSunday.setHours(0, 0, 0, 0);
+
+  const isSaturday = today.getDay() === 6;
+
+  const boletosDueSunday = boletos.filter(b => {
+    const dueDate = new Date(b.due_date + 'T00:00:00');
+    return b.status === BoletoStatus.PENDENTE && 
+           dueDate.getTime() === nextSunday.getTime() &&
+           isSaturday;
   });
 
   const currentMonthName = now.toLocaleString('pt-BR', { month: 'long' });
@@ -82,10 +108,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     <div className="space-y-8 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
-          <p className="text-slate-500 font-medium">Resumo operacional Bela Farma - Sul.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-medium">Resumo operacional Bela Farma - Sul.</p>
         </div>
-        <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-50 px-4 py-2 rounded-full border border-red-100 shadow-sm w-fit">
+        <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
           <Calendar className="w-4 h-4" />
           {now.toLocaleDateString('pt-BR')}
         </div>
@@ -138,14 +164,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl w-fit mb-4">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl w-fit mb-4">
             {isAdmin ? <TrendingUp className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
             {isAdmin ? `Vencimentos em ${capitalize(currentMonthName)}` : 'Produtos em Falta'}
           </p>
-          <p className="text-2xl font-black text-slate-900 mt-1">
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
             {isAdmin 
               ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSpentThisMonth)
               : shortages.length
@@ -153,41 +179,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           </p>
         </div>
 
-        <div className={`bg-white p-6 rounded-3xl border shadow-sm transition-all ${overdueCount > 0 ? 'border-red-200 bg-red-50/10' : 'border-slate-200'}`}>
-          <div className={`p-2 rounded-xl w-fit mb-4 ${overdueCount > 0 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-50 text-slate-400'}`}>
+        <div className={`p-6 rounded-3xl border shadow-sm transition-all ${overdueCount > 0 ? 'bg-red-50/10 border-red-200 dark:border-red-900/30' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
+          <div className={`p-2 rounded-xl w-fit mb-4 ${overdueCount > 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
             <AlertCircle className="w-6 h-6" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pedidos em Atraso</p>
-          <p className={`text-2xl font-black mt-1 ${overdueCount > 0 ? 'text-red-600' : 'text-slate-900'}`}>{overdueCount}</p>
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pedidos em Atraso</p>
+          <p className={`text-2xl font-black mt-1 ${overdueCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="p-2 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
             <Store className="w-6 h-6" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Distribuidora Ativa</p>
-          <p className="text-lg font-black text-slate-900 truncate mt-1 uppercase tracking-tight" title={topDistributor}>{topDistributor}</p>
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Distribuidora Ativa</p>
+          <p className="text-lg font-black text-slate-900 dark:text-slate-100 truncate mt-1 uppercase tracking-tight" title={topDistributor}>{topDistributor}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="p-2 bg-red-50 text-red-600 rounded-xl w-fit mb-4">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl w-fit mb-4">
             <Pill className="w-6 h-6" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total de Pedidos</p>
-          <p className="text-2xl font-black text-slate-900 mt-1">{orders.length}</p>
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Total de Pedidos</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">{orders.length}</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {user.role !== UserRole.OPERADOR && (
-        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm min-h-[350px] flex flex-col">
-          <SalesChart cashClosings={cashClosings} />
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm min-h-[400px] flex flex-col">
+          <ExpensesChart orders={orders} boletos={boletos} cashClosings={cashClosings} />
         </div>
       )}
 
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-slate-400" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {user.role !== UserRole.OPERADOR && (
+          <div className="lg:col-span-2 space-y-8">
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm min-h-[350px] flex flex-col">
+              <SalesChart cashClosings={cashClosings} />
+            </div>
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm min-h-[350px] flex flex-col">
+              <PaymentMethodsChart cashClosings={cashClosings} />
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6 flex items-center gap-2">
+            <ShoppingCart className="w-5 h-5 text-slate-400 dark:text-slate-500" />
             Últimas Remessas
           </h2>
           <div className="space-y-4">
@@ -197,25 +234,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
                const isDelayed = order.status === OrderStatus.PENDENTE && forecast < now;
 
                return (
-                <div key={order.id} className={`flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100 ${isDelayed ? 'bg-red-50/30' : ''}`}>
+                <div key={order.id} className={`flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700 ${isDelayed ? 'bg-red-50/30 dark:bg-red-900/10' : ''}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-2.5 h-2.5 rounded-full ${
-                      order.status === OrderStatus.ENTREGUE ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
-                      order.status === OrderStatus.CANCELADO ? 'bg-slate-300' : 
-                      isDelayed ? 'bg-red-600 animate-pulse shadow-[0_0_8px_rgba(220,38,38,0.5)]' : 'bg-blue-500'
+                      order.status === OrderStatus.ENTREGUE ? 'bg-emerald-500' :
+                      order.status === OrderStatus.CANCELADO ? 'bg-slate-300 dark:bg-slate-600' : 
+                      isDelayed ? 'bg-red-600 animate-pulse' : 'bg-blue-500'
                     }`} />
                     <div>
-                      <p className="text-sm font-black text-slate-900 uppercase tracking-tighter truncate max-w-[120px]">{order.distributor}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">{order.orderDate}</p>
+                      <p className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter truncate max-w-[120px]">{order.distributor}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">{order.orderDate}</p>
                     </div>
                   </div>
                   <div className="text-right">
                     {isAdmin ? (
-                       <p className={`text-sm font-black ${isDelayed ? 'text-red-600' : 'text-slate-900'}`}>
+                       <p className={`text-sm font-black ${isDelayed ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
                         R$ {order.totalValue.toLocaleString('pt-BR')}
                       </p>
                     ) : (
-                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Protegido</span>
+                      <span className="text-[9px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-widest">Protegido</span>
                     )}
                   </div>
                 </div>

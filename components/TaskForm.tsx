@@ -13,7 +13,7 @@ interface TaskFormProps {
 export const TaskForm: React.FC<TaskFormProps> = ({ user, users, task, onSave, onClose }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
-  const [assignedUser, setAssignedUser] = useState(task?.assignedUser || ''); // Default to empty string
+  const [assignedUser, setAssignedUser] = useState(task?.assignedUser || user.id); // Default to current user's ID for new tasks
   const [priority, setPriority] = useState<Task['priority']>(task?.priority || 'Normal');
   const [status, setStatus] = useState<Task['status']>(task?.status || 'A Fazer');
 
@@ -59,15 +59,12 @@ export const TaskForm: React.FC<TaskFormProps> = ({ user, users, task, onSave, o
   };
 
   useEffect(() => {
-    if (!task && !assignedUser) { // For new tasks, set default assigned user if none selected
-      setAssignedUser(user.id); // Assign to current user by default
-    }
     if (task && task.recurrence && task.recurrence.type !== 'none') {
       setIsRecurring(true);
     } else {
       setIsRecurring(false);
     }
-  }, [task, assignedUser, user.id]);
+  }, [task]);
 
   const handleDayOfWeekChange = (day: number, checked: boolean) => {
     if (checked) {
@@ -106,175 +103,178 @@ export const TaskForm: React.FC<TaskFormProps> = ({ user, users, task, onSave, o
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl border-4 border-red-500 overflow-hidden">
-        <div className="p-8 space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-black uppercase text-slate-800">{task ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-red-600 rounded-full">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="bg-white dark:bg-slate-950 w-full max-w-2xl rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-300">
+        <div className="p-10 space-y-8">
+          <div className="flex justify-between items-center border-b border-slate-50 dark:border-slate-800 pb-6">
+            <div>
+              <h2 className="text-2xl font-black uppercase text-slate-900 dark:text-white tracking-tighter">
+                {task ? 'Configurar Missão' : 'Nova Diretriz'}
+              </h2>
+              <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1">Módulo de Sincronização de Tarefas</p>
+            </div>
+            <button onClick={onClose} className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-full transition-all">
               <X size={24} />
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Título</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Descrição</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl min-h-[100px]"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-4">
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Atribuído a</label>
-                <select
-                  value={assignedUser}
-                  onChange={(e) => {
-                    console.log('Assigned user changed to:', e.target.value);
-                    setAssignedUser(e.target.value);
-                  }}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 block">
+                  Identificador da Tarefa
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Organizar estoque de antibióticos"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-900 dark:text-slate-100 font-bold placeholder:text-slate-300 dark:placeholder:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white dark:focus:bg-slate-900 transition-all text-sm"
                   required
-                >
-                  {allAvailableUsers.map(u => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
-                  ))}
-                </select>
+                />
               </div>
+              
               <div>
-                <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Prioridade</label>
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as Task['priority'])}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
-                  required
-                >
-                  {priorityOptions.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
+                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 block">
+                  Especificações Detalhadas
+                </label>
+                <textarea
+                  placeholder="Descreva os passos e objetivos..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-900 dark:text-slate-100 font-medium placeholder:text-slate-300 dark:placeholder:text-slate-700 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white dark:focus:bg-slate-900 transition-all text-sm resize-none"
+                />
               </div>
-            </div>
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as Task['status'])}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
-                required
-              >
-                {statusOptions.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 block">
+                    Agente Responsável
+                  </label>
+                  <select
+                    value={assignedUser}
+                    onChange={(e) => setAssignedUser(e.target.value)}
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-900 dark:text-slate-100 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white dark:focus:bg-slate-900 transition-all text-sm appearance-none cursor-pointer"
+                    required
+                  >
+                    {allAvailableUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 block">
+                    Nível de Prioridade
+                  </label>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as Task['priority'])}
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-900 dark:text-slate-100 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white dark:focus:bg-slate-900 transition-all text-sm appearance-none cursor-pointer"
+                    required
+                  >
+                    {priorityOptions.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
 
-            {/* Recurrence Options */}
-            <div className="border-t border-slate-200 pt-4 mt-4">
-              <label className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase">
-                <input
-                  type="checkbox"
-                  checked={isRecurring}
-                  onChange={(e) => setIsRecurring(e.target.checked)}
-                  className="form-checkbox"
-                />
-                Tarefa Recorrente
+            <div className="bg-slate-50 dark:bg-slate-900/30 p-6 rounded-3xl border border-slate-100 dark:border-slate-800/50 space-y-4">
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`w-10 h-6 rounded-full transition-colors ${isRecurring ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                  <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${isRecurring ? 'translate-x-4' : ''}`} />
+                </div>
+                <span className="text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest group-hover:text-blue-500 transition-colors">
+                  Ativar Recorrência de Ciclo
+                </span>
               </label>
 
               {isRecurring && (
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
+                  <div className="col-span-full border-t border-slate-200 dark:border-slate-800 pt-4" />
                   <div>
-                    <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Tipo de Recorrência</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase mb-1.5 block">Tipo</label>
                     <select
                       value={recurrenceType}
                       onChange={(e) => setRecurrenceType(e.target.value as Task['recurrence']['type'])}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 text-xs font-bold"
                     >
                       {recurrenceTypeOptions.map(type => (
-                        <option key={type} value={type}>{type === 'none' ? 'Nenhuma' : type.charAt(0).toUpperCase() + type.slice(1)}</option>
+                        <option key={type} value={type}>
+                          {type === 'none' ? 'Nenhuma' : 
+                           type === 'daily' ? 'Diária' :
+                           type === 'weekly' ? 'Semanal' :
+                           type === 'monthly' ? 'Mensal' :
+                           type === 'annually' ? 'Anual' : type}
+                        </option>
                       ))}
                     </select>
                   </div>
                   {recurrenceType !== 'none' && (
                     <div>
-                      <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Repetir a Cada</label>
+                      <label className="text-[9px] font-black text-slate-400 uppercase mb-1.5 block">Intervalo</label>
                       <input
                         type="number"
                         min="1"
                         value={recurrenceInterval}
                         onChange={(e) => setRecurrenceInterval(parseInt(e.target.value) || 1)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 text-xs font-bold"
                       />
                     </div>
                   )}
 
                   {recurrenceType === 'weekly' && (
-                    <div className="col-span-2">
-                      <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Dias da Semana</label>
+                    <div className="col-span-full">
+                      <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block">Sincronização Semanal</label>
                       <div className="flex flex-wrap gap-2">
                         {daysOfWeekOptions.map(day => (
-                          <label key={day.value} className="flex items-center gap-1 text-sm text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={recurrenceDaysOfWeek.includes(day.value)}
-                              onChange={(e) => handleDayOfWeekChange(day.value, e.target.checked)}
-                              className="form-checkbox"
-                            />
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() => handleDayOfWeekChange(day.value, !recurrenceDaysOfWeek.includes(day.value))}
+                            className={`px-3 py-2 rounded-lg text-[10px] font-black transition-all ${
+                              recurrenceDaysOfWeek.includes(day.value)
+                                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                                : 'bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-800'
+                            }`}
+                          >
                             {day.label}
-                          </label>
+                          </button>
                         ))}
                       </div>
                     </div>
                   )}
 
                   {recurrenceType === 'monthly' && (
-                    <div className="col-span-2">
-                      <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Dia do Mês</label>
+                    <div className="col-span-full">
+                      <label className="text-[9px] font-black text-slate-400 uppercase mb-1.5 block">Dia de Ativação</label>
                       <input
                         type="number"
                         min="1"
                         max="31"
                         value={recurrenceDayOfMonth}
                         onChange={(e) => setRecurrenceDayOfMonth(parseInt(e.target.value) || 1)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 text-xs font-bold"
                       />
                     </div>
                   )}
 
-                  {recurrenceType === 'annually' && (
-                    <div className="col-span-2">
-                      <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Mês do Ano</label>
-                      <select
-                        value={recurrenceMonthOfYear}
-                        onChange={(e) => setRecurrenceMonthOfYear(parseInt(e.target.value) || 1)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
-                      >
-                        {monthsOfYearOptions.map(month => (
-                          <option key={month} value={month}>{new Date(0, month - 1).toLocaleString('pt-BR', { month: 'long' })}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
                   {recurrenceType !== 'none' && (
-                    <div className="col-span-2">
-                      <label className="text-xs font-black text-slate-400 uppercase mb-1 block">Data de Término (Opcional)</label>
+                    <div className="col-span-full">
+                      <label className="text-[9px] font-black text-slate-400 uppercase mb-1.5 block">Data Final do Ciclo</label>
                       <input
                         type="date"
                         value={recurrenceEndDate}
                         onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+                        className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 text-xs font-bold appearance-none"
                       />
                     </div>
                   )}
@@ -282,9 +282,15 @@ export const TaskForm: React.FC<TaskFormProps> = ({ user, users, task, onSave, o
               )}
             </div>
 
-            <button type="submit" className="w-full py-4 bg-red-600 text-white font-black rounded-2xl uppercase shadow-xl flex items-center justify-center gap-2">
-              <Save size={20} /> Salvar Tarefa
-            </button>
+            <div className="pt-4">
+              <button 
+                type="submit" 
+                className="w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black rounded-2xl uppercase tracking-widest shadow-2xl hover:translate-y-[-2px] active:translate-y-[1px] transition-all flex items-center justify-center gap-3 text-sm group"
+              >
+                <Save size={18} className="group-hover:rotate-12 transition-transform" /> 
+                Finalizar Configuração
+              </button>
+            </div>
           </form>
         </div>
       </div>

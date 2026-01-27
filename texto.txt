@@ -1,24 +1,18 @@
-{supplierName: "dist", due_date: "2026-01-22", value: 556, status: "Pendente", id: "xa29y9xkg",…}
-due_date
-: 
-"2026-01-22"
-id
-: 
-"xa29y9xkg"
-order_id
-: 
-null
-status
-: 
-"Pendente"
-supplierName
-: 
-"dist"
-value
-: 
-556
+F:\Documentos\Desenvolvimento\BelaFarma\backend\database.js:180
+    const createDailyRecordsTable = `
+          ^
 
-{
-    "error": "Failed to create boleto.",
-    "details": "NOT NULL constraint failed: boletos.order_id"
-}
+SyntaxError: Identifier 'createDailyRecordsTable' has already been declared
+    at internalCompileFunction (node:internal/vm:77:18)
+    at wrapSafe (node:internal/modules/cjs/loader:1288:20)
+    at Module._compile (node:internal/modules/cjs/loader:1340:27)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Module.require (node:internal/modules/cjs/loader:1235:19)
+    at require (node:internal/modules/helpers:176:18)
+    at Object.<anonymous> (F:\Documentos\Desenvolvimento\BelaFarma\backend\server.js:3:12)
+    at Module._compile (node:internal/modules/cjs/loader:1376:14)
+
+Node.js v20.10.0
+[nodemon] app crashed - waiting for file changes before starting...

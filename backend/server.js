@@ -61,6 +61,23 @@ app.get('/api/all-data', (req, res) => {
     const cashClosings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
     const boletos = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
     const monthlyLimits = db.prepare('SELECT * FROM monthly_limits').all();
+    const dailyRecords = db.prepare('SELECT * FROM daily_records ORDER BY date DESC').all().map(record => {
+      const mapped = {
+        ...record,
+        expenses: JSON.parse(record.expenses),
+        nonRegistered: JSON.parse(record.nonRegistered),
+        pixDiretoList: record.pixDiretoList ? JSON.parse(record.pixDiretoList) : [],
+        crediarioList: record.crediarioList ? JSON.parse(record.crediarioList) : [],
+        lancado: !!record.lancado, // Convert 0/1 to boolean
+      };
+      console.log('Daily record from DB:', {
+        id: record.id,
+        lancadoDB: record.lancado,
+        lancadoMapped: mapped.lancado,
+        date: record.date
+      });
+      return mapped;
+    });
 
     res.json({
       users: { documents: users },
@@ -70,6 +87,8 @@ app.get('/api/all-data', (req, res) => {
       cashClosings: { documents: cashClosings },
       boletos: { documents: boletos },
       monthlyLimits: { documents: monthlyLimits },
+      dailyRecords: { documents: dailyRecords },
+      fixedAccounts: { documents: db.prepare('SELECT * FROM fixed_accounts').all().map(acc => ({ ...acc, isActive: !!acc.isActive })) },
     });
   } catch (err) {
     console.error('Error fetching all data:', err);
@@ -91,6 +110,85 @@ app.post('/api/monthly-limits', (req, res) => {
   } catch (err) {
     console.error('Error saving monthly limit:', err);
     res.status(500).json({ error: 'Failed to save monthly limit.' });
+  }
+});
+
+
+// --- Fixed Accounts CUD ---
+app.get('/api/fixed-accounts', (req, res) => {
+  try {
+    const accounts = db.prepare('SELECT * FROM fixed_accounts').all().map(acc => ({
+      ...acc,
+      isActive: !!acc.isActive
+    }));
+    res.json(accounts);
+  } catch (err) {
+    console.error('Error fetching fixed accounts:', err);
+    res.status(500).json({ error: 'Failed to fetch fixed accounts.' });
+  }
+});
+
+app.post('/api/fixed-accounts', (req, res) => {
+  try {
+    const { id, name, value, dueDay, isActive } = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO fixed_accounts (id, name, value, dueDay, isActive)
+      VALUES (@id, @name, @value, @dueDay, @isActive)
+    `);
+    stmt.run({
+      id,
+      name,
+      value: parseFloat(value),
+      dueDay: parseInt(dueDay),
+      isActive: isActive ? 1 : 0
+    });
+    res.status(201).json({ message: 'Fixed account created successfully.' });
+  } catch (err) {
+    console.error('Error creating fixed account:', err);
+    res.status(500).json({ error: 'Failed to create fixed account.' });
+  }
+});
+
+app.put('/api/fixed-accounts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, value, dueDay, isActive } = req.body;
+    const stmt = db.prepare(`
+      UPDATE fixed_accounts 
+      SET name = @name, value = @value, dueDay = @dueDay, isActive = @isActive
+      WHERE id = @id
+    `);
+    const result = stmt.run({
+      id,
+      name,
+      value: parseFloat(value),
+      dueDay: parseInt(dueDay),
+      isActive: isActive ? 1 : 0
+    });
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Fixed account updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Fixed account not found.' });
+    }
+  } catch (err) {
+    console.error('Error updating fixed account:', err);
+    res.status(500).json({ error: 'Failed to update fixed account.' });
+  }
+});
+
+app.delete('/api/fixed-accounts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const stmt = db.prepare('DELETE FROM fixed_accounts WHERE id = ?');
+    const result = stmt.run(id);
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Fixed account deleted successfully.' });
+    } else {
+      res.status(404).json({ error: 'Fixed account not found.' });
+    }
+  } catch (err) {
+    console.error('Error deleting fixed account:', err);
+    res.status(500).json({ error: 'Failed to delete fixed account.' });
   }
 });
 
@@ -302,14 +400,11 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
 
   try {
     db.transaction(() => {
-      // 1. Delete existing boletos for this order
       deleteStmt.run(order_id);
-
-      // 2. Insert new boletos
       for (const boleto of boletos) {
         insertStmt.run({
           ...boleto,
-          order_id: order_id, // Ensure order_id is set from the URL param
+          order_id: order_id,
         });
       }
     })();
@@ -321,20 +416,53 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
 });
 
 // CREATE a new boleto
-app.post('/api/boletos', (req, res) => { // Removed upload.single('boletoFile')
+app.post('/api/boletos', (req, res) => {
   try {
     const boleto = req.body;
-    // No req.file block as multer is removed and no file upload
     const stmt = db.prepare(`
-      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status)
-      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status)
+      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
+      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
     `);
     const result = stmt.run(boleto);
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
     console.error('Error creating boleto:', err);
-    console.error('SQL Error details:', err.message, err); // Added detailed logging
     res.status(500).json({ error: 'Failed to create boleto.', details: err.message });
+  }
+});
+
+// UPDATE a boleto
+app.put('/api/boletos/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { supplierName, order_id, due_date, value, status, invoice_number } = req.body;
+    
+    if (!supplierName || !due_date || !value || !status) {
+        return res.status(400).json({ error: 'Missing required fields for boleto update.' });
+    }
+
+    const stmt = db.prepare(`
+      UPDATE boletos 
+      SET 
+        supplierName = @supplierName,
+        order_id = @order_id,
+        due_date = @due_date,
+        value = @value,
+        status = @status,
+        invoice_number = @invoice_number
+      WHERE id = @id
+    `);
+    
+    const result = stmt.run({ id, supplierName, order_id, due_date, value, status, invoice_number });
+
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Boleto updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Boleto not found or no changes made.' });
+    }
+  } catch (err) {
+    console.error('Error updating boleto:', err);
+    res.status(500).json({ error: 'Failed to update boleto.', details: err.message });
   }
 });
 
@@ -355,6 +483,144 @@ app.put('/api/boletos/:id/status', (req, res) => {
     res.status(500).json({ error: 'Failed to update boleto status.' });
   }
 });
+
+// DELETE a boleto
+app.delete('/api/boletos/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const stmt = db.prepare('DELETE FROM boletos WHERE id = ?');
+    const result = stmt.run(id);
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Boleto deleted successfully.' });
+    } else {
+      res.status(404).json({ error: 'Boleto not found.' });
+    }
+  } catch (err) {
+    console.error('Error deleting boleto:', err);
+    res.status(500).json({ error: 'Failed to delete boleto.' });
+  }
+});
+
+// --- Daily Records CUD ---
+app.get('/api/daily-records', (req, res) => {
+  try {
+    const records = db.prepare('SELECT * FROM daily_records ORDER BY date DESC').all().map(record => ({
+      ...record,
+      expenses: JSON.parse(record.expenses),
+      nonRegistered: JSON.parse(record.nonRegistered),
+      pixDiretoList: record.pixDiretoList ? JSON.parse(record.pixDiretoList) : [],
+      crediarioList: record.crediarioList ? JSON.parse(record.crediarioList) : [],
+      lancado: !!record.lancado, // Convert 0/1 to boolean
+    }));
+    res.json(records);
+  } catch (err) {
+    console.error('Error fetching daily records:', err);
+    res.status(500).json({ error: 'Failed to fetch daily records.' });
+  }
+});
+
+app.post('/api/daily-records', (req, res) => {
+  try {
+    const record = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, userName, lancado)
+      VALUES (@id, @date, @expenses, @nonRegistered, @pixDiretoList, @crediarioList, @userName, 0)
+    `);
+    const result = stmt.run({
+      ...record,
+      expenses: JSON.stringify(record.expenses || []),
+      nonRegistered: JSON.stringify(record.nonRegistered || []),
+      pixDiretoList: JSON.stringify(record.pixDiretoList || []),
+      crediarioList: JSON.stringify(record.crediarioList || []),
+    });
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch (err) {
+    console.error('Error creating daily record:', err);
+    res.status(500).json({ error: 'Failed to create daily record.' });
+  }
+});
+
+// IMPORTANT: Specific routes must come before parameterized routes!
+// This must be BEFORE app.put('/api/daily-records/:id') to avoid route conflicts
+app.put('/api/daily-records/mark-processed', (req, res) => {
+  try {
+    const { recordIds } = req.body;
+    console.log('=== Mark Daily Records as Processed ===');
+    console.log('Record IDs to mark:', recordIds);
+    
+    if (!Array.isArray(recordIds) || recordIds.length === 0) {
+      return res.status(400).json({ error: 'Missing recordIds.' });
+    }
+
+    const stmt = db.prepare(`
+      UPDATE daily_records
+      SET lancado = 1
+      WHERE id IN (${recordIds.map(() => '?').join(',')})
+    `);
+    const result = stmt.run(...recordIds);
+
+    console.log('Records updated:', result.changes);
+    
+    // Verify the update
+    const verifyStmt = db.prepare(`SELECT id, lancado FROM daily_records WHERE id IN (${recordIds.map(() => '?').join(',')})`);
+    const updatedRecords = verifyStmt.all(...recordIds);
+    console.log('Updated records verification:', updatedRecords);
+
+    res.status(200).json({ message: `${result.changes} daily records marked as processed.` });
+  } catch (err) {
+    console.error('Error marking daily records as processed:', err);
+    res.status(500).json({ error: 'Failed to mark daily records as processed.' });
+  }
+});
+
+app.put('/api/daily-records/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const record = req.body;
+    const stmt = db.prepare(`
+      UPDATE daily_records 
+      SET expenses = @expenses, 
+          nonRegistered = @nonRegistered, 
+          pixDiretoList = @pixDiretoList, 
+          crediarioList = @crediarioList,
+          date = @date
+      WHERE id = @id AND lancado = 0
+    `);
+    const result = stmt.run({
+      ...record,
+      id,
+      expenses: JSON.stringify(record.expenses || []),
+      nonRegistered: JSON.stringify(record.nonRegistered || []),
+      pixDiretoList: JSON.stringify(record.pixDiretoList || []),
+      crediarioList: JSON.stringify(record.crediarioList || []),
+    });
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Daily record updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Daily record not found or already processed.' });
+    }
+  } catch (err) {
+    console.error('Error updating daily record:', err);
+    res.status(500).json({ error: 'Failed to update daily record.' });
+  }
+});
+
+app.delete('/api/daily-records/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const stmt = db.prepare('DELETE FROM daily_records WHERE id = ? AND lancado = 0');
+    const result = stmt.run(id);
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Daily record deleted successfully.' });
+    } else {
+      res.status(404).json({ error: 'Daily record not found or already processed.' });
+    }
+  } catch (err) {
+    console.error('Error deleting daily record:', err);
+    res.status(500).json({ error: 'Failed to delete daily record.' });
+  }
+});
+
 
 // --- Logs CUD ---
 // CREATE Log
@@ -400,6 +666,11 @@ app.post('/api/cash-closings', (req, res) => {
       VALUES (@id, @date, @description, @type, @value, @cashClosingId)
     `);
 
+    const insertSafeEntryStmt = db.prepare(`
+      INSERT INTO safe_entries (id, date, description, type, value, userName)
+      VALUES (@id, @date, @description, @type, @value, @userName)
+    `);
+
     db.transaction(() => {
       insertClosingStmt.run({
         ...closing,
@@ -408,6 +679,18 @@ app.post('/api/cash-closings', (req, res) => {
 
       const transactionDate = new Date().toISOString();
       
+      // If there is a safe deposit, record it in the safe
+      if (closing.safeDeposit > 0) {
+        insertSafeEntryStmt.run({
+          id: 'S' + Date.now().toString(),
+          date: transactionDate,
+          description: `Depósito Fechamento de Caixa`,
+          type: 'Entrada',
+          value: closing.safeDeposit,
+          userName: closing.userName
+        });
+      }
+
       if (closing.credit > 0) {
         insertTransactionStmt.run({
           id: `txn_credit_${closing.id}`,
@@ -535,59 +818,57 @@ app.post('/api/tasks', (req, res) => {
   }
 });
 
-// GET all tasks (with RBAC)
+// GET all tasks (no RBAC here, all tasks are fetched)
 app.get('/api/tasks', (req, res) => {
-  const { userId, userRole, includeArchived, includeRecurringTemplates } = req.query;
-
-  if (!userId || !userRole) {
-    return res.status(401).json({ error: 'Authentication required for task access.' });
-  }
+  const { includeArchived, includeRecurringTemplates } = req.query; // Removed userId, userRole from destructuring
 
   let query = 'SELECT * FROM tasks WHERE 1=1'; // Start with a always-true condition
-  let params = [];
-
-  if (userRole !== 'Administrador') { // Assuming 'Administrador' is the admin role
-    query += ' AND (assignedUser = ? OR assignedUser = "all_users" OR creator = ?)';
-    params.push(userId, userId);
-  }
+  let params = []; // No params needed for this part of the query
 
   // Filter out archived tasks by default
   if (includeArchived !== 'true') {
     query += ' AND isArchived = 0';
   }
 
-  // Filter out recurring task templates by default
-  if (includeRecurringTemplates !== 'true') {
-    query += " AND NOT (recurrenceType != 'none' AND recurrenceId = id)"; // Only show instances, not the template itself
-  }
+  // No longer filtering templates as instances are not yet automatically generated
+  // if (includeRecurringTemplates !== 'true') {
+  //   query += " AND NOT (recurrenceType != 'none' AND recurrenceId = id)"; 
+  // }
   
   query += ' ORDER BY creationDate DESC';
 
   try {
-    const tasks = db.prepare(query).all(params).map(task => ({
-      ...task,
-      recurrence: task.recurrenceType !== 'none' ? {
-        type: task.recurrenceType,
-        interval: task.recurrenceInterval,
-        daysOfWeek: task.recurrenceDaysOfWeek ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
-        dayOfMonth: task.recurrenceDayOfMonth,
-        monthOfYear: task.recurrenceMonthOfYear,
-        endDate: task.recurrenceEndDate,
-      } : undefined,
-      annotations: task.annotations ? JSON.parse(task.annotations) : [],
-      needsAdminAttention: !!task.needsAdminAttention, // Convert 0/1 to boolean
-    }));
+    const tasks = db.prepare(query).all(params).map(task => { // params will be empty array
+      try {
+        return {
+          ...task,
+          recurrence: (task.recurrenceType && task.recurrenceType !== 'none') ? {
+            type: task.recurrenceType,
+            interval: task.recurrenceInterval,
+            daysOfWeek: (task.recurrenceDaysOfWeek && typeof task.recurrenceDaysOfWeek === 'string') ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
+            dayOfMonth: task.recurrenceDayOfMonth,
+            monthOfYear: task.recurrenceMonthOfYear,
+            endDate: task.recurrenceEndDate,
+          } : undefined,
+          annotations: (task.annotations && typeof task.annotations === 'string') ? JSON.parse(task.annotations) : [],
+          needsAdminAttention: !!task.needsAdminAttention, // Convert 0/1 to boolean
+        };
+      } catch (mapErr) {
+        console.error(`Error mapping task ID ${task.id}:`, mapErr, 'Task data:', task);
+        throw mapErr; // Re-throw to be caught by outer catch
+      }
+    });
     res.json(tasks);
   } catch (err) {
-    console.error('Error fetching tasks:', err);
-    res.status(500).json({ error: 'Failed to fetch tasks.' });
+    console.error('Detailed Error fetching tasks:', err); // Log the actual error
+    res.status(500).json({ error: 'Failed to fetch tasks.', details: err.message }); // Send details to frontend
   }
 });
 
-// GET a single task (with RBAC)
+// GET a single task (with new RBAC)
 app.get('/api/tasks/:id', (req, res) => {
   const taskId = req.params.id;
-  const { userId, userRole } = req.query; // Assuming user info is passed in query for now
+  const { userId, userRole } = req.query; 
 
   if (!userId || !userRole) {
     return res.status(401).json({ error: 'Authentication required for task access.' });
@@ -601,32 +882,39 @@ app.get('/api/tasks/:id', (req, res) => {
       return res.status(404).json({ error: 'Task not found.' });
     }
 
-    // RBAC Check
-    if (userRole !== 'Administrador') {
-      if (task.assignedUser !== userId && task.assignedUser !== 'all_users') {
-        return res.status(403).json({ error: 'Access denied to this task.' });
-      }
+    // New RBAC Check for viewing details
+    // Admins can view any task
+    // Creator can view their tasks
+    // Assigned user can view their tasks
+    // If assigned to 'all_users', anyone can view it
+    const canView = userRole === 'Administrador' ||
+                    task.creator === userId ||
+                    task.assignedUser === userId ||
+                    task.assignedUser === 'all_users';
+
+    if (!canView) {
+      return res.status(403).json({ error: 'Access denied to view this task details.' });
     }
     
-    // Parse JSON fields
+    // Parse JSON fields (reuse parsing logic from GET /api/tasks)
     const parsedTask = {
       ...task,
-      recurrence: task.recurrenceType !== 'none' ? {
+      recurrence: (task.recurrenceType && task.recurrenceType !== 'none') ? {
         type: task.recurrenceType,
         interval: task.recurrenceInterval,
-        daysOfWeek: task.recurrenceDaysOfWeek ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
+        daysOfWeek: (task.recurrenceDaysOfWeek && typeof task.recurrenceDaysOfWeek === 'string') ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
         dayOfMonth: task.recurrenceDayOfMonth,
         monthOfYear: task.recurrenceMonthOfYear,
         endDate: task.recurrenceEndDate,
       } : undefined,
-      annotations: task.annotations ? JSON.parse(task.annotations) : [],
+      annotations: (task.annotations && typeof task.annotations === 'string') ? JSON.parse(task.annotations) : [],
       needsAdminAttention: !!task.needsAdminAttention,
     };
     
     res.json(parsedTask);
   } catch (err) {
-    console.error('Error fetching task:', err);
-    res.status(500).json({ error: 'Failed to fetch task.' });
+    console.error('Error fetching single task:', err); // More specific error log
+    res.status(500).json({ error: 'Failed to fetch task.', details: err.message });
   }
 });
 

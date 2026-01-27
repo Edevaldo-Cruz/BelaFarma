@@ -1,312 +1,608 @@
-
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Trash2, Receipt, ShoppingBag, Save, 
-  AlertCircle, CheckCircle2, History, Calendar, Search, ChevronRight 
+  Plus, Trash2, Pencil, Save, X, AlertCircle, 
+  CheckCircle2, ShoppingBag, DollarSign
 } from 'lucide-react';
 import { User, DailyRecordEntry } from '../types';
 
 interface DailyRecordsProps {
   user: User;
   onLog: (action: string, details: string) => void;
+  dailyRecords: DailyRecordEntry[];
+  onSave: () => void;
 }
 
-export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog }) => {
-  const [activeTab, setActiveTab] = useState<'entry' | 'history'>('entry');
-  const [expenses, setExpenses] = useState<Array<{ id: string, desc: string, val: number }>>([]);
-  const [nonRegistered, setNonRegistered] = useState<Array<{ id: string, desc: string, val: number }>>([]);
-  const [pixDiretoList, setPixDiretoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
-  const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
-  const [isSaved, setIsSaved] = useState(false);
+type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered';
+
+interface ExpenseItem {
+  id: string;
+  desc: string;
+  val: number;
+}
+
+interface PixItem {
+  id: string;
+  desc: string;
+  val: number;
+}
+
+interface CrediarioItem {
+  id: string;
+  client: string;
+  val: number;
+}
+
+interface NonRegisteredItem {
+  id: string;
+  desc: string;
+  val: number;
+}
+
+export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRecords, onSave }) => {
+  const [activeTab, setActiveTab] = useState<TabType>('expenses');
+  const [todayRecord, setTodayRecord] = useState<DailyRecordEntry | null>(null);
   
-  const [history, setHistory] = useState<DailyRecordEntry[]>([]);
-  const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  // Form states for each category
+  const [expenseForm, setExpenseForm] = useState({ desc: '', val: '' });
+  const [pixForm, setPixForm] = useState({ desc: '', val: '' });
+  const [crediarioForm, setCrediarioForm] = useState({ client: '', val: '' });
+  const [nonRegForm, setNonRegForm] = useState({ desc: '', val: '' });
+  
+  // Editing states
+  const [editingItem, setEditingItem] = useState<{ type: TabType; id: string } | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  
+  // Loading and feedback states
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const lastExpenseRef = useRef<HTMLInputElement>(null);
+  // Get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
 
-  // Helper to format numbers to currency string R$ 0.00
+  // Load today's record on mount and when dailyRecords changes
+  // Only show records that haven't been processed in cash closing (lancado === false)
+  useEffect(() => {
+    console.log('=== DailyRecords useEffect ===');
+    console.log('All dailyRecords:', dailyRecords);
+    
+    const today = getTodayDate();
+    console.log('Today date:', today);
+    
+    const record = dailyRecords.find(r => {
+      const recordDate = new Date(r.date).toISOString().split('T')[0];
+      const isToday = recordDate === today;
+      const isNotProcessed = !r.lancado;
+      
+      console.log('Record:', {
+        id: r.id,
+        date: recordDate,
+        lancado: r.lancado,
+        lancadoType: typeof r.lancado,
+        isToday,
+        isNotProcessed,
+        willShow: isToday && isNotProcessed
+      });
+      
+      // Only load if it's today AND hasn't been processed (lancado is false or undefined)
+      return isToday && isNotProcessed;
+    });
+    
+    console.log('Selected record:', record);
+    
+    if (record) {
+      setTodayRecord(record);
+    } else {
+      // Create empty record structure for today
+      setTodayRecord({
+        id: `temp-${Date.now()}`,
+        date: new Date().toISOString(),
+        userName: user.name,
+        expenses: [],
+        pixDiretoList: [],
+        crediarioList: [],
+        nonRegistered: [],
+        lancado: false, // Initialize as not processed
+      });
+    }
+  }, [dailyRecords, user.name]);
+
+  // Format currency
   const formatCurrency = (value: number) => {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
-  // Helper to parse currency string back to number (interpreting input as cents)
-  const parseCurrency = (value: string) => {
-    // Remove all non-digit characters
+  // Parse currency input
+  const parseCurrency = (value: string): number => {
     const cleaned = value.replace(/\D/g, '');
-    const num = parseInt(cleaned, 10) || 0;
-    return num / 100;
+    return (parseInt(cleaned, 10) || 0) / 100;
   };
 
-  // Function to reset all temporary daily record states
-  const resetDailyTempStates = useCallback(() => {
-    setExpenses([]);
-    setNonRegistered([]);
-    setPixDiretoList([]);
-    setCrediarioList([]);
-  }, []);
+  // Save record to backend
+  const saveRecord = async (updatedRecord: DailyRecordEntry) => {
+    setIsSaving(true);
+    try {
+      const isNew = updatedRecord.id.startsWith('temp-');
+      const url = isNew ? '/api/daily-records' : `/api/daily-records/${updatedRecord.id}`;
+      const method = isNew ? 'POST' : 'PUT';
 
-  useEffect(() => {
-    const loadData = () => {
-      const savedTemp = localStorage.getItem('belafarma_daily_temp');
-      if (savedTemp) {
-        const data = JSON.parse(savedTemp);
-        setExpenses(data.expenses || []);
-        setNonRegistered(data.nonRegistered || []);
-        setPixDiretoList(data.pixDiretoList || []);
-        setCrediarioList(data.crediarioList || []);
-      } else {
-        resetDailyTempStates();
+      const payload = {
+        ...updatedRecord,
+        id: isNew ? Date.now().toString() : updatedRecord.id,
+      };
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save record');
       }
-    };
 
-    loadData();
-
-    const savedHistory = localStorage.getItem('belafarma_daily_history');
-    if (savedHistory) setHistory(JSON.parse(savedHistory));
-  }, [resetDailyTempStates]);
-
-  useEffect(() => {
-    // This effect ensures states are reset if belafarma_daily_temp is cleared while this component is mounted
-    const checkLocalStorage = () => {
-      const savedTemp = localStorage.getItem('belafarma_daily_temp');
-      if (!savedTemp) {
-        resetDailyTempStates();
-      }
-    };
-
-    // Check immediately if we're on the 'entry' tab
-    if (activeTab === 'entry') {
-      checkLocalStorage();
-    }
-
-    // Add a listener for storage events (e.g., if another tab clears it) - less relevant for same-tab, but good practice
-    window.addEventListener('storage', checkLocalStorage);
-    return () => window.removeEventListener('storage', checkLocalStorage);
-  }, [activeTab, resetDailyTempStates]);
-
-  const handleGlobalKeyDown = (e: React.KeyboardEvent) => {
-    if (activeTab === 'entry') {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        handleSave();
-      }
+      await onSave(); // Refresh data from parent
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+      
+      onLog('Lançamento Diário', `${isNew ? 'Criou' : 'Atualizou'} lançamento diário`);
+    } catch (error) {
+      console.error('Error saving record:', error);
+      alert('Erro ao salvar lançamento. Tente novamente.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleSave = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    const data = { expenses, nonRegistered, pixDiretoList, crediarioList, date: today };
-    localStorage.setItem('belafarma_daily_temp', JSON.stringify(data));
+  // Add item to a category
+  const addItem = async (type: TabType) => {
+    if (!todayRecord) return;
 
-    // Save crediario records to the database
-    for (const item of crediarioList) {
-      try {
-        await fetch('/api/crediario', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: item.id,
-            date: new Date().toISOString(),
-            client: item.client,
-            value: item.val,
-            userName: user.name,
-          }),
-        });
-      } catch (error) {
-        console.error('Failed to save crediario item:', error);
-        // Optionally, show an error to the user
-      }
+    let newItem: any;
+    let updatedRecord = { ...todayRecord };
+
+    switch (type) {
+      case 'expenses':
+        if (!expenseForm.desc || !expenseForm.val) return;
+        newItem = {
+          id: Date.now().toString(),
+          desc: expenseForm.desc,
+          val: parseCurrency(expenseForm.val),
+        };
+        updatedRecord.expenses = [...updatedRecord.expenses, newItem];
+        setExpenseForm({ desc: '', val: '' });
+        break;
+
+      case 'pix':
+        if (!pixForm.desc || !pixForm.val) return;
+        newItem = {
+          id: Date.now().toString(),
+          desc: pixForm.desc,
+          val: parseCurrency(pixForm.val),
+        };
+        updatedRecord.pixDiretoList = [...updatedRecord.pixDiretoList, newItem];
+        setPixForm({ desc: '', val: '' });
+        break;
+
+      case 'crediario':
+        if (!crediarioForm.client || !crediarioForm.val) return;
+        newItem = {
+          id: Date.now().toString(),
+          client: crediarioForm.client,
+          val: parseCurrency(crediarioForm.val),
+        };
+        updatedRecord.crediarioList = [...updatedRecord.crediarioList, newItem];
+        setCrediarioForm({ client: '', val: '' });
+        break;
+
+      case 'non-registered':
+        if (!nonRegForm.desc || !nonRegForm.val) return;
+        newItem = {
+          id: Date.now().toString(),
+          desc: nonRegForm.desc,
+          val: parseCurrency(nonRegForm.val),
+        };
+        updatedRecord.nonRegistered = [...updatedRecord.nonRegistered, newItem];
+        setNonRegForm({ desc: '', val: '' });
+        break;
     }
-    
-    const newEntry: DailyRecordEntry = {
-      id: Date.now().toString(),
-      date: new Date().toISOString(),
-      expenses,
-      nonRegistered,
-      pixDiretoList,
-      crediarioList,
-      userName: user.name
-    };
 
-    const updatedHistory = [newEntry, ...history.filter(h => h.date.split('T')[0] !== today)];
-    setHistory(updatedHistory);
-    localStorage.setItem('belafarma_daily_history', JSON.stringify(updatedHistory));
-
-    const totalExp = expenses.reduce((s, e) => s + e.val, 0);
-    const totalPix = pixDiretoList.reduce((s, p) => s + p.val, 0);
-    const totalCred = crediarioList.reduce((s, c) => s + c.val, 0);
-    const expDetails = expenses.map(e => `${e.desc}: ${formatCurrency(e.val)}`).join(', ');
-    const prodDetails = nonRegistered.map(p => p.desc).join(', ');
-    
-    let logMsg = `Total Despesas: ${formatCurrency(totalExp)}, Total Pix Direto: ${formatCurrency(totalPix)}, Total Crediário: ${formatCurrency(totalCred)}.`;
-    if (expenses.length > 0) logMsg += ` Despesas: [${expDetails}].`;
-    if (pixDiretoList.length > 0) logMsg += ` Pix: [${pixDiretoList.map(p => `${p.desc}: ${formatCurrency(p.val)}`).join(', ')}].`;
-    if (crediarioList.length > 0) logMsg += ` Crediário: [${crediarioList.map(c => `${c.client}: ${formatCurrency(c.val)}`).join(', ')}].`;
-    if (nonRegistered.length > 0) logMsg += ` Produtos s/ Cadastro: [${prodDetails}].`;
-
-    onLog('Lançamento Diário', logMsg);
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    setTodayRecord(updatedRecord);
+    await saveRecord(updatedRecord);
   };
 
-  const addExpense = () => {
-    setExpenses([...expenses, { id: Date.now().toString(), desc: '', val: 0 }]);
-    setTimeout(() => lastExpenseRef.current?.focus(), 50);
+  // Start editing an item
+  const startEdit = (type: TabType, id: string) => {
+    if (!todayRecord) return;
+
+    let item: any;
+    switch (type) {
+      case 'expenses':
+        item = todayRecord.expenses.find(e => e.id === id);
+        if (item) setEditForm({ desc: item.desc, val: formatCurrency(item.val) });
+        break;
+      case 'pix':
+        item = todayRecord.pixDiretoList.find(p => p.id === id);
+        if (item) setEditForm({ desc: item.desc, val: formatCurrency(item.val) });
+        break;
+      case 'crediario':
+        item = todayRecord.crediarioList.find(c => c.id === id);
+        if (item) setEditForm({ client: item.client, val: formatCurrency(item.val) });
+        break;
+      case 'non-registered':
+        item = todayRecord.nonRegistered.find(n => n.id === id);
+        if (item) setEditForm({ desc: item.desc, val: formatCurrency(item.val) });
+        break;
+    }
+    setEditingItem({ type, id });
   };
-  
-  const addNonRegistered = () => setNonRegistered([...nonRegistered, { id: Date.now().toString(), desc: '', val: 0 }]);
-  const removeExpense = (id: string) => setExpenses(expenses.filter(e => e.id !== id));
-  const removeNonRegistered = (id: string) => setNonRegistered(nonRegistered.filter(p => p.id !== id));
-  
-  const addPixDireto = () => setPixDiretoList([...pixDiretoList, { id: Date.now().toString(), desc: '', val: 0 }]);
-  const removePixDireto = (id: string) => setPixDiretoList(pixDiretoList.filter(p => p.id !== id));
 
-  const addCrediario = () => setCrediarioList([...crediarioList, { id: Date.now().toString(), client: '', val: 0 }]);
-  const removeCrediario = (id: string) => setCrediarioList(crediarioList.filter(c => c.id !== id));
+  // Save edited item
+  const saveEdit = async () => {
+    if (!todayRecord || !editingItem) return;
 
-  const filteredHistory = useMemo(() => {
-    return history.filter(h => {
-      const d = new Date(h.date);
-      return (d.getMonth() + 1) === filterMonth && d.getFullYear() === filterYear;
-    });
-  }, [history, filterMonth, filterYear]);
+    const updatedRecord = { ...todayRecord };
+    const { type, id } = editingItem;
 
-  const totalMonthExpenses = useMemo(() => {
-    return filteredHistory.reduce((acc, h) => acc + h.expenses.reduce((sum, e) => sum + e.val, 0), 0);
-  }, [filteredHistory]);
+    switch (type) {
+      case 'expenses':
+        updatedRecord.expenses = updatedRecord.expenses.map(e =>
+          e.id === id ? { ...e, desc: editForm.desc, val: parseCurrency(editForm.val) } : e
+        );
+        break;
+      case 'pix':
+        updatedRecord.pixDiretoList = updatedRecord.pixDiretoList.map(p =>
+          p.id === id ? { ...p, desc: editForm.desc, val: parseCurrency(editForm.val) } : p
+        );
+        break;
+      case 'crediario':
+        updatedRecord.crediarioList = updatedRecord.crediarioList.map(c =>
+          c.id === id ? { ...c, client: editForm.client, val: parseCurrency(editForm.val) } : c
+        );
+        break;
+      case 'non-registered':
+        updatedRecord.nonRegistered = updatedRecord.nonRegistered.map(n =>
+          n.id === id ? { ...n, desc: editForm.desc, val: parseCurrency(editForm.val) } : n
+        );
+        break;
+    }
+
+    setTodayRecord(updatedRecord);
+    await saveRecord(updatedRecord);
+    setEditingItem(null);
+    setEditForm({});
+  };
+
+  // Cancel editing
+  const cancelEdit = () => {
+    setEditingItem(null);
+    setEditForm({});
+  };
+
+  // Delete item
+  const deleteItem = async (type: TabType, id: string) => {
+    if (!todayRecord) return;
+
+    if (!confirm('Tem certeza que deseja excluir este item?')) return;
+
+    const updatedRecord = { ...todayRecord };
+
+    switch (type) {
+      case 'expenses':
+        updatedRecord.expenses = updatedRecord.expenses.filter(e => e.id !== id);
+        break;
+      case 'pix':
+        updatedRecord.pixDiretoList = updatedRecord.pixDiretoList.filter(p => p.id !== id);
+        break;
+      case 'crediario':
+        updatedRecord.crediarioList = updatedRecord.crediarioList.filter(c => c.id !== id);
+        break;
+      case 'non-registered':
+        updatedRecord.nonRegistered = updatedRecord.nonRegistered.filter(n => n.id !== id);
+        break;
+    }
+
+    setTodayRecord(updatedRecord);
+    await saveRecord(updatedRecord);
+  };
+
+  // Tab configuration
+  const tabs = [
+    { id: 'expenses' as TabType, label: 'Despesas do Dia', icon: AlertCircle, color: 'red' },
+    { id: 'pix' as TabType, label: 'Pix Direto na Conta', icon: DollarSign, color: 'cyan' },
+    { id: 'crediario' as TabType, label: 'Crediário', icon: ShoppingBag, color: 'amber' },
+    { id: 'non-registered' as TabType, label: 'Produto Não Cadastrado', icon: Plus, color: 'blue' },
+  ];
+
+  const activeTabConfig = tabs.find(t => t.id === activeTab)!;
+
+  // Get items for current tab
+  const getCurrentItems = (): any[] => {
+    if (!todayRecord) return [];
+    switch (activeTab) {
+      case 'expenses': return todayRecord.expenses;
+      case 'pix': return todayRecord.pixDiretoList;
+      case 'crediario': return todayRecord.crediarioList;
+      case 'non-registered': return todayRecord.nonRegistered;
+      default: return [];
+    }
+  };
+
+  const currentItems = getCurrentItems();
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20" onKeyDown={handleGlobalKeyDown}>
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
+      {/* Header */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">LANÇAMENTOS DIÁRIOS</h1>
-          <p className="text-slate-500 font-bold italic text-sm">Use CTRL + ENTER para salvar rapidamente.</p>
-        </div>
-        <div className="flex bg-white p-1 rounded-2xl border-2 border-slate-100 shadow-sm">
-          <button onClick={() => setActiveTab('entry')} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'entry' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400'}`}>Lançar</button>
-          <button onClick={() => setActiveTab('history')} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'history' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400'}`}>Histórico</button>
+          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">
+            Lançamentos Diários
+          </h1>
+          <p className="text-slate-500 font-bold text-sm mt-1">
+            {new Date().toLocaleDateString('pt-BR', { dateStyle: 'full' })}
+          </p>
         </div>
       </header>
 
-      {activeTab === 'entry' ? (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
-              <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
-                <div className="flex items-center gap-3 text-red-600 font-black uppercase text-sm">Despesas do Dia</div>
-                <button onClick={addExpense} className="p-2 bg-red-50 text-red-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-              </div>
-              <div className="space-y-3">
-                {expenses.map((exp, idx) => (
-                  <div key={exp.id} className="flex gap-2">
-                    <input 
-                      ref={idx === expenses.length - 1 ? lastExpenseRef : null}
-                      placeholder="Descrição..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" 
-                      value={exp.desc} onChange={(e) => { const n = [...expenses]; n[idx].desc = e.target.value; setExpenses(n); }} 
-                    />
-                    <input 
-                      placeholder="R$" type="text" 
-                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-red-600 outline-none" 
-                      value={formatCurrency(exp.val)} 
-                      onChange={(e) => { const n = [...expenses]; n[idx].val = parseCurrency(e.target.value); setExpenses(n); }} 
-                    />
-                    <button onClick={() => removeExpense(exp.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
-              <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
-                <div className="flex items-center gap-3 text-cyan-600 font-black uppercase text-sm">Pix Direto na Conta</div>
-                <button onClick={addPixDireto} className="p-2 bg-cyan-50 text-cyan-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-              </div>
-              <div className="space-y-3">
-                {pixDiretoList.map((pix, idx) => (
-                  <div key={pix.id} className="flex gap-2">
-                    <input 
-                      placeholder="Descrição..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" 
-                      value={pix.desc} onChange={(e) => { const n = [...pixDiretoList]; n[idx].desc = e.target.value; setPixDiretoList(n); }} 
-                    />
-                    <input 
-                      placeholder="R$" type="text" 
-                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-cyan-600 outline-none" 
-                      value={formatCurrency(pix.val)} 
-                      onChange={(e) => { const n = [...pixDiretoList]; n[idx].val = parseCurrency(e.target.value); setPixDiretoList(n); }} 
-                    />
-                    <button onClick={() => removePixDireto(pix.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
-              <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
-                <div className="flex items-center gap-3 text-amber-600 font-black uppercase text-sm">Vendas em Crediário</div>
-                <button onClick={addCrediario} className="p-2 bg-amber-50 text-amber-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-              </div>
-              <div className="space-y-3">
-                {crediarioList.map((cred, idx) => (
-                  <div key={cred.id} className="flex gap-2">
-                    <input 
-                      placeholder="Nome do Cliente..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" 
-                      value={cred.client} onChange={(e) => { const n = [...crediarioList]; n[idx].client = e.target.value; setCrediarioList(n); }} 
-                    />
-                    <input 
-                      placeholder="R$" type="text" 
-                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-amber-600 outline-none" 
-                      value={formatCurrency(cred.val)} 
-                      onChange={(e) => { const n = [...crediarioList]; n[idx].val = parseCurrency(e.target.value); setCrediarioList(n); }} 
-                    />
-                    <button onClick={() => removeCrediario(cred.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
-              <div className="flex items-center justify-between border-b-2 border-slate-50 pb-4">
-                <div className="flex items-center gap-3 text-blue-600 font-black uppercase text-sm">Produtos s/ Cadastro</div>
-                <button onClick={addNonRegistered} className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-              </div>
-              <div className="space-y-3">
-                {nonRegistered.map((prod, idx) => (
-                  <div key={prod.id} className="flex gap-2">
-                    <input placeholder="Nome..." className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none" value={prod.desc} onChange={(e) => { const n = [...nonRegistered]; n[idx].desc = e.target.value; setNonRegistered(n); }} />
-                    <input 
-                      placeholder="R$" type="text" 
-                      className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-blue-600 outline-none" 
-                      value={formatCurrency(prod.val)} 
-                      onChange={(e) => { const n = [...nonRegistered]; n[idx].val = parseCurrency(e.target.value); setNonRegistered(n); }} 
-                    />
-                    <button onClick={() => removeNonRegistered(prod.id)} className="p-2 text-slate-300"><Trash2 className="w-5 h-5" /></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="text-center">
-            <button onClick={handleSave} className={`px-12 py-5 rounded-[2rem] font-black uppercase shadow-2xl transition-all ${isSaved ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'}`}>
-              {isSaved ? 'Dados Salvos' : 'Salvar Tudo (CTRL + ENTER)'}
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2 p-2 bg-slate-100/50 rounded-[2rem] border border-slate-200/50">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-3xl text-xs font-black uppercase transition-all duration-300 ${
+                isActive
+                  ? `bg-${tab.color}-600 text-white shadow-xl scale-[1.02]`
+                  : 'text-slate-500 hover:bg-white hover:text-slate-900'
+              }`}
+            >
+              <Icon size={16} className={isActive ? 'text-white' : `text-${tab.color}-600`} />
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
-          </div>
+          );
+        })}
+      </div>
+
+      {/* Content Area */}
+      <div className="bg-white p-8 rounded-[3rem] border-2 border-slate-100 shadow-xl space-y-6">
+        {/* Form Section */}
+        <div className="space-y-4">
+          <h2 className={`text-lg font-black text-${activeTabConfig.color}-600 uppercase flex items-center gap-2`}>
+            <activeTabConfig.icon className="w-5 h-5" />
+            Adicionar {activeTabConfig.label}
+          </h2>
+
+          {activeTab === 'expenses' && (
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Descrição da despesa..."
+                value={expenseForm.desc}
+                onChange={(e) => setExpenseForm({ ...expenseForm, desc: e.target.value })}
+                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <input
+                type="text"
+                placeholder="R$ 0,00"
+                value={expenseForm.val}
+                onChange={(e) => setExpenseForm({ ...expenseForm, val: e.target.value })}
+                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-red-600 outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <button
+                onClick={() => addItem('expenses')}
+                disabled={isSaving}
+                className="px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'pix' && (
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Descrição do PIX..."
+                value={pixForm.desc}
+                onChange={(e) => setPixForm({ ...pixForm, desc: e.target.value })}
+                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+              <input
+                type="text"
+                placeholder="R$ 0,00"
+                value={pixForm.val}
+                onChange={(e) => setPixForm({ ...pixForm, val: e.target.value })}
+                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-cyan-600 outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+              <button
+                onClick={() => addItem('pix')}
+                disabled={isSaving}
+                className="px-6 py-3 bg-cyan-600 text-white rounded-2xl font-black text-sm hover:bg-cyan-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'crediario' && (
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Nome do cliente..."
+                value={crediarioForm.client}
+                onChange={(e) => setCrediarioForm({ ...crediarioForm, client: e.target.value })}
+                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <input
+                type="text"
+                placeholder="R$ 0,00"
+                value={crediarioForm.val}
+                onChange={(e) => setCrediarioForm({ ...crediarioForm, val: e.target.value })}
+                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-amber-600 outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <button
+                onClick={() => addItem('crediario')}
+                disabled={isSaving}
+                className="px-6 py-3 bg-amber-600 text-white rounded-2xl font-black text-sm hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'non-registered' && (
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Nome do produto..."
+                value={nonRegForm.desc}
+                onChange={(e) => setNonRegForm({ ...nonRegForm, desc: e.target.value })}
+                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="text"
+                placeholder="R$ 0,00"
+                value={nonRegForm.val}
+                onChange={(e) => setNonRegForm({ ...nonRegForm, val: e.target.value })}
+                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-blue-600 outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={() => addItem('non-registered')}
+                disabled={isSaving}
+                className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-sm hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Histórico mantido */}
-          <div className="grid grid-cols-1 gap-6">
-            {filteredHistory.map(h => (
-              <div key={h.id} className="bg-white rounded-[2.5rem] p-8 border-2 border-slate-100 shadow-sm">
-                 <h4 className="font-black text-slate-700 uppercase mb-4">{new Date(h.date).toLocaleDateString('pt-BR')}</h4>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="text-xs font-bold text-red-600 uppercase">Despesas: {formatCurrency(h.expenses.reduce((s, e) => s + e.val, 0))}</div>
-                    <div className="text-xs font-bold text-cyan-600 uppercase">Pix Direto: {formatCurrency(h.pixDiretoList?.reduce((s, e) => s + e.val, 0) || 0)}</div>
-                    <div className="text-xs font-bold text-amber-600 uppercase">Crediário: {formatCurrency(h.crediarioList?.reduce((s, e) => s + e.val, 0) || 0)}</div>
-                    <div className="text-xs font-bold text-blue-600 uppercase">Produtos: {h.nonRegistered.length} itens</div>
-                 </div>
-              </div>
-            ))}
+
+        {/* Table Section */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider">
+            Lançamentos de Hoje ({currentItems.length})
+          </h3>
+
+          {currentItems.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <p className="text-sm font-medium italic">Nenhum lançamento registrado ainda.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {currentItems.map((item) => {
+                const isEditing = editingItem?.id === item.id && editingItem?.type === activeTab;
+                
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                      isEditing
+                        ? `bg-${activeTabConfig.color}-50 border-${activeTabConfig.color}-300`
+                        : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-md'
+                    }`}
+                  >
+                    {isEditing ? (
+                      <>
+                        <div className="flex-1 flex gap-3">
+                          {activeTab === 'crediario' ? (
+                            <input
+                              type="text"
+                              value={editForm.client}
+                              onChange={(e) => setEditForm({ ...editForm, client: e.target.value })}
+                              className="flex-1 px-3 py-2 bg-white border-2 border-amber-300 rounded-xl font-bold text-sm outline-none"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={editForm.desc}
+                              onChange={(e) => setEditForm({ ...editForm, desc: e.target.value })}
+                              className={`flex-1 px-3 py-2 bg-white border-2 border-${activeTabConfig.color}-300 rounded-xl font-bold text-sm outline-none`}
+                            />
+                          )}
+                          <input
+                            type="text"
+                            value={editForm.val}
+                            onChange={(e) => setEditForm({ ...editForm, val: e.target.value })}
+                            className={`w-32 px-3 py-2 bg-white border-2 border-${activeTabConfig.color}-300 rounded-xl font-black text-sm text-${activeTabConfig.color}-600 outline-none`}
+                          />
+                        </div>
+                        <div className="flex gap-2 ml-3">
+                          <button
+                            onClick={saveEdit}
+                            className={`p-2 bg-${activeTabConfig.color}-600 text-white rounded-xl hover:bg-${activeTabConfig.color}-700 transition-colors`}
+                          >
+                            <Save className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="p-2 bg-slate-200 text-slate-600 rounded-xl hover:bg-slate-300 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1">
+                          <p className="font-bold text-sm text-slate-800">
+                            {activeTab === 'crediario' ? (item as CrediarioItem).client : (item as ExpenseItem).desc}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <p className={`text-sm font-black text-${activeTabConfig.color}-600`}>
+                            {activeTab === 'expenses' ? '- ' : '+ '}
+                            {formatCurrency(item.val)}
+                          </p>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => startEdit(activeTab, item.id)}
+                              className="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition-colors"
+                              title="Editar"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => deleteItem(activeTab, item.id)}
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                              title="Excluir"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Summary */}
+        {currentItems.length > 0 && (
+          <div className={`pt-4 border-t-2 border-${activeTabConfig.color}-100`}>
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-black text-slate-600 uppercase">Total:</span>
+              <span className={`text-xl font-black text-${activeTabConfig.color}-600`}>
+                {activeTab === 'expenses' ? '- ' : '+ '}
+                {formatCurrency(currentItems.reduce((sum, item) => sum + item.val, 0))}
+              </span>
+            </div>
           </div>
+        )}
+      </div>
+
+      {/* Success Feedback */}
+      {saveSuccess && (
+        <div className="fixed bottom-8 right-8 bg-emerald-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-4 duration-300">
+          <CheckCircle2 className="w-5 h-5" />
+          <span className="font-black text-sm">Salvo com sucesso!</span>
         </div>
       )}
     </div>

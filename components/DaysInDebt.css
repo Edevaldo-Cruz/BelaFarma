@@ -1,6 +1,111 @@
+/* Custom Calendar Styles - Luxury Minimal */
+.react-calendar {
+  width: 100%;
+  border: none !important;
+  font-family: inherit !important;
+  background: transparent !important;
+}
+
+.react-calendar__navigation {
+  margin-bottom: 1.5rem !important;
+}
+
+.react-calendar__navigation button {
+  min-width: 44px;
+  background: none;
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary) !important;
+  transition: all 0.2s ease;
+}
+
+.react-calendar__navigation button:enabled:hover,
+.react-calendar__navigation button:enabled:focus {
+  background-color: var(--bg-accent) !important;
+  border-radius: 12px;
+}
+
+.react-calendar__month-view__weekdays {
+  text-align: center;
+  text-transform: uppercase;
+  font-weight: 900 !important;
+  font-size: 0.65rem !important;
+  color: var(--text-tertiary) !important;
+  margin-bottom: 0.5rem;
+}
+
+.react-calendar__month-view__weekdays__weekday abbr {
+  text-decoration: none !important;
+}
+
+.react-calendar__tile {
+  padding: 1rem 0.5rem !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+  border-radius: 14px;
+  transition: all 0.2s ease;
+}
+
+.react-calendar__tile:enabled:hover,
+.react-calendar__tile:enabled:focus {
+  background-color: var(--bg-accent) !important;
+}
+
+.react-calendar__tile--now {
+  background: transparent !important;
+  color: var(--brand-primary) !important;
+  position: relative;
+}
+
+.react-calendar__tile--now::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: var(--brand-primary);
+}
+
+.react-calendar__tile--active {
+  background: var(--text-primary) !important;
+  color: var(--bg-primary) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.react-calendar__tile--active:enabled:hover,
+.react-calendar__tile--active:enabled:focus {
+  background: var(--text-primary) !important;
+}
+
+/* Marker for days with payments */
 .has-payment {
-  background-color: #fecaca !important;
-  color: #b91c1c !important;
-  border-radius: 50% !important;
-  font-weight: bold;
+  position: relative;
+  font-weight: 900 !important;
+  color: var(--brand-primary) !important;
+  background-color: #fee2e2 !important; /* light red */
+}
+
+.dark .has-payment {
+  background-color: rgba(220, 38, 38, 0.15) !important;
+  color: #fca5a5 !important;
+}
+
+.has-payment::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--brand-primary);
+}
+
+.react-calendar__month-view__days__day--neighboringMonth {
+  color: var(--text-tertiary) !important;
+  opacity: 0.3;
 }

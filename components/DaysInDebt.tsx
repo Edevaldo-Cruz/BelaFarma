@@ -1,19 +1,15 @@
-
 import React, { useState, useMemo } from 'react';
-
-import { DollarSign, Search, Plus, Calendar as CalendarIcon, TrendingUp } from 'lucide-react';
-
-import { Boleto, Order } from '../types';
-
-import Calendar, { Value } from 'react-calendar';
-
+import { DollarSign, Search, Plus, Calendar as CalendarIcon, TrendingUp, AlertCircle, ArrowRight, Wallet, Receipt } from 'lucide-react';
+import { Boleto, Order, FixedAccount } from '../types';
+import Calendar from 'react-calendar';
+type CalendarValue = Date | Date[] | null;
 import 'react-calendar/dist/Calendar.css';
-
 import './DaysInDebt.css';
 
 interface DaysInDebtProps {
   boletos: Boleto[];
   orders: Order[];
+  fixedAccounts: FixedAccount[];
 }
 
 interface DebtCardInfo {
@@ -25,8 +21,8 @@ interface DebtCardInfo {
   }[];
 }
 
-export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
-  const [selectedDate, setSelectedDate] = useState<Value>(new Date());
+export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAccounts }) => {
+  const [selectedDate, setSelectedDate] = useState<CalendarValue>(new Date());
   const [totalValue, setTotalValue] = useState(0);
   const [totalValueInput, setTotalValueInput] = useState('0,00');
   const [installments, setInstallments] = useState(1);
@@ -35,7 +31,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
 
   const handleChangeTotalValue = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value;
-    value = value.replace(/\D/g, ''); // Remove tudo que não é dígito
+    value = value.replace(/\D/g, ''); 
 
     if (value === '') {
       setTotalValue(0);
@@ -52,9 +48,10 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
       }).format(numericValue)
     );
   };
+
   const handleSimulate = () => {
-    const installmentValue = totalValue / installments;
-    const daysArray = days.split(',').map(d => parseInt(d.trim(), 10));
+    const installmentValue = totalValue / (installments || 1);
+    const daysArray = days.split(',').map(d => parseInt(d.trim(), 10)).filter(d => !isNaN(d));
     const today = new Date();
     
     const results: DebtCardInfo[] = daysArray.map(day => {
@@ -67,10 +64,14 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
         d.setHours(0, 0, 0, 0);
         return d.getTime() === mainDate.getTime();
       });
-      const mainDateValue = mainDateBoletos.reduce((acc, b) => acc + b.value, installmentValue);
+      
+      const activeFixedAccountsMatched = fixedAccounts.filter(acc => acc.isActive && acc.dueDay === mainDate.getDate());
+      
+      const mainDateValue = mainDateBoletos.reduce((acc, b) => acc + b.value, installmentValue) + 
+                          activeFixedAccountsMatched.reduce((acc, fa) => acc + fa.value, 0);
 
       const surroundingDates: DebtCardInfo['surroundingDates'] = [];
-      for (let i = -5; i <= 5; i++) {
+      for (let i = -3; i <= 3; i++) {
         if (i === 0) continue;
         const surroundingDate = new Date(mainDate);
         surroundingDate.setDate(mainDate.getDate() + i);
@@ -93,16 +94,29 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
   };
 
   const paymentDates = useMemo(() => {
-    return boletos.map(b => {
+    const dates = new Set(boletos.map(b => {
       const d = new Date(b.due_date);
       d.setHours(0, 0, 0, 0);
       return d.getTime();
+    }));
+
+    // Add fixed account days (for visible range - approximate check)
+    // Note: Calendar range check here is not trivial, but recurring days can be added
+    fixedAccounts.filter(a => a.isActive).forEach(a => {
+        // Technically matches any month, but Set handles uniqueness
     });
-  }, [boletos]);
+
+    return dates;
+  }, [boletos, fixedAccounts]);
 
   const getTileClassName = ({ date }: { date: Date }) => {
-    date.setHours(0, 0, 0, 0);
-    if (paymentDates.includes(date.getTime())) {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    const time = d.getTime();
+    
+    const isFixedDay = fixedAccounts.some(acc => acc.isActive && acc.dueDay === d.getDate());
+
+    if (paymentDates.has(time) || isFixedDay) {
       return 'has-payment';
     }
     return null;
@@ -111,22 +125,46 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
   const selectedDateBoletos = useMemo(() => {
     if (!selectedDate || Array.isArray(selectedDate)) return [];
     const selectedTime = selectedDate.getTime();
-    return boletos.filter(b => {
+    const dayOfMonth = selectedDate.getDate();
+
+    const matchedBoletos = boletos.filter(b => {
       const d = new Date(b.due_date);
       d.setHours(0, 0, 0, 0);
       return d.getTime() === selectedTime;
     });
-  }, [selectedDate, boletos]);
+
+    const matchedFixed = fixedAccounts
+      .filter(acc => acc.isActive && acc.dueDay === dayOfMonth)
+      .map(acc => ({
+        id: `fixed_${acc.id}_${selectedDate.toISOString()}`,
+        supplierName: `[FIXA] ${acc.name}`,
+        value: acc.value,
+        due_date: selectedDate.toISOString(),
+        status: 'Pendente' as any
+      }));
+
+    return [...matchedBoletos, ...matchedFixed];
+  }, [selectedDate, boletos, fixedAccounts]);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-12 animate-in fade-in duration-700 pb-20">
+      {/* HEADER */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <header>
-            <h1 className="text-2xl font-bold text-slate-900">Calendário de Pagamentos</h1>
-            <p className="text-slate-500 font-medium">Visualize seus compromissos financeiros.</p>
-          </header>
-          <div className="mt-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Dias Comprometidos</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-bold italic text-sm">Controle de fluxo de caixa e compromissos futuros.</p>
+        </div>
+        <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/10 px-6 py-3 rounded-2xl border border-red-100 dark:border-red-900/30">
+          <TrendingUp className="w-5 h-5 text-red-600 dark:text-red-400" />
+          <span className="text-sm font-black text-red-700 dark:text-red-400 uppercase tracking-widest">Compromissos Ativos</span>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        {/* CALENDAR SECTION */}
+        <section className="space-y-4">
+          <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Calendário de Pagamentos</h2>
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl transition-all duration-300 hover:shadow-2xl">
             <Calendar
               onChange={setSelectedDate}
               value={selectedDate}
@@ -134,108 +172,133 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
               className="w-full"
             />
           </div>
-        </div>
-        <div>
-          <header>
-            <h1 className="text-2xl font-bold text-slate-900">Detalhes do Dia</h1>
-            <p className="text-slate-500 font-medium">
-              {selectedDate && !Array.isArray(selectedDate) 
-                ? selectedDate.toLocaleDateString('pt-BR')
-                : 'Selecione uma data'}
-            </p>
-          </header>
-          <div className="mt-4 space-y-2">
+        </section>
+
+        {/* DETAILS SECTION */}
+        <section className="space-y-4">
+          <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">
+            Detalhes: {selectedDate && !Array.isArray(selectedDate) ? selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Selecione'}
+          </h2>
+          <div className="space-y-4 scrollbar-hide max-h-[460px] overflow-y-auto pr-2">
             {selectedDateBoletos.length > 0 ? (
               selectedDateBoletos.map(boleto => (
-                <div key={boleto.id} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center">
-                  <span className="font-bold text-slate-800">{boleto.description}</span>
-                  <span className="font-black text-lg text-red-600">
-                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
-                  </span>
+                <div key={boleto.id} className="group bg-white dark:bg-slate-900/50 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform">
+                      <Receipt className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Vencimento em {new Date(boleto.due_date).toLocaleDateString('pt-BR')}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-black text-xl text-red-600 dark:text-red-400">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
+                    </span>
+                  </div>
                 </div>
               ))
             ) : (
-              <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
-                <p className="text-slate-500">Nenhum boleto para esta data.</p>
+              <div className="bg-slate-50 dark:bg-slate-800/20 p-12 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-800 text-center flex flex-col items-center gap-4">
+                <AlertCircle className="w-10 h-10 text-slate-300 dark:text-slate-700" />
+                <p className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">Nenhum compromisso para este dia.</p>
               </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
 
-      <hr className="border-slate-200" />
+      {/* SIMULATION SECTION */}
+      <section className="space-y-6 pt-6">
+        <div className="flex items-center gap-4 ml-2">
+            <div className="w-8 h-8 rounded-full bg-slate-900 dark:bg-slate-100 flex items-center justify-center text-white dark:text-slate-900 font-black">?</div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Simular Novo Pedido</h2>
+        </div>
 
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900">Pesquisa de Dias Comprometidos</h1>
-        <p className="text-slate-500 font-medium">Simule um pedido e veja o impacto nos seus compromissos financeiros.</p>
-      </header>
+        <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border-2 border-slate-100 dark:border-slate-800 shadow-2xl space-y-10">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">Valor Total do Pedido</label>
+              <div className="relative group">
+                <div className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-slate-300 dark:text-slate-600 group-focus-within:text-red-500 transition-colors">R$</div>
+                <input
+                  type="text"
+                  value={totalValueInput}
+                  onChange={handleChangeTotalValue}
+                  className="w-full pl-14 pr-6 py-5 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-red-100 dark:focus:border-red-900/30 rounded-2xl outline-none font-black text-2xl text-slate-900 dark:text-slate-100 transition-all"
+                />
+              </div>
+            </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="text-sm font-bold text-slate-700">Valor Total do Pedido</label>
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                value={totalValueInput}
-                onChange={handleChangeTotalValue}
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl"
-              />
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">Número de Parcelas</label>
+              <div className="relative group">
+                <input
+                  type="number"
+                  min="1"
+                  max="12"
+                  value={installments}
+                  onChange={(e) => setInstallments(parseInt(e.target.value, 10))}
+                  className="w-full px-6 py-5 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-red-100 dark:focus:border-red-900/30 rounded-2xl outline-none font-black text-2xl text-slate-900 dark:text-slate-100 transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">Dias para Vencimento</label>
+              <div className="relative group">
+                <input
+                  type="text"
+                  placeholder="Ex: 15, 30, 45"
+                  value={days}
+                  onChange={(e) => setDays(e.target.value)}
+                  className="w-full px-6 py-5 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-red-100 dark:focus:border-red-900/30 rounded-2xl outline-none font-black text-2xl text-slate-900 dark:text-slate-100 transition-all"
+                />
+              </div>
             </div>
           </div>
-          <div>
-            <label className="text-sm font-bold text-slate-700">Número de Parcelas</label>
-            <input
-              type="number"
-              value={installments}
-              onChange={(e) => setInstallments(parseInt(e.target.value, 10))}
-              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-bold text-slate-700">Dias para Vencimento (separados por vírgula)</label>
-            <input
-              type="text"
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
-              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl"
-            />
-          </div>
-        </div>
-        <button
-          onClick={handleSimulate}
-          className="w-full flex items-center justify-center gap-2 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700"
-        >
-          <Search className="w-5 h-5" /> Simular
-        </button>
-      </div>
 
+          <button
+            onClick={handleSimulate}
+            className="w-full flex items-center justify-center gap-3 py-6 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 rounded-[2rem] font-black uppercase text-sm tracking-[0.2em] shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <Search className="w-5 h-5" /> Iniciar Simulação (Preview)
+          </button>
+        </div>
+      </section>
+
+      {/* SIMULATION RESULTS */}
       {simulationResult.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-bold text-slate-800">Resultado da Simulação</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="space-y-8 py-6 animate-in slide-in-from-bottom-5 duration-500">
+          <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Resultado da Projeção</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {simulationResult.map((result, index) => (
-              <div key={index} className="bg-white p-4 rounded-xl border border-slate-200">
-                <div className="text-center p-4 border-b border-slate-100">
-                  <p className="text-xs text-slate-500">Parcela {index + 1}</p>
-                  <p className="font-bold text-lg">{result.mainDate.toLocaleDateString('pt-BR')}</p>
-                  <p className="font-black text-2xl text-red-600">
+              <div key={index} className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl overflow-hidden hover:border-blue-200 dark:hover:border-blue-900/50 transition-all group">
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 border-b border-slate-100 dark:border-slate-800 relative">
+                  <div className="absolute top-6 right-8 p-3 bg-white dark:bg-slate-900 rounded-xl shadow-sm text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Projectada</div>
+                  <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Parcela {index + 1}</p>
+                  <p className="font-black text-xl text-slate-900 dark:text-slate-100 uppercase tracking-tighter mb-2">{result.mainDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</p>
+                  <p className="font-black text-4xl text-red-600 dark:text-red-500 tracking-tighter">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(result.mainDateValue)}
                   </p>
                 </div>
-                <div className="space-y-2 pt-4">
-                  <h4 className="text-xs font-bold text-slate-500 text-center">Dias Próximos</h4>
-                  {result.surroundingDates.length > 0 ? (
-                    result.surroundingDates.map(sd => (
-                      <div key={sd.date.toISOString()} className="flex justify-between text-xs">
-                        <span>{sd.date.toLocaleDateString('pt-BR')}</span>
-                        <span className="font-bold">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sd.value)}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-400 text-center">Nenhum boleto próximo.</p>
-                  )}
+                <div className="p-8 space-y-4">
+                  <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.15em] flex items-center gap-2">
+                    <TrendingUp className="w-3 h-3" /> Compromissos Próximos
+                  </p>
+                  <div className="space-y-3">
+                    {result.surroundingDates.length > 0 ? (
+                      result.surroundingDates.map(sd => (
+                        <div key={sd.date.toISOString()} className="flex justify-between items-center group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 p-2 rounded-xl transition-colors">
+                          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{sd.date.toLocaleDateString('pt-BR')}</span>
+                          <span className="text-xs font-black text-slate-900 dark:text-slate-200">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sd.value)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] font-bold text-slate-300 dark:text-slate-700 italic">Sem botaletos vizinhos.</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -245,4 +308,3 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders }) => {
     </div>
   );
 };
-

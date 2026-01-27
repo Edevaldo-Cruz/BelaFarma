@@ -46,6 +46,7 @@ export interface Order {
   receiptDate?: string;
   notes?: string;
   installments?: Installment[];
+  boletoFile?: File;
 }
 
 export interface ProductShortage {
@@ -103,6 +104,8 @@ export interface DailyRecordEntry {
 
   userName: string;
 
+  lancado?: boolean; // Flag to indicate if this record has been processed in cash closing
+
 }
 
 
@@ -134,7 +137,7 @@ export interface SystemLog {
   userName: string;
   userId: string;
   action: string; // Criou, Editou, Excluiu, Finalizou
-  category: 'Pedidos' | 'Faltas' | 'Financeiro' | 'Cofre' | 'Usuários' | 'Sistema';
+  category: 'Pedidos' | 'Faltas' | 'Financeiro' | 'Cofre' | 'Usuários' | 'Sistema' | 'Tarefas';
   details: string;
 }
 
@@ -217,6 +220,16 @@ export interface Task {
   // Admin notification fields
   needsAdminAttention?: boolean; // Flag if user reported a problem
   adminAttentionMessage?: string; // Message from user if reported a problem
+  adminResolutionMessage?: string; // NEW: Official response from the creator
+  hasAdminResponse?: boolean; // NEW: Flag to notify the requester that there is a reply
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management';
+export interface FixedAccount {
+  id: string;
+  name: string;
+  value: number;
+  dueDay: number;
+  isActive: boolean;
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts';

@@ -159,6 +159,29 @@ try {
       );
     `;
 
+    const createDailyRecordsTable = `
+      CREATE TABLE IF NOT EXISTS daily_records (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        expenses TEXT NOT NULL,
+        nonRegistered TEXT NOT NULL,
+        pixDiretoList TEXT,
+        crediarioList TEXT,
+        userName TEXT NOT NULL,
+        cashClosingId TEXT -- New column to link to cash closings
+      );
+    `;
+
+    const createFixedAccountsTable = `
+      CREATE TABLE IF NOT EXISTS fixed_accounts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        value REAL NOT NULL,
+        dueDay INTEGER NOT NULL,
+        isActive INTEGER DEFAULT 1
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -169,6 +192,9 @@ try {
     db.exec(createTasksTable);
     db.exec(createCheckingAccountTransactionsTable);
     db.exec(createBoletosTable);
+    db.exec(createMonthlyLimitsTable);
+    db.exec(createDailyRecordsTable);
+    db.exec(createFixedAccountsTable);
     // --- Boletos Table Migrations ---
     // Add supplierName column if it doesn't exist
     try {
@@ -226,7 +252,8 @@ try {
       console.log('Boletos table migration for order_id nullable completed.');
     }
     // --- End Boletos Table Migrations ---
-    db.exec(createMonthlyLimitsTable);
+    // db.exec(createMonthlyLimitsTable); // Already executed
+    // db.exec(createDailyRecordsTable); // Already executed
 
     // Add supplierName column to boletos table if it doesn't exist
     try {
@@ -268,6 +295,39 @@ try {
     try { db.prepare('SELECT annotations FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN annotations TEXT DEFAULT '[]'"); }
     try { db.prepare('SELECT needsAdminAttention FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN needsAdminAttention INTEGER DEFAULT 0"); }
     try { db.prepare('SELECT adminAttentionMessage FROM tasks LIMIT 1').get(); } catch (e) { db.exec("ALTER TABLE tasks ADD COLUMN adminAttentionMessage TEXT"); }
+    
+    // Daily records cashClosingId migration
+    try {
+      db.prepare('SELECT cashClosingId FROM daily_records LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE daily_records ADD COLUMN cashClosingId TEXT');
+      console.log('Added cashClosingId column to daily_records table.');
+    }
+
+    // Daily records lancado migration
+    try {
+      db.prepare('SELECT lancado FROM daily_records LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE daily_records ADD COLUMN lancado INTEGER DEFAULT 0');
+      console.log('Added lancado column to daily_records table.');
+    }
+
+    // Migrate existing data: mark all records from previous days as lancado = 1
+    // (assuming records from past days were already processed in previous cash closings)
+    try {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      const updateStmt = db.prepare(`
+        UPDATE daily_records 
+        SET lancado = 1 
+        WHERE date < ? AND lancado = 0
+      `);
+      const result = updateStmt.run(today);
+      if (result.changes > 0) {
+        console.log(`Migrated ${result.changes} old records (before ${today}) to lancado = 1`);
+      }
+    } catch (e) {
+      console.error('Error migrating old records:', e);
+    }
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
