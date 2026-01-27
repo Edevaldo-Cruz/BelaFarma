@@ -107,9 +107,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Resumo operacional Bela Farma - Sul.</p>
+        <div className="flex items-center gap-4">
+          <img 
+            src="/images/logo-bela-farma.jpg" 
+            alt="Bela Farma Sul" 
+            className="h-16 w-auto object-contain"
+          />
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+            <p className="text-slate-500 dark:text-slate-400 font-medium">Resumo operacional Bela Farma - Sul.</p>
+          </div>
         </div>
         <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
           <Calendar className="w-4 h-4" />

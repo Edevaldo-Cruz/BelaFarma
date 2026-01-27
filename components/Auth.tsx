@@ -47,10 +47,13 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-red-100/50 rounded-full blur-3xl -mr-64 -mt-64 opacity-50" />
       <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 p-8 md:p-12 w-full max-w-md relative z-10">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-red-600 rounded-[1.5rem] shadow-xl shadow-red-200 mb-6">
-            <PlusSquare className="w-10 h-10 text-white" />
+          <div className="flex justify-center mb-6">
+            <img 
+              src="/images/logo-bela-farma.jpg" 
+              alt="Bela Farma Sul" 
+              className="h-32 w-auto object-contain"
+            />
           </div>
-          <h1 className="text-4xl font-black text-red-700 tracking-tighter leading-none">BELA FARMA</h1>
           <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest italic mt-4">API Local Ativa</p>
         </div>
 

@@ -313,27 +313,27 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
           </div>
 
           {/* Footer Actions */}
-          <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-3">
              {(isAssignedToMe || isCreator) && (
               <button 
                 onClick={() => setShowNotificationInput(!showNotificationInput)} 
-                className={`py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center gap-2 ${showNotificationInput ? 'bg-amber-600 text-white' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 hover:bg-amber-200'}`}
+                className={`flex-1 min-w-[140px] py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center gap-2 ${showNotificationInput ? 'bg-amber-600 text-white' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 hover:bg-amber-200'}`}
               >
                 <AlertCircle size={14} /> {showNotificationInput ? 'Cancelar' : 'Solicitar Atenção'}
               </button>
             )}
             {canArchive && (
-              <button onClick={() => { onArchiveTask(task.id); onClose(); }} className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
+              <button onClick={() => { onArchiveTask(task.id); onClose(); }} className="flex-1 min-w-[140px] py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2">
                 <Archive size={14} /> Arquivar
               </button>
             )}
             {canEdit && (
-              <button onClick={() => { onEdit(task); onClose(); }} className="py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase text-[10px] tracking-widest hover:translate-y-[-2px] transition-all shadow-xl shadow-slate-900/20 dark:shadow-white/10 flex items-center justify-center gap-2">
+              <button onClick={() => { onEdit(task); onClose(); }} className="flex-1 min-w-[140px] py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-black uppercase text-[10px] tracking-widest hover:translate-y-[-2px] transition-all shadow-xl shadow-slate-900/20 dark:shadow-white/10 flex items-center justify-center gap-2">
                 <Pencil size={14} /> Editar
               </button>
             )}
             {canDelete && (
-              <button onClick={() => { onDelete(task.id); onClose(); }} className="py-3 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-100 transition-all flex items-center justify-center gap-2">
+              <button onClick={() => { onDelete(task.id); onClose(); }} className="flex-1 min-w-[140px] py-3 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-100 transition-all flex items-center justify-center gap-2">
                 <Trash2 size={14} /> Excluir
               </button>
             )}

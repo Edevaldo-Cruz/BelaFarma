@@ -852,6 +852,7 @@ app.get('/api/tasks', (req, res) => {
           } : undefined,
           annotations: (task.annotations && typeof task.annotations === 'string') ? JSON.parse(task.annotations) : [],
           needsAdminAttention: !!task.needsAdminAttention, // Convert 0/1 to boolean
+          hasAdminResponse: !!task.hasAdminResponse, // Convert 0/1 to boolean
         };
       } catch (mapErr) {
         console.error(`Error mapping task ID ${task.id}:`, mapErr, 'Task data:', task);
@@ -909,6 +910,7 @@ app.get('/api/tasks/:id', (req, res) => {
       } : undefined,
       annotations: (task.annotations && typeof task.annotations === 'string') ? JSON.parse(task.annotations) : [],
       needsAdminAttention: !!task.needsAdminAttention,
+      hasAdminResponse: !!task.hasAdminResponse,
     };
     
     res.json(parsedTask);
@@ -924,7 +926,8 @@ app.put('/api/tasks/:id', (req, res) => {
   const { userId, userRole } = req.query; // Assuming user info is passed in query for now
   const {
     title, description, assignedUser, priority, status, dueDate, color, isArchived,
-    recurrence, originalDueDate, annotations, needsAdminAttention, adminAttentionMessage
+    recurrence, originalDueDate, annotations, needsAdminAttention, adminAttentionMessage,
+    adminResolutionMessage, hasAdminResponse
   } = req.body;
 
   if (!userId || !userRole) {
@@ -938,9 +941,12 @@ app.put('/api/tasks/:id', (req, res) => {
       return res.status(404).json({ error: 'Task not found.' });
     }
 
-    // RBAC Check - Only admin can update any task. Operators can only update their assigned tasks.
+    // RBAC Check - Admins can update any task. Creators can update their own tasks. Operators can update their assigned tasks.
     if (userRole !== 'Administrador') {
-      if (existingTask.assignedUser !== userId && existingTask.assignedUser !== 'all_users') {
+      const isCreator = existingTask.creator === userId;
+      const isAssigned = existingTask.assignedUser === userId || existingTask.assignedUser === 'all_users';
+      
+      if (!isCreator && !isAssigned) {
         return res.status(403).json({ error: 'Access denied to update this task.' });
       }
     }
@@ -976,7 +982,9 @@ app.put('/api/tasks/:id', (req, res) => {
           originalDueDate = @originalDueDate,
           annotations = @annotations,
           needsAdminAttention = @needsAdminAttention,
-          adminAttentionMessage = @adminAttentionMessage
+          adminAttentionMessage = @adminAttentionMessage,
+          adminResolutionMessage = @adminResolutionMessage,
+          hasAdminResponse = @hasAdminResponse
       WHERE id = @id
     `);
 
@@ -1002,6 +1010,8 @@ app.put('/api/tasks/:id', (req, res) => {
       annotations: annotations ? JSON.stringify(annotations) : (existingTask.annotations || '[]'),
       needsAdminAttention: needsAdminAttention !== undefined ? (needsAdminAttention ? 1 : 0) : existingTask.needsAdminAttention,
       adminAttentionMessage: adminAttentionMessage !== undefined ? adminAttentionMessage : existingTask.adminAttentionMessage,
+      adminResolutionMessage: adminResolutionMessage !== undefined ? adminResolutionMessage : existingTask.adminResolutionMessage,
+      hasAdminResponse: hasAdminResponse !== undefined ? (hasAdminResponse ? 1 : 0) : existingTask.hasAdminResponse,
     });
 
     if (result.changes > 0) {
@@ -1173,6 +1183,51 @@ app.post('/api/safe-entries', (req, res) => {
       VALUES (@id, @date, @description, @type, @value, @userName)
     `);
     stmt.run(entry);
+
+    // Auto-create task if withdrawal >= R$ 1000
+    if (entry.type === 'Saída' && entry.value >= 1000) {
+      // Get first admin user
+      const adminUser = db.prepare("SELECT id FROM users WHERE role = 'Administrador' LIMIT 1").get();
+      
+      if (adminUser) {
+        const taskId = 'task-' + Date.now();
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const taskStmt = db.prepare(`
+          INSERT INTO tasks (
+            id, title, description, assignedUser, creator, priority, status, 
+            dueDate, creationDate, color, isArchived, annotations, 
+            needsAdminAttention, hasAdminResponse
+          ) VALUES (
+            @id, @title, @description, @assignedUser, @creator, @priority, @status,
+            @dueDate, @creationDate, @color, @isArchived, @annotations, 
+            @needsAdminAttention, @hasAdminResponse
+          )
+        `);
+        
+        taskStmt.run({
+          id: taskId,
+          title: 'Realizar Depósito Bancário',
+          description: `Cofre atingiu R$ ${entry.value.toFixed(2)} em retirada realizada por ${entry.userName}. Realizar depósito no banco para segurança.`,
+          assignedUser: adminUser.id,
+          creator: adminUser.id, // System-generated, attributed to admin
+          priority: 'Urgente',
+          status: 'A Fazer',
+          dueDate: tomorrow.toISOString(),
+          creationDate: now.toISOString(),
+          color: 'orange',
+          isArchived: 0,
+          annotations: '[]',
+          needsAdminAttention: 0,
+          hasAdminResponse: 0
+        });
+        
+        console.log(`Auto-created task ${taskId} for safe withdrawal of R$ ${entry.value}`);
+      }
+    }
+
     res.status(201).json(entry); // Return the created entry
   } catch (err) {
     console.error('Error creating safe entry:', err);
