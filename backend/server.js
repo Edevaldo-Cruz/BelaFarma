@@ -733,6 +733,91 @@ app.post('/api/cash-closings', (req, res) => {
       }
     })();
 
+    // Auto-create task if accumulated safe deposits >= R$ 1000
+    if (closing.safeDeposit > 0) {
+      console.log(`[CASH CLOSING] Safe deposit: R$ ${closing.safeDeposit.toFixed(2)}`);
+      
+      try {
+        // Calculate total of all safe deposits from cash closings
+        const result = db.prepare(`
+          SELECT SUM(safeDeposit) as total 
+          FROM cash_closings 
+          WHERE safeDeposit > 0
+        `).get();
+        
+        const totalSafeDeposits = result?.total || 0;
+        console.log(`[TASK AUTO] Total accumulated safe deposits: R$ ${totalSafeDeposits.toFixed(2)}`);
+        
+        if (totalSafeDeposits >= 1000) {
+          console.log('[TASK AUTO] Total >= 1000. Checking if task already exists...');
+          
+          // Check if there's already an open deposit task
+          const existingTask = db.prepare(`
+            SELECT id FROM tasks 
+            WHERE title = 'Realizar Depósito Bancário' 
+            AND status != 'Concluída' 
+            AND status != 'Cancelada'
+            AND isArchived = 0
+            LIMIT 1
+          `).get();
+          
+          if (existingTask) {
+            console.log('[TASK AUTO] Task already exists. Skipping creation.');
+          } else {
+            console.log('[TASK AUTO] No existing task found. Creating new task...');
+            
+            // Get first admin user
+            const adminUser = db.prepare("SELECT id FROM users WHERE role = 'Administrador' LIMIT 1").get();
+            
+            if (adminUser) {
+              const taskId = 'task-' + Date.now();
+              const now = new Date();
+              const tomorrow = new Date(now);
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              
+              const taskStmt = db.prepare(`
+                INSERT INTO tasks (
+                  id, title, description, assignedUser, creator, priority, status, 
+                  dueDate, creationDate, color, isArchived, annotations, 
+                  needsAdminAttention, hasAdminResponse
+                ) VALUES (
+                  @id, @title, @description, @assignedUser, @creator, @priority, @status,
+                  @dueDate, @creationDate, @color, @isArchived, @annotations, 
+                  @needsAdminAttention, @hasAdminResponse
+                )
+              `);
+              
+              taskStmt.run({
+                id: taskId,
+                title: 'Realizar Depósito Bancário',
+                description: `Cofre acumulou R$ ${totalSafeDeposits.toFixed(2)} em depósitos dos fechamentos de caixa. Último depósito: R$ ${closing.safeDeposit.toFixed(2)} por ${closing.userName}. Realizar depósito no banco para segurança.`,
+                assignedUser: adminUser.id,
+                creator: adminUser.id,
+                priority: 'Urgente',
+                status: 'A Fazer',
+                dueDate: tomorrow.toISOString(),
+                creationDate: now.toISOString(),
+                color: 'orange',
+                isArchived: 0,
+                annotations: '[]',
+                needsAdminAttention: 0,
+                hasAdminResponse: 0
+              });
+              
+              console.log(`[TASK AUTO] ✓ Task ${taskId} created successfully. Total safe deposits: R$ ${totalSafeDeposits.toFixed(2)}`);
+            } else {
+              console.warn('[TASK AUTO] No admin user found. Task not created.');
+            }
+          }
+        } else {
+          console.log(`[TASK AUTO] Total (R$ ${totalSafeDeposits.toFixed(2)}) is below threshold (R$ 1000). No task created.`);
+        }
+      } catch (taskErr) {
+        console.error('[TASK AUTO] ✗ Error in task automation:', taskErr);
+        // Continue execution - don't fail the cash closing
+      }
+    }
+
     res.status(201).json({ id: closing.id });
   } catch (err) {
     console.error('Error creating cash closing:', err);
@@ -1185,46 +1270,60 @@ app.post('/api/safe-entries', (req, res) => {
     stmt.run(entry);
 
     // Auto-create task if withdrawal >= R$ 1000
+    console.log(`[SAFE ENTRY] Created entry. Type: ${entry.type}, Value: ${entry.value}`);
+    
     if (entry.type === 'Saída' && entry.value >= 1000) {
-      // Get first admin user
-      const adminUser = db.prepare("SELECT id FROM users WHERE role = 'Administrador' LIMIT 1").get();
+      console.log('[TASK AUTO] Withdrawal >= 1000 detected. Attempting to create task...');
       
-      if (adminUser) {
-        const taskId = 'task-' + Date.now();
-        const now = new Date();
-        const tomorrow = new Date(now);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+      try {
+        // Get first admin user
+        const adminUser = db.prepare("SELECT id FROM users WHERE role = 'Administrador' LIMIT 1").get();
+        console.log('[TASK AUTO] Admin user found:', adminUser);
         
-        const taskStmt = db.prepare(`
-          INSERT INTO tasks (
-            id, title, description, assignedUser, creator, priority, status, 
-            dueDate, creationDate, color, isArchived, annotations, 
-            needsAdminAttention, hasAdminResponse
-          ) VALUES (
-            @id, @title, @description, @assignedUser, @creator, @priority, @status,
-            @dueDate, @creationDate, @color, @isArchived, @annotations, 
-            @needsAdminAttention, @hasAdminResponse
-          )
-        `);
-        
-        taskStmt.run({
-          id: taskId,
-          title: 'Realizar Depósito Bancário',
-          description: `Cofre atingiu R$ ${entry.value.toFixed(2)} em retirada realizada por ${entry.userName}. Realizar depósito no banco para segurança.`,
-          assignedUser: adminUser.id,
-          creator: adminUser.id, // System-generated, attributed to admin
-          priority: 'Urgente',
-          status: 'A Fazer',
-          dueDate: tomorrow.toISOString(),
-          creationDate: now.toISOString(),
-          color: 'orange',
-          isArchived: 0,
-          annotations: '[]',
-          needsAdminAttention: 0,
-          hasAdminResponse: 0
-        });
-        
-        console.log(`Auto-created task ${taskId} for safe withdrawal of R$ ${entry.value}`);
+        if (adminUser) {
+          const taskId = 'task-' + Date.now();
+          const now = new Date();
+          const tomorrow = new Date(now);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          
+          const taskStmt = db.prepare(`
+            INSERT INTO tasks (
+              id, title, description, assignedUser, creator, priority, status, 
+              dueDate, creationDate, color, isArchived, annotations, 
+              needsAdminAttention, hasAdminResponse
+            ) VALUES (
+              @id, @title, @description, @assignedUser, @creator, @priority, @status,
+              @dueDate, @creationDate, @color, @isArchived, @annotations, 
+              @needsAdminAttention, @hasAdminResponse
+            )
+          `);
+          
+          const taskData = {
+            id: taskId,
+            title: 'Realizar Depósito Bancário',
+            description: `Cofre atingiu R$ ${entry.value.toFixed(2)} em retirada realizada por ${entry.userName}. Realizar depósito no banco para segurança.`,
+            assignedUser: adminUser.id,
+            creator: adminUser.id, // System-generated, attributed to admin
+            priority: 'Urgente',
+            status: 'A Fazer',
+            dueDate: tomorrow.toISOString(),
+            creationDate: now.toISOString(),
+            color: 'orange',
+            isArchived: 0,
+            annotations: '[]',
+            needsAdminAttention: 0,
+            hasAdminResponse: 0
+          };
+          
+          console.log('[TASK AUTO] Inserting task with data:', taskData);
+          taskStmt.run(taskData);
+          console.log(`[TASK AUTO] ✓ Task ${taskId} created successfully for withdrawal of R$ ${entry.value}`);
+        } else {
+          console.warn('[TASK AUTO] No admin user found. Task not created.');
+        }
+      } catch (taskErr) {
+        console.error('[TASK AUTO] ✗ Error creating task:', taskErr);
+        // Continue execution - don't fail the safe entry creation
       }
     }
 
@@ -1523,6 +1622,166 @@ app.get('/api/debtors-report', (req, res) => {
   } catch (err) {
     console.error('Error fetching debtors report:', err);
     res.status(500).json({ error: 'Failed to fetch debtors report.' });
+  }
+});
+
+// --- Bug Tracking System ---
+// GET all bugs
+app.get('/api/bugs', (req, res) => {
+  try {
+    const bugs = db.prepare('SELECT * FROM bugs ORDER BY createdAt DESC').all();
+    res.json(bugs.map(bug => ({
+      ...bug,
+      screenshots: bug.screenshots ? JSON.parse(bug.screenshots) : []
+    })));
+  } catch (err) {
+    console.error('Error fetching bugs:', err);
+    res.status(500).json({ error: 'Failed to fetch bugs.' });
+  }
+});
+
+// CREATE bug
+app.post('/api/bugs', (req, res) => {
+  try {
+    const bug = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO bugs (id, title, description, reporter, priority, status, category, createdAt, screenshots)
+      VALUES (@id, @title, @description, @reporter, @priority, @status, @category, @createdAt, @screenshots)
+    `);
+    stmt.run({
+      ...bug,
+      screenshots: JSON.stringify(bug.screenshots || [])
+    });
+    res.status(201).json(bug);
+  } catch (err) {
+    console.error('Error creating bug:', err);
+    res.status(500).json({ error: 'Failed to create bug.' });
+  }
+});
+
+// UPDATE bug
+app.put('/api/bugs/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    const stmt = db.prepare(`
+      UPDATE bugs 
+      SET title = @title, 
+          description = @description,
+          priority = @priority,
+          status = @status,
+          category = @category,
+          resolvedAt = @resolvedAt,
+          resolvedBy = @resolvedBy,
+          resolutionNotes = @resolutionNotes,
+          screenshots = @screenshots
+      WHERE id = @id
+    `);
+    
+    stmt.run({
+      id,
+      ...updates,
+      screenshots: JSON.stringify(updates.screenshots || [])
+    });
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating bug:', err);
+    res.status(500).json({ error: 'Failed to update bug.' });
+  }
+});
+
+// DELETE bug (Admin only)
+app.delete('/api/bugs/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM bugs WHERE id = ?').run(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting bug:', err);
+    res.status(500).json({ error: 'Failed to delete bug.' });
+  }
+});
+
+// --- Flyering Tasks CUD ---
+// GET all flyering tasks
+app.get('/api/flyering', (req, res) => {
+  try {
+    const tasks = db.prepare('SELECT * FROM flyering_tasks ORDER BY createdAt DESC').all().map(task => ({
+      ...task,
+      coordinates: JSON.parse(task.coordinates)
+    }));
+    res.json(tasks);
+  } catch (err) {
+    console.error('Error fetching flyering tasks:', err);
+    res.status(500).json({ error: 'Failed to fetch flyering tasks.' });
+  }
+});
+
+// CREATE flyering task
+app.post('/api/flyering', (req, res) => {
+  try {
+    const task = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO flyering_tasks (id, type, coordinates, assignedUserId, status, color, createdAt, createdBy, description, area)
+      VALUES (@id, @type, @coordinates, @assignedUserId, @status, @color, @createdAt, @createdBy, @description, @area)
+    `);
+    stmt.run({
+      ...task,
+      description: task.description || null,
+      area: task.area || null,
+      coordinates: JSON.stringify(task.coordinates)
+    });
+    res.status(201).json({ message: 'Flyering task created successfully.' });
+  } catch (err) {
+    console.error('Error creating flyering task:', err);
+    res.status(500).json({ error: 'Failed to create flyering task.' });
+  }
+});
+
+// UPDATE flyering task
+app.put('/api/flyering/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const task = req.body;
+    const stmt = db.prepare(`
+      UPDATE flyering_tasks
+      SET type = @type, coordinates = @coordinates, assignedUserId = @assignedUserId, 
+          status = @status, description = @description, area = @area
+      WHERE id = @id
+    `);
+    const result = stmt.run({
+      ...task,
+      id,
+      description: task.description || null,
+      area: task.area || null,
+      coordinates: JSON.stringify(task.coordinates)
+    });
+    if (result.changes > 0) {
+      res.json({ message: 'Flyering task updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Flyering task not found.' });
+    }
+  } catch (err) {
+    console.error('Error updating flyering task:', err);
+    res.status(500).json({ error: 'Failed to update flyering task.' });
+  }
+});
+
+// DELETE flyering task
+app.delete('/api/flyering/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = db.prepare('DELETE FROM flyering_tasks WHERE id = ?').run(id);
+    if (result.changes > 0) {
+      res.json({ message: 'Flyering task deleted successfully.' });
+    } else {
+      res.status(404).json({ error: 'Flyering task not found.' });
+    }
+  } catch (err) {
+    console.error('Error deleting flyering task:', err);
+    res.status(500).json({ error: 'Failed to delete flyering task.' });
   }
 });
 

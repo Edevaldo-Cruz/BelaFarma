@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Plus, Search, Filter } from 'lucide-react';
-import { User, Task } from '../types';
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import { Plus, Search, Filter, Flag, CheckCircle, Bug as BugIcon, Map } from 'lucide-react';
+import { User, Task, Bug } from '../types';
 import { TaskForm } from './TaskForm';
 import { TaskDetailsModal } from './TaskDetailsModal';
 import { TaskCard } from './TaskCard';
+import { BugForm } from './BugForm';
+import { BugList } from './BugList';
+import { BugDetailsModal } from './BugDetailsModal';
+
+// Lazy load do FlyeringMap para melhor performance
+const FlyeringMap = lazy(() => import('./FlyeringMap').then(module => ({ default: module.FlyeringMap })));
 
 interface TaskManagementPageProps {
   user: User;
@@ -13,14 +19,26 @@ interface TaskManagementPageProps {
 }
 
 export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, users, onLog, onRefreshTasks }) => {
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'tasks' | 'bugs' | 'flyering'>('tasks');
+  
+  // Tasks state
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  
+  // Bugs state
+  const [bugs, setBugs] = useState<Bug[]>([]);
+  const [isBugFormOpen, setIsBugFormOpen] = useState(false);
+  const [editingBug, setEditingBug] = useState<Bug | null>(null);
+  const [isBugDetailsOpen, setIsBugDetailsOpen] = useState(false);
+  const [selectedBug, setSelectedBug] = useState<Bug | null>(null);
+  
   const isAdmin = user.role === 'Administrador';
 
-  // Filter states
+  // Filter states (for tasks)
   const [filterPriority, setFilterPriority] = useState<Task['priority'] | 'all'>('all');
   const [filterAssignedUser, setFilterAssignedUser] = useState<string | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,9 +56,23 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
     }
   }, []);
 
+  const fetchBugs = useCallback(async () => {
+    try {
+      const response = await fetch('/api/bugs');
+      if (!response.ok) {
+        throw new Error('Failed to fetch bugs.');
+      }
+      const data: Bug[] = await response.json();
+      setBugs(data);
+    } catch (error) {
+      console.error('Error fetching bugs:', error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+    fetchBugs();
+  }, [fetchTasks, fetchBugs]);
 
   // Keep selectedTask in sync with tasks state updates
   useEffect(() => {
@@ -308,6 +340,70 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
     }
   };
 
+  // --- Bug Handlers ---
+  const handleCreateBug = async (bugData: Omit<Bug, 'id' | 'createdAt' | 'reporter'>) => {
+    try {
+      const newBug: Bug = {
+        ...bugData,
+        id: `bug-${Date.now()}`,
+        reporter: user.id,
+        createdAt: new Date().toISOString()
+      };
+
+      const response = await fetch('/api/bugs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBug),
+      });
+
+      if (!response.ok) throw new Error('Failed to create bug.');
+      
+      onLog('Bugs', `Reportou bug: "${newBug.title}"`);
+      setIsBugFormOpen(false);
+      setEditingBug(null);
+      fetchBugs();
+    } catch (error) {
+      console.error('Error creating bug:', error);
+      alert('Erro ao criar bug.');
+    }
+  };
+
+  const handleUpdateBug = async (updatedBug: Bug) => {
+    try {
+      const response = await fetch(`/api/bugs/${updatedBug.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedBug),
+      });
+
+      if (!response.ok) throw new Error('Failed to update bug.');
+      
+      onLog('Bugs', `Atualizou bug: "${updatedBug.title}" para status "${updatedBug.status}"`);
+      setIsBugDetailsOpen(false);
+      setSelectedBug(null);
+      fetchBugs();
+    } catch (error) {
+      console.error('Error updating bug:', error);
+      alert('Erro ao atualizar bug.');
+    }
+  };
+
+  const handleDeleteBug = async (bugId: string) => {
+    try {
+      const response = await fetch(`/api/bugs/${bugId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to delete bug.');
+      
+      onLog('Bugs', `Deletou bug ID: ${bugId}`);
+      fetchBugs();
+    } catch (error) {
+      console.error('Error deleting bug:', error);
+      alert('Erro ao deletar bug.');
+    }
+  };
+
   const priorityOptions: Task['priority'][] = ['Muito Urgente', 'Urgente', 'Normal', 'Sem Prioridade'];
 
   // Column configuration for Kanban board
@@ -323,17 +419,73 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
     <div className="max-w-[1800px] mx-auto space-y-6 animate-in fade-in duration-500 pb-20">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Gerenciamento de Tarefas</h1>
-          <p className="text-slate-500 font-bold italic text-sm">Organize e acompanhe o progresso das suas tarefas.</p>
+          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Gerenciamento de Tarefas, Bugs & Panfletagem</h1>
+          <p className="text-slate-500 font-bold italic text-sm">
+            {activeTab === 'tasks' && 'Organize e acompanhe o progresso das suas tarefas.'}
+            {activeTab === 'bugs' && 'Reporte e acompanhe problemas do sistema.'}
+            {activeTab === 'flyering' && 'Distribua áreas de panfletagem no mapa interativo.'}
+          </p>
         </div>
-        <div className="flex items-center gap-4">
-          <button onClick={handleAddTask} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase shadow-xl flex items-center gap-2 hover:bg-slate-800 transition-colors">
-            <Plus className="w-5 h-5" /> Nova Tarefa
-          </button>
-        </div>
+        {activeTab !== 'flyering' && (
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => activeTab === 'tasks' ? handleAddTask() : setIsBugFormOpen(true)} 
+              className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase shadow-xl flex items-center gap-2 hover:bg-slate-800 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              {activeTab === 'tasks' ? 'Nova Tarefa' : 'Reportar Bug'}
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* Filter Bar */}
+      {/* Tabs */}
+      <div className="flex gap-2 p-2 bg-white rounded-2xl shadow-sm border border-slate-200">
+        <button
+          onClick={() => setActiveTab('tasks')}
+          className={`flex-1 px-6 py-3 rounded-xl font-black uppercase text-sm tracking-wide transition-all ${
+            activeTab === 'tasks'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <div className="flex items-center justify-center gap-2">
+            <CheckCircle size={18} />
+            <span>Tarefas ({tasks.length})</span>
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('bugs')}
+          className={`flex-1 px-6 py-3 rounded-xl font-black uppercase text-sm tracking-wide transition-all ${
+            activeTab === 'bugs'
+              ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <div className="flex items-center justify-center gap-2">
+            <BugIcon size={18} />
+            <span>Bugs ({bugs.length})</span>
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('flyering')}
+          className={`flex-1 px-6 py-3 rounded-xl font-black uppercase text-sm tracking-wide transition-all ${
+            activeTab === 'flyering'
+              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <div className="flex items-center justify-center gap-2">
+            <Map size={18} />
+            <span>Panfletagem</span>
+          </div>
+        </button>
+      </div>
+
+      {/* Tasks Tab Content */}
+      {activeTab === 'tasks' && (
+        <>
+          {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-slate-200">
         {/* Search Term */}
         <div className="relative flex-1 min-w-[200px]">
@@ -379,6 +531,38 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
             </select>
           </div>
         )}
+      </div>
+
+      {/* Priority Legend */}
+      <div className="p-4 bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <Flag className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-black text-slate-600 dark:text-slate-400 uppercase tracking-widest">Legenda de Prioridades</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Muito Urgente</span>
+              <span className="text-[10px] font-medium text-slate-400">• Imediato</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Urgente</span>
+              <span className="text-[10px] font-medium text-slate-400">• Hoje</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Normal</span>
+              <span className="text-[10px] font-medium text-slate-400">• Esta semana</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-slate-400"></div>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Sem Prioridade</span>
+              <span className="text-[10px] font-medium text-slate-400">• Quando possível</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Kanban Board */}
@@ -451,6 +635,69 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
           onArchiveTask={handleArchiveTask}
         />
       )}
+        </>
+      )}
+
+      {/* Bugs Tab Content */}
+      {activeTab === 'bugs' && (
+        <>
+          <div className="p-6">
+            <BugList
+              bugs={bugs}
+              user={user}
+              users={users}
+              onBugClick={(bug) => {
+                setSelectedBug(bug);
+                setIsBugDetailsOpen(true);
+              }}
+            />
+          </div>
+
+          {isBugFormOpen && (
+            <BugForm
+              user={user}
+              onClose={() => {
+                setIsBugFormOpen(false);
+                setEditingBug(null);
+              }}
+              onSubmit={handleCreateBug}
+              editingBug={editingBug}
+            />
+          )}
+
+          {isBugDetailsOpen && selectedBug && (
+            <BugDetailsModal
+              bug={selectedBug}
+              user={user}
+              users={users}
+              onClose={() => {
+                setIsBugDetailsOpen(false);
+                setSelectedBug(null);
+              }}
+              onUpdate={handleUpdateBug}
+              onDelete={isAdmin ? handleDeleteBug : undefined}
+            />
+          )}
+        </>
+      )}
+
+      {/* Flyering Tab Content */}
+      {activeTab === 'flyering' && (
+        <div className="mt-6">
+          <Suspense fallback={
+            <div className="h-[500px] flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-slate-200">
+              <div className="text-center">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-slate-300 border-t-blue-600 mb-4"></div>
+                <p className="text-slate-600 font-bold">Carregando mapa...</p>
+              </div>
+            </div>
+          }>
+            <FlyeringMap user={user} users={users} onLog={onLog} />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 };
+
+

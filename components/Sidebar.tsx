@@ -146,9 +146,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
            isSaturday;
   }) : [];
 
+  // Bank Deposit Tasks (Automatic tasks for admins)
+  const bankDepositTasks = isAdmin ? tasks.filter(task =>
+    task.title === 'Realizar Depósito Bancário' &&
+    task.status !== 'Concluída' &&
+    task.status !== 'Cancelada' &&
+    !task.isArchived
+  ) : [];
+
   const totalNotifications = 
     taskAttentionNotifications.length + 
     taskResponseNotifications.length + 
+    bankDepositTasks.length +
     overdueBoletos.length + 
     boletosDueSunday.length;
   const hasNotifications = totalNotifications > 0;

@@ -8,7 +8,8 @@ import {
   CreditCard,
   MessageSquare,
   AlertCircle,
-  ClipboardCheck
+  ClipboardCheck,
+  Vault
 } from 'lucide-react';
 import { Task, Boleto, BoletoStatus, User, View, UserRole } from '../types';
 
@@ -43,13 +44,21 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
     task.hasAdminResponse && task.assignedUser === user.id
   );
 
-  // 3. Overdue Boletos (Only for Admins)
+  // 3. Bank Deposit Tasks (Automatic tasks for admins)
+  const bankDepositTasks = isAdmin ? tasks.filter(task =>
+    task.title === 'Realizar Depósito Bancário' &&
+    task.status !== 'Concluída' &&
+    task.status !== 'Cancelada' &&
+    !task.isArchived
+  ) : [];
+
+  // 4. Overdue Boletos (Only for Admins)
   const overdueBoletos = isAdmin ? boletos.filter(b => {
     const dueDate = new Date(b.due_date + 'T00:00:00');
     return b.status === BoletoStatus.PENDENTE && dueDate < now;
   }) : [];
 
-  // 3. Sunday Boletos (Special Alert for Admins on Saturdays)
+  // 5. Sunday Boletos (Special Alert for Admins on Saturdays)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const nextSunday = new Date(today);
@@ -67,6 +76,7 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
   const totalNotifications = 
     taskAttentionNotifications.length + 
     taskResolutionNotifications.length + 
+    bankDepositTasks.length +
     overdueBoletos.length + 
     boletosDueSunday.length;
 
@@ -152,6 +162,36 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                     </p>
                     <div className="flex items-center gap-2 mt-2">
                       <span className="text-[9px] font-black bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 text-emerald-600">Ver Solução</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* BANK DEPOSIT TASKS */}
+        {bankDepositTasks.length > 0 && (
+          <div className="space-y-2">
+            <p className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest">💰 Ação Financeira Urgente</p>
+            {bankDepositTasks.map(task => (
+              <button 
+                key={task.id}
+                onClick={() => { onViewTask(task); onClose(); }}
+                className="w-full text-left p-4 bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-950/40 rounded-2xl border border-orange-100 dark:border-orange-900/30 transition-all group"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-orange-600 text-white rounded-lg group-hover:scale-110 transition-transform shadow-lg shadow-orange-600/20">
+                    <Vault size={14} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight">{task.title}</h4>
+                    <p className="text-[10px] font-bold text-orange-700 dark:text-orange-500 mt-0.5 line-clamp-2">
+                      {task.description}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-[9px] font-black bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-orange-200 dark:border-orange-800 text-orange-600 uppercase">Urgente</span>
+                      <span className="text-[9px] font-bold text-slate-400">Vencimento: {new Date(task.dueDate).toLocaleDateString('pt-BR')}</span>
                     </div>
                   </div>
                 </div>

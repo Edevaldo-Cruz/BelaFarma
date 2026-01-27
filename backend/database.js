@@ -380,6 +380,41 @@ try {
       console.log('Added dueDay column to customers table.');
     }
 
+    // Create bugs table for system bug tracking
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bugs (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        reporter TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        status TEXT NOT NULL,
+        category TEXT,
+        createdAt TEXT NOT NULL,
+        resolvedAt TEXT,
+        resolvedBy TEXT,
+        resolutionNotes TEXT,
+        screenshots TEXT
+      )
+    `);
+    console.log('Bugs table verified/created.');
+
+    // Create flyering_tasks table for panfletagem management
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS flyering_tasks (\n        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL, -- 'polyline' or 'polygon'
+        coordinates TEXT NOT NULL, -- JSON array de [lat, lng]
+        assignedUserId TEXT NOT NULL,
+        status TEXT NOT NULL, -- 'Pendente', 'Em Andamento', 'Concluído'
+        color TEXT NOT NULL, -- Cor hexadecimal
+        createdAt TEXT NOT NULL,
+        createdBy TEXT NOT NULL,
+        description TEXT,
+        area TEXT -- Nome da área
+      )
+    `);
+    console.log('Flyering tasks table verified/created.');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

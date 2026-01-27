@@ -272,4 +272,32 @@ export interface DebtorReport {
   hasOverdue: number;  // 0 or 1
 }
 
+export interface Bug {
+  id: string;
+  title: string;
+  description?: string;
+  reporter: string; // User ID
+  priority: 'Crítico' | 'Alto' | 'Médio' | 'Baixo';
+  status: 'Aberto' | 'Em Análise' | 'Resolvido' | 'Fechado';
+  category?: 'Interface' | 'Funcionalidade' | 'Performance' | 'Dados' | 'Outro';
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string; // User ID who resolved
+  resolutionNotes?: string;
+  screenshots?: string[];
+}
+
+export interface FlyeringTask {
+  id: string;
+  type: 'polyline' | 'polygon';
+  coordinates: number[][]; // Array de [lat, lng]
+  assignedUserId: string;
+  status: 'Pendente' | 'Em Andamento' | 'Concluído';
+  color: string; // Cor hexadecimal atribuída ao usuário
+  createdAt: string;
+  createdBy: string;
+  description?: string;
+  area?: string; // Nome da área (opcional)
+}
+
 export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report';
