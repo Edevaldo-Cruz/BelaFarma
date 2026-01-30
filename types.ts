@@ -232,6 +232,18 @@ export interface FixedAccount {
   isActive: boolean;
 }
 
+export interface FixedAccountPayment {
+  id: string;
+  fixedAccountId: string;
+  fixedAccountName: string;
+  value: number;
+  dueDate: string; // YYYY-MM-DD
+  month: string; // YYYY-MM
+  status: 'Pendente' | 'Pago';
+  paidAt?: string; // YYYY-MM-DD
+  notes?: string;
+}
+
 // CRM Module Types
 export interface Customer {
   id: string;

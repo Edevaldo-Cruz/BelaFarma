@@ -1,0 +1,54 @@
+// Adicionar após a linha 154 (handleAddNew)
+
+// Fetch fixed account payments when month/year changes
+React.useEffect(() => {
+  const fetchFixedPayments = async () => {
+    setLoadingFixedPayments(true);
+    try {
+      const month = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
+      const response = await fetch(`/api/fixed-account-payments?month=${month}`);
+      if (!response.ok) throw new Error('Failed to fetch fixed payments');
+      const data = await response.json();
+      setFixedPayments(data);
+    } catch (error) {
+      console.error('Error fetching fixed payments:', error);
+    } finally {
+      setLoadingFixedPayments(false);
+    }
+  };
+
+  fetchFixedPayments();
+}, [selectedMonth, selectedYear]);
+
+// Handle marking fixed payment as paid/pending
+const handleToggleFixedPayment = async (payment: FixedAccountPayment) => {
+  try {
+    const newStatus = payment.status === 'Pago' ? 'Pendente' : 'Pago';
+    const paidAt = newStatus === 'Pago' ? new Date().toISOString().split('T')[0] : null;
+    
+    const response = await fetch(`/api/fixed-account-payments/${payment.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus, paidAt })
+    });
+    
+    if (!response.ok) throw new Error('Failed to update payment');
+    
+    // Update local state
+    setFixedPayments(prev => 
+      prev.map(p => p.id === payment.id ? { ...p, status: newStatus, paidAt } : p)
+    );
+  } catch (error) {
+    console.error('Error updating fixed payment:', error);
+    alert('Erro ao atualizar pagamento');
+  }
+};
+
+// Calculate totals including fixed payments
+const totalFixedPayments = useMemo(() => {
+  return fixedPayments.reduce((acc, p) => acc + p.value, 0);
+}, [fixedPayments]);
+
+const totalFixedPending = useMemo(() => {
+  return fixedPayments.filter(p => p.status === 'Pendente').reduce((acc, p) => acc + p.value, 0);
+}, [fixedPayments]);

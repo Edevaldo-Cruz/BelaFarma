@@ -12,7 +12,7 @@ import {
   Trash2, // Added
   Calendar as CalendarIcon
 } from 'lucide-react';
-import { Boleto, BoletoStatus, Order, MonthlyLimit, User } from '../types';
+import { Boleto, BoletoStatus, Order, MonthlyLimit, User, FixedAccountPayment } from '../types';
 import { BoletoForm } from './BoletoForm';
 
 interface ContasAPagarProps {
@@ -41,6 +41,8 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [isBoletoFormOpen, setIsBoletoFormOpen] = useState(false);
   const [boletoToEdit, setBoletoToEdit] = useState<Boleto | null>(null);
+  const [fixedPayments, setFixedPayments] = useState<FixedAccountPayment[]>([]);
+  const [loadingFixedPayments, setLoadingFixedPayments] = useState(false);
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -153,6 +155,59 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
     setIsBoletoFormOpen(true);
   };
 
+  // Fetch fixed account payments when month/year changes
+  React.useEffect(() => {
+    const fetchFixedPayments = async () => {
+      setLoadingFixedPayments(true);
+      try {
+        const month = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
+        const response = await fetch(`/api/fixed-account-payments?month=${month}`);
+        if (!response.ok) throw new Error('Failed to fetch fixed payments');
+        const data = await response.json();
+        setFixedPayments(data);
+      } catch (error) {
+        console.error('Error fetching fixed payments:', error);
+      } finally {
+        setLoadingFixedPayments(false);
+      }
+    };
+
+    fetchFixedPayments();
+  }, [selectedMonth, selectedYear]);
+
+  // Handle marking fixed payment as paid/pending
+  const handleToggleFixedPayment = async (payment: FixedAccountPayment) => {
+    try {
+      const newStatus = payment.status === 'Pago' ? 'Pendente' : 'Pago';
+      const paidAt = newStatus === 'Pago' ? new Date().toISOString().split('T')[0] : null;
+      
+      const response = await fetch(`/api/fixed-account-payments/${payment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus, paidAt })
+      });
+      
+      if (!response.ok) throw new Error('Failed to update payment');
+      
+      // Update local state
+      setFixedPayments(prev => 
+        prev.map(p => p.id === payment.id ? { ...p, status: newStatus, paidAt } : p)
+      );
+    } catch (error) {
+      console.error('Error updating fixed payment:', error);
+      alert('Erro ao atualizar pagamento');
+    }
+  };
+
+  // Calculate totals including fixed payments
+  const totalFixedPayments = useMemo(() => {
+    return fixedPayments.reduce((acc, p) => acc + p.value, 0);
+  }, [fixedPayments]);
+
+  const totalFixedPending = useMemo(() => {
+    return fixedPayments.filter(p => p.status === 'Pendente').reduce((acc, p) => acc + p.value, 0);
+  }, [fixedPayments]);
+
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
       {isBoletoFormOpen && (
@@ -240,6 +295,70 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
           </div>
         </div>
       </div>
+
+      {/* SEÇÃO DE CONTAS FIXAS */}
+      {fixedPayments.length > 0 && (
+        <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-[2rem] border-2 border-purple-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 bg-purple-100/50 border-b-2 border-purple-200 flex items-center justify-between">
+            <h3 className="text-sm font-black text-purple-900 uppercase tracking-widest flex items-center gap-2">
+              📌 Contas Fixas - {monthOptions[selectedMonth].label.toUpperCase()}/{selectedYear}
+            </h3>
+            <div className="text-right">
+              <p className="text-[10px] font-black text-purple-700/60 uppercase tracking-widest">Total</p>
+              <p className="text-lg font-black text-purple-900">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalFixedPayments)}
+              </p>
+            </div>
+          </div>
+          <div className="p-6 space-y-3">
+            {fixedPayments.map(payment => (
+              <div 
+                key={payment.id} 
+                className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                  payment.status === 'Pago' 
+                    ? 'bg-emerald-50/50 border-emerald-200' 
+                    : 'bg-white border-purple-200 hover:border-purple-300'
+                }`}
+              >
+                <div className="flex items-center gap-4 flex-1">
+                  <button
+                    onClick={() => handleToggleFixedPayment(payment)}
+                    className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                      payment.status === 'Pago'
+                        ? 'bg-emerald-500 border-emerald-600'
+                        : 'bg-white border-slate-300 hover:border-purple-500'
+                    }`}
+                  >
+                    {payment.status === 'Pago' && <CheckCircle2 className="w-4 h-4 text-white" />}
+                  </button>
+                  <div className="flex-1">
+                    <p className={`font-black uppercase tracking-tight ${
+                      payment.status === 'Pago' ? 'text-emerald-700 line-through' : 'text-slate-900'
+                    }`}>
+                      {payment.fixedAccountName}
+                    </p>
+                    <p className="text-xs text-slate-500 font-bold">
+                      Vencimento: {new Date(payment.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`text-lg font-black ${
+                    payment.status === 'Pago' ? 'text-emerald-700' : 'text-purple-900'
+                  }`}>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(payment.value)}
+                  </p>
+                  {payment.status === 'Pago' && payment.paidAt && (
+                    <p className="text-[10px] text-emerald-600 font-bold">
+                      Pago em {new Date(payment.paidAt + 'T00:00:00').toLocaleDateString('pt-BR')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">

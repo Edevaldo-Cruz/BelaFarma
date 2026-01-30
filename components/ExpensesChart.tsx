@@ -9,12 +9,13 @@ import {
   ResponsiveContainer, 
   Legend
 } from 'recharts';
-import { Order, Boleto, CashClosingRecord } from '../types';
+import { Order, Boleto, CashClosingRecord, FixedAccount } from '../types';
 
 interface ExpensesChartProps {
   orders: Order[];
   boletos: Boleto[];
   cashClosings: CashClosingRecord[];
+  fixedAccounts: FixedAccount[];
 }
 
 const monthsOrder = [
@@ -22,7 +23,7 @@ const monthsOrder = [
   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'
 ];
 
-export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, cashClosings }) => {
+export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, cashClosings, fixedAccounts }) => {
   const chartData = useMemo(() => {
     const dataMap: Record<string, { revenue: number, expenses: number }> = {};
     const now = new Date();
@@ -65,6 +66,16 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
       }
     });
 
+    // Processar Despesas (Contas Fixas Ativas)
+    // Contas fixas são despesas recorrentes, então adicionamos a todos os meses
+    fixedAccounts
+      .filter(acc => acc.isActive)
+      .forEach(acc => {
+        Object.keys(dataMap).forEach(key => {
+          dataMap[key].expenses += acc.value;
+        });
+      });
+
     return Object.entries(dataMap).map(([key, data]) => {
       const [year, month] = key.split('-');
       return {
@@ -74,7 +85,7 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
         Despesa: data.expenses
       };
     });
-  }, [orders, boletos, cashClosings]);
+  }, [orders, boletos, cashClosings, fixedAccounts]);
 
   return (
     <>

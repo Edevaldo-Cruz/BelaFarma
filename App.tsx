@@ -543,7 +543,7 @@ const App: React.FC = () => {
           ) : (
             <>
               {currentView === "dashboard" && (
-                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} />
+                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} fixedAccounts={fixedAccounts} />
               )}
               {currentView === "orders" && (
                 <Orders

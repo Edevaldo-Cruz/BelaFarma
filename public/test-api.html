@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de API - BelaFarma</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #dc2626;
+            border-bottom: 3px solid #dc2626;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-weight: bold;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #dc2626;
+        }
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border-left: 4px solid #3b82f6;
+        }
+        button {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #b91c1c;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .data-table th, .data-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .data-table th {
+            background: #f3f4f6;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Teste de API - BelaFarma</h1>
+        
+        <div class="info">
+            <strong>ℹ️ Informação:</strong> Esta página testa diretamente a API do backend para verificar se os dados de produção estão sendo retornados corretamente.
+        </div>
+
+        <div>
+            <button onclick="testAPI()">🔄 Testar API</button>
+            <button onclick="clearCache()">🗑️ Limpar Cache e localStorage</button>
+            <button onclick="location.reload()">↻ Recarregar Página</button>
+        </div>
+
+        <div id="status"></div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        async function testAPI() {
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            
+            statusDiv.innerHTML = '<div class="info">⏳ Testando conexão com a API...</div>';
+            resultsDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/all-data');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                // Mostrar status
+                const usersCount = data.users?.documents?.length || 0;
+                const closingsCount = data.cashClosings?.documents?.length || 0;
+                const recordsCount = data.dailyRecords?.documents?.length || 0;
+                
+                let statusHTML = '';
+                
+                if (usersCount === 3 && closingsCount === 30) {
+                    statusHTML = `
+                        <div class="success">
+                            ✅ <strong>SUCESSO!</strong> Os dados de produção estão sendo retornados corretamente!
+                            <br>• ${usersCount} usuários
+                            <br>• ${closingsCount} fechamentos de caixa
+                            <br>• ${recordsCount} lançamentos diários
+                        </div>
+                    `;
+                } else {
+                    statusHTML = `
+                        <div class="error">
+                            ⚠️ <strong>ATENÇÃO!</strong> Os dados não correspondem ao esperado!
+                            <br>• Usuários: ${usersCount} (esperado: 3)
+                            <br>• Fechamentos: ${closingsCount} (esperado: 30)
+                            <br>• Lançamentos: ${recordsCount}
+                        </div>
+                    `;
+                }
+                
+                statusDiv.innerHTML = statusHTML;
+
+                // Mostrar dados detalhados
+                let resultsHTML = '<h3>📊 Dados Retornados:</h3>';
+                
+                // Usuários
+                if (data.users?.documents?.length > 0) {
+                    resultsHTML += '<h4>👥 Usuários:</h4>';
+                    resultsHTML += '<table class="data-table"><tr><th>Nome</th><th>Função</th><th>Chave</th></tr>';
+                    data.users.documents.forEach(u => {
+                        resultsHTML += `<tr><td>${u.name}</td><td>${u.role}</td><td>${u.accessKey}</td></tr>`;
+                    });
+                    resultsHTML += '</table>';
+                }
+
+                // Fechamentos de caixa (últimos 5)
+                if (data.cashClosings?.documents?.length > 0) {
+                    resultsHTML += '<h4>💰 Últimos 5 Fechamentos de Caixa:</h4>';
+                    resultsHTML += '<table class="data-table"><tr><th>Data</th><th>Total Vendas</th><th>Usuário</th></tr>';
+                    data.cashClosings.documents.slice(0, 5).forEach(c => {
+                        const date = new Date(c.date).toLocaleString('pt-BR');
+                        resultsHTML += `<tr><td>${date}</td><td>R$ ${c.totalSales}</td><td>${c.userName}</td></tr>`;
+                    });
+                    resultsHTML += '</table>';
+                }
+
+                resultsDiv.innerHTML = resultsHTML;
+
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="error">
+                        ❌ <strong>ERRO!</strong> Não foi possível conectar à API.
+                        <br>Erro: ${error.message}
+                        <br><br>Verifique se o servidor backend está rodando em http://localhost:3001
+                    </div>
+                `;
+                resultsDiv.innerHTML = '';
+            }
+        }
+
+        function clearCache() {
+            // Limpar localStorage
+            localStorage.clear();
+            
+            // Limpar sessionStorage
+            sessionStorage.clear();
+            
+            alert('✅ Cache e localStorage limpos!\n\nAgora recarregue a página (F5) e teste novamente.');
+        }
+
+        // Testar automaticamente ao carregar a página
+        window.onload = () => {
+            testAPI();
+        };
+    </script>
+</body>
+</html>

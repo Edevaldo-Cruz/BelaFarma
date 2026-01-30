@@ -26,17 +26,18 @@ import {
 import SalesChart from './SalesChart';
 import ExpensesChart from './ExpensesChart';
 import PaymentMethodsChart from './PaymentMethodsChart';
-import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord } from '../types';
+import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount } from '../types';
 
 interface DashboardProps {
   user: User;
   orders: Order[];
   shortages: ProductShortage[];
   cashClosings: CashClosingRecord[];
-  boletos: Boleto[]; // ADDED
+  boletos: Boleto[];
+  fixedAccounts: FixedAccount[];
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos }) => { // ADDED boletos
+export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts }) => {
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -213,7 +214,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
 
       {user.role !== UserRole.OPERADOR && (
         <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm min-h-[400px] flex flex-col">
-          <ExpensesChart orders={orders} boletos={boletos} cashClosings={cashClosings} />
+          <ExpensesChart orders={orders} boletos={boletos} cashClosings={cashClosings} fixedAccounts={fixedAccounts} />
         </div>
       )}
 

@@ -1,11 +1,22 @@
 const Database = require('better-sqlite3');
+const path = require('path');
+const fs = require('fs');
 
-const DB_FILE = 'belafarma.db';
+// Suporta variável de ambiente para o caminho do banco
+const DB_FILE = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
+
+// Garante que o diretório existe
+const dbDir = path.dirname(DB_FILE);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+  console.log(`Diretório de dados criado: ${dbDir}`);
+}
+
 let db;
 
 try {
   db = new Database(DB_FILE, { verbose: console.log });
-  console.log('Conexão com o banco de dados SQLite estabelecida.');
+  console.log(`Conexão com o banco de dados SQLite estabelecida: ${DB_FILE}`);
   
   // Ativa o modo WAL para melhor concorrência
   db.pragma('journal_mode = WAL');
@@ -182,6 +193,22 @@ try {
       );
     `;
 
+    const createFixedAccountPaymentsTable = `
+      CREATE TABLE IF NOT EXISTS fixed_account_payments (
+        id TEXT PRIMARY KEY,
+        fixedAccountId TEXT NOT NULL,
+        fixedAccountName TEXT NOT NULL,
+        value REAL NOT NULL,
+        dueDate TEXT NOT NULL,
+        month TEXT NOT NULL,
+        status TEXT NOT NULL,
+        paidAt TEXT,
+        notes TEXT,
+        FOREIGN KEY (fixedAccountId) REFERENCES fixed_accounts(id)
+      );
+    `;
+    console.log('Fixed account payments table verified/created.');
+
     // CRM Module Tables
     const createCustomersTable = `
       CREATE TABLE IF NOT EXISTS customers (
@@ -225,6 +252,7 @@ try {
     db.exec(createMonthlyLimitsTable);
     db.exec(createDailyRecordsTable);
     db.exec(createFixedAccountsTable);
+    db.exec(createFixedAccountPaymentsTable);
     db.exec(createCustomersTable);
     db.exec(createCustomerDebtsTable);
     // --- Boletos Table Migrations ---

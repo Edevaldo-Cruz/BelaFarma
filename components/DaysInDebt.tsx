@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DollarSign, Search, Plus, Calendar as CalendarIcon, TrendingUp, AlertCircle, ArrowRight, Wallet, Receipt } from 'lucide-react';
-import { Boleto, Order, FixedAccount } from '../types';
+import { Boleto, Order, FixedAccount, FixedAccountPayment } from '../types';
 import Calendar from 'react-calendar';
 type CalendarValue = Date | Date[] | null;
 import 'react-calendar/dist/Calendar.css';
@@ -28,6 +28,25 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   const [installments, setInstallments] = useState(1);
   const [days, setDays] = useState<string>('15');
   const [simulationResult, setSimulationResult] = useState<DebtCardInfo[]>([]);
+  const [fixedPayments, setFixedPayments] = useState<FixedAccountPayment[]>([]);
+
+  // Fetch fixed account payments for current month
+  React.useEffect(() => {
+    const fetchFixedPayments = async () => {
+      try {
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const response = await fetch(`/api/fixed-account-payments?month=${month}`);
+        if (!response.ok) throw new Error('Failed to fetch fixed payments');
+        const data = await response.json();
+        setFixedPayments(data);
+      } catch (error) {
+        console.error('Error fetching fixed payments:', error);
+      }
+    };
+
+    fetchFixedPayments();
+  }, []);
 
   const handleChangeTotalValue = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value;
@@ -65,10 +84,12 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
         return d.getTime() === mainDate.getTime();
       });
       
-      const activeFixedAccountsMatched = fixedAccounts.filter(acc => acc.isActive && acc.dueDay === mainDate.getDate());
+      const activeFixedPayments = fixedPayments.filter(fp => 
+        fp.status === 'Pendente' && fp.dueDate === mainDate.toISOString().split('T')[0]
+      );
       
       const mainDateValue = mainDateBoletos.reduce((acc, b) => acc + b.value, installmentValue) + 
-                          activeFixedAccountsMatched.reduce((acc, fa) => acc + fa.value, 0);
+                          activeFixedPayments.reduce((acc, fp) => acc + fp.value, 0);
 
       const surroundingDates: DebtCardInfo['surroundingDates'] = [];
       for (let i = -3; i <= 3; i++) {
@@ -100,23 +121,26 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       return d.getTime();
     }));
 
-    // Add fixed account days (for visible range - approximate check)
-    // Note: Calendar range check here is not trivial, but recurring days can be added
-    fixedAccounts.filter(a => a.isActive).forEach(a => {
-        // Technically matches any month, but Set handles uniqueness
+    // Add fixed payment dates
+    fixedPayments.filter(fp => fp.status === 'Pendente').forEach(fp => {
+      const d = new Date(fp.dueDate + 'T00:00:00');
+      d.setHours(0, 0, 0, 0);
+      dates.add(d.getTime());
     });
 
     return dates;
-  }, [boletos, fixedAccounts]);
+  }, [boletos, fixedPayments]);
 
   const getTileClassName = ({ date }: { date: Date }) => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
     const time = d.getTime();
     
-    const isFixedDay = fixedAccounts.some(acc => acc.isActive && acc.dueDay === d.getDate());
+    const hasFixedPayment = fixedPayments.some(fp => 
+      fp.status === 'Pendente' && new Date(fp.dueDate + 'T00:00:00').getTime() === time
+    );
 
-    if (paymentDates.has(time) || isFixedDay) {
+    if (paymentDates.has(time) || hasFixedPayment) {
       return 'has-payment';
     }
     return null;
@@ -125,7 +149,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   const selectedDateBoletos = useMemo(() => {
     if (!selectedDate || Array.isArray(selectedDate)) return [];
     const selectedTime = selectedDate.getTime();
-    const dayOfMonth = selectedDate.getDate();
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
 
     const matchedBoletos = boletos.filter(b => {
       const d = new Date(b.due_date);
@@ -133,18 +157,19 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       return d.getTime() === selectedTime;
     });
 
-    const matchedFixed = fixedAccounts
-      .filter(acc => acc.isActive && acc.dueDay === dayOfMonth)
-      .map(acc => ({
-        id: `fixed_${acc.id}_${selectedDate.toISOString()}`,
-        supplierName: `[FIXA] ${acc.name}`,
-        value: acc.value,
-        due_date: selectedDate.toISOString(),
+    // Use fixed payments instead of fixed accounts
+    const matchedFixedPayments = fixedPayments
+      .filter(fp => fp.status === 'Pendente' && fp.dueDate === selectedDateStr)
+      .map(fp => ({
+        id: fp.id,
+        supplierName: `[FIXA] ${fp.fixedAccountName}`,
+        value: fp.value,
+        due_date: fp.dueDate,
         status: 'Pendente' as any
       }));
 
-    return [...matchedBoletos, ...matchedFixed];
-  }, [selectedDate, boletos, fixedAccounts]);
+    return [...matchedBoletos, ...matchedFixedPayments];
+  }, [selectedDate, boletos, fixedPayments]);
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">

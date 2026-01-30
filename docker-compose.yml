@@ -1,13 +1,15 @@
-version: '3.8'
-
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    environment:
+      # Caminho do banco de dados dentro do container
+      - DB_PATH=/usr/src/app/data/belafarma.db
     volumes:
-      # Monta o arquivo do banco de dados para garantir que os dados sejam persistidos
-      - ./backend/belafarma.db:/usr/src/app/belafarma.db
+      # Monta diretório de dados (não apenas o arquivo)
+      # Isso garante que o SQLite possa criar arquivos -wal e -shm
+      - ./data:/usr/src/app/data
     restart: unless-stopped
     # A porta 3001 não precisa ser exposta ao host, 
     # pois o Nginx se comunicará com ele pela rede interna do Docker.
