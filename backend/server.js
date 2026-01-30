@@ -788,13 +788,15 @@ app.post('/api/cash-closings', (req, res) => {
       const transactionDate = new Date().toISOString();
       
       // If there is a safe deposit, record it in the safe
-      if (closing.safeDeposit > 0) {
+      const safeDepositVal = Number(closing.safeDeposit);
+      if (safeDepositVal > 0) {
+        console.log(`[CASH CLOSING] Registering safe deposit: R$ ${safeDepositVal}`);
         insertSafeEntryStmt.run({
           id: 'S' + Date.now().toString(),
           date: transactionDate,
           description: `Depósito Fechamento de Caixa`,
           type: 'Entrada',
-          value: closing.safeDeposit,
+          value: safeDepositVal,
           userName: closing.userName
         });
       }
