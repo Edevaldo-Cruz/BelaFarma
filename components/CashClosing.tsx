@@ -203,7 +203,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash - totalExpenses - totalCrediario, [totalSales, receivedExtra, initialCash, totalExpenses, totalCrediario]);
 
-    const totalConferido = useMemo(() => totalInDrawer + totalDigital + initialCash, [totalInDrawer, totalDigital, initialCash]);
+    const totalConferido = useMemo(() => totalInDrawer + totalDigital, [totalInDrawer, totalDigital]);
 
     const diff = totalConferido - subtotalSoma;
 
@@ -845,7 +845,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
                             <li>+ Total em Gaveta: R$ {totalInDrawer.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
-                            <li>+ Saldo Inicial (Troco): R$ {initialCash.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+
 
                             <li>+ Total Digital: R$ {totalDigital.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
