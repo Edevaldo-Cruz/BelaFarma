@@ -11,6 +11,95 @@ const PORT = 3001;
 // Middlewares
 app.use(cors());
 app.use(express.json());
+app.use(express.json());
+
+const safelyParseJSON = (jsonString, fallback = []) => {
+  try {
+    if (!jsonString) return fallback;
+    return JSON.parse(jsonString);
+  } catch (e) {
+    console.error('JSON Parse Error:', e.message, 'Input:', jsonString);
+    return fallback;
+  }
+};
+
+app.get('/api/backups', (req, res) => {
+  const { exec } = require('child_process');
+  // Define backup directory: in production use logic, in dev use local relative path
+  let backupDir = '/home/ed/backups/belafarma';
+  
+  // If we are on Windows (dev environment), use a local temp folder for simulation
+  if (process.platform === 'win32') {
+     backupDir = path.join(__dirname, '..', 'backups_dev_simulated');
+     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+  }
+
+  fs.readdir(backupDir, (err, files) => {
+    if (err) {
+      if (err.code === 'ENOENT') {
+        return res.json([]); // Directory doesn't exist yet, return empty
+      }
+      console.error('Error reading backup directory:', err);
+      return res.status(500).json({ error: 'Failed to list backups.' });
+    }
+    
+    const backups = files
+      .filter(file => file.endsWith('.db') || file.endsWith('.sqlite'))
+      .map(file => {
+        const stats = fs.statSync(path.join(backupDir, file));
+        return {
+          name: file,
+          size: stats.size,
+          date: stats.mtime,
+        };
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date desc
+
+    res.json(backups);
+  });
+});
+
+app.post('/api/backups/create', (req, res) => {
+  const { exec } = require('child_process');
+  
+  // On Windows/Dev, simulate creating a file
+  if (process.platform === 'win32') {
+     console.log('Simulating backup creation on Windows...');
+     const backupDir = path.join(__dirname, '..', 'backups_dev_simulated');
+     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+     const filename = `belafarma_${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
+     
+     // Copy current dev db to backup
+     try {
+       fs.copyFileSync(path.join(__dirname, 'belafarma.db'), path.join(backupDir, filename));
+       return res.json({ message: 'Backup simulado criado com sucesso', filename });
+     } catch(e) {
+       return res.status(500).json({ error: 'Erro ao criar backup simulado' });
+     }
+  }
+
+  // On Linux/Production, execute the shell script
+  const scriptPath = '/home/ed/scripts/auto_backup.sh';
+  exec(scriptPath, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Backup script error: ${error}`);
+      return res.status(500).json({ error: 'Failed to create backup.', details: stderr });
+    }
+    console.log(`Backup stdout: ${stdout}`);
+    res.json({ message: 'Backup started successfully.' });
+  });
+});
+
+// Restore is dangerous, so we just run the restore script which handles logic
+app.post('/api/backups/:filename/restore', (req, res) => {
+    // This is complex because it might kill the server process if it restarts the service
+    // For now, we return a 501 Not Implemented or suggest using the CLI for safety
+    // Or we implements a "soft restore" that overwrites the DB file but requires manual restart
+    
+    // SAFE IMPLEMENTATION:
+    res.status(501).json({ error: 'Restoration via Web UI is disabled for safety. Use the admin terminal.' });
+});
+
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -37,6 +126,14 @@ app.get('/', (req, res) => {
 });
 
 // Endpoint to get all initial data
+app.use('/api', (req, res, next) => {
+  if (!db || db.open === false) { // Check if db exists and is open
+    console.error('CRITICAL: Database connection is not established or closed.');
+    return res.status(503).json({ error: 'Database service unavailable. Please check server logs.' });
+  }
+  next();
+});
+
 app.get('/api/all-data', (req, res) => {
   if (!db) {
     return res.status(500).json({ error: 'Database connection not established.' });
@@ -50,7 +147,7 @@ app.get('/api/all-data', (req, res) => {
     // Process data before sending
     const orders = ordersRaw.map(order => ({
       ...order,
-      installments: order.installments ? JSON.parse(order.installments) : [],
+      installments: safelyParseJSON(order.installments),
     }));
 
     const shortages = shortagesRaw.map(shortage => ({
@@ -64,10 +161,10 @@ app.get('/api/all-data', (req, res) => {
     const dailyRecords = db.prepare('SELECT * FROM daily_records ORDER BY date DESC').all().map(record => {
       const mapped = {
         ...record,
-        expenses: JSON.parse(record.expenses),
-        nonRegistered: JSON.parse(record.nonRegistered),
-        pixDiretoList: record.pixDiretoList ? JSON.parse(record.pixDiretoList) : [],
-        crediarioList: record.crediarioList ? JSON.parse(record.crediarioList) : [],
+        expenses: safelyParseJSON(record.expenses),
+        nonRegistered: safelyParseJSON(record.nonRegistered),
+        pixDiretoList: safelyParseJSON(record.pixDiretoList),
+        crediarioList: safelyParseJSON(record.crediarioList),
         lancado: !!record.lancado, // Convert 0/1 to boolean
       };
       console.log('Daily record from DB:', {
@@ -614,10 +711,10 @@ app.get('/api/daily-records', (req, res) => {
   try {
     const records = db.prepare('SELECT * FROM daily_records ORDER BY date DESC').all().map(record => ({
       ...record,
-      expenses: JSON.parse(record.expenses),
-      nonRegistered: JSON.parse(record.nonRegistered),
-      pixDiretoList: record.pixDiretoList ? JSON.parse(record.pixDiretoList) : [],
-      crediarioList: record.crediarioList ? JSON.parse(record.crediarioList) : [],
+      expenses: safelyParseJSON(record.expenses),
+      nonRegistered: safelyParseJSON(record.nonRegistered),
+      pixDiretoList: safelyParseJSON(record.pixDiretoList),
+      crediarioList: safelyParseJSON(record.crediarioList),
       lancado: !!record.lancado, // Convert 0/1 to boolean
     }));
     res.json(records);
@@ -751,11 +848,15 @@ app.post('/api/logs', (req, res) => {
 // GET all cash closings
 app.get('/api/cash-closings', (req, res) => {
   try {
-    const closings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
+    const closings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all().map(closing => ({
+      ...closing,
+      crediarioList: safelyParseJSON(closing.crediarioList)
+    }));
     res.json(closings);
   } catch (err) {
     console.error('Error fetching cash closings:', err);
-    res.status(500).json({ error: 'Failed to fetch cash closings.' });
+    console.error(err.stack);
+    res.status(500).json({ error: 'Failed to fetch cash closings.', details: err.message });
   }
 });
 
@@ -1040,12 +1141,12 @@ app.get('/api/tasks', (req, res) => {
           recurrence: (task.recurrenceType && task.recurrenceType !== 'none') ? {
             type: task.recurrenceType,
             interval: task.recurrenceInterval,
-            daysOfWeek: (task.recurrenceDaysOfWeek && typeof task.recurrenceDaysOfWeek === 'string') ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
+            daysOfWeek: safelyParseJSON(task.recurrenceDaysOfWeek),
             dayOfMonth: task.recurrenceDayOfMonth,
             monthOfYear: task.recurrenceMonthOfYear,
             endDate: task.recurrenceEndDate,
           } : undefined,
-          annotations: (task.annotations && typeof task.annotations === 'string') ? JSON.parse(task.annotations) : [],
+          annotations: safelyParseJSON(task.annotations),
           needsAdminAttention: !!task.needsAdminAttention, // Convert 0/1 to boolean
           hasAdminResponse: !!task.hasAdminResponse, // Convert 0/1 to boolean
         };
@@ -1098,12 +1199,12 @@ app.get('/api/tasks/:id', (req, res) => {
       recurrence: (task.recurrenceType && task.recurrenceType !== 'none') ? {
         type: task.recurrenceType,
         interval: task.recurrenceInterval,
-        daysOfWeek: (task.recurrenceDaysOfWeek && typeof task.recurrenceDaysOfWeek === 'string') ? JSON.parse(task.recurrenceDaysOfWeek) : undefined,
+        daysOfWeek: safelyParseJSON(task.recurrenceDaysOfWeek),
         dayOfMonth: task.recurrenceDayOfMonth,
         monthOfYear: task.recurrenceMonthOfYear,
         endDate: task.recurrenceEndDate,
       } : undefined,
-      annotations: (task.annotations && typeof task.annotations === 'string') ? JSON.parse(task.annotations) : [],
+      annotations: safelyParseJSON(task.annotations),
       needsAdminAttention: !!task.needsAdminAttention,
       hasAdminResponse: !!task.hasAdminResponse,
     };
@@ -1272,7 +1373,7 @@ app.post('/api/tasks/:taskId/annotation', (req, res) => {
       return res.status(403).json({ error: 'Access denied to add annotation to this task.' });
     }
 
-    let annotations = existingTask.annotations ? JSON.parse(existingTask.annotations) : [];
+    let annotations = safelyParseJSON(existingTask.annotations);
     annotations.push({
       timestamp: new Date().toISOString(),
       text: annotationText,
@@ -1731,7 +1832,8 @@ app.get('/api/debtors-report', (req, res) => {
     res.json(debtorsWithStatus);
   } catch (err) {
     console.error('Error fetching debtors report:', err);
-    res.status(500).json({ error: 'Failed to fetch debtors report.' });
+    console.error(err.stack); // Log stack trace
+    res.status(500).json({ error: 'Failed to fetch debtors report.', details: err.message });
   }
 });
 
@@ -1742,7 +1844,7 @@ app.get('/api/bugs', (req, res) => {
     const bugs = db.prepare('SELECT * FROM bugs ORDER BY createdAt DESC').all();
     res.json(bugs.map(bug => ({
       ...bug,
-      screenshots: bug.screenshots ? JSON.parse(bug.screenshots) : []
+      screenshots: safelyParseJSON(bug.screenshots)
     })));
   } catch (err) {
     console.error('Error fetching bugs:', err);
@@ -1820,7 +1922,7 @@ app.get('/api/flyering', (req, res) => {
   try {
     const tasks = db.prepare('SELECT * FROM flyering_tasks ORDER BY createdAt DESC').all().map(task => ({
       ...task,
-      coordinates: JSON.parse(task.coordinates)
+      coordinates: safelyParseJSON(task.coordinates)
     }));
     res.json(tasks);
   } catch (err) {

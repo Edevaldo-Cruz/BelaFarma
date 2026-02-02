@@ -11,7 +11,7 @@ interface TransactionDetailsModalProps {
 }
 
 const isBoleto = (transaction: VirtualTransaction): transaction is Boleto => {
-  return 'supplierName' in transaction && !('isFixed' in transaction);
+  return 'due_date' in transaction && !('isFixed' in transaction);
 };
 
 const isFixed = (transaction: VirtualTransaction): transaction is (FixedAccount & { isFixed: true, targetDate: string }) => {

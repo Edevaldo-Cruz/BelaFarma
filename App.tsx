@@ -20,6 +20,7 @@ import { TaskManagementPage } from "./components/TaskManagementPage";
 import { FixedAccountsPage } from "./components/FixedAccountsPage";
 import { CustomersPage } from "./components/CustomersPage";
 import { DebtorsReport } from "./components/DebtorsReport";
+import { BackupManager } from "./components/BackupManager";
 import {
   Order,
   View,
@@ -635,6 +636,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'debtors-report' && user.role === UserRole.ADM && (
                 <DebtorsReport />
+              )}
+              {currentView === 'backups' && user.role === UserRole.ADM && (
+                <BackupManager />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

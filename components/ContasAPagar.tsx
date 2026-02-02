@@ -338,7 +338,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                       {payment.fixedAccountName}
                     </p>
                     <p className="text-xs text-slate-500 font-bold">
-                      Vencimento: {new Date(payment.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}
+                      Vencimento: {payment.dueDate.split('T')[0].split('-').reverse().join('/')}
                     </p>
                   </div>
                 </div>
@@ -350,7 +350,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                   </p>
                   {payment.status === 'Pago' && payment.paidAt && (
                     <p className="text-[10px] text-emerald-600 font-bold">
-                      Pago em {new Date(payment.paidAt + 'T00:00:00').toLocaleDateString('pt-BR')}
+                      Pago em {payment.paidAt.split('T')[0].split('-').reverse().join('/')}
                     </p>
                   )}
                 </div>
@@ -398,7 +398,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                     </td>
                     <td className="px-6 py-4">
                         <span className={`text-sm font-bold text-slate-700`}>
-                            {new Date(boleto.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                            {boleto.due_date.split('T')[0].split('-').reverse().join('/')}
                         </span>
                     </td>
                     <td className="px-6 py-4">{getStatusBadge(boleto)}</td>

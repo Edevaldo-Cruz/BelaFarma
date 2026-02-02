@@ -76,6 +76,89 @@ chmod +x scripts/restore-production-db.sh
 - Verifique se o caminho está correto: `/home/ed/projetcs/BelaFarma/backend/belafarma.db`
 - Conecte via SSH e confirme: `ls -la /home/ed/projetcs/BelaFarma/backend/`
 
+
+### `reboot-vps.sh`
+
+Script para realizar uma **iniciação limpa** (reboot) do servidor VPS de produção.
+
+#### Uso:
+
+```bash
+./scripts/reboot-vps.sh
+```
+
+#### O que o script faz:
+1. Conecta via SSH ao servidor `192.168.1.9`
+2. Solicita confirmação do usuário
+3. Executa `sudo reboot` para reiniciar o sistema operacional e todos os serviços
+4. Limpa memória e processos travados
+
+
+### `setup-auto-backup.sh`
+
+Configura backups automáticos no servidor de produção (VPS).
+
+#### Uso:
+
+```bash
+./scripts/setup-auto-backup.sh
+```
+
+#### O que o script faz:
+1. Envia o script de backup (`server-backup-template.sh`) para o servidor
+2. Configura o **Cron** (agendador de tarefas) no servidor
+3. Define a execução **duas vezes ao dia**: 12:00 e 23:00
+4. Os backups são salvos no servidor em `/home/ed/backups/belafarma`
+5. Mantém histórico dos últimos **30 dias**
+
+
+### `manage-remote-backups.sh`
+
+Gerenciador interativo de backups históricos. Permite visualizar os backups salvar pelo agendamento automático e restaurá-los.
+
+#### Uso:
+
+```bash
+./scripts/manage-remote-backups.sh
+```
+
+#### Funcionalidades:
+1. **Listagem Visual**: Mostra todos os backups disponíveis no VPS com data e hora
+2. **Download para Local**: Permite baixar um backup antigo para testar ou analisar dados passados no seu ambiente de desenvolvimento
+3. **Rollback de Produção**: Permite restaurar um backup antigo diretamente no servidor de produção (com backup de segurança automático antes da operação)
+
+
+### `create-remote-backup.sh`
+
+Força a criação imediata de um novo backup no servidor VPS, fora do horário agendado.
+
+#### Uso:
+
+```bash
+./scripts/create-remote-backup.sh
+```
+
+#### O que o script faz:
+1. Conecta ao servidor e executa o script de backup
+2. Confirma a criação e mostra o nome/tamanho do novo arquivo gerado
+3. Útil para fazer um ponto de salvamento manual antes de grandes alterações ou deploy
+
+
+### `check-backup-status.sh`
+
+Diagnóstico rápido para verificar se o agendamento está ativo e correto.
+
+#### Uso:
+
+```bash
+./scripts/check-backup-status.sh
+```
+
+#### O que o script verifica:
+1. **Hora do Servidor:** Importante para saber se 12:00 lá é o mesmo que 12:00 aqui.
+2. **Serviço Cron:** Se o motor de agendamento do Linux está rodando.
+3. **Lista de Tarefas:** Se o backup está realmente na lista de tarefas agendadas.
+
 ## 🔧 Manutenção
 
 Para adicionar novos scripts a este diretório:

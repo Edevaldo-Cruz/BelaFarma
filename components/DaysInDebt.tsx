@@ -131,16 +131,25 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     return dates;
   }, [boletos, fixedPayments]);
 
-  const getTileClassName = ({ date }: { date: Date }) => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    const time = d.getTime();
+  const getTileClassName = ({ date, view }: { date: Date, view: string }) => {
+    // Only apply logic for month view to avoid performance issues
+    if (view !== 'month') return null;
+
+    // Use UTC date string YYYY-MM-DD for comparison to match database format purely
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    // Check boletos
+    const hasBoleto = boletos.some(b => b.due_date.split('T')[0] === dateStr);
     
+    // Check fixed payments
     const hasFixedPayment = fixedPayments.some(fp => 
-      fp.status === 'Pendente' && new Date(fp.dueDate + 'T00:00:00').getTime() === time
+      fp.status === 'Pendente' && fp.dueDate === dateStr
     );
 
-    if (paymentDates.has(time) || hasFixedPayment) {
+    if (hasBoleto || hasFixedPayment) {
       return 'has-payment';
     }
     return null;
@@ -148,13 +157,17 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
 
   const selectedDateBoletos = useMemo(() => {
     if (!selectedDate || Array.isArray(selectedDate)) return [];
-    const selectedTime = selectedDate.getTime();
-    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    
+    // Construct local date string from the selected calendar date
+    const selectedD = selectedDate as Date;
+    const year = selectedD.getFullYear();
+    const month = String(selectedD.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedD.getDate()).padStart(2, '0');
+    const selectedDateStr = `${year}-${month}-${day}`;
 
     const matchedBoletos = boletos.filter(b => {
-      const d = new Date(b.due_date);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime() === selectedTime;
+      // Comparação direta de string 'YYYY-MM-DD'
+      return b.due_date.split('T')[0] === selectedDateStr;
     });
 
     // Use fixed payments instead of fixed accounts
@@ -202,7 +215,9 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
         {/* DETAILS SECTION */}
         <section className="space-y-4">
           <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">
-            Detalhes: {selectedDate && !Array.isArray(selectedDate) ? selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Selecione'}
+            Detalhes: {selectedDate && !Array.isArray(selectedDate) 
+              ? selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) 
+              : 'Selecione'}
           </h2>
           <div className="space-y-4 scrollbar-hide max-h-[460px] overflow-y-auto pr-2">
             {selectedDateBoletos.length > 0 ? (
@@ -214,7 +229,9 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
                     </div>
                     <div>
                       <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Vencimento em {new Date(boleto.due_date).toLocaleDateString('pt-BR')}</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
+                        Vencimento em {boleto.due_date.split('T')[0].split('-').reverse().join('/')}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
