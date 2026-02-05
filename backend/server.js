@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('./database.js');
+let db = require('./database.js');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -24,21 +24,23 @@ const safelyParseJSON = (jsonString, fallback = []) => {
 };
 
 app.get('/api/backups', (req, res) => {
-  const { exec } = require('child_process');
-  // Define backup directory: in production use logic, in dev use local relative path
-  let backupDir = '/home/ed/backups/belafarma';
-  
-  // If we are on Windows (dev environment), use a local temp folder for simulation
-  if (process.platform === 'win32') {
-     backupDir = path.join(__dirname, '..', 'backups_dev_simulated');
-     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+  // Define backup directory within the persistent data volume
+  // In Docker: /usr/src/app/data/backups
+  // In Dev: ../data/backups relative to server.js
+  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
+
+  if (!fs.existsSync(backupDir)) {
+    try {
+      fs.mkdirSync(backupDir, { recursive: true });
+    } catch (err) {
+      console.error('Error creating backup directory:', err);
+      // Return empty list if we can't create dir, or maybe error?
+      return res.json([]); 
+    }
   }
 
   fs.readdir(backupDir, (err, files) => {
     if (err) {
-      if (err.code === 'ENOENT') {
-        return res.json([]); // Directory doesn't exist yet, return empty
-      }
       console.error('Error reading backup directory:', err);
       return res.status(500).json({ error: 'Failed to list backups.' });
     }
@@ -46,13 +48,18 @@ app.get('/api/backups', (req, res) => {
     const backups = files
       .filter(file => file.endsWith('.db') || file.endsWith('.sqlite'))
       .map(file => {
-        const stats = fs.statSync(path.join(backupDir, file));
-        return {
-          name: file,
-          size: stats.size,
-          date: stats.mtime,
-        };
+        try {
+            const stats = fs.statSync(path.join(backupDir, file));
+            return {
+            name: file,
+            size: stats.size,
+            date: stats.mtime,
+            };
+        } catch (e) {
+            return null;
+        }
       })
+      .filter(Boolean)
       .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date desc
 
     res.json(backups);
@@ -60,45 +67,127 @@ app.get('/api/backups', (req, res) => {
 });
 
 app.post('/api/backups/create', (req, res) => {
-  const { exec } = require('child_process');
-  
-  // On Windows/Dev, simulate creating a file
-  if (process.platform === 'win32') {
-     console.log('Simulating backup creation on Windows...');
-     const backupDir = path.join(__dirname, '..', 'backups_dev_simulated');
-     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-     const filename = `belafarma_${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
-     
-     // Copy current dev db to backup
-     try {
-       fs.copyFileSync(path.join(__dirname, 'belafarma.db'), path.join(backupDir, filename));
-       return res.json({ message: 'Backup simulado criado com sucesso', filename });
-     } catch(e) {
-       return res.status(500).json({ error: 'Erro ao criar backup simulado' });
-     }
-  }
+  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-  // On Linux/Production, execute the shell script
-  const scriptPath = '/home/ed/scripts/auto_backup.sh';
-  exec(scriptPath, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`Backup script error: ${error}`);
-      return res.status(500).json({ error: 'Failed to create backup.', details: stderr });
+  const filename = `belafarma_${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
+  const dbPath = process.env.DB_PATH || path.join(__dirname, '../data/belafarma.db');
+
+  console.log(`Creating backup... Source: ${dbPath}, Dest: ${path.join(backupDir, filename)}`);
+
+  try {
+    // Determine source DB path correctly based on environment
+    let sourcePath = dbPath;
+    if (process.platform === 'win32') {
+        sourcePath = path.join(__dirname, 'belafarma.db'); // In dev, we often use local db
     }
-    console.log(`Backup stdout: ${stdout}`);
-    res.json({ message: 'Backup started successfully.' });
-  });
+
+    // Verify source exists
+    if (!fs.existsSync(sourcePath)) {
+        // Fallback for Docker if env var not set correctly
+        const dockerDbPath = path.join(__dirname, '../data/belafarma.db');
+        if (fs.existsSync(dockerDbPath)) {
+            sourcePath = dockerDbPath;
+        } else {
+             throw new Error(`Source database not found at ${sourcePath}`);
+        }
+    }
+
+    fs.copyFileSync(sourcePath, path.join(backupDir, filename));
+    
+    // Clean up old backups (keep last 30)
+    fs.readdir(backupDir, (err, files) => {
+        if (!err) {
+            const dbFiles = files.filter(f => f.endsWith('.db')).sort();
+            if (dbFiles.length > 30) {
+                const toDelete = dbFiles.slice(0, dbFiles.length - 30);
+                toDelete.forEach(f => {
+                    try { fs.unlinkSync(path.join(backupDir, f)); } catch(e) {}
+                });
+            }
+        }
+    });
+
+    res.json({ message: 'Backup created successfully', filename });
+  } catch(e) {
+    console.error('Backup creation error:', e);
+    return res.status(500).json({ error: 'Failed to create backup.', details: e.message });
+  }
 });
 
 // Restore is dangerous, so we just run the restore script which handles logic
 app.post('/api/backups/:filename/restore', (req, res) => {
-    // This is complex because it might kill the server process if it restarts the service
-    // For now, we return a 501 Not Implemented or suggest using the CLI for safety
-    // Or we implements a "soft restore" that overwrites the DB file but requires manual restart
+  const { filename } = req.params;
+  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
+  const backupPath = path.join(backupDir, filename);
+
+  // Determine source DB path (target for restore)
+  let targetPath = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
+  if (process.platform === 'win32') {
+     targetPath = path.join(__dirname, 'belafarma.db');
+  } else {
+     // Docker fallback
+      if (!fs.existsSync(targetPath)) {
+        targetPath = path.join(__dirname, '../data/belafarma.db');
+      }
+  }
+
+  if (!fs.existsSync(backupPath)) {
+    return res.status(404).json({ error: 'Backup file not found.' });
+  }
+
+  console.log(`Restoring backup... Source: ${backupPath}, Target: ${targetPath}`);
+
+  try {
+    // 1. Close current connection
+    if (db && db.open) {
+      console.log('Closing database connection...');
+      db.close();
+    }
+
+    // 1.5 Delete WAL and SHM files if they exist to prevent corruption/stale data
+    const walPath = `${targetPath}-wal`;
+    const shmPath = `${targetPath}-shm`;
+    try {
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        console.log('Cleaned up WAL/SHM files.');
+    } catch (cleanupErr) {
+        console.warn('Warning: Failed to clean up WAL/SHM files:', cleanupErr.message);
+    }
+
+    // 2. Overwrite database file
+    console.log('Copying backup file...');
+    fs.copyFileSync(backupPath, targetPath);
+
+    // 3. Re-open connection
+    console.log('Reconnecting database...');
+    // Clear require cache to force re-execution of database.js logic
+    delete require.cache[require.resolve('./database.js')];
+    db = require('./database.js');
     
-    // SAFE IMPLEMENTATION:
-    res.status(501).json({ error: 'Restoration via Web UI is disabled for safety. Use the admin terminal.' });
+    // Check connection
+    if (db && db.open) {
+        console.log('Database restored and reconnected successfully.');
+         res.json({ message: 'Database restored successfully! The page will refresh.' });
+    } else {
+        throw new Error('Failed to reconnect to database after restore.');
+    }
+
+  } catch (e) {
+    console.error('Restore error:', e);
+    // Try to reconnect if it failed
+    try {
+        delete require.cache[require.resolve('./database.js')];
+        db = require('./database.js');
+    } catch (reconnectErr) {
+        console.error('CRITICAL: Failed to recover DB connection after error:', reconnectErr);
+    }
+    
+    return res.status(500).json({ error: 'Failed to restore backup.', details: e.message });
+  }
 });
+
 
 
 // Create uploads directory if it doesn't exist

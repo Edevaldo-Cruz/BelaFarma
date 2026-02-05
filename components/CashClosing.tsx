@@ -212,16 +212,43 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     // FIX: Added filteredHistory memo to resolve the error in line 279
 
     const filteredHistory = useMemo(() => {
-
       return history.filter(h => {
-
         const d = new Date(h.date);
-
         return (d.getMonth() + 1) === filterMonth && d.getFullYear() === filterYear;
-
       });
-
     }, [history, filterMonth, filterYear]);
+
+    // Opções de datas para venda retroativa (organizadas da mais recente para a mais antiga)
+    const availablePrevDates = useMemo(() => {
+      const options = [];
+      // Verificar últimos 60 dias
+      for (let i = 1; i <= 60; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // Pular Domingos (0)
+        if (d.getDay() === 0) continue;
+        
+        // Pular dias que já têm fechamento
+        const hasRecord = history.some(r => r.date.startsWith(dateStr));
+        if (hasRecord) continue;
+        
+        options.push({
+          value: dateStr,
+          label: d.toLocaleDateString('pt-BR', { 
+            weekday: 'long', 
+            day: '2-digit', 
+            month: '2-digit',
+            year: 'numeric' 
+          }).replace(/^\w/, (c) => c.toUpperCase()), // Capitalizar primeira letra
+          dateobj: d
+        });
+      }
+      
+      // Ordenar: Mais recente primeiro (decrescente)
+      return options.sort((a, b) => b.dateobj.getTime() - a.dateobj.getTime());
+    }, [history]);
 
   
 
@@ -571,28 +598,13 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
           <div className="flex items-center gap-3">
             <button 
               onClick={() => {
-                // Find first valid day (not Sunday and not in history)
-                let d = new Date();
-                let found = false;
-                for (let i = 1; i <= 45; i++) {
-                  let checkDate = new Date();
-                  checkDate.setDate(checkDate.getDate() - i);
-                  const ds = checkDate.toISOString().split('T')[0];
-                  const isSun = checkDate.getDay() === 0;
-                  const hasRec = history.some(r => r.date.startsWith(ds));
-                  
-                  if (!isSun && !hasRec) {
-                    setSelectedPrevDate(ds);
-                    found = true;
-                    break;
-                  }
-                }
-                
-                if (!found) {
-                  addToast("Não há dias disponíveis para lançamento nos últimos 45 dias.", 'info');
+                if (availablePrevDates.length === 0) {
+                  addToast("Não há dias disponíveis para lançamento nos últimos 60 dias.", 'info');
                   return;
                 }
                 
+                // Select the first available date (most recent)
+                setSelectedPrevDate(availablePrevDates[0].value);
                 setPrevSalesValue(0);
                 setIsPrevDayModalOpen(true);
               }}
@@ -1171,25 +1183,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                     onChange={(e) => setSelectedPrevDate(e.target.value)}
                     className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-bold dark:text-slate-100 outline-none"
                   >
-                    {Array.from({ length: 45 }, (_, i) => {
-                      const d = new Date();
-                      d.setDate(d.getDate() - (i + 1));
-                      const ds = d.toISOString().split('T')[0];
-                      
-                      // Check if it's Sunday (0)
-                      const isSunday = d.getDay() === 0;
-                      
-                      // Check if this date already exists in history
-                      const hasRecord = history.some(record => record.date.startsWith(ds));
-                      
-                      if (isSunday || hasRecord) return null;
-
-                      return (
-                        <option key={ds} value={ds}>
-                           {d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                        </option>
-                      );
-                    }).filter(Boolean)}
+                    {availablePrevDates.map(opt => (
+                      <option key={opt.value} value={opt.value}>
+                         {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
