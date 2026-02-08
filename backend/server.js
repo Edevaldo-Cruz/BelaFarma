@@ -2093,8 +2093,30 @@ app.delete('/api/flyering/:id', (req, res) => {
 // SISTEMA FOGUETE AMARELO - Inicialização dos Endpoints
 // ============================================================================
 const { initializeFogueteAmareloEndpoints } = require('./foguete-amarelo-endpoints.js');
+const cron = require('node-cron');
+const { exec } = require('child_process');
+const path = require('path');
+
 initializeFogueteAmareloEndpoints(app, db);
+
+// Agendamento de Backup Automático (Diariamente à meia-noite)
+cron.schedule('0 0 * * *', () => {
+  console.log('[BACKUP AUTO] Iniciando rotina de backup diário...');
+  const backupScript = path.join(__dirname, 'backup-script.js');
+  
+  exec(`node "${backupScript}"`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`[BACKUP AUTO] Erro ao executar script: ${error.message}`);
+      return;
+    }
+    if (stderr) {
+      console.error(`[BACKUP AUTO] Stderr: ${stderr}`);
+    }
+    console.log(`[BACKUP AUTO] Resultado: ${stdout}`);
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+  console.log('📅 Sistema de backup automático agendado para 00:00 diariamente.');
 });

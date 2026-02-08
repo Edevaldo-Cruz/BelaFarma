@@ -3,7 +3,7 @@ const path = require('path');
 const { google } = require('googleapis'); // npm install googleapis
 
 // CONFIGURAÇÃO
-const DB_PATH = path.join(__dirname, 'database.db'); // Ajuste se seu banco tiver outro nome
+const DB_PATH = path.join(__dirname, 'belafarma.db'); // Ajuste se seu banco tiver outro nome
 const BACKUP_DIR = path.join(__dirname, 'backups');
 const MAX_BACKUP_AGE_DAYS = 30;
 
