@@ -21,6 +21,8 @@ import { FixedAccountsPage } from "./components/FixedAccountsPage";
 import { CustomersPage } from "./components/CustomersPage";
 import { DebtorsReport } from "./components/DebtorsReport";
 import { BackupManager } from "./components/BackupManager";
+import { FogueteAmareloMonitor } from "./components/FogueteAmareloMonitor";
+import { InvoiceList } from "./components/InvoiceList";
 import {
   Order,
   View,
@@ -639,6 +641,12 @@ const App: React.FC = () => {
               )}
               {currentView === 'backups' && user.role === UserRole.ADM && (
                 <BackupManager />
+              )}
+              {currentView === 'foguete-amarelo' && user.role === UserRole.ADM && (
+                <FogueteAmareloMonitor />
+              )}
+              {currentView === 'invoices' && user.role === UserRole.ADM && (
+                <InvoiceList />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

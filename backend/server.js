@@ -2087,6 +2087,12 @@ app.delete('/api/flyering/:id', (req, res) => {
 });
 
 
+// ============================================================================
+// SISTEMA FOGUETE AMARELO - Inicialização dos Endpoints
+// ============================================================================
+const { initializeFogueteAmareloEndpoints } = require('./foguete-amarelo-endpoints.js');
+initializeFogueteAmareloEndpoints(app, db);
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });

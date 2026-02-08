@@ -116,7 +116,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
     setStatusModalOrder(null);
   };
 
-  const handleSaveStatus = () => {
+  const handleSaveStatus = async () => {
     if (!statusModalOrder || !tempStatus) return;
 
     const updatedData: Partial<Order> = { status: tempStatus };
@@ -135,6 +135,31 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
     onUpdate(fullOrderData);
 
     if (tempStatus === OrderStatus.ENTREGUE) {
+      // Criar nota fiscal automaticamente
+      try {
+        const response = await fetch('http://localhost:3001/api/orders/create-invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order: fullOrderData,
+            userId: user.id
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          if (result.isFogueteAmarelo) {
+            addToast(`✅ Nota Fiscal criada! 🚀 Foguete Amarelo ativado com vencimento em 120 dias.`, "success");
+          } else {
+            addToast(`✅ Nota Fiscal ${fullOrderData.invoiceNumber} criada com sucesso!`, "success");
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao criar nota fiscal:', error);
+        addToast("⚠️ Pedido atualizado, mas houve erro ao criar a nota fiscal.", "warning");
+      }
+      
       generateAndSaveBoletos(fullOrderData);
     } else {
       setStatusModalOrder(null);
@@ -271,7 +296,14 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                   <tr key={order.id} className={`transition-colors group ${isDelayed ? 'bg-red-50/20' : 'hover:bg-red-50/30'}`}>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <span className={`font-black uppercase group-hover:text-red-700 transition-colors tracking-tighter ${isDelayed ? 'text-red-700' : 'text-slate-900'}`}>{order.distributor}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-black uppercase group-hover:text-red-700 transition-colors tracking-tighter ${isDelayed ? 'text-red-700' : 'text-slate-900'}`}>{order.distributor}</span>
+                          {order.isFogueteAmarelo && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm" title="Pedido Foguete Amarelo - Amortização D+1">
+                              🚀 FA
+                            </span>
+                          )}
+                        </div>
                         {order.invoiceNumber && (
                           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{order.invoiceNumber}</span>
                         )}

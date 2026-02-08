@@ -45,6 +45,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
     invoiceNumber: order?.invoiceNumber || '',
     receiptDate: order?.receiptDate || '',
     notes: order?.notes || '',
+    isFogueteAmarelo: order?.isFogueteAmarelo || false,
   });
 
   const [boletoFile, setBoletoFile] = useState<File | null>(null);
@@ -81,19 +82,22 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
     const finalData = {
       ...formData,
       status: isNewOrder ? OrderStatus.PENDENTE : formData.status,
-      installments: formData.paymentMethod === PaymentMethod.BOLETO ? installments : undefined,
+      installments: (formData.paymentMethod === PaymentMethod.BOLETO && !formData.isFogueteAmarelo) ? installments : undefined,
       boletoFile: boletoFile,
     };
     onSave(finalData as any);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type } = e.target;
     if (isOperator && name !== 'status') return;
     if (isNewOrder && name === 'status') return;
+    
+    const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined;
+    
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'totalValue' ? parseCurrency(value) : value
+      [name]: type === 'checkbox' ? checked : (name === 'totalValue' ? parseCurrency(value) : value)
     }));
   };
 
@@ -244,6 +248,32 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
                 {Object.values(PaymentMethod).map(m => (<option key={m} value={m}>{m}</option>))}
               </select>
             </div>
+            
+            {/* Checkbox Foguete Amarelo */}
+            {!isOperator && (
+              <div className="space-y-2 md:col-span-2 lg:col-span-3">
+                <div className="flex items-center gap-3 p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl hover:bg-amber-100 transition-all">
+                  <input
+                    type="checkbox"
+                    id="isFogueteAmarelo"
+                    name="isFogueteAmarelo"
+                    checked={formData.isFogueteAmarelo}
+                    onChange={handleChange}
+                    className="w-5 h-5 text-amber-600 bg-white border-amber-300 rounded focus:ring-amber-500 focus:ring-2 cursor-pointer"
+                  />
+                  <label htmlFor="isFogueteAmarelo" className="flex items-center gap-2 cursor-pointer select-none">
+                    <span className="text-2xl">🚀</span>
+                    <div>
+                      <span className="text-sm font-black text-amber-900 uppercase tracking-wide">É Foguete Amarelo?</span>
+                      <p className="text-xs text-amber-700 font-medium mt-0.5">
+                        Prazo de 120 dias com amortização automática por venda (D+1)
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+            
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Status do Pedido {isNewOrder && "(Automático)"}</label>
               <select required disabled={isNewOrder} name="status" value={formData.status} onChange={handleChange} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-black text-slate-900 shadow-sm transition-all ${isNewOrder ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-amber-400 focus:ring-2 focus:ring-red-500'}`}>
@@ -258,7 +288,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
             )}
           </div>
 
-          {formData.paymentMethod === PaymentMethod.BOLETO && !isOperator && (
+          {formData.paymentMethod === PaymentMethod.BOLETO && !isOperator && !formData.isFogueteAmarelo && (
             <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-200 space-y-6">
               <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                 <h3 className="font-black text-sm uppercase tracking-wider text-red-700 flex items-center gap-2"><Calculator className="w-5 h-5" /> Parcelamento</h3>
@@ -329,6 +359,19 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
             <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Observações</label>
             <textarea name="notes" disabled={isOperator} rows={2} value={formData.notes} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none resize-none font-medium" />
           </div>
+          {formData.paymentMethod === PaymentMethod.BOLETO && !isOperator && formData.isFogueteAmarelo && (
+            <div className="p-6 bg-amber-50 rounded-[2rem] border border-amber-200 flex items-center gap-4">
+              <div className="p-3 bg-amber-100 rounded-full text-amber-600">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-sm uppercase tracking-wider text-amber-800">Parcelamento Automático Desativado</h3>
+                <p className="text-sm font-medium text-amber-700 mt-1">
+                  Pedidos Foguete Amarelo utilizam amortização (D+1) em vez de parcelamento fixo.
+                </p>
+              </div>
+            </div>
+          )}
         </form>
 
         <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-4">

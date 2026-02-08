@@ -443,6 +443,196 @@ try {
     `);
     console.log('Flyering tasks table verified/created.');
 
+    // ========================================================================
+    // SISTEMA FOGUETE AMARELO - Tabelas para gestão de notas fiscais
+    // ========================================================================
+
+    // Tabela: invoices (Notas Fiscais de Entrada)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        invoice_number TEXT NOT NULL UNIQUE,
+        supplier_name TEXT NOT NULL,
+        issue_date TEXT NOT NULL,
+        total_value REAL NOT NULL,
+        is_foguete_amarelo INTEGER DEFAULT 0,
+        payment_due_date TEXT,
+        status TEXT DEFAULT 'Ativa',
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        notes TEXT
+      )
+    `);
+    console.log('Invoices table verified/created.');
+
+    // Índices para invoices
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON invoices(supplier_name)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoices_foguete ON invoices(is_foguete_amarelo, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(payment_due_date)');
+    } catch (e) {
+      console.log('Invoices indexes already exist.');
+    }
+
+    // Tabela: invoice_items (Itens da Nota Fiscal)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS invoice_items (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL,
+        product_code TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_cost REAL NOT NULL,
+        total_cost REAL NOT NULL,
+        quantity_sold REAL DEFAULT 0,
+        quantity_remaining REAL NOT NULL,
+        FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('Invoice items table verified/created.');
+
+    // Índices para invoice_items
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoice_items_product ON invoice_items(product_code)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoice_items_remaining ON invoice_items(quantity_remaining)');
+    } catch (e) {
+      console.log('Invoice items indexes already exist.');
+    }
+
+    // Tabela: sales (Vendas - PDV)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sales (
+        id TEXT PRIMARY KEY,
+        sale_date TEXT NOT NULL,
+        sale_time TEXT NOT NULL,
+        total_value REAL NOT NULL,
+        payment_method TEXT NOT NULL,
+        customer_id TEXT,
+        user_id TEXT NOT NULL,
+        status TEXT DEFAULT 'Finalizada',
+        created_at TEXT NOT NULL,
+        cancelled_at TEXT,
+        cancellation_reason TEXT,
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+      )
+    `);
+    console.log('Sales table verified/created.');
+
+    // Índices para sales
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(sale_date)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sales_user ON sales(user_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status)');
+    } catch (e) {
+      console.log('Sales indexes already exist.');
+    }
+
+    // Tabela: sale_items (Itens da Venda)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sale_items (
+        id TEXT PRIMARY KEY,
+        sale_id TEXT NOT NULL,
+        product_code TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_price REAL NOT NULL,
+        total_price REAL NOT NULL,
+        unit_cost REAL NOT NULL,
+        total_cost REAL NOT NULL,
+        profit REAL NOT NULL,
+        invoice_item_id TEXT,
+        is_foguete_amarelo INTEGER DEFAULT 0,
+        FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+        FOREIGN KEY (invoice_item_id) REFERENCES invoice_items(id)
+      )
+    `);
+    console.log('Sale items table verified/created.');
+
+    // Índices para sale_items
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_code)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sale_items_foguete ON sale_items(is_foguete_amarelo)');
+    } catch (e) {
+      console.log('Sale items indexes already exist.');
+    }
+
+    // Tabela: foguete_amarelo_payments (Pagamentos Antecipados)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS foguete_amarelo_payments (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL,
+        invoice_number TEXT NOT NULL,
+        sale_id TEXT,
+        payment_date TEXT NOT NULL,
+        value REAL NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        created_at TEXT NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('Foguete Amarelo payments table verified/created.');
+
+    // Índices para foguete_amarelo_payments
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_fap_invoice ON foguete_amarelo_payments(invoice_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_fap_payment_date ON foguete_amarelo_payments(payment_date)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_fap_status ON foguete_amarelo_payments(status)');
+    } catch (e) {
+      console.log('Foguete Amarelo payments indexes already exist.');
+    }
+
+    // Adicionar colunas que podem estar faltando
+    try {
+      db.exec('ALTER TABLE foguete_amarelo_payments ADD COLUMN observations TEXT');
+      console.log('Coluna observations adicionada.');
+    } catch (e) {
+      // Coluna já existe
+    }
+
+    try {
+      db.exec('ALTER TABLE foguete_amarelo_payments ADD COLUMN created_by TEXT');
+      console.log('Coluna created_by adicionada.');
+    } catch (e) {
+      // Coluna já existe
+    }
+
+    // Tabela: accounts_payable (Contas a Pagar Unificada)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS accounts_payable (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        reference_id TEXT,
+        supplier_name TEXT NOT NULL,
+        description TEXT,
+        due_date TEXT NOT NULL,
+        original_value REAL NOT NULL,
+        amortized_value REAL DEFAULT 0,
+        remaining_value REAL NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        is_foguete_amarelo INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        paid_at TEXT,
+        payment_method TEXT,
+        notes TEXT
+      )
+    `);
+    console.log('Accounts payable table verified/created.');
+
+    // Índices para accounts_payable
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ap_type ON accounts_payable(type)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ap_due_date ON accounts_payable(due_date)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ap_status ON accounts_payable(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ap_foguete ON accounts_payable(is_foguete_amarelo)');
+    } catch (e) {
+      console.log('Accounts payable indexes already exist.');
+    }
+
+    console.log('✅ Sistema Foguete Amarelo: Todas as tabelas criadas com sucesso!');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

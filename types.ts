@@ -47,6 +47,7 @@ export interface Order {
   notes?: string;
   installments?: Installment[];
   boletoFile?: File;
+  isFogueteAmarelo?: boolean; // Flag para identificar pedidos Foguete Amarelo
 }
 
 export interface ProductShortage {
@@ -312,4 +313,108 @@ export interface FlyeringTask {
   area?: string; // Nome da área (opcional)
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups';
+// ============================================================================
+// SISTEMA FOGUETE AMARELO - Interfaces
+// ============================================================================
+
+export interface Invoice {
+  id: string;
+  invoice_number: string;
+  supplier_name: string;
+  issue_date: string;
+  total_value: number;
+  is_foguete_amarelo: boolean;
+  payment_due_date?: string;
+  status: 'Ativa' | 'Quitada' | 'Cancelada';
+  created_at: string;
+  created_by: string;
+  notes?: string;
+}
+
+export interface InvoiceItem {
+  id: string;
+  invoice_id: string;
+  product_code: string;
+  product_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  quantity_sold: number;
+  quantity_remaining: number;
+}
+
+export interface Sale {
+  id: string;
+  sale_date: string;
+  sale_time: string;
+  total_value: number;
+  payment_method: string;
+  customer_id?: string;
+  user_id: string;
+  status: 'Finalizada' | 'Cancelada';
+  created_at: string;
+  cancelled_at?: string;
+  cancellation_reason?: string;
+}
+
+export interface SaleItem {
+  id: string;
+  sale_id: string;
+  product_code: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  unit_cost: number;
+  total_cost: number;
+  profit: number;
+  invoice_item_id?: string;
+  is_foguete_amarelo: boolean;
+}
+
+export interface FogueteAmareloPayment {
+  id: string;
+  invoice_id: string;
+  invoice_number: string;
+  sale_id?: string;
+  payment_date: string;
+  value: number;
+  status: 'Pendente' | 'Pago' | 'Cancelado';
+  created_at: string;
+  notes?: string;
+}
+
+export interface AccountPayable {
+  id: string;
+  type: 'Nota Fiscal' | 'Boleto' | 'Conta Fixa';
+  reference_id?: string;
+  supplier_name: string;
+  description?: string;
+  due_date: string;
+  original_value: number;
+  amortized_value: number;
+  remaining_value: number;
+  status: 'Pendente' | 'Pago' | 'Vencido';
+  is_foguete_amarelo: boolean;
+  created_at: string;
+  paid_at?: string;
+  payment_method?: string;
+  notes?: string;
+}
+
+export interface FogueteAmareloDashboard {
+  id: string;
+  invoice_number: string;
+  supplier_name: string;
+  issue_date: string;
+  payment_due_date: string;
+  original_value: number;
+  amortized_value: number;
+  remaining_value: number;
+  percentual_amortizado: number;
+  total_pagamentos: number;
+  total_pago_antecipado: number;
+  dias_ate_vencimento: number;
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales';
