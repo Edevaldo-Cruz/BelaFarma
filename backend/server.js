@@ -979,6 +979,8 @@ app.post('/api/cash-closings', (req, res) => {
       
       // If there is a safe deposit, record it in the safe
       const safeDepositVal = Number(closing.safeDeposit);
+      console.log(`[CASH CLOSING DEBUG] safeDeposit raw: ${closing.safeDeposit}, parsed: ${safeDepositVal}`);
+
       if (safeDepositVal > 0) {
         console.log(`[CASH CLOSING] Registering safe deposit: R$ ${safeDepositVal}`);
         insertSafeEntryStmt.run({

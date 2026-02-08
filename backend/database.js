@@ -239,6 +239,18 @@ try {
       );
     `;
 
+    // Safe Entries Table
+    const createSafeEntriesTable = `
+      CREATE TABLE IF NOT EXISTS safe_entries (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        type TEXT CHECK(type IN ('Entrada', 'Saída')) NOT NULL,
+        value REAL NOT NULL,
+        userName TEXT
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -248,6 +260,7 @@ try {
     db.exec(createCrediarioRecordsTable);
     db.exec(createTasksTable);
     db.exec(createCheckingAccountTransactionsTable);
+    db.exec(createSafeEntriesTable);
     db.exec(createBoletosTable);
     db.exec(createMonthlyLimitsTable);
     db.exec(createDailyRecordsTable);
@@ -629,6 +642,14 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_ap_foguete ON accounts_payable(is_foguete_amarelo)');
     } catch (e) {
       console.log('Accounts payable indexes already exist.');
+    }
+
+    // Garantir colunas em safe_entries (Correção de Bug Cofre)
+    try {
+      db.exec('ALTER TABLE safe_entries ADD COLUMN userName TEXT');
+      console.log('Coluna userName adicionada em safe_entries.');
+    } catch (e) {
+      // Coluna já existe
     }
 
     console.log('✅ Sistema Foguete Amarelo: Todas as tabelas criadas com sucesso!');
