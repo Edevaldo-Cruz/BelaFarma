@@ -126,7 +126,7 @@ export const ConsignadosManager: React.FC<ConsignadosManagerProps> = ({ user, on
 
   const handleUpdateStock = async () => {
       try {
-          const res = await fetch(`/api/consignado/products/${stockForm.id}/update-stock`, {
+          const res = await fetch(`/api/consignado/products/${stockForm.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ currentStock: stockForm.currentStock, soldQty: stockForm.soldQty })
