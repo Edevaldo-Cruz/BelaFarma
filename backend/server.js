@@ -254,6 +254,7 @@ app.get('/api/all-data', (req, res) => {
         nonRegistered: safelyParseJSON(record.nonRegistered),
         pixDiretoList: safelyParseJSON(record.pixDiretoList),
         crediarioList: safelyParseJSON(record.crediarioList),
+        creditReceipts: safelyParseJSON(record.creditReceipts),
         lancado: !!record.lancado, // Convert 0/1 to boolean
       };
       console.log('Daily record from DB:', {
@@ -804,6 +805,7 @@ app.get('/api/daily-records', (req, res) => {
       nonRegistered: safelyParseJSON(record.nonRegistered),
       pixDiretoList: safelyParseJSON(record.pixDiretoList),
       crediarioList: safelyParseJSON(record.crediarioList),
+      creditReceipts: safelyParseJSON(record.creditReceipts),
       lancado: !!record.lancado, // Convert 0/1 to boolean
     }));
     res.json(records);
@@ -817,8 +819,8 @@ app.post('/api/daily-records', (req, res) => {
   try {
     const record = req.body;
     const stmt = db.prepare(`
-      INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, userName, lancado)
-      VALUES (@id, @date, @expenses, @nonRegistered, @pixDiretoList, @crediarioList, @userName, 0)
+      INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, userName, lancado)
+      VALUES (@id, @date, @expenses, @nonRegistered, @pixDiretoList, @crediarioList, @creditReceipts, @userName, 0)
     `);
     const result = stmt.run({
       ...record,
@@ -826,6 +828,7 @@ app.post('/api/daily-records', (req, res) => {
       nonRegistered: JSON.stringify(record.nonRegistered || []),
       pixDiretoList: JSON.stringify(record.pixDiretoList || []),
       crediarioList: JSON.stringify(record.crediarioList || []),
+      creditReceipts: JSON.stringify(record.creditReceipts || []),
     });
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
@@ -877,6 +880,7 @@ app.put('/api/daily-records/:id', (req, res) => {
           nonRegistered = @nonRegistered, 
           pixDiretoList = @pixDiretoList, 
           crediarioList = @crediarioList,
+          creditReceipts = @creditReceipts,
           date = @date
       WHERE id = @id AND lancado = 0
     `);
@@ -887,6 +891,7 @@ app.put('/api/daily-records/:id', (req, res) => {
       nonRegistered: JSON.stringify(record.nonRegistered || []),
       pixDiretoList: JSON.stringify(record.pixDiretoList || []),
       crediarioList: JSON.stringify(record.crediarioList || []),
+      creditReceipts: JSON.stringify(record.creditReceipts || []),
     });
     if (result.changes > 0) {
       res.status(200).json({ message: 'Daily record updated successfully.' });
@@ -939,7 +944,8 @@ app.get('/api/cash-closings', (req, res) => {
   try {
     const closings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all().map(closing => ({
       ...closing,
-      crediarioList: safelyParseJSON(closing.crediarioList)
+      crediarioList: safelyParseJSON(closing.crediarioList),
+      creditReceipts: safelyParseJSON(closing.creditReceipts)
     }));
     res.json(closings);
   } catch (err) {
@@ -955,8 +961,8 @@ app.post('/api/cash-closings', (req, res) => {
     const closing = req.body;
     console.log('Received closing data:', closing); // Debugging line
     const insertClosingStmt = db.prepare(`
-      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, debit, pix, pixDirect, totalCrediario, crediarioList)
-      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @debit, @pix, @pixDirect, @totalCrediario, @crediarioList)
+      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, debit, pix, pixDirect, totalCrediario, crediarioList, creditReceipts)
+      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @debit, @pix, @pixDirect, @totalCrediario, @crediarioList, @creditReceipts)
     `);
     
     const insertTransactionStmt = db.prepare(`
@@ -972,7 +978,8 @@ app.post('/api/cash-closings', (req, res) => {
     db.transaction(() => {
       insertClosingStmt.run({
         ...closing,
-        crediarioList: JSON.stringify(closing.crediarioList || [])
+        crediarioList: JSON.stringify(closing.crediarioList || []),
+        creditReceipts: JSON.stringify(closing.creditReceipts || [])
       });
 
       const transactionDate = new Date().toISOString();
@@ -1863,9 +1870,52 @@ app.put('/api/customer-debts/:id', (req, res) => {
       SET status = @status, paidAt = @paidAt
       WHERE id = @id
     `);
-    const result = stmt.run({ id, status, paidAt: paidAt || null });
     
-    if (result.changes > 0) {
+    const transResult = db.transaction(() => {
+      const result = stmt.run({ id, status, paidAt: paidAt || null });
+
+      if (result.changes > 0 && status === 'Pago') {
+        const debt = db.prepare('SELECT * FROM customer_debts WHERE id = ?').get(id);
+        const customer = db.prepare('SELECT name FROM customers WHERE id = ?').get(debt.customerId);
+        
+        // Add entry to today's daily record
+        const today = new Date().toISOString().split('T')[0];
+        let dailyRecord = db.prepare('SELECT * FROM daily_records WHERE date = ? AND lancado = 0').get(today);
+        
+        const receiptItem = {
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          customer: customer ? customer.name : 'Cliente Desconhecido',
+          val: debt.totalValue,
+          description: debt.description
+        };
+
+        if (dailyRecord) {
+          const creditReceipts = safelyParseJSON(dailyRecord.creditReceipts);
+          creditReceipts.push(receiptItem);
+          
+          db.prepare('UPDATE daily_records SET creditReceipts = ? WHERE id = ?')
+            .run(JSON.stringify(creditReceipts), dailyRecord.id);
+        } else {
+          // Create new record
+          const date = today;
+          const id = 'rec_' + Date.now();
+          const creditReceipts = [receiptItem];
+          const expenses = [];
+          const nonRegistered = [];
+          const pixDiretoList = [];
+          const crediarioList = [];
+
+          db.prepare(`
+            INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, userName, lancado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+          `).run(id, date, JSON.stringify(expenses), JSON.stringify(nonRegistered), JSON.stringify(pixDiretoList), JSON.stringify(crediarioList), JSON.stringify(creditReceipts), debt.userName);
+        }
+      }
+      return result;
+    })();
+
+    if (transResult.changes > 0) {
       res.status(200).json({ message: 'Debt updated successfully.' });
     } else {
       res.status(404).json({ error: 'Debt not found.' });
@@ -1873,6 +1923,73 @@ app.put('/api/customer-debts/:id', (req, res) => {
   } catch (err) {
     console.error('Error updating customer debt:', err);
     res.status(500).json({ error: 'Failed to update customer debt.' });
+  }
+});
+
+// PARTIAL PAYMENT for customer debt
+app.post('/api/customer-debts/:id/partial-payment', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paymentAmount, newTotalValue } = req.body;
+    
+    const transResult = db.transaction(() => {
+      // Get the debt info
+      const debt = db.prepare('SELECT * FROM customer_debts WHERE id = ?').get(id);
+      if (!debt) {
+        throw new Error('Debt not found');
+      }
+
+      const customer = db.prepare('SELECT name FROM customers WHERE id = ?').get(debt.customerId);
+      
+      // Update the debt with the new reduced value
+      const updateStmt = db.prepare(`
+        UPDATE customer_debts
+        SET totalValue = @newTotalValue
+        WHERE id = @id
+      `);
+      updateStmt.run({ id, newTotalValue });
+
+      // Add the payment to today's daily record
+      const today = new Date().toISOString().split('T')[0];
+      let dailyRecord = db.prepare('SELECT * FROM daily_records WHERE date = ? AND lancado = 0').get(today);
+      
+      const receiptItem = {
+        id: Date.now().toString(),
+        date: new Date().toISOString(),
+        customer: customer ? customer.name : 'Cliente Desconhecido',
+        val: paymentAmount,
+        description: `Pagamento parcial - ${debt.description || 'Compra'}`
+      };
+
+      if (dailyRecord) {
+        const creditReceipts = safelyParseJSON(dailyRecord.creditReceipts);
+        creditReceipts.push(receiptItem);
+        
+        db.prepare('UPDATE daily_records SET creditReceipts = ? WHERE id = ?')
+          .run(JSON.stringify(creditReceipts), dailyRecord.id);
+      } else {
+        // Create new record
+        const date = today;
+        const recordId = 'rec_' + Date.now();
+        const creditReceipts = [receiptItem];
+        const expenses = [];
+        const nonRegistered = [];
+        const pixDiretoList = [];
+        const crediarioList = [];
+
+        db.prepare(`
+          INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, userName, lancado)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `).run(recordId, date, JSON.stringify(expenses), JSON.stringify(nonRegistered), JSON.stringify(pixDiretoList), JSON.stringify(crediarioList), JSON.stringify(creditReceipts), debt.userName);
+      }
+
+      return { success: true };
+    })();
+
+    res.status(200).json({ message: 'Partial payment processed successfully.' });
+  } catch (err) {
+    console.error('Error processing partial payment:', err);
+    res.status(500).json({ error: 'Failed to process partial payment.' });
   }
 });
 

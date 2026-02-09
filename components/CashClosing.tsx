@@ -71,6 +71,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const [nonRegisteredList, setNonRegisteredList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [pixDiretoList, setPixDiretoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
+  const [creditReceiptsList, setCreditReceiptsList] = useState<Array<{ id: string, date: string, customer: string, val: number, description?: string }>>([]);
 
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -114,18 +115,21 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     let combinedNonRegistered: Array<{ id: string, desc: string, val: number }> = [];
     let combinedPixDireto: Array<{ id: string, desc: string, val: number }> = [];
     let combinedCrediario: Array<{ id: string, client: string, val: number }> = [];
+    let combinedCreditReceipts: Array<{ id: string, date: string, customer: string, val: number, description?: string }> = [];
 
     todaysRecordEntries.forEach(entry => {
       combinedExpenses = combinedExpenses.concat(entry.expenses);
       combinedNonRegistered = combinedNonRegistered.concat(entry.nonRegistered);
       combinedPixDireto = combinedPixDireto.concat(entry.pixDiretoList || []);
       combinedCrediario = combinedCrediario.concat(entry.crediarioList || []);
+      combinedCreditReceipts = combinedCreditReceipts.concat(entry.creditReceipts || []);
     });
 
     setExpensesList(combinedExpenses);
     setNonRegisteredList(combinedNonRegistered);
     setPixDiretoList(combinedPixDireto);
     setCrediarioList(combinedCrediario);
+    setCreditReceiptsList(combinedCreditReceipts);
     
     // Sum up pixDireto for display
     if (combinedPixDireto.length > 0) {
@@ -189,8 +193,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     localStorage.setItem('belafarma_closing_form_state', JSON.stringify(formState));
   }, [totalSales, receivedExtra, initialCash, currencyCount, credit, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
 
-  const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0) + nonRegisteredList.reduce((acc, curr) => acc + curr.val, 0), [expensesList, nonRegisteredList]);
+  const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0), [expensesList]);
+  const totalNonRegistered = useMemo(() => nonRegisteredList.reduce((acc, curr) => acc + curr.val, 0), [nonRegisteredList]);
   const totalCrediario = useMemo(() => crediarioList.reduce((acc, curr) => acc + curr.val, 0), [crediarioList]);
+  const totalCreditReceipts = useMemo(() => creditReceiptsList.reduce((acc, curr) => acc + curr.val, 0), [creditReceiptsList]);
 
   const totalInDrawer = useMemo(() => {
     return Object.entries(currencyCount).reduce((acc: number, [key, count]) => {
@@ -201,8 +207,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     const totalDigital = useMemo(() => credit + debit + pix + pixDirect + others, [credit, debit, pix, pixDirect, others]);
 
-    const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash - totalExpenses - totalCrediario, [totalSales, receivedExtra, initialCash, totalExpenses, totalCrediario]);
+    // Expected Balance (Saldo Esperado): Sales + Initial + Received Extra + Credit Receipts + Non-Registered Products - Expenses - New Debts (Crediario)
+    const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalCrediario, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalCrediario]);
 
+    // Checked Total (Total Conferido): Drawer (Cash) + Digital
     const totalConferido = useMemo(() => totalInDrawer + totalDigital, [totalInDrawer, totalDigital]);
 
     const diff = totalConferido - subtotalSoma;
@@ -354,8 +362,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   
 
             totalCrediario,
-
-  
+            creditReceipts: creditReceiptsList,
 
             crediarioList,
 
@@ -841,7 +848,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
                             <li>+ Saldo Inicial: R$ {initialCash.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
-                            <li>- Lançamentos do Dia: R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+                            <li>+ Recebimento Crediário: R$ {totalCreditReceipts.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+
+                            <li>+ Produto Não Cadastrado: R$ {totalNonRegistered.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+
+                            <li>- Despesas: R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
                             <li>- Vendas em Crediário: R$ {totalCrediario.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
@@ -856,8 +867,6 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                           <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 mt-2">
 
                             <li>+ Total em Gaveta: R$ {totalInDrawer.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-
 
                             <li>+ Total Digital: R$ {totalDigital.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
@@ -879,11 +888,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
                       <button ref={firstInputRef} onClick={handleNext} className="mt-8 px-10 py-4 bg-red-600 text-white rounded-2xl font-black uppercase shadow-xl transition-all">Finalizar (ENTER)</button>
 
-                    {(totalExpenses > 0 || totalCrediario > 0) && (
+                    {(totalExpenses > 0 || totalNonRegistered > 0 || totalCrediario > 0) && (
                       <div className="mt-8 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 text-left space-y-4">
                         <h4 className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2">
 
-                          <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados ({formatCurrency(totalExpenses + totalCrediario)})
+                          <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados ({formatCurrency(totalExpenses + totalNonRegistered + totalCrediario)})
 
                         </h4>
 
@@ -940,6 +949,28 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                                 <span>{item.client}</span>
 
                                 <span>- {formatCurrency(item.val)}</span>
+
+                              </li>
+
+                            ))}
+
+                          </ul>
+
+                        )}
+
+                        {creditReceiptsList.length > 0 && (
+
+                          <ul className="space-y-1 mt-2">
+
+                            <h5 className="text-[10px] font-black uppercase text-emerald-500">Recebimento Crediário</h5>
+
+                            {creditReceiptsList.map((item, idx) => (
+
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+
+                                <span>{item.customer}</span>
+
+                                <span>+ {formatCurrency(item.val)}</span>
 
                               </li>
 

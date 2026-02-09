@@ -131,6 +131,43 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     return dates;
   }, [boletos, fixedPayments]);
 
+  // Calculate values per day for color intensity
+  const dayValues = useMemo(() => {
+    const values = new Map<string, number>();
+    
+    // Add boleto values
+    boletos.forEach(b => {
+      const dateStr = b.due_date.split('T')[0];
+      const current = values.get(dateStr) || 0;
+      values.set(dateStr, current + b.value);
+    });
+    
+    // Add fixed payment values
+    fixedPayments.filter(fp => fp.status === 'Pendente').forEach(fp => {
+      const current = values.get(fp.dueDate) || 0;
+      values.set(fp.dueDate, current + fp.value);
+    });
+    
+    return values;
+  }, [boletos, fixedPayments]);
+
+  // Calculate average and standard deviation for color scaling
+  const { avgValue, stdDeviation } = useMemo(() => {
+    if (dayValues.size === 0) return { avgValue: 0, stdDeviation: 0 };
+    
+    const values = Array.from(dayValues.values()).filter((v): v is number => typeof v === 'number');
+    if (values.length === 0) return { avgValue: 0, stdDeviation: 0 };
+    
+    // Calculate average
+    const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
+    
+    // Calculate standard deviation
+    const variance = values.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / values.length;
+    const stdDev = Math.sqrt(variance);
+    
+    return { avgValue: avg, stdDeviation: stdDev };
+  }, [dayValues]);
+
   const getTileClassName = ({ date, view }: { date: Date, view: string }) => {
     // Only apply logic for month view to avoid performance issues
     if (view !== 'month') return null;
@@ -141,17 +178,28 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
 
-    // Check boletos
-    const hasBoleto = boletos.some(b => b.due_date.split('T')[0] === dateStr);
+    const dayValue = dayValues.get(dateStr);
     
-    // Check fixed payments
-    const hasFixedPayment = fixedPayments.some(fp => 
-      fp.status === 'Pendente' && fp.dueDate === dateStr
-    );
-
-    if (hasBoleto || hasFixedPayment) {
-      return 'has-payment';
+    if (dayValue && dayValue > 0 && avgValue > 0) {
+      // Calculate how many standard deviations away from the mean
+      const deviationFromMean = (dayValue - avgValue) / (stdDeviation || 1);
+      
+      // Classification based on standard deviations:
+      // Much below average (< -1 std dev): Very light orange
+      // Below average (-1 to -0.5 std dev): Light orange
+      // Near average (-0.5 to 0.5 std dev): Yellow/neutral
+      // Above average (0.5 to 1 std dev): Light red
+      // Well above average (1 to 1.5 std dev): Medium red
+      // Much above average (> 1.5 std dev): Dark red
+      
+      if (deviationFromMean >= 1.5) return 'has-payment deviation-very-high';
+      if (deviationFromMean >= 1.0) return 'has-payment deviation-high';
+      if (deviationFromMean >= 0.5) return 'has-payment deviation-above-avg';
+      if (deviationFromMean >= -0.5) return 'has-payment deviation-near-avg';
+      if (deviationFromMean >= -1.0) return 'has-payment deviation-below-avg';
+      return 'has-payment deviation-very-low';
     }
+    
     return null;
   };
 

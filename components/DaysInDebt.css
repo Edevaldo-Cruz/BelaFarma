@@ -81,17 +81,99 @@
   background: var(--text-primary) !important;
 }
 
-/* Marker for days with payments */
+/* Marker for days with payments - Gradient based on deviation from average */
 .has-payment {
   position: relative;
   font-weight: 900 !important;
-  color: var(--brand-primary) !important;
-  background-color: #fee2e2 !important; /* light red */
 }
 
-.dark .has-payment {
-  background-color: rgba(220, 38, 38, 0.15) !important;
-  color: #fca5a5 !important;
+/* Much Below Average (< -1 std dev) - Very Light Orange */
+.deviation-very-low {
+  background-color: #fff7ed !important; /* orange-50 */
+  color: #ea580c !important; /* orange-600 */
+}
+
+.dark .deviation-very-low {
+  background-color: rgba(249, 115, 22, 0.08) !important;
+  color: #fdba74 !important; /* orange-300 */
+}
+
+/* Below Average (-1 to -0.5 std dev) - Light Orange */
+.deviation-below-avg {
+  background-color: #ffedd5 !important; /* orange-100 */
+  color: #ea580c !important; /* orange-600 */
+}
+
+.dark .deviation-below-avg {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  color: #fdba74 !important; /* orange-300 */
+}
+
+/* Near Average (-0.5 to 0.5 std dev) - Yellow/Neutral */
+.deviation-near-avg {
+  background-color: #fef3c7 !important; /* amber-100 */
+  color: #d97706 !important; /* amber-600 */
+}
+
+.dark .deviation-near-avg {
+  background-color: rgba(245, 158, 11, 0.20) !important;
+  color: #fcd34d !important; /* amber-300 */
+}
+
+/* Above Average (0.5 to 1 std dev) - Light Red */
+.deviation-above-avg {
+  background-color: #fee2e2 !important; /* red-100 */
+  color: #dc2626 !important; /* red-600 */
+}
+
+.dark .deviation-above-avg {
+  background-color: rgba(220, 38, 38, 0.20) !important;
+  color: #fca5a5 !important; /* red-300 */
+}
+
+/* Well Above Average (1 to 1.5 std dev) - Medium Red */
+.deviation-high {
+  background-color: #fecaca !important; /* red-200 */
+  color: #b91c1c !important; /* red-700 */
+  font-weight: 900 !important;
+}
+
+.dark .deviation-high {
+  background-color: rgba(220, 38, 38, 0.35) !important;
+  color: #f87171 !important; /* red-400 */
+}
+
+/* Much Above Average (> 1.5 std dev) - Dark Red with emphasis */
+.deviation-very-high {
+  background-color: #f87171 !important; /* red-400 */
+  color: #7f1d1d !important; /* red-900 */
+  font-weight: 900 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4) !important;
+  animation: pulse-red 2s ease-in-out infinite;
+}
+
+.dark .deviation-very-high {
+  background-color: rgba(220, 38, 38, 0.65) !important;
+  color: #dc2626 !important; /* red-600 */
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.6) !important;
+}
+
+@keyframes pulse-red {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.2);
+  }
+}
+
+.dark @keyframes pulse-red {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.4);
+  }
 }
 
 .has-payment::before {
@@ -102,7 +184,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--brand-primary);
+  background-color: currentColor;
+  opacity: 0.6;
 }
 
 .react-calendar__month-view__days__day--neighboringMonth {

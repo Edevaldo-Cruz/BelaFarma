@@ -92,7 +92,8 @@ try {
         pix REAL,
         pixDirect REAL,
         totalCrediario REAL,
-        crediarioList TEXT
+        crediarioList TEXT,
+        creditReceipts TEXT
       );
     `;
 
@@ -178,6 +179,7 @@ try {
         nonRegistered TEXT NOT NULL,
         pixDiretoList TEXT,
         crediarioList TEXT,
+        creditReceipts TEXT,
         userName TEXT NOT NULL,
         cashClosingId TEXT -- New column to link to cash closings
       );
@@ -402,6 +404,22 @@ try {
     } catch (e) {
       db.exec('ALTER TABLE daily_records ADD COLUMN lancado INTEGER DEFAULT 0');
       console.log('Added lancado column to daily_records table.');
+    }
+
+    // Cash closings creditReceipts migration
+    try {
+      db.prepare('SELECT creditReceipts FROM cash_closings LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE cash_closings ADD COLUMN creditReceipts TEXT');
+      console.log('Added creditReceipts column to cash_closings table.');
+    }
+
+    // Daily records creditReceipts migration
+    try {
+      db.prepare('SELECT creditReceipts FROM daily_records LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE daily_records ADD COLUMN creditReceipts TEXT');
+      console.log('Added creditReceipts column to daily_records table.');
     }
 
     // Migrate existing data: mark all records from previous days as lancado = 1

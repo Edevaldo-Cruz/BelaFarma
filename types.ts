@@ -78,6 +78,7 @@ export interface CashClosingRecord {
   userName: string;
   totalCrediario: number;
   crediarioList: Array<{ id: string, client: string, val: number, customerId?: string }>;
+  creditReceipts?: Array<{ id: string, date: string, customer: string, val: number, description?: string }>;
 }
 
 export interface SafeEntry {
@@ -102,6 +103,8 @@ export interface DailyRecordEntry {
   pixDiretoList?: Array<{ id: string, desc: string, val: number }>;
 
   crediarioList?: Array<{ id: string, client: string, val: number, customerId?: string }>;
+  
+  creditReceipts?: Array<{ id: string, date: string, customer: string, val: number, description?: string }>;
 
   userName: string;
 
