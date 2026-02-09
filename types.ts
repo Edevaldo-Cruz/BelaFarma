@@ -138,7 +138,7 @@ export interface SystemLog {
   userName: string;
   userId: string;
   action: string; // Criou, Editou, Excluiu, Finalizou
-  category: 'Pedidos' | 'Faltas' | 'Financeiro' | 'Cofre' | 'Usuários' | 'Sistema' | 'Tarefas';
+  category: 'Pedidos' | 'Faltas' | 'Financeiro' | 'Cofre' | 'Usuários' | 'Sistema' | 'Tarefas' | 'Estoque';
   details: string;
 }
 
@@ -417,4 +417,26 @@ export interface FogueteAmareloDashboard {
   dias_ate_vencimento: number;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales';
+export interface ConsignadoSupplier {
+  id: string;
+  name: string;
+  contact?: string;
+  pixKey?: string;
+  createdAt: string;
+  totalDebt?: number;
+  totalStockValue?: number;
+  productCount?: number;
+}
+
+export interface ConsignadoProduct {
+  id: string;
+  supplierId: string;
+  name: string;
+  costPrice: number;
+  salePrice: number;
+  currentStock: number;
+  soldQty: number;
+  status: 'Ativo' | 'Inativo' | 'Devolvido';
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados';

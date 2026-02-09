@@ -23,6 +23,7 @@ import { DebtorsReport } from "./components/DebtorsReport";
 import { BackupManager } from "./components/BackupManager";
 import { FogueteAmareloMonitor } from "./components/FogueteAmareloMonitor";
 import { InvoiceList } from "./components/InvoiceList";
+import { ConsignadosManager } from "./components/ConsignadosManager";
 import {
   Order,
   View,
@@ -647,6 +648,12 @@ const App: React.FC = () => {
               )}
               {currentView === 'invoices' && user.role === UserRole.ADM && (
                 <InvoiceList />
+              )}
+              {currentView === 'consignados' && user.role === UserRole.ADM && (
+                <ConsignadosManager 
+                  user={user} 
+                  onLog={(act, det) => createLog("Estoque", act, det)} 
+                />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

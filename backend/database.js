@@ -251,6 +251,31 @@ try {
       );
     `;
 
+    // Consignados Module Tables
+    const createConsignadoSuppliersTable = `
+      CREATE TABLE IF NOT EXISTS consignado_suppliers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        contact TEXT,
+        pixKey TEXT,
+        createdAt TEXT NOT NULL
+      );
+    `;
+
+    const createConsignadoProductsTable = `
+      CREATE TABLE IF NOT EXISTS consignado_products (
+        id TEXT PRIMARY KEY,
+        supplierId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        costPrice REAL NOT NULL,
+        salePrice REAL NOT NULL,
+        currentStock INTEGER NOT NULL DEFAULT 0,
+        soldQty INTEGER NOT NULL DEFAULT 0,
+        status TEXT DEFAULT 'Ativo',
+        FOREIGN KEY (supplierId) REFERENCES consignado_suppliers(id) ON DELETE CASCADE
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -261,6 +286,8 @@ try {
     db.exec(createTasksTable);
     db.exec(createCheckingAccountTransactionsTable);
     db.exec(createSafeEntriesTable);
+    db.exec(createConsignadoSuppliersTable);
+    db.exec(createConsignadoProductsTable);
     db.exec(createBoletosTable);
     db.exec(createMonthlyLimitsTable);
     db.exec(createDailyRecordsTable);
@@ -342,17 +369,7 @@ try {
       db.exec('ALTER TABLE orders ADD COLUMN boletoPath TEXT');
     }
 
-    const createSafeEntriesTable = `
-      CREATE TABLE IF NOT EXISTS safe_entries (
-        id TEXT PRIMARY KEY,
-        date TEXT NOT NULL,
-        description TEXT NOT NULL,
-        type TEXT NOT NULL, -- 'Entrada' or 'Saída'
-        value REAL NOT NULL,
-        userName TEXT NOT NULL
-      );
-    `;
-    db.exec(createSafeEntriesTable);
+
 
     // ALTER TABLE statements for new task columns (if they don't exist)
     // Recurrence

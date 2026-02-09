@@ -2095,9 +2095,10 @@ app.delete('/api/flyering/:id', (req, res) => {
 const { initializeFogueteAmareloEndpoints } = require('./foguete-amarelo-endpoints.js');
 const cron = require('node-cron');
 const { exec } = require('child_process');
-const path = require('path');
+
 
 initializeFogueteAmareloEndpoints(app, db);
+require('./consignado-endpoints.js')(app, db);
 
 // Agendamento de Backup Automático (Diariamente à meia-noite)
 cron.schedule('0 0 * * *', () => {

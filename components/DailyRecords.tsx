@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Trash2, Pencil, Save, X, AlertCircle, 
-  CheckCircle2, ShoppingBag, DollarSign, UserPlus, Search, AlertTriangle
+  CheckCircle2, ShoppingBag, DollarSign, UserPlus, Search, AlertTriangle, Package, ArrowRightLeft
 } from 'lucide-react';
 import { useToast } from './ToastContext';
-import { User, DailyRecordEntry, Customer } from '../types';
+import { User, DailyRecordEntry, Customer, ConsignadoSupplier, ConsignadoProduct } from '../types';
 
 interface DailyRecordsProps {
   user: User;
@@ -13,7 +13,7 @@ interface DailyRecordsProps {
   onSave: () => void;
 }
 
-type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered';
+type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered' | 'consignado';
 
 interface ExpenseItem {
   id: string;
@@ -46,7 +46,17 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   const [todayRecord, setTodayRecord] = useState<DailyRecordEntry | null>(null);
   
   // Form states for each category
-  const [expenseForm, setExpenseForm] = useState({ desc: '', val: '' });
+  const [expenseForm, setExpenseForm] = useState({ desc: '', val: '', type: 'standard' as 'standard', supplierId: '' });
+  const [consignadoSuppliers, setConsignadoSuppliers] = useState<ConsignadoSupplier[]>([]);
+  
+  // Fetch consignado suppliers
+  useEffect(() => {
+    fetch('/api/consignado/suppliers')
+      .then(r => r.json())
+      .then(setConsignadoSuppliers)
+      .catch(console.error);
+  }, []);
+
   const [pixForm, setPixForm] = useState({ desc: '', val: '' });
   const [crediarioForm, setCrediarioForm] = useState({ customerId: '', client: '', val: '' });
   const [nonRegForm, setNonRegForm] = useState({ desc: '', val: '' });
@@ -61,6 +71,46 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerDueDay, setNewCustomerDueDay] = useState('');
   const [creditLimitWarning, setCreditLimitWarning] = useState<string | null>(null);
+  
+  // Consignado Tab States
+  const [consignadoMode, setConsignadoMode] = useState<'sale' | 'payment'>('sale');
+  const [consignadoPaymentForm, setConsignadoPaymentForm] = useState({ supplierId: '', val: '', desc: '' });
+  const [consignadoProductsList, setConsignadoProductsList] = useState<(ConsignadoProduct & { supplierName?: string })[]>([]);
+  // Sale States
+  const [saleItems, setSaleItems] = useState<{ product: ConsignadoProduct & { supplierName?: string }; qty: number }[]>([]);
+  const [selectedSaleProduct, setSelectedSaleProduct] = useState<string>('');
+  const [saleQty, setSaleQty] = useState<string>('1');
+
+  // Load consignado products
+  useEffect(() => {
+    fetch('/api/consignado/all-products')
+      .then(r => r.json())
+      .then(setConsignadoProductsList)
+      .catch(console.error);
+  }, []);
+
+  const addSaleItem = () => {
+    if (!selectedSaleProduct) return;
+    const product = consignadoProductsList.find(p => p.id === selectedSaleProduct);
+    if (!product) return;
+    const qty = parseInt(saleQty) || 1;
+    if (qty <= 0) return;
+
+    const existing = saleItems.find(i => i.product.id === product.id);
+    if (existing) {
+        setSaleItems(saleItems.map(i => i.product.id === product.id ? { ...i, qty: i.qty + qty } : i));
+    } else {
+        setSaleItems([...saleItems, { product, qty }]);
+    }
+    setSelectedSaleProduct('');
+    setSaleQty('1');
+  };
+
+  const removeSaleItem = (id: string) => {
+    setSaleItems(saleItems.filter(i => i.product.id !== id));
+  };
+  
+  const totalSaleValue = saleItems.reduce((acc, item) => acc + (item.product.salePrice * item.qty), 0);
   
   // Editing states
   const [editingItem, setEditingItem] = useState<{ type: TabType; id: string } | null>(null);
@@ -286,14 +336,25 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
 
     switch (type) {
       case 'expenses':
-        if (!expenseForm.desc || !expenseForm.val) return;
+        // Validation
+        const amount = parseCurrency(expenseForm.val);
+        if (!amount) {
+            addToast('Informe um valor válido!', 'warning');
+            return;
+        }
+
+        if (!expenseForm.desc) {
+            addToast('Informe a descrição!', 'warning');
+            return;
+        }
+
         newItem = {
           id: Date.now().toString(),
           desc: expenseForm.desc,
-          val: parseCurrency(expenseForm.val),
+          val: amount,
         };
         updatedRecord.expenses = [...updatedRecord.expenses, newItem];
-        setExpenseForm({ desc: '', val: '' });
+        setExpenseForm({ desc: '', val: '', type: 'standard', supplierId: '' });
         break;
 
       case 'pix':
@@ -368,6 +429,71 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         };
         updatedRecord.nonRegistered = [...updatedRecord.nonRegistered, newItem];
         setNonRegForm({ desc: '', val: '' });
+        break;
+
+      case 'consignado':
+        if (consignadoMode === 'sale') {
+            // VENDA
+            if (saleItems.length === 0) {
+                addToast('Adicione produtos à venda!', 'warning');
+                return;
+            }
+            // 1. Update Stock
+            try {
+                const salePayload = { products: saleItems.map(i => ({ id: i.product.id, qty: i.qty })) };
+                const res = await fetch('/api/consignado/sales', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(salePayload)
+                });
+                if (!res.ok) throw new Error('Erro ao atualizar estoque');
+            } catch(e: any) {
+                addToast(e.message, 'error');
+                return;
+            }
+            // 2. Add Money Entry
+            const itemsDesc = saleItems.map(i => `${i.qty}x ${i.product.name}`).join(', ');
+            newItem = {
+                id: Date.now().toString(),
+                desc: `Venda Consignado: ${itemsDesc}`,
+                val: totalSaleValue
+            };
+            updatedRecord.nonRegistered = [...updatedRecord.nonRegistered, newItem];
+            setSaleItems([]);
+            fetch('/api/consignado/all-products').then(r => r.json()).then(setConsignadoProductsList); // Refresh stock
+        } else {
+            // PAGAMENTO
+            if (!consignadoPaymentForm.supplierId || !consignadoPaymentForm.val) {
+                addToast('Preencha fornecedor e valor!', 'warning');
+                return;
+            }
+            const supplier = consignadoSuppliers.find(s => s.id === consignadoPaymentForm.supplierId);
+            const desc = `Pgto Consignado: ${supplier?.name}${consignadoPaymentForm.desc ? ` - ${consignadoPaymentForm.desc}` : ''}`;
+            
+            // Call backend to process payment (reset soldQty)
+            try {
+                const res = await fetch('/api/consignado/payment-process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ supplierId: consignadoPaymentForm.supplierId })
+                });
+                if (!res.ok) throw new Error('Erro ao processar pagamento');
+                
+                const data = await res.json();
+                addToast(`Acerto consignado processado! (${data.changes} produtos zerados)`, 'success');
+            } catch (err: any) {
+                console.error(err);
+                addToast(`Erro ao processar acerto backend: ${err.message}`, 'error');
+            }
+
+            newItem = {
+                id: Date.now().toString(),
+                desc: desc,
+                val: parseCurrency(consignadoPaymentForm.val),
+            };
+            updatedRecord.expenses = [...updatedRecord.expenses, newItem];
+            setConsignadoPaymentForm({ supplierId: '', val: '', desc: '' });
+        }
         break;
     }
 
@@ -485,6 +611,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
     { id: 'pix' as TabType, label: 'Pix Direto na Conta', icon: DollarSign, color: 'cyan' },
     { id: 'crediario' as TabType, label: 'Crediário', icon: ShoppingBag, color: 'amber' },
     { id: 'non-registered' as TabType, label: 'Produto Não Cadastrado', icon: Plus, color: 'blue' },
+    { id: 'consignado' as TabType, label: 'Consignados', icon: Package, color: 'emerald' },
   ];
 
   const activeTabConfig = tabs.find(t => t.id === activeTab)!;
@@ -496,7 +623,12 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
       case 'expenses': return todayRecord.expenses;
       case 'pix': return todayRecord.pixDiretoList;
       case 'crediario': return todayRecord.crediarioList;
-      case 'non-registered': return todayRecord.nonRegistered;
+      case 'non-registered': return todayRecord.nonRegistered.filter(i => !i.desc.startsWith('Venda Consignado:'));
+      case 'consignado': 
+        return [
+            ...todayRecord.nonRegistered.filter(i => i.desc.startsWith('Venda Consignado:')),
+            ...todayRecord.expenses.filter(i => i.desc.startsWith('Pgto Consignado:'))
+        ];
       default: return [];
     }
   };
@@ -549,28 +681,28 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
           </h2>
 
           {activeTab === 'expenses' && (
-            <div className="flex gap-3">
-              <input
-                type="text"
-                placeholder="Descrição da despesa..."
-                value={expenseForm.desc}
-                onChange={(e) => setExpenseForm({ ...expenseForm, desc: e.target.value })}
-                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <input
-                type="text"
-                placeholder="R$ 0,00"
-                value={expenseForm.val}
-                onChange={(e) => handleCurrencyMask(e.target.value, (val) => setExpenseForm({ ...expenseForm, val: val }))}
-                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-red-600 outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <button
-                onClick={() => addItem('expenses')}
-                disabled={isSaving}
-                className="px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-sm hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+            <div className="flex gap-3 items-center">
+                <input
+                    type="text"
+                    placeholder="Descrição da despesa..."
+                    value={expenseForm.desc}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, desc: e.target.value })}
+                    className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <input
+                    type="text"
+                    placeholder="R$ 0,00"
+                    value={expenseForm.val}
+                    onChange={(e) => handleCurrencyMask(e.target.value, (val) => setExpenseForm({ ...expenseForm, val: val }))}
+                    className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm outline-none focus:ring-2 text-red-600 focus:ring-red-500"
+                />
+                <button
+                    onClick={() => addItem('expenses')}
+                    disabled={isSaving}
+                    className="px-6 py-3 rounded-2xl font-black text-sm text-white hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-red-600"
+                >
+                    <Plus className="w-5 h-5" />
+                </button>
             </div>
           )}
 
@@ -787,6 +919,178 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
               >
                 <Plus className="w-5 h-5" />
               </button>
+            </div>
+          )}
+
+          {activeTab === 'consignado' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+                {/* Botões de Ação */}
+                <div className="flex gap-4 p-2 bg-slate-100 rounded-2xl w-full sm:w-fit border border-slate-200">
+                    <button
+                        onClick={() => setConsignadoMode('sale')}
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition-all ${consignadoMode === 'sale' ? 'bg-white shadow-md text-emerald-600 ring-1 ring-emerald-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
+                    >
+                        <ArrowRightLeft className="w-4 h-4" />
+                        Venda (Entrada)
+                    </button>
+                    <button
+                        onClick={() => setConsignadoMode('payment')}
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition-all ${consignadoMode === 'payment' ? 'bg-white shadow-md text-red-600 ring-1 ring-red-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
+                    >
+                        <DollarSign className="w-4 h-4" />
+                        Pagamento (Saída)
+                    </button>
+                </div>
+
+                {consignadoMode === 'sale' ? (
+                    // FORM VENDA
+                    <div className="flex flex-col gap-4 bg-emerald-50/50 p-6 rounded-[2rem] border border-emerald-100">
+                        <div className="flex flex-col sm:flex-row gap-3 items-end">
+                            <div className="flex-1 w-full">
+                                <label className="text-xs font-bold text-emerald-600 ml-4 uppercase tracking-wide">Produto (Apenas com Estoque)</label>
+                                <select 
+                                    value={selectedSaleProduct}
+                                    onChange={(e) => setSelectedSaleProduct(e.target.value)}
+                                    className="w-full px-6 py-4 bg-white border-2 border-emerald-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-slate-700 mt-2 shadow-sm"
+                                >
+                                    <option value="">Selecione o produto vendido...</option>
+                                    {consignadoProductsList.filter(p => p.currentStock > 0).map(p => (
+                                        <option key={p.id} value={p.id}>
+                                            {p.name} ({p.supplierName}) - {formatCurrency(p.salePrice)} (Est: {p.currentStock})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="w-full sm:w-32">
+                                <label className="text-xs font-bold text-emerald-600 ml-4 uppercase tracking-wide">Qtd</label>
+                                <input 
+                                    type="number" 
+                                    min="1"
+                                    value={saleQty}
+                                    onChange={e => setSaleQty(e.target.value)}
+                                    className="w-full px-6 py-4 bg-white border-2 border-emerald-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all mt-2 shadow-sm text-center"
+                                />
+                            </div>
+                            <button 
+                                onClick={addSaleItem}
+                                className="w-full sm:w-auto px-6 py-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20 active:scale-95 flex items-center justify-center"
+                            >
+                                <Plus className="w-6 h-6" />
+                            </button>
+                        </div>
+                        
+                        {saleItems.length > 0 && (
+                            <div className="bg-white p-6 rounded-3xl space-y-4 border border-emerald-100 shadow-sm mt-2">
+                                <div className="space-y-3">
+                                {saleItems.map((item, idx) => (
+                                    <div key={idx} className="flex justify-between items-center text-sm font-bold text-slate-600 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                                        <div className="flex items-center gap-3">
+                                            <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-xl text-xs font-black">{item.qty}x</span>
+                                            <span>{item.product.name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <span>{formatCurrency(item.product.salePrice * item.qty)}</span>
+                                            <button onClick={() => removeSaleItem(item.product.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                                </div>
+                                <div className="flex justify-between items-center pt-4 border-t-2 border-slate-100 font-black text-emerald-700 text-lg">
+                                    <span>TOTAL DA VENDA</span>
+                                    <span>{formatCurrency(totalSaleValue)}</span>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <button
+                            onClick={() => addItem('consignado')}
+                            disabled={isSaving || saleItems.length === 0}
+                            className="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-emerald-600/20 mt-2 active:scale-[0.99]"
+                        >
+                            Confirmar Entrada no Caixa ({formatCurrency(totalSaleValue)})
+                        </button>
+                    </div>
+                ) : (
+                    // FORM PAGAMENTO
+                    <div className="flex flex-col gap-4 bg-red-50/50 p-6 rounded-[2rem] border border-red-100 animate-in fade-in slide-in-from-right-4 duration-300">
+                        <div>
+                            <label className="text-xs font-bold text-red-600 ml-4 uppercase tracking-wide">Fornecedor</label>
+                            <select
+                                value={consignadoPaymentForm.supplierId}
+                                onChange={(e) => {
+                                    const sId = e.target.value;
+                                    const debt = consignadoProductsList
+                                        .filter(p => (p as any).supplierId === sId)
+                                        .reduce((sum, p) => sum + (p.soldQty * p.costPrice), 0);
+                                    
+                                    setConsignadoPaymentForm({ 
+                                        ...consignadoPaymentForm, 
+                                        supplierId: sId,
+                                        val: debt.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                    });
+                                }}
+                                className="w-full px-6 py-4 bg-white border-2 border-red-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 transition-all text-slate-700 mt-2 shadow-sm"
+                            >
+                                <option value="">Selecione quem você vai pagar...</option>
+                                {consignadoSuppliers.map(s => (
+                                    <option key={s.id} value={s.id}>
+                                        {s.name}
+                                    </option>
+                                ))}
+                            </select>
+                            
+                            {consignadoPaymentForm.supplierId && (
+                                <div className="mt-2 px-4 py-3 bg-white rounded-xl border border-red-100 text-slate-600 text-xs font-medium flex justify-between items-center shadow-sm">
+                                    <span className="uppercase tracking-wide font-bold text-red-500">Valor referente aos itens vendidos:</span>
+                                    <span className="text-base font-black text-red-600">
+                                        {formatCurrency(
+                                            consignadoProductsList
+                                                .filter(p => (p as any).supplierId === consignadoPaymentForm.supplierId)
+                                                .reduce((sum, p) => sum + (p.soldQty * p.costPrice), 0)
+                                        )}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                             <div className="flex-1">
+                                <label className="text-xs font-bold text-red-600 ml-4 uppercase tracking-wide">Valor Pago</label>
+                                <input
+                                    type="text"
+                                    placeholder="R$ 0,00"
+                                    value={consignadoPaymentForm.val}
+                                    onChange={(e) => handleCurrencyMask(e.target.value, (val) => setConsignadoPaymentForm({ ...consignadoPaymentForm, val: val }))}
+                                    className="w-full px-6 py-4 bg-white border-2 border-red-100 rounded-2xl font-black text-lg outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 transition-all text-red-600 mt-2 shadow-sm"
+                                />
+                            </div>
+                            <div className="flex-[2]">
+                                <label className="text-xs font-bold text-red-600 ml-4 uppercase tracking-wide">Observação</label>
+                                <input
+                                    type="text"
+                                    placeholder="Ex: Acerto parcial..."
+                                    value={consignadoPaymentForm.desc}
+                                    onChange={(e) => setConsignadoPaymentForm({ ...consignadoPaymentForm, desc: e.target.value })}
+                                    className="w-full px-6 py-4 bg-white border-2 border-red-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 transition-all mt-2 shadow-sm"
+                                />
+                            </div>
+                        </div>
+                        
+                        <div className="p-4 bg-white rounded-2xl border border-red-100 flex gap-3 text-red-700 text-xs font-medium shadow-sm">
+                            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                            <p>Ao registrar este pagamento, o sistema irá zerar a contagem de "Vendidos" para os produtos deste fornecedor, resetando o ciclo de acerto.</p>
+                        </div>
+
+                        <button
+                            onClick={() => addItem('consignado')}
+                            disabled={isSaving || !consignadoPaymentForm.supplierId || !consignadoPaymentForm.val}
+                            className="w-full py-5 bg-red-600 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-red-600/20 mt-2 active:scale-[0.99]"
+                        >
+                            Confirmar Saída do Caixa
+                        </button>
+                    </div>
+                )}
             </div>
           )}
         </div>

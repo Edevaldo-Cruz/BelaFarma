@@ -28,7 +28,8 @@ import {
   Bell,
   AlertTriangle, // Added for Devedores menu item
   Rocket, // Added for Foguete Amarelo
-  FileText // Added for Invoices
+  FileText, // Added for Invoices
+  Package // Added for Consignados
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -99,13 +100,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'safe', label: 'Cofre', icon: Lock },
     { id: 'backups', label: 'Backups', icon: Database },
     { id: 'foguete-amarelo', label: 'Foguete Amarelo', icon: Rocket },
+    { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'invoices']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });
