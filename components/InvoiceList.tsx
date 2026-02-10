@@ -12,7 +12,7 @@ export function InvoiceList() {
   const fetchAllInvoices = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3001/api/invoices');
+      const response = await fetch('/api/invoices');
       if (!response.ok) throw new Error('Erro ao buscar notas fiscais');
       const data = await response.json();
       setTodasNotas(data);

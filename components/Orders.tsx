@@ -137,7 +137,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
     if (tempStatus === OrderStatus.ENTREGUE) {
       // Criar nota fiscal automaticamente
       try {
-        const response = await fetch('http://localhost:3001/api/orders/create-invoice', {
+        const response = await fetch('/api/orders/create-invoice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -8,7 +8,7 @@ interface SafeProps {
   onLog: (action: string, details: string) => void;
 }
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 
 export const Safe: React.FC<SafeProps> = ({ user, onLog }) => {
   const [entries, setEntries] = useState<SafeEntry[]>([]);

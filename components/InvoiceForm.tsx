@@ -114,7 +114,7 @@ export function InvoiceForm({ userId, userName }: InvoiceFormProps) {
     setMessage(null);
 
     try {
-      const response = await fetch('http://localhost:3001/api/invoices', {
+      const response = await fetch('/api/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

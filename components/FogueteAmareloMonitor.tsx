@@ -26,7 +26,7 @@ export function FogueteAmareloMonitor() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://localhost:3001/api/foguete-amarelo/dashboard');
+      const response = await fetch('/api/foguete-amarelo/dashboard');
       if (!response.ok) throw new Error('Erro ao buscar dados');
       const data = await response.json();
       setNotas(data);
@@ -40,7 +40,7 @@ export function FogueteAmareloMonitor() {
 
   const fetchHistoricoLancamentos = async (invoiceId: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/foguete-amarelo/lancamentos/${invoiceId}`);
+      const response = await fetch(`/api/foguete-amarelo/lancamentos/${invoiceId}`);
       if (!response.ok) throw new Error('Erro ao buscar histórico');
       const data = await response.json();
       setHistoricoLancamentos(data);
@@ -83,7 +83,7 @@ export function FogueteAmareloMonitor() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/foguete-amarelo/lancar-pagamento', {
+      const response = await fetch('/api/foguete-amarelo/lancar-pagamento', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
