@@ -200,3 +200,32 @@
   color: var(--text-tertiary) !important;
   opacity: 0.3;
 }
+
+/* Force selected tiles to be GREEN, overriding deviations */
+.react-calendar__tile--active,
+.react-calendar__tile--active.has-payment,
+.react-calendar__tile--active.deviation-very-high,
+.react-calendar__tile--active.deviation-high,
+.react-calendar__tile--active.deviation-above-avg,
+.react-calendar__tile--active.deviation-near-avg,
+.react-calendar__tile--active.deviation-below-avg,
+.react-calendar__tile--active.deviation-very-low {
+  background-color: #22c55e !important; /* green-500 */
+  color: #ffffff !important;
+  box-shadow: 0 4px 6px -1px rgba(34, 197, 94, 0.4), 0 2px 4px -1px rgba(34, 197, 94, 0.2) !important;
+  border: 2px solid #16a34a !important;
+  animation: none !important;
+}
+
+.dark .react-calendar__tile--active,
+.dark .react-calendar__tile--active.has-payment {
+  background-color: #15803d !important; /* green-700 */
+  color: #ffffff !important;
+  border-color: #166534 !important;
+}
+
+.react-calendar__tile--active:enabled:hover,
+.react-calendar__tile--active:enabled:focus {
+  background-color: #16a34a !important; /* green-600 */
+  filter: brightness(1.1);
+}
