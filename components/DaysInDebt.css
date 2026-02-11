@@ -71,14 +71,22 @@
 }
 
 .react-calendar__tile--active {
-  background: var(--text-primary) !important;
-  color: var(--bg-primary) !important;
-  box-shadow: var(--shadow-sm);
+  background-color: #22c55e !important; /* green-500 */
+  color: #ffffff !important;
+  box-shadow: 0 4px 6px -1px rgba(34, 197, 94, 0.4), 0 2px 4px -1px rgba(34, 197, 94, 0.2) !important;
+  border: 2px solid #16a34a !important;
+}
+
+.dark .react-calendar__tile--active {
+  background-color: #15803d !important; /* green-700 */
+  color: #ffffff !important;
+  border-color: #166534 !important;
 }
 
 .react-calendar__tile--active:enabled:hover,
 .react-calendar__tile--active:enabled:focus {
-  background: var(--text-primary) !important;
+  background-color: #16a34a !important; /* green-600 */
+  filter: brightness(1.1);
 }
 
 /* Marker for days with payments - Gradient based on deviation from average */
