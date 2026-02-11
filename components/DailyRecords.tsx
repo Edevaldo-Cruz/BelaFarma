@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Trash2, Pencil, Save, X, AlertCircle, 
-  CheckCircle2, ShoppingBag, DollarSign, UserPlus, Search, AlertTriangle, Package, ArrowRightLeft
+  CheckCircle2, ShoppingBag, DollarSign, UserPlus, Search, AlertTriangle, Package, ArrowRightLeft, Percent
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { User, DailyRecordEntry, Customer, ConsignadoSupplier, ConsignadoProduct } from '../types';
@@ -13,7 +13,7 @@ interface DailyRecordsProps {
   onSave: () => void;
 }
 
-type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered' | 'consignado';
+type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered' | 'consignado' | 'ifood';
 
 interface ExpenseItem {
   id: string;
@@ -50,7 +50,19 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   const [consignadoSuppliers, setConsignadoSuppliers] = useState<ConsignadoSupplier[]>([]);
   
   // Fetch consignado suppliers
+  // Fetch consignado suppliers and iFood fee
   useEffect(() => {
+    // Fetch system settings for iFood fee
+    fetch('/api/settings/ifood_fee_percent')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.value) {
+          setIfoodForm(prev => ({ ...prev, feePercent: data.value }));
+        }
+      })
+      .catch(console.error);
+
+    // Fetch suppliers
     fetch('/api/consignado/suppliers')
       .then(r => r.json())
       .then(setConsignadoSuppliers)
@@ -60,6 +72,10 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   const [pixForm, setPixForm] = useState({ desc: '', val: '' });
   const [crediarioForm, setCrediarioForm] = useState({ customerId: '', client: '', val: '' });
   const [nonRegForm, setNonRegForm] = useState({ desc: '', val: '' });
+  
+  // iFood form state
+  const [ifoodForm, setIfoodForm] = useState({ val: '', feePercent: '6.5', desc: '' });
+  const [ifoodSaving, setIfoodSaving] = useState(false);
   
   // Customer selection states
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -605,6 +621,61 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
     await saveRecord(updatedRecord);
   };
 
+  // iFood sale handler
+  const addIfoodSale = async () => {
+    const grossValue = parseCurrency(ifoodForm.val);
+    if (grossValue <= 0) {
+      addToast('Informe um valor válido para a venda iFood!', 'warning');
+      return;
+    }
+
+    setIfoodSaving(true);
+    try {
+      const response = await fetch('/api/ifood-sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sale_date: getTodayDate(),
+          gross_value: grossValue,
+          operator_fee_percent: parseFloat(ifoodForm.feePercent) || 0,
+          description: ifoodForm.desc || undefined,
+          user_name: user.name,
+          daily_record_id: todayRecord?.id || undefined,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to create iFood sale');
+      const createdSale = await response.json();
+
+      const feeValue = grossValue * ((parseFloat(ifoodForm.feePercent) || 0) / 100);
+      const netValue = grossValue - feeValue;
+
+      // Também adiciona como item de registro diário para que apareça no fluxo de caixa
+      if (todayRecord) {
+        const updatedRecord = { ...todayRecord };
+        const newItem = {
+          id: 'ifood_' + Date.now().toString(),
+          desc: `iFood: ${ifoodForm.desc || 'Venda'} (Bruto: ${formatCurrency(grossValue)} | Líquido: ${formatCurrency(netValue)})`,
+          val: grossValue,
+        };
+        // Coloca como item em não-registrado para aparecer nos totais de caixa
+        updatedRecord.nonRegistered = [...updatedRecord.nonRegistered, newItem];
+        setTodayRecord(updatedRecord);
+        await saveRecord(updatedRecord);
+      }
+
+      const dueDateStr = new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR');
+      addToast(`Venda iFood de ${formatCurrency(grossValue)} registrada! Previsão de depósito: ${dueDateStr}`, 'success');
+      onLog('iFood', `Registrou venda iFood: ${formatCurrency(grossValue)}`);
+      setIfoodForm({ val: '', feePercent: '6.5', desc: '' });
+    } catch (err) {
+      console.error('Error creating iFood sale:', err);
+      addToast('Erro ao registrar venda iFood.', 'error');
+    } finally {
+      setIfoodSaving(false);
+    }
+  };
+
   // Tab configuration
   const tabs = [
     { id: 'expenses' as TabType, label: 'Despesas do Dia', icon: AlertCircle, color: 'red' },
@@ -612,6 +683,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
     { id: 'crediario' as TabType, label: 'Crediário', icon: ShoppingBag, color: 'amber' },
     { id: 'non-registered' as TabType, label: 'Produto Não Cadastrado', icon: Plus, color: 'blue' },
     { id: 'consignado' as TabType, label: 'Consignados', icon: Package, color: 'emerald' },
+    { id: 'ifood' as TabType, label: 'iFood', icon: ShoppingBag, color: 'rose' },
   ];
 
   const activeTabConfig = tabs.find(t => t.id === activeTab)!;
@@ -623,12 +695,14 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
       case 'expenses': return todayRecord.expenses;
       case 'pix': return todayRecord.pixDiretoList;
       case 'crediario': return todayRecord.crediarioList;
-      case 'non-registered': return todayRecord.nonRegistered.filter(i => !i.desc.startsWith('Venda Consignado:'));
+      case 'non-registered': return todayRecord.nonRegistered.filter(i => !i.desc.startsWith('Venda Consignado:') && !i.desc.startsWith('iFood:'));
       case 'consignado': 
         return [
             ...todayRecord.nonRegistered.filter(i => i.desc.startsWith('Venda Consignado:')),
             ...todayRecord.expenses.filter(i => i.desc.startsWith('Pgto Consignado:'))
         ];
+      case 'ifood':
+        return todayRecord.nonRegistered.filter(i => i.desc.startsWith('iFood:'));
       default: return [];
     }
   };
@@ -1091,6 +1165,83 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
                         </button>
                     </div>
                 )}
+            </div>
+          )}
+
+          {activeTab === 'ifood' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/10 dark:to-rose-900/10 p-6 rounded-[2rem] border border-red-100 dark:border-red-900/30 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-1">
+                    <label className="text-xs font-black text-red-500 ml-4 uppercase tracking-wide">Valor Bruto</label>
+                    <input
+                      type="text"
+                      placeholder="R$ 0,00"
+                      value={ifoodForm.val}
+                      onChange={(e) => handleCurrencyMask(e.target.value, (val) => setIfoodForm({ ...ifoodForm, val }))}
+                      className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-red-100 dark:border-red-900/30 rounded-2xl font-black text-lg text-red-600 outline-none focus:border-red-500 mt-2 shadow-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-black text-red-500 ml-4 uppercase tracking-wide flex items-center gap-1">
+                      <Percent className="w-3 h-3" /> Taxa da Operadora
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={ifoodForm.feePercent}
+                        readOnly
+                        className="w-full px-6 py-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-100 dark:border-red-900/30 rounded-2xl font-bold text-sm outline-none text-red-600 cursor-not-allowed mt-2 shadow-sm"
+                      />
+                      <span className="absolute right-4 top-[22px] text-xs font-bold text-red-400">Fixado em Configurações</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-black text-red-500 ml-4 uppercase tracking-wide">Descrição (Opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Pedidos do almoço..."
+                      value={ifoodForm.desc}
+                      onChange={(e) => setIfoodForm({ ...ifoodForm, desc: e.target.value })}
+                      className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-red-100 dark:border-red-900/30 rounded-2xl font-bold text-sm outline-none focus:border-red-500 mt-2 shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Preview de cálculo */}
+                {parseCurrency(ifoodForm.val) > 0 && (
+                  <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-red-100 dark:border-red-900/30 shadow-sm space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-bold text-slate-500">Valor Bruto:</span>
+                      <span className="font-black text-slate-800 dark:text-white">{formatCurrency(parseCurrency(ifoodForm.val))}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-bold text-slate-500">Taxa ({ifoodForm.feePercent}%):</span>
+                      <span className="font-black text-red-500">- {formatCurrency(parseCurrency(ifoodForm.val) * ((parseFloat(ifoodForm.feePercent) || 0) / 100))}</span>
+                    </div>
+                    <div className="flex justify-between text-sm pt-2 border-t border-slate-100 dark:border-slate-700">
+                      <span className="font-black text-slate-500 uppercase text-xs">Valor Líquido a Receber:</span>
+                      <span className="font-black text-emerald-600 text-lg">
+                        {formatCurrency(parseCurrency(ifoodForm.val) - (parseCurrency(ifoodForm.val) * ((parseFloat(ifoodForm.feePercent) || 0) / 100)))}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-400 pt-1">
+                      <span className="font-bold">Previsão de depósito (30 dias):</span>
+                      <span className="font-black">
+                        {new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={addIfoodSale}
+                  disabled={ifoodSaving || parseCurrency(ifoodForm.val) <= 0}
+                  className="w-full py-5 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:from-red-600 hover:to-rose-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-red-500/20 active:scale-[0.99]"
+                >
+                  {ifoodSaving ? 'Registrando...' : 'Registrar Venda iFood'}
+                </button>
+              </div>
             </div>
           )}
         </div>

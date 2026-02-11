@@ -687,6 +687,57 @@ try {
       // Coluna já existe
     }
 
+    // ========================================================================
+    // MÓDULO iFOOD - Tabela para gestão de vendas iFood
+    // ========================================================================
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ifood_sales (
+        id TEXT PRIMARY KEY,
+        sale_date TEXT NOT NULL,
+        gross_value REAL NOT NULL,
+        operator_fee_percent REAL DEFAULT 0,
+        operator_fee_value REAL DEFAULT 0,
+        net_value REAL NOT NULL,
+        payment_due_date TEXT NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        received_at TEXT,
+        description TEXT,
+        daily_record_id TEXT,
+        checking_account_id TEXT,
+        user_name TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    console.log('iFood sales table verified/created.');
+
+    // Índices para ifood_sales
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ifood_sale_date ON ifood_sales(sale_date)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ifood_status ON ifood_sales(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ifood_due_date ON ifood_sales(payment_due_date)');
+    } catch (e) {
+      console.log('iFood sales indexes already exist.');
+    }
+
+    console.log('✅ Módulo iFood: Tabela criada com sucesso!');
+
+    // Tabela de configurações do sistema (chave-valor)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT
+      )
+    `);
+    console.log('System settings table verified/created.');
+
+    // Inserir valor padrão para taxa iFood se não existir
+    const existingFee = db.prepare("SELECT * FROM system_settings WHERE key = 'ifood_fee_percent'").get();
+    if (!existingFee) {
+      db.prepare("INSERT INTO system_settings (key, value, updated_at) VALUES ('ifood_fee_percent', '6.5', ?)").run(new Date().toISOString());
+      console.log('Default iFood fee (6.5%) inserted.');
+    }
+
     console.log('✅ Sistema Foguete Amarelo: Todas as tabelas criadas com sucesso!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');

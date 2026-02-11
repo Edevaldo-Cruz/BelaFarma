@@ -24,6 +24,8 @@ import { BackupManager } from "./components/BackupManager";
 import { FogueteAmareloMonitor } from "./components/FogueteAmareloMonitor";
 import { InvoiceList } from "./components/InvoiceList";
 import { ConsignadosManager } from "./components/ConsignadosManager";
+import { IFoodControl } from "./components/iFoodControl";
+import { NotificationsPage } from "./components/NotificationsPage";
 import {
   Order,
   View,
@@ -64,6 +66,7 @@ const App: React.FC = () => {
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const { addToast } = useToast();
 
   const logoutTimerRef = useRef<number | null>(null);
@@ -629,6 +632,8 @@ const App: React.FC = () => {
                   users={users} 
                   onLog={(act, det) => createLog("Tarefas", act, det)} 
                   onRefreshTasks={fetchData}
+                  initialSelectedTask={selectedTask}
+                  onClearSelection={() => setSelectedTask(null)}
                 />
               )}
               {currentView === 'customers' && (
@@ -653,6 +658,24 @@ const App: React.FC = () => {
                 <ConsignadosManager 
                   user={user} 
                   onLog={(act, det) => createLog("Estoque", act, det)} 
+                />
+              )}
+              {currentView === 'ifood-control' && user.role === UserRole.ADM && (
+                <IFoodControl 
+                  user={user} 
+                  onLog={(act, det) => createLog("Financeiro", act, det)} 
+                />
+              )}
+              {currentView === 'notifications' && (
+                <NotificationsPage 
+                  tasks={tasks}
+                  boletos={boletos}
+                  user={user}
+                  onNavigate={setCurrentView}
+                  onViewTask={(task) => {
+                    setSelectedTask(task);
+                    setCurrentView('task-management');
+                  }}
                 />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}

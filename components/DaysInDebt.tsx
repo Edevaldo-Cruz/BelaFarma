@@ -22,7 +22,30 @@ interface DebtCardInfo {
 }
 
 export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAccounts }) => {
-  const [selectedDate, setSelectedDate] = useState<CalendarValue>(new Date());
+  // Mudança para array de strings YYYY-MM-DD para seleção múltipla
+  const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([new Date().toISOString().split('T')[0]]); 
+  // Mantemos selectedDate apenas para compatibilidade se algo quebrar, mas vamos usar selectedDateStrings primariamente ou anular o uso do value do Calendar padrão.
+  
+  const toggleDate = (date: Date, event: React.MouseEvent<HTMLButtonElement>) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    setSelectedDateStrings(prev => {
+      // Se CTRL ou META (Command) estiver pressionado, alterna a seleção (multi-seleção)
+      if (event.ctrlKey || event.metaKey) {
+        if (prev.includes(dateStr)) {
+          return prev.filter(d => d !== dateStr);
+        } else {
+          return [...prev, dateStr];
+        }
+      }
+      
+      // Clique simples: seleção única
+      return [dateStr];
+    });
+  };
   const [totalValue, setTotalValue] = useState(0);
   const [totalValueInput, setTotalValueInput] = useState('0,00');
   const [installments, setInstallments] = useState(1);
@@ -168,6 +191,15 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     return { avgValue: avg, stdDeviation: stdDev };
   }, [dayValues]);
 
+
+  const totalPendingBalance = useMemo(() => {
+    const boletosTotal = boletos.reduce((acc, b) => acc + b.value, 0);
+    const fixedTotal = fixedPayments
+      .filter(fp => fp.status === 'Pendente')
+      .reduce((acc, fp) => acc + fp.value, 0);
+    return boletosTotal + fixedTotal;
+  }, [boletos, fixedPayments]);
+
   const getTileClassName = ({ date, view }: { date: Date, view: string }) => {
     // Only apply logic for month view to avoid performance issues
     if (view !== 'month') return null;
@@ -177,6 +209,10 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
+
+    // Check if selected
+    const isSelected = selectedDateStrings.includes(dateStr);
+    let classes = isSelected ? 'react-calendar__tile--active ' : '';
 
     const dayValue = dayValues.get(dateStr);
     
@@ -192,45 +228,49 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       // Well above average (1 to 1.5 std dev): Medium red
       // Much above average (> 1.5 std dev): Dark red
       
-      if (deviationFromMean >= 1.5) return 'has-payment deviation-very-high';
-      if (deviationFromMean >= 1.0) return 'has-payment deviation-high';
-      if (deviationFromMean >= 0.5) return 'has-payment deviation-above-avg';
-      if (deviationFromMean >= -0.5) return 'has-payment deviation-near-avg';
-      if (deviationFromMean >= -1.0) return 'has-payment deviation-below-avg';
-      return 'has-payment deviation-very-low';
+      if (deviationFromMean >= 1.5) return classes + 'has-payment deviation-very-high';
+      if (deviationFromMean >= 1.0) return classes + 'has-payment deviation-high';
+      if (deviationFromMean >= 0.5) return classes + 'has-payment deviation-above-avg';
+      if (deviationFromMean >= -0.5) return classes + 'has-payment deviation-near-avg';
+      if (deviationFromMean >= -1.0) return classes + 'has-payment deviation-below-avg';
+      return classes + 'has-payment deviation-very-low';
     }
     
-    return null;
+    return classes || null;
   };
 
-  const selectedDateBoletos = useMemo(() => {
-    if (!selectedDate || Array.isArray(selectedDate)) return [];
-    
-    // Construct local date string from the selected calendar date
-    const selectedD = selectedDate as Date;
-    const year = selectedD.getFullYear();
-    const month = String(selectedD.getMonth() + 1).padStart(2, '0');
-    const day = String(selectedD.getDate()).padStart(2, '0');
-    const selectedDateStr = `${year}-${month}-${day}`;
+  const selectedBoletosByDate = useMemo(() => {
+    if (selectedDateStrings.length === 0) return {};
 
-    const matchedBoletos = boletos.filter(b => {
-      // Comparação direta de string 'YYYY-MM-DD'
-      return b.due_date.split('T')[0] === selectedDateStr;
+    const grouped: Record<string, any[]> = {};
+
+    selectedDateStrings.forEach(dateStr => {
+      const matchedBoletos = boletos.filter(b => b.due_date.split('T')[0] === dateStr);
+      
+      const matchedFixedPayments = fixedPayments
+        .filter(fp => fp.status === 'Pendente' && fp.dueDate === dateStr)
+        .map(fp => ({
+          id: fp.id,
+          supplierName: `[FIXA] ${fp.fixedAccountName}`,
+          value: fp.value,
+          due_date: fp.dueDate,
+          status: 'Pendente' as any
+        }));
+      
+      const items = [...matchedBoletos, ...matchedFixedPayments];
+      if (items.length > 0) {
+        grouped[dateStr] = items;
+      }
     });
 
-    // Use fixed payments instead of fixed accounts
-    const matchedFixedPayments = fixedPayments
-      .filter(fp => fp.status === 'Pendente' && fp.dueDate === selectedDateStr)
-      .map(fp => ({
-        id: fp.id,
-        supplierName: `[FIXA] ${fp.fixedAccountName}`,
-        value: fp.value,
-        due_date: fp.dueDate,
-        status: 'Pendente' as any
-      }));
+    return grouped;
+  }, [selectedDateStrings, boletos, fixedPayments]);
 
-    return [...matchedBoletos, ...matchedFixedPayments];
-  }, [selectedDate, boletos, fixedPayments]);
+  const selectedTotal = useMemo(() => {
+    return Object.values(selectedBoletosByDate)
+      .flat()
+      .reduce((acc, item: any) => acc + item.value, 0);
+  }, [selectedBoletosByDate]);
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -240,9 +280,14 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
           <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Dias Comprometidos</h1>
           <p className="text-slate-500 dark:text-slate-400 font-bold italic text-sm">Controle de fluxo de caixa e compromissos futuros.</p>
         </div>
-        <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/10 px-6 py-3 rounded-2xl border border-red-100 dark:border-red-900/30">
-          <TrendingUp className="w-5 h-5 text-red-600 dark:text-red-400" />
-          <span className="text-sm font-black text-red-700 dark:text-red-400 uppercase tracking-widest">Compromissos Ativos</span>
+        <div className="flex flex-col items-end">
+           <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total a Pagar (Boletos + Fixas Mês)</span>
+           <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/10 px-6 py-3 rounded-2xl border border-red-100 dark:border-red-900/30 shadow-sm">
+             <DollarSign className="w-6 h-6 text-red-600 dark:text-red-400" />
+             <span className="text-2xl font-black text-red-700 dark:text-red-400 tracking-tighter">
+               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendingBalance)}
+             </span>
+           </div>
         </div>
       </header>
 
@@ -252,47 +297,83 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
           <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Calendário de Pagamentos</h2>
           <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl transition-all duration-300 hover:shadow-2xl">
             <Calendar
-              onChange={setSelectedDate}
-              value={selectedDate}
+              onClickDay={toggleDate}
+              value={null}
               tileClassName={getTileClassName}
               className="w-full"
             />
+            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-4 text-center tracking-widest opacity-60">
+              Dica: Segure CTRL para selecionar múltiplos dias
+            </p>
           </div>
         </section>
 
         {/* DETAILS SECTION */}
         <section className="space-y-4">
-          <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">
-            Detalhes: {selectedDate && !Array.isArray(selectedDate) 
-              ? selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) 
-              : 'Selecione'}
-          </h2>
-          <div className="space-y-4 scrollbar-hide max-h-[460px] overflow-y-auto pr-2">
-            {selectedDateBoletos.length > 0 ? (
-              selectedDateBoletos.map(boleto => (
-                <div key={boleto.id} className="group bg-white dark:bg-slate-900/50 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform">
-                      <Receipt className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
-                        Vencimento em {boleto.due_date.split('T')[0].split('-').reverse().join('/')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-black text-xl text-red-600 dark:text-red-400">
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
-                    </span>
-                  </div>
-                </div>
-              ))
+          <div className="flex justify-between items-end px-2">
+            <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+              {selectedDateStrings.length > 0
+                ? `${selectedDateStrings.length} Dia(s) Selecionado(s)`
+                : 'Selecione dias no calendário'}
+            </h2>
+            {selectedDateStrings.length > 0 && (
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Total Selecionado</span>
+                <span className="text-xl font-black text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800/50 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedTotal)}
+                </span>
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-6 scrollbar-hide max-h-[500px] overflow-y-auto pr-2 pb-10">
+            {selectedDateStrings.length > 0 ? (
+               selectedDateStrings.sort().map(dateStr => {
+                 const items = selectedBoletosByDate[dateStr] || [];
+                 if (items.length === 0) return null; // Skip days with no items if you prefer, or show "Sem pagamentos"
+
+                 const [year, month, day] = dateStr.split('-');
+                 const formattedDate = `${day}/${month}/${year}`;
+                 const dayTotal = items.reduce((acc, i: any) => acc + i.value, 0);
+
+                 return (
+                   <div key={dateStr} className="space-y-2">
+                     <div className="flex items-center gap-2 mb-2 px-2">
+                        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
+                        <span className="text-xs font-black text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{formattedDate}</span>
+                        <span className="text-xs font-bold text-slate-400 dark:text-slate-500">
+                          ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dayTotal)})
+                        </span>
+                        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
+                     </div>
+                     
+                     {items.map((boleto: any) => (
+                      <div key={boleto.id} className="group bg-white dark:bg-slate-900/50 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md">
+                        <div className="flex items-center gap-4">
+                          <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform">
+                            <Receipt className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
+                            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
+                              Vencimento em {formattedDate}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-black text-xl text-red-600 dark:text-red-400">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
+                          </span>
+                        </div>
+                      </div>
+                     ))}
+                   </div>
+                 );
+               })
             ) : (
               <div className="bg-slate-50 dark:bg-slate-800/20 p-12 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-800 text-center flex flex-col items-center gap-4">
                 <AlertCircle className="w-10 h-10 text-slate-300 dark:text-slate-700" />
-                <p className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">Nenhum compromisso para este dia.</p>
+                <p className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">Selecione dias para ver detalhes.</p>
               </div>
             )}
           </div>

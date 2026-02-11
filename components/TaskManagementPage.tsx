@@ -16,9 +16,18 @@ interface TaskManagementPageProps {
   users: User[];
   onLog: (action: string, details: string) => void;
   onRefreshTasks?: () => void; // ADDED
+  initialSelectedTask?: Task | null;
+  onClearSelection?: () => void;
 }
 
-export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, users, onLog, onRefreshTasks }) => {
+export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ 
+  user, 
+  users, 
+  onLog, 
+  onRefreshTasks,
+  initialSelectedTask,
+  onClearSelection
+}) => {
   // Tab state
   const [activeTab, setActiveTab] = useState<'tasks' | 'bugs' | 'flyering'>('tasks');
   
@@ -35,6 +44,15 @@ export const TaskManagementPage: React.FC<TaskManagementPageProps> = ({ user, us
   const [editingBug, setEditingBug] = useState<Bug | null>(null);
   const [isBugDetailsOpen, setIsBugDetailsOpen] = useState(false);
   const [selectedBug, setSelectedBug] = useState<Bug | null>(null);
+
+  // Effect to handle navigation from notifications
+  useEffect(() => {
+    if (initialSelectedTask) {
+      setSelectedTask(initialSelectedTask);
+      setIsDetailsModalOpen(true); // Corrected from setIsViewModalOpen
+      if (onClearSelection) onClearSelection();
+    }
+  }, [initialSelectedTask, onClearSelection]);
   
   const isAdmin = user.role === 'Administrador';
 

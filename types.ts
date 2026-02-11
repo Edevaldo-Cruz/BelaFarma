@@ -442,4 +442,42 @@ export interface ConsignadoProduct {
   status: 'Ativo' | 'Inativo' | 'Devolvido';
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados';
+// ============================================================================
+// MÓDULO iFOOD - Interfaces
+// ============================================================================
+
+export interface iFoodSale {
+  id: string;
+  sale_date: string;
+  gross_value: number;
+  operator_fee_percent: number;
+  operator_fee_value: number;
+  net_value: number;
+  payment_due_date: string;
+  status: 'Pendente' | 'Recebido';
+  received_at?: string;
+  description?: string;
+  daily_record_id?: string;
+  checking_account_id?: string;
+  user_name: string;
+  created_at: string;
+}
+
+export interface iFoodDashboard {
+  totalPending: number;
+  pendingCount: number;
+  totalReceived: number;
+  receivedCount: number;
+  dueSoon: iFoodSale[];
+  dueToday: iFoodSale[];
+  overdue: iFoodSale[];
+}
+
+export interface iFoodNotification {
+  type: 'due_today' | 'overdue';
+  message: string;
+  sale: iFoodSale;
+  daysLate?: number;
+}
+
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications';

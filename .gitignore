@@ -33,3 +33,4 @@ dist-ssr
 # Backups
 backups/
 *.backup*
+nul

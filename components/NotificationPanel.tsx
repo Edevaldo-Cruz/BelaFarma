@@ -263,6 +263,12 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
 
       <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800">
         <p className="text-[8px] font-black text-slate-400 uppercase text-center tracking-[0.2em]">Central de Operações Bela Farma</p>
+        <button 
+          onClick={() => { onNavigate('notifications'); onClose(); }}
+          className="w-full mt-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-xs font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
+        >
+          Ver Todas as Notificações <ArrowRight size={14} />
+        </button>
       </div>
     </div>
   );

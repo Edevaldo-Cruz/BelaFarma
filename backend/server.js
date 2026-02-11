@@ -2207,6 +2207,433 @@ app.delete('/api/flyering/:id', (req, res) => {
 
 
 // ============================================================================
+// MÓDULO iFOOD - Endpoints para Vendas iFood
+// ============================================================================
+
+// GET all iFood sales (com filtro opcional por status e mês)
+app.get('/api/ifood-sales', (req, res) => {
+  try {
+    const { status, month, year, includeOverdue, page = 1, limit = 50 } = req.query;
+    let query = 'SELECT * FROM ifood_sales';
+    let countQuery = 'SELECT COUNT(*) as count FROM ifood_sales';
+    let conditions = [];
+    let params = [];
+
+    if (status) {
+      conditions.push('status = ?');
+      params.push(status);
+    }
+    
+    if (month && year) {
+      if (includeOverdue === 'true') {
+        const today = new Date().toISOString().split('T')[0];
+        conditions.push(`((strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?) OR (status = 'Pendente' AND payment_due_date < ?))`);
+        params.push(String(month).padStart(2, '0'), String(year), today);
+      } else {
+        conditions.push("strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?");
+        params.push(String(month).padStart(2, '0'), String(year));
+      }
+    }
+
+    if (conditions.length > 0) {
+      const conditionStr = ' WHERE ' + conditions.join(' AND ');
+      query += conditionStr;
+      countQuery += conditionStr;
+    }
+    
+    // Sort logic: Pendentes (vencimento e antiguidade), Recebidos (data decrescente)
+    if (status === 'Pendente') {
+        query += ' ORDER BY payment_due_date ASC, sale_date ASC';
+    } else {
+        query += ' ORDER BY sale_date DESC';
+    }
+
+    // Pagination
+    const limitVal = parseInt(limit);
+    const pageVal = parseInt(page);
+    const offset = (pageVal - 1) * limitVal;
+
+    query += ` LIMIT ? OFFSET ?`;
+    const queryParams = [...params, limitVal, offset];
+
+    const sales = db.prepare(query).all(...queryParams);
+    const totalCount = db.prepare(countQuery).get(...params).count;
+
+    res.json({
+      data: sales,
+      pagination: {
+        total: totalCount,
+        page: pageVal,
+        limit: limitVal,
+        totalPages: Math.ceil(totalCount / limitVal)
+      }
+    });
+
+  } catch (err) {
+    console.error('Error fetching iFood sales:', err);
+    res.status(500).json({ error: 'Failed to fetch iFood sales.' });
+  }
+});
+
+// GET iFood sales dashboard/summary
+app.get('/api/ifood-sales/dashboard', (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    const totalPending = db.prepare(`
+      SELECT COALESCE(SUM(net_value), 0) as total, COUNT(*) as count 
+      FROM ifood_sales WHERE status = 'Pendente'
+    `).get();
+
+    const totalReceived = db.prepare(`
+      SELECT COALESCE(SUM(net_value), 0) as total, COUNT(*) as count 
+      FROM ifood_sales WHERE status = 'Recebido'
+    `).get();
+
+    const dueSoon = db.prepare(`
+      SELECT * FROM ifood_sales 
+      WHERE status = 'Pendente' AND payment_due_date <= date(?, '+3 days')
+      ORDER BY payment_due_date ASC
+    `).all(today);
+
+    const dueToday = db.prepare(`
+      SELECT * FROM ifood_sales 
+      WHERE status = 'Pendente' AND payment_due_date = ?
+    `).all(today);
+
+    const overdue = db.prepare(`
+      SELECT * FROM ifood_sales 
+      WHERE status = 'Pendente' AND payment_due_date < ?
+      ORDER BY payment_due_date ASC
+    `).all(today);
+
+    res.json({
+      totalPending: totalPending.total,
+      pendingCount: totalPending.count,
+      totalReceived: totalReceived.total,
+      receivedCount: totalReceived.count,
+      dueSoon,
+      dueToday,
+      overdue,
+    });
+  } catch (err) {
+    console.error('Error fetching iFood dashboard:', err);
+    res.status(500).json({ error: 'Failed to fetch iFood dashboard.' });
+  }
+});
+
+// GET iFood notifications (pagamentos próximos do vencimento)
+app.get('/api/ifood-sales/notifications', (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Pagamentos vencendo hoje
+    const dueToday = db.prepare(`
+      SELECT * FROM ifood_sales 
+      WHERE status = 'Pendente' AND payment_due_date = ?
+    `).all(today);
+
+    // Pagamentos atrasados
+    const overdue = db.prepare(`
+      SELECT * FROM ifood_sales 
+      WHERE status = 'Pendente' AND payment_due_date < ?
+      ORDER BY payment_due_date ASC
+    `).all(today);
+
+    const notifications = [];
+
+    dueToday.forEach(sale => {
+      notifications.push({
+        type: 'due_today',
+        message: `Lembrete: O valor de R$ ${sale.net_value.toFixed(2)} da venda iFood de ${formatDateBR(sale.sale_date)} tem depósito previsto para hoje.`,
+        sale,
+      });
+    });
+
+    overdue.forEach(sale => {
+      const daysLate = Math.floor((new Date(today) - new Date(sale.payment_due_date)) / (1000 * 60 * 60 * 24));
+      notifications.push({
+        type: 'overdue',
+        message: `Atenção: Pagamento iFood de R$ ${sale.net_value.toFixed(2)} está ${daysLate} dia(s) atrasado!`,
+        sale,
+        daysLate,
+      });
+    });
+
+    res.json(notifications);
+  } catch (err) {
+    console.error('Error fetching iFood notifications:', err);
+    res.status(500).json({ error: 'Failed to fetch iFood notifications.' });
+  }
+});
+
+// Helper para formatação de data
+function formatDateBR(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  return d.toLocaleDateString('pt-BR');
+}
+
+// CREATE iFood sale
+app.post('/api/ifood-sales', (req, res) => {
+  try {
+    const sale = req.body;
+    const now = new Date().toISOString();
+    
+    // Calcular data de previsão (30 dias após a venda)
+    const saleDate = new Date(sale.sale_date + 'T12:00:00Z');
+    const dueDate = new Date(saleDate);
+    dueDate.setDate(dueDate.getDate() + 30);
+    const dueDateStr = dueDate.toISOString().split('T')[0];
+
+    // Calcular taxa e valor líquido
+    const grossValue = sale.gross_value;
+    const feePercent = sale.operator_fee_percent || 0;
+    const feeValue = grossValue * (feePercent / 100);
+    const netValue = grossValue - feeValue;
+
+    const id = sale.id || 'ifood_' + Date.now();
+
+    const stmt = db.prepare(`
+      INSERT INTO ifood_sales (id, sale_date, gross_value, operator_fee_percent, operator_fee_value, net_value, payment_due_date, status, description, daily_record_id, user_name, created_at)
+      VALUES (@id, @sale_date, @gross_value, @operator_fee_percent, @operator_fee_value, @net_value, @payment_due_date, @status, @description, @daily_record_id, @user_name, @created_at)
+    `);
+
+    stmt.run({
+      id,
+      sale_date: sale.sale_date,
+      gross_value: grossValue,
+      operator_fee_percent: feePercent,
+      operator_fee_value: feeValue,
+      net_value: netValue,
+      payment_due_date: dueDateStr,
+      status: 'Pendente',
+      description: sale.description || null,
+      daily_record_id: sale.daily_record_id || null,
+      user_name: sale.user_name,
+      created_at: now,
+    });
+
+    const createdSale = db.prepare('SELECT * FROM ifood_sales WHERE id = ?').get(id);
+    res.status(201).json(createdSale);
+  } catch (err) {
+    console.error('Error creating iFood sale:', err);
+    res.status(500).json({ error: 'Failed to create iFood sale.' });
+  }
+});
+
+// UPDATE iFood sale
+app.put('/api/ifood-sales/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    const existing = db.prepare('SELECT * FROM ifood_sales WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'iFood sale not found.' });
+    }
+
+    // Recalcular taxa se necessário
+    const grossValue = updates.gross_value || existing.gross_value;
+    const feePercent = updates.operator_fee_percent !== undefined ? updates.operator_fee_percent : existing.operator_fee_percent;
+    const feeValue = grossValue * (feePercent / 100);
+    const netValue = grossValue - feeValue;
+
+    const stmt = db.prepare(`
+      UPDATE ifood_sales 
+      SET gross_value = @gross_value,
+          operator_fee_percent = @operator_fee_percent,
+          operator_fee_value = @operator_fee_value,
+          net_value = @net_value,
+          description = @description
+      WHERE id = @id
+    `);
+
+    stmt.run({
+      id,
+      gross_value: grossValue,
+      operator_fee_percent: feePercent,
+      operator_fee_value: feeValue,
+      net_value: netValue,
+      description: updates.description || existing.description,
+    });
+
+    const updatedSale = db.prepare('SELECT * FROM ifood_sales WHERE id = ?').get(id);
+    res.json(updatedSale);
+  } catch (err) {
+    console.error('Error updating iFood sale:', err);
+    res.status(500).json({ error: 'Failed to update iFood sale.' });
+  }
+});
+
+// RECONCILE - Mark iFood sale as received + create checking account entry
+app.put('/api/ifood-sales/:id/reconcile', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userName } = req.body;
+
+    const sale = db.prepare('SELECT * FROM ifood_sales WHERE id = ?').get(id);
+    if (!sale) {
+      return res.status(404).json({ error: 'iFood sale not found.' });
+    }
+
+    if (sale.status === 'Recebido') {
+      return res.status(400).json({ error: 'Esta venda já foi marcada como recebida.' });
+    }
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const txId = 'ifood_tx_' + Date.now();
+
+    db.transaction(() => {
+      // 1. Marcar venda como recebida
+      db.prepare(`
+        UPDATE ifood_sales 
+        SET status = 'Recebido', received_at = ?, checking_account_id = ?
+        WHERE id = ?
+      `).run(now, txId, id);
+
+      // 2. Criar lançamento na Conta Corrente (entrada)
+      db.prepare(`
+        INSERT INTO checking_account_transactions (id, date, description, type, value)
+        VALUES (?, ?, ?, 'Entrada', ?)
+      `).run(
+        txId,
+        today,
+        `Depósito iFood - Venda de ${formatDateBR(sale.sale_date)} (Valor líquido)`,
+        sale.net_value
+      );
+    })();
+
+    const updatedSale = db.prepare('SELECT * FROM ifood_sales WHERE id = ?').get(id);
+    res.json({
+      sale: updatedSale,
+      message: `Venda marcada como recebida. R$ ${sale.net_value.toFixed(2)} lançado na Conta Corrente.`,
+    });
+  } catch (err) {
+    console.error('Error reconciling iFood sale:', err);
+    res.status(500).json({ error: 'Failed to reconcile iFood sale.' });
+  }
+});
+
+// BATCH RECONCILE - Mark multiple iFood sales as received
+app.put('/api/ifood-sales/batch-reconcile', (req, res) => {
+  try {
+    const { saleIds, userName } = req.body;
+    if (!saleIds || !Array.isArray(saleIds) || saleIds.length === 0) {
+      return res.status(400).json({ error: 'Nenhuma venda selecionada.' });
+    }
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    let totalReconciled = 0;
+
+    db.transaction(() => {
+      for (const saleId of saleIds) {
+        const sale = db.prepare('SELECT * FROM ifood_sales WHERE id = ? AND status = ?').get(saleId, 'Pendente');
+        if (!sale) continue;
+
+        const txId = 'ifood_tx_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+
+        db.prepare(`
+          UPDATE ifood_sales 
+          SET status = 'Recebido', received_at = ?, checking_account_id = ?
+          WHERE id = ?
+        `).run(now, txId, saleId);
+
+        db.prepare(`
+          INSERT INTO checking_account_transactions (id, date, description, type, value)
+          VALUES (?, ?, ?, 'Entrada', ?)
+        `).run(
+          txId,
+          today,
+          `Depósito iFood - Venda de ${formatDateBR(sale.sale_date)}`,
+          sale.net_value
+        );
+
+        totalReconciled += sale.net_value;
+      }
+    })();
+
+    res.json({
+      message: `${saleIds.length} venda(s) conciliada(s). Total: R$ ${totalReconciled.toFixed(2)} lançado na Conta Corrente.`,
+      totalReconciled,
+    });
+  } catch (err) {
+    console.error('Error batch reconciling iFood sales:', err);
+    res.status(500).json({ error: 'Failed to batch reconcile iFood sales.' });
+  }
+});
+
+// DELETE iFood sale
+app.delete('/api/ifood-sales/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const sale = db.prepare('SELECT * FROM ifood_sales WHERE id = ?').get(id);
+    if (!sale) {
+      return res.status(404).json({ error: 'iFood sale not found.' });
+    }
+
+    if (sale.status === 'Recebido') {
+      return res.status(400).json({ error: 'Não é possível excluir uma venda já recebida.' });
+    }
+
+    db.prepare('DELETE FROM ifood_sales WHERE id = ?').run(id);
+    res.json({ message: 'iFood sale deleted successfully.' });
+  } catch (err) {
+    console.error('Error deleting iFood sale:', err);
+    res.status(500).json({ error: 'Failed to delete iFood sale.' });
+  }
+});
+
+// ===== SYSTEM SETTINGS =====
+
+// GET all settings or a specific setting
+app.get('/api/settings/:key?', (req, res) => {
+  try {
+    if (req.params.key) {
+      const setting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(req.params.key);
+      if (!setting) {
+        return res.status(404).json({ error: 'Setting not found.' });
+      }
+      res.json(setting);
+    } else {
+      const settings = db.prepare('SELECT * FROM system_settings').all();
+      res.json(settings);
+    }
+  } catch (err) {
+    console.error('Error fetching settings:', err);
+    res.status(500).json({ error: 'Failed to fetch settings.' });
+  }
+});
+
+// PUT update a setting
+app.put('/api/settings/:key', (req, res) => {
+  try {
+    const { key } = req.params;
+    const { value } = req.body;
+    
+    if (value === undefined || value === null) {
+      return res.status(400).json({ error: 'Value is required.' });
+    }
+
+    const existing = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
+    const now = new Date().toISOString();
+    
+    if (existing) {
+      db.prepare('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?').run(String(value), now, key);
+    } else {
+      db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), now);
+    }
+
+    const updated = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating setting:', err);
+    res.status(500).json({ error: 'Failed to update setting.' });
+  }
+});
+
+// ============================================================================
 // SISTEMA FOGUETE AMARELO - Inicialização dos Endpoints
 // ============================================================================
 const { initializeFogueteAmareloEndpoints } = require('./foguete-amarelo-endpoints.js');

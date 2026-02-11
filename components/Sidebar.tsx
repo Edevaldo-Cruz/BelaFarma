@@ -64,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isAdmin = user.role === UserRole.ADM;
 
   const [hasOverdue, setHasOverdue] = React.useState(false);
+  const [ifoodNotifCount, setIfoodNotifCount] = React.useState(0);
 
   React.useEffect(() => {
     if (!isAdmin) return;
@@ -83,6 +84,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const interval = setInterval(checkOverdue, 60000);
     return () => clearInterval(interval);
   }, [isAdmin, currentView]);
+
+  // Check iFood notifications
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    const checkIFood = async () => {
+      try {
+        const res = await fetch('/api/ifood-sales/notifications');
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setIfoodNotifCount(data.length);
+        }
+      } catch (error) {
+        console.error('Error checking iFood notifications:', error);
+      }
+    };
+    checkIFood();
+    const interval = setInterval(checkIFood, 300000); // Every 5 minutes
+    return () => clearInterval(interval);
+  }, [isAdmin, currentView]);
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'logs', label: 'Auditoria', icon: History },
@@ -100,6 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'safe', label: 'Cofre', icon: Lock },
     { id: 'backups', label: 'Backups', icon: Database },
     { id: 'foguete-amarelo', label: 'Foguete Amarelo', icon: Rocket },
+    { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart },
     { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
@@ -107,7 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });
@@ -166,7 +187,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     taskResponseNotifications.length + 
     bankDepositTasks.length +
     overdueBoletos.length + 
-    boletosDueSunday.length;
+    boletosDueSunday.length +
+    ifoodNotifCount;
   const hasNotifications = totalNotifications > 0;
 
   // Handle click outside to close notifications
