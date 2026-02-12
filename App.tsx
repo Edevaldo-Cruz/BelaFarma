@@ -607,6 +607,7 @@ const App: React.FC = () => {
                   onUpdateBoleto={handleUpdateBoleto}
                   onDeleteBoleto={handleDeleteBoleto}
                   onLog={(act, det) => createLog("Financeiro", act, det)}
+                  cashClosings={cashClosings}
                 />
               )}
               {currentView === "users" && user.role === UserRole.ADM && (
@@ -641,6 +642,9 @@ const App: React.FC = () => {
                   user={user} 
                   onLog={(act, det) => createLog('Sistema', act, det)}
                 />
+              )}
+              {currentView === 'days-in-debt' && user.role === UserRole.ADM && (
+                <DaysInDebt boletos={boletos} orders={orders} fixedAccounts={fixedAccounts} cashClosings={cashClosings} />
               )}
               {currentView === 'debtors-report' && user.role === UserRole.ADM && (
                 <DebtorsReport />

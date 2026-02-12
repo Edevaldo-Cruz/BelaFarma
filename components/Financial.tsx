@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive } from 'lucide-react';
-import { Order, OrderStatus, Installment, Boleto, BoletoStatus, FixedAccount, User, MonthlyLimit } from '../types';
+import { Order, OrderStatus, Installment, Boleto, BoletoStatus, FixedAccount, User, MonthlyLimit, CashClosingRecord } from '../types';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
 import { FinancialArchive } from './FinancialArchive';
 import { ContasAPagar } from './ContasAPagar';
@@ -18,6 +18,7 @@ interface FinancialProps {
   onUpdateBoleto: (boleto: Boleto) => void;
   onDeleteBoleto: (id: string) => void;
   onLog: (action: string, details: string) => void;
+  cashClosings: CashClosingRecord[];
 }
 
 type Transaction = Order | Boleto | (FixedAccount & { isFixed: true, targetDate: string });
@@ -37,7 +38,8 @@ export const Financial: React.FC<FinancialProps> = ({
   onAddBoleto,
   onUpdateBoleto,
   onDeleteBoleto,
-  onLog
+  onLog,
+  cashClosings
 }) => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
@@ -395,6 +397,7 @@ export const Financial: React.FC<FinancialProps> = ({
             boletos={boletos}
             orders={orders}
             fixedAccounts={fixedAccounts}
+            cashClosings={cashClosings}
           />
         </div>
       )}

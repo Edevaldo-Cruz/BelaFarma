@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DollarSign, Search, Plus, Calendar as CalendarIcon, TrendingUp, AlertCircle, ArrowRight, Wallet, Receipt } from 'lucide-react';
-import { Boleto, Order, FixedAccount, FixedAccountPayment } from '../types';
+import { Boleto, Order, FixedAccount, FixedAccountPayment, CashClosingRecord } from '../types';
 import Calendar from 'react-calendar';
 type CalendarValue = Date | Date[] | null;
 import 'react-calendar/dist/Calendar.css';
@@ -10,6 +10,7 @@ interface DaysInDebtProps {
   boletos: Boleto[];
   orders: Order[];
   fixedAccounts: FixedAccount[];
+  cashClosings: CashClosingRecord[];
 }
 
 interface DebtCardInfo {
@@ -21,7 +22,7 @@ interface DebtCardInfo {
   }[];
 }
 
-export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAccounts }) => {
+export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAccounts, cashClosings }) => {
   // Mudança para array de strings YYYY-MM-DD para seleção múltipla
   const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([new Date().toISOString().split('T')[0]]); 
   // Mantemos selectedDate apenas para compatibilidade se algo quebrar, mas vamos usar selectedDateStrings primariamente ou anular o uso do value do Calendar padrão.
@@ -272,6 +273,26 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       .reduce((acc, item: any) => acc + item.value, 0);
   }, [selectedBoletosByDate]);
 
+  const averageDailySales = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const monthClosings = (cashClosings || []).filter(c => {
+        if (!c.date) return false;
+        const [yearStr, monthStr] = c.date.split('-'); 
+        return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
+    });
+
+    if (monthClosings.length === 0) return 0;
+    
+    const totalSalesSum = monthClosings.reduce((acc, curr) => acc + (curr.totalSales || 0), 0);
+    return totalSalesSum / monthClosings.length;
+  }, [cashClosings]);
+
+  const salesForecast = averageDailySales * selectedDateStrings.length;
+  const forecastBalance = salesForecast - selectedTotal;
+
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
       {/* HEADER */}
@@ -317,11 +338,30 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
                 : 'Selecione dias no calendário'}
             </h2>
             {selectedDateStrings.length > 0 && (
-              <div className="flex flex-col items-end">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Total Selecionado</span>
-                <span className="text-xl font-black text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800/50 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedTotal)}
-                </span>
+              <div className="flex items-end gap-6">
+                {/* Venda Prevista */}
+                <div className="flex flex-col items-end hidden md:flex">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Venda Prevista (Média Mês)</span>
+                  <span className="text-xl font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-xl border border-blue-100 dark:border-blue-800">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(salesForecast)}
+                  </span>
+                </div>
+
+                 {/* Total Selecionado */}
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Despesas Selecionadas</span>
+                  <span className="text-xl font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-1 rounded-xl border border-red-100 dark:border-red-800">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedTotal)}
+                  </span>
+                </div>
+
+                {/* Saldo Previsto */}
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Saldo Previsto</span>
+                  <span className={`text-xl font-black px-3 py-1 rounded-xl border ${forecastBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800'}`}>
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(forecastBalance)}
+                  </span>
+                </div>
               </div>
             )}
           </div>
