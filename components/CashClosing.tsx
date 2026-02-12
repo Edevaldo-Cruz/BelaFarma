@@ -69,6 +69,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   const [expensesList, setExpensesList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [nonRegisteredList, setNonRegisteredList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
+  const [ifoodList, setIfoodList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [pixDiretoList, setPixDiretoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
   const [creditReceiptsList, setCreditReceiptsList] = useState<Array<{ id: string, date: string, customer: string, val: number, description?: string }>>([]);
@@ -113,13 +114,31 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     let combinedExpenses: Array<{ id: string, desc: string, val: number }> = [];
     let combinedNonRegistered: Array<{ id: string, desc: string, val: number }> = [];
+    let combinedIfood: Array<{ id: string, desc: string, val: number }> = []; // Added declaration
     let combinedPixDireto: Array<{ id: string, desc: string, val: number }> = [];
     let combinedCrediario: Array<{ id: string, client: string, val: number }> = [];
     let combinedCreditReceipts: Array<{ id: string, date: string, customer: string, val: number, description?: string }> = [];
 
     todaysRecordEntries.forEach(entry => {
       combinedExpenses = combinedExpenses.concat(entry.expenses);
-      combinedNonRegistered = combinedNonRegistered.concat(entry.nonRegistered);
+      
+      // Separate iFood items from Non-Registered to Expenses
+      // Because iFood sales are included in Gross Sales but the money is not in the drawer.
+      const normalNonRegistered: Array<{ id: string, desc: string, val: number }> = [];
+      const ifoodItems: Array<{ id: string, desc: string, val: number }> = [];
+
+      entry.nonRegistered.forEach(item => {
+        if (item.desc.toLowerCase().startsWith('ifood')) {
+           ifoodItems.push(item);
+        } else {
+           normalNonRegistered.push(item);
+        }
+      });
+
+      combinedNonRegistered = combinedNonRegistered.concat(normalNonRegistered);
+      // combinedExpenses = combinedExpenses.concat(ifoodItems); // Removed: we will track them separately
+      combinedIfood = combinedIfood.concat(ifoodItems);
+
       combinedPixDireto = combinedPixDireto.concat(entry.pixDiretoList || []);
       combinedCrediario = combinedCrediario.concat(entry.crediarioList || []);
       combinedCreditReceipts = combinedCreditReceipts.concat(entry.creditReceipts || []);
@@ -127,6 +146,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     setExpensesList(combinedExpenses);
     setNonRegisteredList(combinedNonRegistered);
+    setIfoodList(combinedIfood);
     setPixDiretoList(combinedPixDireto);
     setCrediarioList(combinedCrediario);
     setCreditReceiptsList(combinedCreditReceipts);
@@ -194,6 +214,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   }, [totalSales, receivedExtra, initialCash, currencyCount, credit, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
 
   const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0), [expensesList]);
+  const totalIfood = useMemo(() => ifoodList.reduce((acc, curr) => acc + curr.val, 0), [ifoodList]);
   const totalNonRegistered = useMemo(() => nonRegisteredList.reduce((acc, curr) => acc + curr.val, 0), [nonRegisteredList]);
   const totalCrediario = useMemo(() => crediarioList.reduce((acc, curr) => acc + curr.val, 0), [crediarioList]);
   const totalCreditReceipts = useMemo(() => creditReceiptsList.reduce((acc, curr) => acc + curr.val, 0), [creditReceiptsList]);
@@ -207,8 +228,8 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     const totalDigital = useMemo(() => credit + debit + pix + pixDirect + others, [credit, debit, pix, pixDirect, others]);
 
-    // Expected Balance (Saldo Esperado): Sales + Initial + Received Extra + Credit Receipts + Non-Registered Products - Expenses - New Debts (Crediario)
-    const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalCrediario, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalCrediario]);
+    // Expected Balance (Saldo Esperado): Sales + Initial + Received Extra + Credit Receipts + Non-Registered Products - Expenses - iFood - New Debts (Crediario)
+    const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalIfood, totalCrediario]);
 
     // Checked Total (Total Conferido): Drawer (Cash) + Digital
     const totalConferido = useMemo(() => totalInDrawer + totalDigital, [totalInDrawer, totalDigital]);
@@ -353,7 +374,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   
 
-            difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses, userName: user.name,
+            difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses + totalIfood, userName: user.name,
 
   
 
@@ -853,6 +874,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                             <li>+ Produto Não Cadastrado: R$ {totalNonRegistered.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
                             <li>- Despesas: R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+                            <li>- Vendas iFood: R$ {totalIfood.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
                             <li>- Vendas em Crediário: R$ {totalCrediario.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
@@ -901,6 +923,28 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                           <ul className="space-y-1">
 
                             {expensesList.map((item, idx) => (
+
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+
+                                <span>{item.desc}</span>
+
+                                <span>- {formatCurrency(item.val)}</span>
+
+                              </li>
+
+                            ))}
+
+                          </ul>
+
+                        )}
+
+                        {ifoodList.length > 0 && (
+
+                          <ul className="space-y-1 mt-2">
+
+                            <h5 className="text-[10px] font-black uppercase text-rose-500">Vendas iFood</h5>
+
+                            {ifoodList.map((item, idx) => (
 
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
 
