@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, Filter, Trash2, ClipboardList, 
   MessageCircle, Star, X, Save, User as UserIcon,
-  Tag, AlertCircle, Loader2, Sparkles, FileDown
+  Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
+import { QuotationComparator } from './QuotationComparator';
 
 interface ProductShortagesProps {
   user: User;
@@ -17,6 +17,7 @@ interface ProductShortagesProps {
 
 export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showComparator, setShowComparator] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [formData, setFormData] = useState({
@@ -150,22 +151,34 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   };
 
   return (
+    <>
+      {showComparator ? (
+        <QuotationComparator onBack={() => setShowComparator(false)} />
+      ) : (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Lista de Faltas e Procura</h1>
           <p className="text-slate-500 font-medium">Controle de estoque e pedidos perdidos.</p>
         </div>
-        <button 
-          onClick={() => {
-            setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
-            setLastSelected('');
-            setIsModalOpen(true);
-          }}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95"
-        >
-          <Plus className="w-5 h-5" /> Registrar Falta
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowComparator(true)}
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95"
+          >
+            <BarChart3 className="w-5 h-5" /> Comparar Cotações
+          </button>
+          <button 
+            onClick={() => {
+              setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
+              setLastSelected('');
+              setIsModalOpen(true);
+            }}
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95"
+          >
+            <Plus className="w-5 h-5" /> Registrar Falta
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
@@ -377,5 +390,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         </div>
       )}
     </div>
+      )}
+    </>
   );
 };
