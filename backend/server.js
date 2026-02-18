@@ -245,7 +245,33 @@ app.get('/api/all-data', (req, res) => {
     }));
     
     const cashClosings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
-    const boletos = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
+    
+    // Buscar boletos normais e títulos Foguete Amarelo (mesma lógica do /api/boletos)
+    const boletosNormais = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
+    const boletosFogueteAmarelo = db.prepare(`
+      SELECT 
+        id,
+        supplier_name as supplierName,
+        description as invoice_number,
+        due_date,
+        remaining_value as value,
+        CASE 
+          WHEN status = 'Quitado' THEN 'Pago'
+          WHEN status = 'Pendente' AND julianday(due_date) < julianday('now') THEN 'Vencido'
+          ELSE 'Pendente'
+        END as status,
+        reference_id as order_id
+      FROM accounts_payable
+      WHERE is_foguete_amarelo = 1
+    `).all();
+    
+    // Combinar e ordenar boletos
+    const boletos = [...boletosNormais, ...boletosFogueteAmarelo].sort((a, b) => {
+      const dateA = new Date(a.due_date);
+      const dateB = new Date(b.due_date);
+      return dateA - dateB;
+    });
+    
     const monthlyLimits = db.prepare('SELECT * FROM monthly_limits').all();
     const dailyRecords = db.prepare('SELECT * FROM daily_records ORDER BY date DESC').all().map(record => {
       const mapped = {
@@ -671,11 +697,44 @@ app.delete('/api/users/:id', (req, res) => {
 });
 
 // --- Boletos CUD ---
-// GET all boletos
+// GET all boletos (incluindo títulos Foguete Amarelo)
 app.get('/api/boletos', (req, res) => {
   try {
-    const boletos = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
-    res.json(boletos);
+    // 1. Buscar boletos normais da tabela boletos
+    const boletosNormais = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
+    
+    // 2. Buscar títulos do Foguete Amarelo da tabela accounts_payable
+    // Somente incluir títulos que não estão quitados (status != 'Quitado')
+    const boletosFogueteAmarelo = db.prepare(`
+      SELECT 
+        id,
+        supplier_name as supplierName,
+        description as invoice_number,
+        due_date,
+        remaining_value as value,
+        CASE 
+          WHEN status = 'Quitado' THEN 'Pago'
+          WHEN status = 'Pendente' AND julianday(due_date) < julianday('now') THEN 'Vencido'
+          ELSE 'Pendente'
+        END as status,
+        reference_id as order_id
+      FROM accounts_payable
+      WHERE is_foguete_amarelo = 1
+    `).all();
+    
+    // 3. Combinar os dois arrays
+    const todosBoletos = [...boletosNormais, ...boletosFogueteAmarelo];
+    
+    // 4. Ordenar por data de vencimento
+    todosBoletos.sort((a, b) => {
+      const dateA = new Date(a.due_date);
+      const dateB = new Date(b.due_date);
+      return dateA - dateB;
+    });
+    
+    console.log(`[BOLETOS] Retornando ${boletosNormais.length} boletos normais + ${boletosFogueteAmarelo.length} boletos Foguete Amarelo = ${todosBoletos.length} total`);
+    
+    res.json(todosBoletos);
   } catch (err) {
     console.error('Error fetching boletos:', err);
     res.status(500).json({ error: 'Failed to fetch boletos.' });
