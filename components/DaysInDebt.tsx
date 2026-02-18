@@ -277,6 +277,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
+    const dayOfMonth = now.getDate(); // Dia atual do mês (ex: 18)
 
     const monthClosings = (cashClosings || []).filter(c => {
         if (!c.date) return false;
@@ -287,7 +288,8 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     if (monthClosings.length === 0) return 0;
     
     const totalSalesSum = monthClosings.reduce((acc, curr) => acc + (curr.totalSales || 0), 0);
-    return totalSalesSum / monthClosings.length;
+    // Divide pelo número de dias passados no mês atual (ex: hoje dia 18 → divide por 18)
+    return totalSalesSum / dayOfMonth;
   }, [cashClosings]);
 
   const salesForecast = averageDailySales * selectedDateStrings.length;
