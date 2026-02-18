@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, Filter, Trash2, ClipboardList, 
   MessageCircle, Star, X, Save, User as UserIcon,
-  Tag, AlertCircle, Loader2, Sparkles
+  Tag, AlertCircle, Loader2, Sparkles, FileDown
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
@@ -68,6 +68,60 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     const matchesType = typeFilter === 'all' || s.type === typeFilter;
     return matchesSearch && matchesType;
   });
+
+  const exportToTxt = () => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('pt-BR');
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const filterLabel = typeFilter === 'all' ? 'Todos os tipos' : typeFilter;
+    const searchLabel = searchTerm ? `Busca: "${searchTerm}"` : 'Sem filtro de busca';
+
+    const lines: string[] = [
+      '================================================',
+      `  LISTA DE FALTAS - COTAÇÃO`,
+      `  Gerado em: ${dateStr} às ${timeStr}`,
+      `  Filtros: ${filterLabel} | ${searchLabel}`,
+      `  Total de itens: ${filteredShortages.length}`,
+      '================================================',
+      '',
+    ];
+
+    // Urgentes primeiro
+    const urgent = filteredShortages.filter(s => s.clientInquiry);
+    const normal = filteredShortages.filter(s => !s.clientInquiry);
+
+    if (urgent.length > 0) {
+      lines.push('⚠  URGENTE (Cliente Aguardando):');
+      lines.push('------------------------------------------------');
+      urgent.forEach((s, i) => {
+        lines.push(`  ${i + 1}. ${s.productName.toUpperCase()} [${s.type}]`);
+        if (s.notes) lines.push(`     Obs: ${s.notes}`);
+      });
+      lines.push('');
+    }
+
+    if (normal.length > 0) {
+      lines.push('   ITENS PARA COTAÇÃO:');
+      lines.push('------------------------------------------------');
+      normal.forEach((s, i) => {
+        lines.push(`  ${urgent.length + i + 1}. ${s.productName.toUpperCase()} [${s.type}]`);
+        if (s.notes) lines.push(`     Obs: ${s.notes}`);
+      });
+      lines.push('');
+    }
+
+    lines.push('================================================');
+    lines.push('  Bela Farma');
+    lines.push('================================================');
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `faltas-cotacao-${now.toISOString().split('T')[0]}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,6 +192,15 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             ))}
           </select>
         </div>
+        <button
+          onClick={exportToTxt}
+          disabled={filteredShortages.length === 0}
+          title={`Exportar ${filteredShortages.length} item(s) para TXT`}
+          className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          <FileDown className="w-4 h-4" />
+          Exportar TXT ({filteredShortages.length})
+        </button>
       </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
