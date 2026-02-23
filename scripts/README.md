@@ -36,7 +36,7 @@ Script para restaurar o banco de dados de produção no ambiente de desenvolvime
 
 #### Requisitos:
 
-- Acesso SSH ao servidor de produção (192.168.1.9)
+- Acesso SSH ao servidor de produção (192.168.1.10)
 - Senha do usuário `ed`
 - Git Bash ou terminal compatível com bash no Windows
 
@@ -69,7 +69,7 @@ chmod +x scripts/restore-production-db.sh
 ```
 
 **Erro de conexão SSH:**
-- Verifique se você consegue conectar manualmente: `ssh ed@192.168.1.9`
+- Verifique se você consegue conectar manualmente: `ssh ed@192.168.1.10`
 - Confirme que a senha está correta (2494)
 
 **Arquivo não encontrado no servidor:**
@@ -88,7 +88,7 @@ Script para realizar uma **iniciação limpa** (reboot) do servidor VPS de produ
 ```
 
 #### O que o script faz:
-1. Conecta via SSH ao servidor `192.168.1.9`
+1. Conecta via SSH ao servidor `192.168.1.10`
 2. Solicita confirmação do usuário
 3. Executa `sudo reboot` para reiniciar o sistema operacional e todos os serviços
 4. Limpa memória e processos travados

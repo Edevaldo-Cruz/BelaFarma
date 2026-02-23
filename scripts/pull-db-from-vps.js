@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 // Configurações baseadas nos scripts existentes
 const REMOTE_USER = 'ed';
-const REMOTE_HOST = '192.168.1.9';
+const REMOTE_HOST = '192.168.1.10';
 const REMOTE_PROJECT_PATH = '/home/ed/projects/BelaFarma';
 
 // Possíveis locais do banco no servidor (baseado no DEPLOY.md e estrutura padrão)

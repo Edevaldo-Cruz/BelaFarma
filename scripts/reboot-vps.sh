@@ -5,7 +5,7 @@
 # Data: 2026-01-31
 
 # Configurações
-PROD_SERVER="ed@192.168.1.9"
+PROD_SERVER="ed@192.168.1.10"
 
 # Cores
 RED='\033[0;31m'

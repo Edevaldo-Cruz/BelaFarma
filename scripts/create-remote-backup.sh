@@ -5,7 +5,7 @@
 # Data: 2026-01-31
 
 SERVER_USER="ed"
-SERVER_IP="192.168.1.9"
+SERVER_IP="192.168.1.10"
 SERVER="$SERVER_USER@$SERVER_IP"
 REMOTE_SCRIPT_PATH="/home/ed/scripts/auto_backup.sh"
 

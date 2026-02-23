@@ -2,7 +2,7 @@
 
 # Script to fix Exec format error by ensuring clean build
 PROD_USER="ed"
-PROD_IP="192.168.1.9"
+PROD_IP="192.168.1.10"
 REMOTE_DIR="~/projects/BelaFarma"
 
 echo "1. Uploading backend/.dockerignore..."

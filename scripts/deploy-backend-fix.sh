@@ -5,7 +5,7 @@
 # Date: 2026-02-02
 
 PROD_USER="ed"
-PROD_IP="192.168.1.9"
+PROD_IP="192.168.1.10"
 REMOTE_DIR="~/projects/BelaFarma"
 
 echo "==============================================="

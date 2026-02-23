@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configurações
-PROD_SERVER="ed@192.168.1.9"
+PROD_SERVER="ed@192.168.1.10"
 PROD_DB_PATH="/home/ed/projetcs/BelaFarma/backend/belafarma.db"
 LOCAL_BACKEND_DIR="./backend"
 LOCAL_DB_FILE="$LOCAL_BACKEND_DIR/belafarma.db"

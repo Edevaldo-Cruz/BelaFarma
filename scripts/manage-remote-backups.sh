@@ -5,7 +5,7 @@
 
 # Configurações
 SERVER_USER="ed"
-SERVER_IP="192.168.1.9"
+SERVER_IP="192.168.1.10"
 SERVER="$SERVER_USER@$SERVER_IP"
 REMOTE_BACKUP_DIR="/home/ed/backups/belafarma"
 PROD_DB_PATH="/home/ed/projetcs/BelaFarma/backend/belafarma.db"

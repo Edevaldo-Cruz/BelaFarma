@@ -4,7 +4,7 @@
 # Autor: Antigravity Agent
 
 PROD_USER="ed"
-PROD_IP="192.168.1.9"
+PROD_IP="192.168.1.10"
 
 echo "Conectando à VPS para instalar o Rclone..."
 ssh -t "$PROD_USER@$PROD_IP" "sudo -v && curl https://rclone.org/install.sh | sudo bash"
