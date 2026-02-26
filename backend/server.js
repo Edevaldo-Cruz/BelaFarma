@@ -1186,6 +1186,20 @@ app.post('/api/cash-closings', (req, res) => {
       }
     }
 
+    // ── Notificação WhatsApp (best-effort, não bloqueia a resposta) ──────────
+    try {
+      const waService = require('./services/whatsapp.service');
+      waService.notifyCashClosing({
+        date: closing.date,
+        totalSales: closing.totalSales,
+        totalExpenses: closing.expenses || 0,
+        safeAmount: closing.safeDeposit || 0,
+      }).catch(err => console.warn('[WhatsApp] Falha silenciosa no aviso de caixa:', err.message));
+    } catch (waErr) {
+      console.warn('[WhatsApp] Serviço indisponível:', waErr.message);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     res.status(201).json({ id: closing.id });
   } catch (err) {
     console.error('Error creating cash closing:', err);

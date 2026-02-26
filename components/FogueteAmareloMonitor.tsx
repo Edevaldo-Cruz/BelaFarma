@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import './FogueteAmareloMonitor.css';
 import type { FogueteAmareloDashboard } from '../types';
+import { useToast } from './ToastContext';
 
 export function FogueteAmareloMonitor() {
+  const { addToast } = useToast();
   const [notas, setNotas] = useState<FogueteAmareloDashboard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,19 +68,19 @@ export function FogueteAmareloMonitor() {
 
   const handleSaveLancamento = async () => {
     if (!selectedNota || !lancamentoValue) {
-      alert('Preencha o valor do lançamento');
+      addToast('Preencha o valor do lançamento', 'warning');
       return;
     }
 
     const value = parseFloat(lancamentoValue.replace(/\D/g, '')) / 100;
     
     if (value <= 0) {
-      alert('Valor deve ser maior que zero');
+      addToast('Valor deve ser maior que zero', 'warning');
       return;
     }
 
     if (value > selectedNota.remaining_value) {
-      alert(`Valor não pode ser maior que o saldo restante (${formatCurrency(selectedNota.remaining_value)})`);
+      addToast(`Valor não pode ser maior que o saldo restante (${formatCurrency(selectedNota.remaining_value)})`, 'warning');
       return;
     }
 
@@ -99,15 +101,15 @@ export function FogueteAmareloMonitor() {
       const result = await response.json();
 
       if (result.success) {
-        alert('✅ Lançamento registrado com sucesso!');
+        addToast('Lançamento registrado com sucesso!', 'success');
         setIsLancamentoModalOpen(false);
         fetchDashboard(); // Atualizar dashboard
       } else {
-        alert('❌ Erro ao registrar lançamento: ' + result.error);
+        addToast('Erro ao registrar lançamento: ' + result.error, 'error');
       }
     } catch (err) {
       console.error('Erro ao salvar lançamento:', err);
-      alert('❌ Erro ao salvar lançamento');
+      addToast('Erro ao salvar lançamento', 'error');
     }
   };
 
