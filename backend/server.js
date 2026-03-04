@@ -344,18 +344,44 @@ app.get('/api/fixed-accounts', (req, res) => {
 app.post('/api/fixed-accounts', (req, res) => {
   try {
     const { id, name, value, dueDay, isActive } = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO fixed_accounts (id, name, value, dueDay, isActive)
-      VALUES (@id, @name, @value, @dueDay, @isActive)
-    `);
-    stmt.run({
-      id,
-      name,
-      value: parseFloat(value),
-      dueDay: parseInt(dueDay),
-      isActive: isActive ? 1 : 0
-    });
-    res.status(201).json({ message: 'Fixed account created successfully.' });
+    
+    db.transaction(() => {
+      // 1. Cria o template
+      const stmt = db.prepare(`
+        INSERT INTO fixed_accounts (id, name, value, dueDay, isActive)
+        VALUES (@id, @name, @value, @dueDay, @isActive)
+      `);
+      stmt.run({
+        id,
+        name,
+        value: parseFloat(value),
+        dueDay: parseInt(dueDay),
+        isActive: isActive ? 1 : 0
+      });
+
+      // 2. Se estiver ativa, já gera o pagamento para o mês atual para aparecer nos relatórios
+      if (isActive) {
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const dueDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+        
+        db.prepare(`
+          INSERT INTO fixed_account_payments 
+          (id, fixedAccountId, fixedAccountName, value, dueDate, month, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          `fap_${Date.now()}_init`,
+          id,
+          name,
+          parseFloat(value),
+          dueDate,
+          month,
+          'Pendente'
+        );
+      }
+    })();
+
+    res.status(201).json({ message: 'Fixed account created and initialized.' });
   } catch (err) {
     console.error('Error creating fixed account:', err);
     res.status(500).json({ error: 'Failed to create fixed account.' });
@@ -435,59 +461,50 @@ app.delete('/api/fixed-accounts/:id', (req, res) => {
 // GET /api/fixed-account-payments - Get payments for a specific month (with auto-generation)
 app.get('/api/fixed-account-payments', (req, res) => {
   try {
-    const { month } = req.query; // Expected format: YYYY-MM
+    const { month } = req.query; // Esperado: YYYY-MM
     
     if (!month) {
-      return res.status(400).json({ error: 'Month parameter is required (format: YYYY-MM)' });
+      return res.status(400).json({ error: 'Month parameter is required' });
     }
     
-    // 1. Check if payments already exist for this month
-    let payments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(month);
+    // 1. Pega os templates de contas ativas
+    const activeAccounts = db.prepare('SELECT * FROM fixed_accounts WHERE isActive = 1').all();
     
-    // 2. If no payments exist, generate them automatically from active fixed accounts
-    if (payments.length === 0) {
-      const activeAccounts = db.prepare('SELECT * FROM fixed_accounts WHERE isActive = 1').all();
+    // 2. Pega os pagamentos que já existem para este mês
+    const existingPayments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(month);
+    const existingAccountIds = new Set(existingPayments.map(p => p.fixedAccountId));
+
+    // 3. Verifica se alguma conta ativa ESTÁ FALTANDO para este mês e cria
+    const toCreate = activeAccounts.filter(acc => !existingAccountIds.has(acc.id));
+    
+    if (toCreate.length > 0) {
+      db.transaction(() => {
+        toCreate.forEach(acc => {
+          const [year, monthNum] = month.split('-');
+          const dueDay = String(acc.dueDay).padStart(2, '0');
+          const dueDate = `${year}-${monthNum}-${dueDay}`;
+          
+          db.prepare(`
+            INSERT INTO fixed_account_payments 
+            (id, fixedAccountId, fixedAccountName, value, dueDate, month, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            `fap_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            acc.id,
+            acc.name,
+            acc.value,
+            dueDate,
+            month,
+            'Pendente'
+          );
+        });
+      })();
       
-      activeAccounts.forEach(acc => {
-        const [year, monthNum] = month.split('-');
-        const dueDay = String(acc.dueDay).padStart(2, '0');
-        const dueDate = `${year}-${monthNum}-${dueDay}`;
-        
-        const payment = {
-          id: `fap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          fixedAccountId: acc.id,
-          fixedAccountName: acc.name,
-          value: acc.value,
-          dueDate,
-          month,
-          status: 'Pendente',
-          paidAt: null,
-          notes: null
-        };
-        
-        db.prepare(`
-          INSERT INTO fixed_account_payments 
-          (id, fixedAccountId, fixedAccountName, value, dueDate, month, status, paidAt, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          payment.id,
-          payment.fixedAccountId,
-          payment.fixedAccountName,
-          payment.value,
-          payment.dueDate,
-          payment.month,
-          payment.status,
-          payment.paidAt,
-          payment.notes
-        );
-        
-        payments.push(payment);
-      });
-      
-      console.log(`Auto-generated ${payments.length} fixed account payments for ${month}`);
+      // Retorna a lista atualizada
+      return res.json(db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(month));
     }
     
-    res.json(payments);
+    res.json(existingPayments);
   } catch (error) {
     console.error('Error fetching fixed account payments:', error);
     res.status(500).json({ error: 'Failed to fetch fixed account payments' });

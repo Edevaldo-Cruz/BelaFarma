@@ -53,14 +53,16 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   const [days, setDays] = useState<string>('15');
   const [simulationResult, setSimulationResult] = useState<DebtCardInfo[]>([]);
   const [fixedPayments, setFixedPayments] = useState<FixedAccountPayment[]>([]);
+  const [currentCalendarMonth, setCurrentCalendarMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
 
-  // Fetch fixed account payments for current month
+  // Fetch fixed account payments whenever the calendar month changes
   React.useEffect(() => {
     const fetchFixedPayments = async () => {
       try {
-        const now = new Date();
-        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const response = await fetch(`/api/fixed-account-payments?month=${month}`);
+        const response = await fetch(`/api/fixed-account-payments?month=${currentCalendarMonth}`);
         if (!response.ok) throw new Error('Failed to fetch fixed payments');
         const data = await response.json();
         setFixedPayments(data);
@@ -70,7 +72,15 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     };
 
     fetchFixedPayments();
-  }, []);
+  }, [currentCalendarMonth]);
+
+  const handleMonthChange = ({ activeStartDate }: { activeStartDate: Date | null }) => {
+    if (activeStartDate) {
+      const year = activeStartDate.getFullYear();
+      const month = String(activeStartDate.getMonth() + 1).padStart(2, '0');
+      setCurrentCalendarMonth(`${year}-${month}`);
+    }
+  };
 
   const handleChangeTotalValue = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value;
@@ -321,6 +331,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
           <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl transition-all duration-300 hover:shadow-2xl">
             <Calendar
               onClickDay={toggleDate}
+              onActiveStartDateChange={handleMonthChange}
               value={null}
               tileClassName={getTileClassName}
               className="w-full"
