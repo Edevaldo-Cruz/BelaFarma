@@ -366,23 +366,37 @@ app.put('/api/fixed-accounts/:id', (req, res) => {
   try {
     const { id } = req.params;
     const { name, value, dueDay, isActive } = req.body;
-    const stmt = db.prepare(`
-      UPDATE fixed_accounts 
-      SET name = @name, value = @value, dueDay = @dueDay, isActive = @isActive
-      WHERE id = @id
-    `);
-    const result = stmt.run({
-      id,
-      name,
-      value: parseFloat(value),
-      dueDay: parseInt(dueDay),
-      isActive: isActive ? 1 : 0
-    });
-    if (result.changes > 0) {
-      res.status(200).json({ message: 'Fixed account updated successfully.' });
-    } else {
-      res.status(404).json({ error: 'Fixed account not found.' });
-    }
+    
+    db.transaction(() => {
+      // 1. Atualiza o template da conta fixa
+      const stmt = db.prepare(`
+        UPDATE fixed_accounts 
+        SET name = @name, value = @value, dueDay = @dueDay, isActive = @isActive
+        WHERE id = @id
+      `);
+      const result = stmt.run({
+        id,
+        name,
+        value: parseFloat(value),
+        dueDay: parseInt(dueDay),
+        isActive: isActive ? 1 : 0
+      });
+
+      if (result.changes > 0) {
+        // 2. Atualiza os pagamentos pendentes já gerados para refletir os novos valores/nomes
+        // Também atualiza o dueDate se o dueDay mudou
+        const updatePaymentsStmt = db.prepare(`
+          UPDATE fixed_account_payments 
+          SET value = ?, 
+              fixedAccountName = ?,
+              dueDate = substr(month, 1, 7) || '-' || printf('%02d', ?)
+          WHERE fixedAccountId = ? AND status = 'Pendente'
+        `);
+        updatePaymentsStmt.run(parseFloat(value), name, parseInt(dueDay), id);
+      }
+    })();
+
+    res.status(200).json({ message: 'Fixed account and pending payments updated successfully.' });
   } catch (err) {
     console.error('Error updating fixed account:', err);
     res.status(500).json({ error: 'Failed to update fixed account.' });
@@ -392,13 +406,24 @@ app.put('/api/fixed-accounts/:id', (req, res) => {
 app.delete('/api/fixed-accounts/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const stmt = db.prepare('DELETE FROM fixed_accounts WHERE id = ?');
-    const result = stmt.run(id);
-    if (result.changes > 0) {
-      res.status(200).json({ message: 'Fixed account deleted successfully.' });
-    } else {
-      res.status(404).json({ error: 'Fixed account not found.' });
-    }
+    
+    db.transaction(() => {
+      // 1. Deleta o template
+      const stmt = db.prepare('DELETE FROM fixed_accounts WHERE id = ?');
+      const result = stmt.run(id);
+
+      if (result.changes > 0) {
+        // 2. Opcional: Deleta pagamentos pendentes associados
+        // Se a conta fixa foi excluída, geralmente não queremos mais pagar as instâncias pendentes futuras
+        const deletePaymentsStmt = db.prepare(`
+          DELETE FROM fixed_account_payments 
+          WHERE fixedAccountId = ? AND status = 'Pendente'
+        `);
+        deletePaymentsStmt.run(id);
+      }
+    })();
+    
+    res.status(200).json({ message: 'Fixed account and pending payments deleted successfully.' });
   } catch (err) {
     console.error('Error deleting fixed account:', err);
     res.status(500).json({ error: 'Failed to delete fixed account.' });
