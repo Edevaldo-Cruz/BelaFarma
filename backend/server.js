@@ -2707,6 +2707,31 @@ app.put('/api/settings/:key', (req, res) => {
 });
 
 // ============================================================================
+// TESTE WHATSAPP - Endpoint para verificar integração com OpenClaw
+// ============================================================================
+app.get('/api/whatsapp/test', async (req, res) => {
+  try {
+    const waService = require('./services/whatsapp.service');
+    const now = new Date().toLocaleString('pt-BR');
+
+    const result = await waService.notifyAdmin(
+      `🧪 *Teste BelaFarma*\n` +
+      `✅ Integração WhatsApp funcionando!\n` +
+      `🕐 Horário: ${now}`
+    );
+
+    if (result.success) {
+      res.json({ success: true, message: 'Mensagem de teste enviada com sucesso!' });
+    } else {
+      res.status(500).json({ success: false, error: result.error || 'Falha ao enviar mensagem' });
+    }
+  } catch (err) {
+    console.error('[WhatsApp Test] Erro:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================================
 // SISTEMA FOGUETE AMARELO - Inicialização dos Endpoints
 // ============================================================================
 const { initializeFogueteAmareloEndpoints } = require('./foguete-amarelo-endpoints.js');
