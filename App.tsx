@@ -26,6 +26,7 @@ import { InvoiceList } from "./components/InvoiceList";
 import { ConsignadosManager } from "./components/ConsignadosManager";
 import { IFoodControl } from "./components/iFoodControl";
 import { NotificationsPage } from "./components/NotificationsPage";
+import { MessagingCenter } from "./components/MessagingCenter";
 import {
   Order,
   View,
@@ -681,6 +682,9 @@ const App: React.FC = () => {
                     setCurrentView('task-management');
                   }}
                 />
+              )}
+              {currentView === 'messaging-center' && user.role === UserRole.ADM && (
+                <MessagingCenter />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

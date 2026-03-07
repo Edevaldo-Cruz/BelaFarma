@@ -260,6 +260,7 @@ export interface Customer {
   notes?: string;
   creditLimit?: number;   // Credit limit for crediário
   dueDay?: number;        // Due day for payment (1-31)
+  birthDate?: string;     // Data de nascimento (YYYY-MM-DD)
   createdAt: string;
   updatedAt: string;
 }
@@ -480,4 +481,55 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications';
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center';
+
+// ============================================================================
+// SISTEMA DE MENSAGENS WHATSAPP - Interfaces
+// ============================================================================
+
+export interface MessageTemplate {
+  id: string;
+  type: 'cobranca' | 'aniversario' | 'promocao' | 'boas_vindas' | string;
+  name: string;
+  content: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessageLog {
+  id: string;
+  phone: string;
+  type: string;
+  status: 'enviado' | 'erro';
+  customerName?: string;
+  customerId?: string;
+  campaignId?: string;
+  errorMessage?: string;
+  sentAt: string;
+}
+
+export interface MessageCampaign {
+  id: string;
+  name: string;
+  description?: string;
+  messageContent: string;
+  targetCustomerIds: string;
+  status: 'rascunho' | 'enviando' | 'enviada';
+  sentCount: number;
+  failedCount: number;
+  totalCount: number;
+  createdAt: string;
+  executedAt?: string;
+}
+
+export interface MessageSchedule {
+  id: string;
+  type: string;
+  description?: string;
+  hour: number;
+  minute: number;
+  isEnabled: boolean;
+  lastRun?: string;
+  createdAt: string;
+}

@@ -29,7 +29,8 @@ import {
   AlertTriangle, // Added for Devedores menu item
   Rocket, // Added for Foguete Amarelo
   FileText, // Added for Invoices
-  Package // Added for Consignados
+  Package, // Added for Consignados
+  MessageSquare // Added for Messaging Center
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -123,12 +124,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart },
     { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
+    { id: 'messaging-center', label: 'Mensagens WA', icon: MessageSquare },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

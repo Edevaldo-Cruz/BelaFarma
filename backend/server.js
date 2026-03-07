@@ -1812,8 +1812,8 @@ app.post('/api/customers', (req, res) => {
     const customer = req.body;
     const now = new Date().toISOString();
     const stmt = db.prepare(`
-      INSERT INTO customers (id, name, nickname, cpf, phone, email, address, notes, creditLimit, dueDay, createdAt, updatedAt)
-      VALUES (@id, @name, @nickname, @cpf, @phone, @email, @address, @notes, @creditLimit, @dueDay, @createdAt, @updatedAt)
+      INSERT INTO customers (id, name, nickname, cpf, phone, email, address, notes, creditLimit, dueDay, birthDate, createdAt, updatedAt)
+      VALUES (@id, @name, @nickname, @cpf, @phone, @email, @address, @notes, @creditLimit, @dueDay, @birthDate, @createdAt, @updatedAt)
     `);
     stmt.run({
       id: customer.id,
@@ -1826,10 +1826,11 @@ app.post('/api/customers', (req, res) => {
       notes: customer.notes || null,
       creditLimit: customer.creditLimit || 0,
       dueDay: customer.dueDay || null,
+      birthDate: customer.birthDate || null,
       createdAt: now,
       updatedAt: now,
     });
-    res.status(201).json({ ...customer, creditLimit: customer.creditLimit || 0, dueDay: customer.dueDay || null, createdAt: now, updatedAt: now });
+    res.status(201).json({ ...customer, creditLimit: customer.creditLimit || 0, dueDay: customer.dueDay || null, birthDate: customer.birthDate || null, createdAt: now, updatedAt: now });
   } catch (err) {
     console.error('Error creating customer:', err);
     res.status(500).json({ error: 'Failed to create customer.' });
@@ -1845,7 +1846,7 @@ app.put('/api/customers/:id', (req, res) => {
     const stmt = db.prepare(`
       UPDATE customers
       SET name = @name, nickname = @nickname, cpf = @cpf, phone = @phone, 
-          email = @email, address = @address, notes = @notes, creditLimit = @creditLimit, dueDay = @dueDay, updatedAt = @updatedAt
+          email = @email, address = @address, notes = @notes, creditLimit = @creditLimit, dueDay = @dueDay, birthDate = @birthDate, updatedAt = @updatedAt
       WHERE id = @id
     `);
     const result = stmt.run({
@@ -1859,6 +1860,7 @@ app.put('/api/customers/:id', (req, res) => {
       notes: customer.notes || null,
       creditLimit: customer.creditLimit || 0,
       dueDay: customer.dueDay || null,
+      birthDate: customer.birthDate || null,
       updatedAt: now,
     });
     if (result.changes > 0) {
@@ -2783,6 +2785,24 @@ const { exec } = require('child_process');
 
 initializeFogueteAmareloEndpoints(app, db);
 require('./consignado-endpoints.js')(app, db);
+
+// ============================================================================
+// SISTEMA DE MENSAGENS WHATSAPP - Inicialização
+// ============================================================================
+const { initializeMessageEndpoints } = require('./message-endpoints.js');
+const messageTemplates = require('./services/message-templates.service');
+const messageScheduler = require('./services/message-scheduler.service');
+
+// Inicializa templates padrão e agendamentos
+messageTemplates.initializeDefaultTemplates(db);
+messageScheduler.initializeDefaultSchedules(db);
+
+// Registra endpoints da API
+initializeMessageEndpoints(app, db);
+
+// Inicia os cron jobs de mensagens
+messageScheduler.startScheduler(db);
+console.log('📱 Sistema de Mensagens WhatsApp inicializado.');
 
 // Agendamento de Backup Automático (Diariamente à meia-noite)
 cron.schedule('0 0 * * *', () => {

@@ -740,6 +740,93 @@ try {
 
     console.log('✅ Sistema Foguete Amarelo: Todas as tabelas criadas com sucesso!');
 
+    // ========================================================================
+    // SISTEMA DE MENSAGENS WHATSAPP - Tabelas
+    // ========================================================================
+
+    // CRM: Add birthDate column to customers table if it doesn't exist
+    try {
+      db.prepare('SELECT birthDate FROM customers LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE customers ADD COLUMN birthDate TEXT');
+      console.log('Added birthDate column to customers table.');
+    }
+
+    // Tabela: message_templates (Templates editáveis de mensagens)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_templates (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        isActive INTEGER DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `);
+    console.log('Message templates table verified/created.');
+
+    // Tabela: message_log (Histórico de mensagens enviadas)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_log (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        customerName TEXT,
+        customerId TEXT,
+        campaignId TEXT,
+        errorMessage TEXT,
+        sentAt TEXT NOT NULL
+      )
+    `);
+    console.log('Message log table verified/created.');
+
+    // Índices para message_log
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_msg_log_type ON message_log(type)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_msg_log_status ON message_log(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_msg_log_sentAt ON message_log(sentAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_msg_log_campaign ON message_log(campaignId)');
+    } catch (e) {
+      console.log('Message log indexes already exist.');
+    }
+
+    // Tabela: message_campaigns (Campanhas de promoção)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_campaigns (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        messageContent TEXT NOT NULL,
+        targetCustomerIds TEXT,
+        status TEXT DEFAULT 'rascunho',
+        sentCount INTEGER DEFAULT 0,
+        failedCount INTEGER DEFAULT 0,
+        totalCount INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        executedAt TEXT
+      )
+    `);
+    console.log('Message campaigns table verified/created.');
+
+    // Tabela: message_schedule_config (Configuração de horários)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_schedule_config (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        description TEXT,
+        hour INTEGER NOT NULL,
+        minute INTEGER NOT NULL,
+        isEnabled INTEGER DEFAULT 1,
+        lastRun TEXT,
+        createdAt TEXT NOT NULL
+      )
+    `);
+    console.log('Message schedule config table verified/created.');
+
+    console.log('✅ Sistema de Mensagens: Tabelas criadas com sucesso!');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

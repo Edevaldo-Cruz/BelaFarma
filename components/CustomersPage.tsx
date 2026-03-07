@@ -29,6 +29,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
     notes: '',
     creditLimit: '150,00', // Default to 150,00
     dueDay: '',
+    birthDate: '',
   });
 
   // Currency Mask Handler
@@ -76,7 +77,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
   const resetForm = () => {
     setForm({ 
       name: '', nickname: '', cpf: '', phone: '', email: '', address: '', notes: '',
-      creditLimit: '150,00', dueDay: '' 
+      creditLimit: '150,00', dueDay: '', birthDate: '' 
     });
     setSelectedCustomer(null);
   };
@@ -94,6 +95,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
         notes: customer.notes || '',
         creditLimit: customer.creditLimit ? customer.creditLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0,00',
         dueDay: customer.dueDay ? customer.dueDay.toString() : '',
+        birthDate: customer.birthDate || '',
       });
     } else {
       resetForm();
@@ -115,6 +117,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
           ...form,
           creditLimit: parseCurrency(form.creditLimit),
           dueDay: form.dueDay ? parseInt(form.dueDay, 10) : undefined,
+          birthDate: form.birthDate || null,
         };
         const response = await fetch(`/api/customers/${selectedCustomer.id}`, {
           method: 'PUT',
@@ -134,6 +137,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
           ...form,
           creditLimit: parseCurrency(form.creditLimit),
           dueDay: form.dueDay ? parseInt(form.dueDay, 10) : undefined,
+          birthDate: form.birthDate || null,
         };
         const response = await fetch('/api/customers', {
           method: 'POST',
@@ -432,6 +436,15 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
                     ))}
                   </select>
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase mb-2">Data de Nascimento</label>
+                <input
+                  type="date"
+                  value={form.birthDate}
+                  onChange={e => setForm({ ...form, birthDate: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none focus:border-red-500"
+                />
               </div>
             </div>
             <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
