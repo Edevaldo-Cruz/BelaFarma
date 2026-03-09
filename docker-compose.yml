@@ -28,9 +28,9 @@ services:
       # Configuração básica
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-BelafarmaSul2026}
-      # Dados persistentes em arquivo (não precisa de PostgreSQL/Redis)
-      - DATABASE_PROVIDER=postgresql
-      - DATABASE_SAVE_DATA_INSTANCE=true
+      # Rodar sem banco de dados externo (Arquivos locais)
+      - DATABASE_ENABLED=false
+      - DATABASE_SAVE_DATA_INSTANCE=false
       - DATABASE_SAVE_DATA_NEW_MESSAGE=false
       - DATABASE_SAVE_DATA_CONTACTS=false
       - DATABASE_SAVE_DATA_CHATS=false
