@@ -85,7 +85,7 @@ async function sendMessage(phone, message) {
     const result = await response.json();
 
     if (!response.ok) {
-      console.error(`[MessageSender] ❌ Falha ao enviar para ${phone}:`, result);
+      console.error(`[MessageSender] ❌ Falha ao enviar para ${phone}:\n`, JSON.stringify(result, null, 2));
       return { success: false, error: result.message || 'Erro na API' };
     }
 
