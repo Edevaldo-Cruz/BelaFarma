@@ -7,7 +7,7 @@ const apikey = "BelafarmaSul2026";
 const [,, phone, ...messageParts] = process.argv;
 
 if (!phone || messageParts.length === 0) {
-  console.log("Uso: ./openclaw-evolution.js <numero_com_ddd> <mensagem...>");
+  console.log("Uso: node openclaw-evolution.js <numero_com_ddd> <mensagem...>");
   process.exit(1);
 }
 
