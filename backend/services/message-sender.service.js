@@ -72,7 +72,9 @@ async function sendMessage(phone, message) {
       },
       body: JSON.stringify({
         number: formattedPhone,
-        text: message,
+        textMessage: {
+          text: message
+        },
         options: {
           delay: 1200,
           presence: "composing"
