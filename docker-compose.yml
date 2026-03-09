@@ -6,13 +6,46 @@ services:
     environment:
       # Caminho do banco de dados dentro do container
       - DB_PATH=/usr/src/app/data/belafarma.db
+      # Evolution API (WhatsApp)
+      - EVOLUTION_API_URL=http://evolution-api:8080
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-BelafarmaSul2026}
+      - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME:-belafarma}
+      - ADMIN_WHATSAPP=${ADMIN_WHATSAPP:-+5532988634755}
+      - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
     volumes:
       # Monta diretório de dados (não apenas o arquivo)
       # Isso garante que o SQLite possa criar arquivos -wal e -shm
       - ./data:/usr/src/app/data
+    depends_on:
+      - evolution-api
     restart: unless-stopped
     # A porta 3001 não precisa ser exposta ao host, 
     # pois o Nginx se comunicará com ele pela rede interna do Docker.
+
+  evolution-api:
+    image: atendai/evolution-api:latest
+    environment:
+      # Configuração básica
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-BelafarmaSul2026}
+      # Dados persistentes em arquivo (não precisa de PostgreSQL/Redis)
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=false
+      - DATABASE_SAVE_DATA_CONTACTS=false
+      - DATABASE_SAVE_DATA_CHATS=false
+      # Configuração do servidor
+      - SERVER_PORT=8080
+      - SERVER_URL=http://evolution-api:8080
+      - DEL_INSTANCE=false
+      # Log
+      - LOG_LEVEL=WARN
+    volumes:
+      - evolution_data:/evolution/instances
+    ports:
+      # Expõe para acesso local (escanear QR Code pelo navegador)
+      - "8080:8080"
+    restart: unless-stopped
 
   frontend:
     build:
@@ -23,3 +56,6 @@ services:
     depends_on:
       - backend # Garante que o backend inicie antes do frontend
     restart: unless-stopped
+
+volumes:
+  evolution_data:

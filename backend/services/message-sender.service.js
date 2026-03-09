@@ -1,6 +1,6 @@
 /**
  * Message Sender Service — BelaFarma
- * Módulo responsável APENAS pelo envio de mensagens via OpenClaw CLI.
+ * Módulo responsável APENAS pelo envio de mensagens via Evolution API.
  * 
  * Features:
  * - Envio individual
@@ -11,12 +11,12 @@
  * Falhas NUNCA devem interromper o fluxo principal da aplicação.
  */
 
-const { execFile } = require('child_process');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
-
 const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
 const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
+const API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+const API_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
+
 const RATE_LIMIT_MS = 3000; // 3 segundos entre cada mensagem
 const MAX_BATCH_SIZE = 50;  // Máximo de mensagens por lote
 
@@ -28,7 +28,16 @@ function sleep(ms) {
 }
 
 /**
- * Envia uma mensagem de WhatsApp para um número específico via OpenClaw CLI.
+ * Formata o número para o padrão da API (remoção do +)
+ */
+function formatPhone(phone) {
+  // A Evolution API geralmente prefere o número com código do país, sem o +
+  // Ex: +5532999058008 -> 5532999058008
+  return phone.replace(/\D/g, ''); 
+}
+
+/**
+ * Envia uma mensagem de WhatsApp para um número específico via Evolution API.
  * @param {string} phone - Número no formato E.164 (ex: +5532999058008)
  * @param {string} message - Texto da mensagem
  * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
@@ -49,40 +58,40 @@ async function sendMessage(phone, message) {
     return { success: false, error: 'Mensagem vazia' };
   }
 
+  const formattedPhone = formatPhone(phone);
+
   try {
-    const { stdout, stderr } = await execFileAsync('openclaw', [
-      'message', 'send',
-      '--channel', 'whatsapp',
-      '--target', phone,
-      '--message', message,
-      '--json'
-    ], {
-      timeout: 15000,
-      windowsHide: true
+    const url = `${API_URL}/message/sendText/${INSTANCE_NAME}`;
+    
+    // Node.js 18+ possui fetch nativo
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': API_KEY
+      },
+      body: JSON.stringify({
+        number: formattedPhone,
+        text: message,
+        options: {
+          delay: 1200,
+          presence: "composing"
+        }
+      })
     });
 
-    // Tenta parsear saída JSON
-    try {
-      const result = JSON.parse(stdout);
-      const messageId = result?.messageId || result?.id;
-      console.log(`[MessageSender] ✅ Mensagem enviada para ${phone} — ID: ${messageId}`);
-      return { success: true, messageId };
-    } catch {
-      // Saída não é JSON mas o comando pode ter funcionado
-      if (stdout.includes('Sent') || stdout.includes('✅') || stdout.includes('sent')) {
-        console.log(`[MessageSender] ✅ Mensagem enviada para ${phone}`);
-        return { success: true };
-      }
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error(`[MessageSender] ❌ Falha ao enviar para ${phone}:`, result);
+      return { success: false, error: result.message || 'Erro na API' };
     }
 
-    if (stderr) {
-      console.warn(`[MessageSender] Aviso ao enviar para ${phone}:`, stderr);
-    }
-
-    return { success: true };
+    console.log(`[MessageSender] ✅ Mensagem enviada para ${phone}`);
+    return { success: true, messageId: result.key?.id };
 
   } catch (error) {
-    console.error(`[MessageSender] ❌ Falha ao enviar para ${phone}:`, error.message);
+    console.error(`[MessageSender] ❌ Erro de conexão ao enviar para ${phone}:`, error.message);
     return { success: false, error: error.message };
   }
 }
