@@ -4,7 +4,12 @@ const messageSender = require('./message-sender.service');
 const db = require('../database');
 
 // Resolve o caminho da pasta mensagens, estando dentro ou fora do Docker
-const MENSAGENS_DIR = path.join(__dirname, '../../mensagens');
+// No Docker, __dirname é /usr/src/app/services. ../ leva para /usr/src/app/
+// Fora do Docker, __dirname é src/services ou backend/services, ../ leva para raiz do backend, ../../ leva para a raiz do projeto.
+// Então vamos usar o caminho absoluto caso estejamos no Docker, ou relativo caso contrário.
+const MENSAGENS_DIR = process.env.DB_PATH 
+    ? path.join(__dirname, '../mensagens') // Dentro do Docker: /usr/src/app/mensagens
+    : path.join(__dirname, '../../mensagens'); // Fora do Docker: raiz_do_projeto/mensagens
 const PENDENTES_DIR = path.join(MENSAGENS_DIR, 'pendentes');
 const ENVIADAS_DIR = path.join(MENSAGENS_DIR, 'enviadas');
 const ERROS_DIR = path.join(MENSAGENS_DIR, 'erros');
