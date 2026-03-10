@@ -16,6 +16,8 @@ services:
       # Monta diretório de dados (não apenas o arquivo)
       # Isso garante que o SQLite possa criar arquivos -wal e -shm
       - ./data:/usr/src/app/data
+      # Monta o diretório de mensagens para escaneamento de arquivos
+      - ./mensagens:/usr/src/app/mensagens
     depends_on:
       - evolution-api
     restart: unless-stopped

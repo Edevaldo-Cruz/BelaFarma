@@ -2804,6 +2804,10 @@ initializeMessageEndpoints(app, db);
 messageScheduler.startScheduler(db);
 console.log('📱 Sistema de Mensagens WhatsApp inicializado.');
 
+// Inicia o Message Watcher via pastas locais/docker (OpenClaw file-based drop)
+const messageWatcher = require('./services/message-watcher.service');
+messageWatcher.startWatching();
+
 // Agendamento de Backup Automático (Diariamente à meia-noite)
 cron.schedule('0 0 * * *', () => {
   console.log('[BACKUP AUTO] Iniciando rotina de backup diário...');
