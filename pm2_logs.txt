@@ -1,1 +1,0 @@
-[TAILING] Tailing last 20 lines for [openclaw] process (change the value with --lines option)

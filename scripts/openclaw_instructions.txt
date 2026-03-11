@@ -1,5 +1,0 @@
-[INSTRUÇÃO PARA O OPENCLAW INSERIDA PELO AGENTE DO EDEVALDO]
-Você está rodando numa Sandbox restrita, sem permissão de rede interna ou externa. Sendo assim, a única forma de nos comunicarmos é escrevendo arquivos no disco (que é compartilhado com a máquina real).
-Padrão de envio de Whatsapp:
-Toda vez que uma rotina solicitar um envio, NÃO use Fetch ou HTTPS. 
-Escreva o número e mensagem desejada no arquivo de texto 'whatsapp_message.txt' na pasta principal ou na pasta compartilhada. A engine da BelaFarma vai monitorar as mudanças no arquivo e disparar por você contra a API 192.168.1.10.
