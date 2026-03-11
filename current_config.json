@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.8",
+    "lastTouchedAt": "2026-03-10T22:49:20.653Z"
+  },
+  "wizard": {
+    "lastRunAt": "2026-03-10T22:49:20.605Z",
+    "lastRunVersion": "2026.3.8",
+    "lastRunCommand": "configure",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "google:default": {
+        "provider": "google",
+        "mode": "api_key"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "google/gemini-3.1-pro-preview",
+        "fallbacks": [
+          "google/gemini-1.5-flash",
+          "google/gemini-2.0-flash-lite"
+        ]
+      },
+      "models": {
+        "google/gemini-1.5-flash": {},
+        "google/gemini-2.0-flash-lite": {},
+        "google/gemini-3.1-pro-preview": {}
+      },
+      "workspace": "/home/ed/.openclaw/workspace",
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
+    }
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "dmPolicy": "allowlist",
+      "selfChatMode": true,
+      "allowFrom": [
+        "+5532988634755"
+      ],
+      "groupPolicy": "allowlist",
+      "debounceMs": 0,
+      "mediaMaxMb": 50
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "4e6c7df9c2ca44592577724e803ec1acf79acdab6894c59b"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "whatsapp": {
+        "enabled": true
+      }
+    }
+  }
+}

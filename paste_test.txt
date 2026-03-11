@@ -1,0 +1,2 @@
+error: required option '--provider <name>' not specified
+error: required option '--provider <name>' not specified

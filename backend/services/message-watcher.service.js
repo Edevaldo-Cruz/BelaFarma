@@ -59,12 +59,11 @@ const scanPendingMessages = async () => {
                     }
                 }
                 
-                // Envio (Imediato ou porque a hora já chegou/passou)
-                console.log(`[Message Watcher] Processando arquivo: ${file} para ${phone}...`);
-                
                 // Chamada do Sender de fato (que já integra na Evolution API)
-                const isSent = await messageSender.sendMessage(phone, textMessage);
-                
+                const result = await messageSender.sendMessage(phone, textMessage);
+                const isSent = result.success && !result.fallback;
+                const isPersistentFailure = result.success === false && !result.fallback; // Erro real na API sem conseguir salvar fallback (raro)
+
                 // Registro no Banco de Dados
                 try {
                    const stmt = db.prepare(`
@@ -75,8 +74,8 @@ const scanPendingMessages = async () => {
                       `msg_${Date.now()}_${Math.random().toString(36).substring(2,7)}`, 
                       phone, 
                       'file_watcher', 
-                      isSent ? 'enviado' : 'falhou',
-                      isSent ? null : 'A API da Evolution falhou ao entregar a mensagem.',
+                      isSent ? 'enviado' : (result.fallback ? 'pendente_offline' : 'falhou'),
+                      isSent ? null : (result.fallback ? 'Aguardando Evolution API ficar online.' : result.error || 'Erro desconhecido'),
                       new Date().toISOString()
                    );
                 } catch(dbErr) {
@@ -87,11 +86,14 @@ const scanPendingMessages = async () => {
                 if (isSent) {
                     const destPath = path.join(ENVIADAS_DIR, file);
                     fs.renameSync(filePath, destPath);
-                    console.log(`[Message Watcher] Sucesso! Arquivo movido para enviadas: ${file}`);
-                } else {
+                    console.log(`[Message Watcher] ✅ Sucesso! Arquivo movido para enviadas: ${file}`);
+                } else if (isPersistentFailure) {
                     const destPath = path.join(ERROS_DIR, file);
                     fs.renameSync(filePath, destPath);
-                    console.log(`[Message Watcher] Falhou. Arquivo movido para erros: ${file}`);
+                    console.log(`[Message Watcher] ❌ Falhou permanentemente. Arquivo movido para erros: ${file}`);
+                } else {
+                    // Se result.fallback é true, deixamos o arquivo na pasta de pendentes para a próxima tentativa
+                    console.log(`[Message Watcher] ⏳ API ainda offline para ${phone}. Mantendo arquivo em pendentes.`);
                 }
                 
             } catch (err) {

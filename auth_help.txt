@@ -1,0 +1,19 @@
+
+🦞 OpenClaw 2026.3.8 (3caab92) — Your personal assistant, minus the passive-aggressive calendar reminders.
+
+Usage: openclaw models auth [options] [command]
+
+Manage model auth profiles
+
+Options:
+  --agent <id>          Agent id for auth order get/set/clear
+  -h, --help            Display help for command
+
+Commands:
+  add                   Interactive auth helper (setup-token or paste token)
+  login                 Run a provider plugin auth flow (OAuth/API key)
+  login-github-copilot  Login to GitHub Copilot via GitHub device flow (TTY
+                        required)
+  order                 Manage per-agent auth profile order overrides
+  paste-token           Paste a token into auth-profiles.json and update config
+  setup-token           Run a provider CLI to create/sync a token (TTY required)

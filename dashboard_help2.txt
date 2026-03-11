@@ -1,0 +1,13 @@
+
+🦞 OpenClaw 2026.3.8 (3caab92) — If you can describe it, I can probably automate it—or at least make it funnier.
+
+Usage: openclaw dashboard [options]
+
+Open the Control UI with your current token
+
+Options:
+  -h, --help  Display help for command
+  --no-open   Print URL but do not launch a browser
+
+Docs: https://docs.openclaw.ai/cli/dashboard
+

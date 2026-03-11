@@ -27,6 +27,7 @@ import { ConsignadosManager } from "./components/ConsignadosManager";
 import { IFoodControl } from "./components/iFoodControl";
 import { NotificationsPage } from "./components/NotificationsPage";
 import { MessagingCenter } from "./components/MessagingCenter";
+import AIPortal from "./components/AIPortal";
 import {
   Order,
   View,
@@ -685,6 +686,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'messaging-center' && user.role === UserRole.ADM && (
                 <MessagingCenter />
+              )}
+              {currentView === 'ai-portal' && user.role === UserRole.ADM && (
+                <AIPortal />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

@@ -1,0 +1,15 @@
+
+🦞 OpenClaw 2026.3.8 (3caab92) — It's not "failing," it's "discovering new ways to configure the same thing wrong."
+
+Usage: openclaw configure [options]
+
+Interactive setup wizard for credentials, channels, gateway, and agent defaults
+
+Options:
+  -h, --help           Display help for command
+  --section <section>  Configuration sections (repeatable). Options: workspace,
+                       model, web, gateway, daemon, channels, skills, health
+                       (default: [])
+
+Docs: https://docs.openclaw.ai/cli/configure
+

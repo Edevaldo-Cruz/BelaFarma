@@ -1,0 +1,2 @@
+Model                                      Input      Ctx      Local Auth  Tags
+anthropic/google:gemini-1.5-pro-latest     -          -        -     -     default,configured,missing

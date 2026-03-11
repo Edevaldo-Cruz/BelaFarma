@@ -120,7 +120,7 @@ const SalesChart: React.FC<SalesChartProps> = ({ cashClosings }) => {
       </div>
 
       <div className="h-64 w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minHeight={250}>
           <LineChart data={salesByDay} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
             <defs>
               <linearGradient id="salesChartSplitColor" x1="0" y1="0" x2="0" y2="1">

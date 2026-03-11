@@ -1,16 +1,7 @@
-/**
- * Message Sender Service — BelaFarma
- * Módulo responsável APENAS pelo envio de mensagens via Evolution API.
- * 
- * Features:
- * - Envio individual
- * - Envio em lote com rate-limit (evita bloqueio do WhatsApp)
- * - Log de todas as tentativas de envio
- * 
- * IMPORTANTE: Este serviço é best-effort.
- * Falhas NUNCA devem interromper o fluxo principal da aplicação.
- */
+const fs = require('fs');
+const path = require('path');
 
+// Configurações do WhatsApp / Evolution API via .env
 const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
 const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
 const API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
@@ -19,6 +10,10 @@ const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
 
 const RATE_LIMIT_MS = 3000; // 3 segundos entre cada mensagem
 const MAX_BATCH_SIZE = 50;  // Máximo de mensagens por lote
+
+// Caminho para fallback de mensagens (FileSystem)
+const MENSAGENS_DIR = path.join(__dirname, '../../mensagens');
+const PENDENTES_DIR = path.join(MENSAGENS_DIR, 'pendentes');
 
 /**
  * Aguarda um tempo em milissegundos
@@ -31,16 +26,38 @@ function sleep(ms) {
  * Formata o número para o padrão da API (remoção do +)
  */
 function formatPhone(phone) {
-  // A Evolution API geralmente prefere o número com código do país, sem o +
-  // Ex: +5532999058008 -> 5532999058008
   return phone.replace(/\D/g, ''); 
+}
+
+/**
+ * Salva a mensagem como JSON para ser processada pelo MessageWatcher depois
+ */
+function saveMessageToFile(phone, message) {
+  try {
+    if (!fs.existsSync(PENDENTES_DIR)) {
+      fs.mkdirSync(PENDENTES_DIR, { recursive: true });
+    }
+    const fileName = `fallback_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.json`;
+    const filePath = path.join(PENDENTES_DIR, fileName);
+    fs.writeFileSync(filePath, JSON.stringify({
+      phone,
+      textMessage: { text: message },
+      createdAt: new Date().toISOString(),
+      type: 'fallback'
+    }, null, 2));
+    console.log(`[MessageSender] 💾 Mensagem salva em arquivo (fallback): ${fileName}`);
+    return true;
+  } catch (err) {
+    console.error('[MessageSender] ❌ Erro ao salvar fallback em arquivo:', err.message);
+    return false;
+  }
 }
 
 /**
  * Envia uma mensagem de WhatsApp para um número específico via Evolution API.
  * @param {string} phone - Número no formato E.164 (ex: +5532999058008)
  * @param {string} message - Texto da mensagem
- * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
+ * @returns {Promise<{success: boolean, messageId?: string, error?: string, fallback?: boolean}>}
  */
 async function sendMessage(phone, message) {
   if (!ENABLED) {
@@ -63,7 +80,6 @@ async function sendMessage(phone, message) {
   try {
     const url = `${API_URL}/message/sendText/${INSTANCE_NAME}`;
     
-    // Node.js 18+ possui fetch nativo
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -82,25 +98,39 @@ async function sendMessage(phone, message) {
       })
     });
 
-    const result = await response.json();
+    let result = {};
+    try {
+      result = await response.json();
+    } catch (e) {}
 
     if (!response.ok) {
-      console.error(`[MessageSender] ❌ Falha ao enviar para ${phone}:\n`, JSON.stringify(result, null, 2));
-      return { success: false, error: result.message || 'Erro na API' };
+      console.error(`[MessageSender] ❌ Falha na API (${response.status}) ao enviar para ${phone}`);
+      const saved = saveMessageToFile(phone, message);
+      return { 
+        success: saved, 
+        error: result.message || `Erro API ${response.status}`,
+        fallback: saved
+      };
     }
 
-    console.log(`[MessageSender] ✅ Mensagem enviada para ${phone}`);
+    console.log(`[MessageSender] ✅ Mensagem enviada via API para ${phone}`);
     return { success: true, messageId: result.key?.id };
 
   } catch (error) {
     console.error(`[MessageSender] ❌ Erro de conexão ao enviar para ${phone}:`, error.message);
-    return { success: false, error: error.message };
+    
+    // FALLBACK: Se falhar a conexão, salva no disco
+    const saved = saveMessageToFile(phone, message);
+    return { 
+      success: saved, 
+      error: error.message,
+      fallback: saved
+    };
   }
 }
 
 /**
  * Envia notificação para o administrador da farmácia.
- * @param {string} message
  */
 async function notifyAdmin(message) {
   if (!ADMIN_PHONE) {
@@ -112,9 +142,6 @@ async function notifyAdmin(message) {
 
 /**
  * Envia mensagens em lote com rate-limit entre cada envio.
- * @param {Array<{phone: string, message: string, metadata?: object}>} messages
- * @param {Function} onProgress - Callback (index, total, result) chamado após cada envio
- * @returns {Promise<{total: number, sent: number, failed: number, results: Array}>}
  */
 async function sendBulk(messages, onProgress = null) {
   const batch = messages.slice(0, MAX_BATCH_SIZE);
@@ -140,7 +167,6 @@ async function sendBulk(messages, onProgress = null) {
       onProgress(i + 1, batch.length, result);
     }
 
-    // Rate-limit: aguarda entre envios (exceto no último)
     if (i < batch.length - 1) {
       await sleep(RATE_LIMIT_MS);
     }

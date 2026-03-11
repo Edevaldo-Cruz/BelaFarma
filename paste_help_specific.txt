@@ -1,0 +1,13 @@
+
+🦞 OpenClaw 2026.3.8 (3caab92) — I can run local, remote, or purely on vibes—results may vary with DNS.
+
+Usage: openclaw models auth paste-token [options]
+
+Paste a token into auth-profiles.json and update config
+
+Options:
+  --expires-in <duration>  Optional expiry duration (e.g. 365d, 12h). Stored as
+                           absolute expiresAt.
+  -h, --help               Display help for command
+  --profile-id <id>        Auth profile id (default: <provider>:manual)
+  --provider <name>        Provider id (e.g. anthropic)

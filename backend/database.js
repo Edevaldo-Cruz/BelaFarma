@@ -253,6 +253,15 @@ try {
       );
     `;
 
+    // AI Cache Table
+    const createAICacheTable = `
+      CREATE TABLE IF NOT EXISTS ai_cache (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+    `;
+
     // Consignados Module Tables
     const createConsignadoSuppliersTable = `
       CREATE TABLE IF NOT EXISTS consignado_suppliers (
@@ -288,6 +297,7 @@ try {
     db.exec(createTasksTable);
     db.exec(createCheckingAccountTransactionsTable);
     db.exec(createSafeEntriesTable);
+    db.exec(createAICacheTable);
     db.exec(createConsignadoSuppliersTable);
     db.exec(createConsignadoProductsTable);
     db.exec(createBoletosTable);
@@ -826,6 +836,28 @@ try {
     console.log('Message schedule config table verified/created.');
 
     console.log('✅ Sistema de Mensagens: Tabelas criadas com sucesso!');
+
+    // ========================================================================
+    // AGENTE DE MARKETING - Tabela para relatórios gerados pela IA
+    // ========================================================================
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS marketing_reports (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        metadata TEXT,
+        sentToRosana INTEGER DEFAULT 0,
+        sentAt TEXT,
+        createdAt TEXT NOT NULL
+      )
+    `);
+
+    // Índice para busca por data
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mkt_reports_created ON marketing_reports(createdAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mkt_reports_sent ON marketing_reports(sentToRosana)');
+    } catch (e) { /* índices já existem */ }
+
+    console.log('✅ Agente de Marketing: Tabela marketing_reports criada!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

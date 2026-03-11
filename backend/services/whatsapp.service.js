@@ -1,19 +1,21 @@
 /**
  * WhatsApp Service — BelaFarma
- * Envia mensagens via OpenClaw Gateway (http://127.0.0.1:18789)
+ * Envia mensagens via Evolution API
  *
  * IMPORTANTE: Este serviço é best-effort.
  * Falhas aqui NUNCA devem interromper o fluxo principal da aplicação.
  * Sempre use .catch() ou await com try/catch ao chamar as funções.
  */
 
-const GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'http://127.0.0.1:18789';
+const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
 const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
 const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
 
 /**
- * Envia uma mensagem de WhatsApp para um número específico.
- * @param {string} phone - Número no formato E.164 (ex: +5532999058008)
+ * Envia uma mensagem de WhatsApp para um número específico via Evolution API.
+ * @param {string} phone - Número no formato DDD+Número (ex: 32988634755)
  * @param {string} message - Texto da mensagem
  * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
  */
@@ -29,45 +31,36 @@ async function sendMessage(phone, message) {
   }
 
   try {
-    // O OpenClaw CLI é chamado como processo filho para enviar a mensagem
-    const { execFile } = require('child_process');
-    const { promisify } = require('util');
-    const execFileAsync = promisify(execFile);
-
-    const { stdout, stderr } = await execFileAsync('openclaw', [
-      'message', 'send',
-      '--channel', 'whatsapp',
-      '--target', phone,
-      '--message', message,
-      '--json'
-    ], {
-      timeout: 15000, // 15 segundos máximo
-      windowsHide: true
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    // Suporte para fetch no Node.js (usando node-fetch se necessário, mas v18+ tem nativo)
+    // No projeto usamos node-fetch v2.7.0 importado no server.js ou via global
+    const response = await fetch(`${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': EVOLUTION_API_KEY
+      },
+      body: JSON.stringify({
+        number: cleanPhone,
+        textMessage: { text: message },
+        options: { delay: 1200, presence: "composing" }
+      })
     });
 
-    // Tenta parsear saída JSON
-    try {
-      const result = JSON.parse(stdout);
-      const messageId = result?.messageId || result?.id;
-      console.log(`[WhatsApp] ✅ Mensagem enviada para ${phone} — ID: ${messageId}`);
+    const result = await response.json();
+
+    if (response.ok) {
+      const messageId = result?.key?.id;
+      console.log(`[WhatsApp] ✅ Mensagem enviada para ${phone} via Evolution — ID: ${messageId}`);
       return { success: true, messageId };
-    } catch {
-      // Saída não é JSON mas o comando pode ter funcionado
-      if (stdout.includes('Sent') || stdout.includes('✅')) {
-        console.log(`[WhatsApp] ✅ Mensagem enviada para ${phone}`);
-        return { success: true };
-      }
+    } else {
+      console.warn(`[WhatsApp] ⚠️ Erro na Evolution API ao enviar para ${phone}:`, result);
+      return { success: false, error: result?.message || 'Erro desconhecido na Evolution' };
     }
-
-    if (stderr) {
-      console.warn(`[WhatsApp] Aviso ao enviar para ${phone}:`, stderr);
-    }
-
-    return { success: true };
 
   } catch (error) {
-    // Erro silencioso — não quebra o fluxo principal
-    console.error(`[WhatsApp] ❌ Falha ao enviar para ${phone}:`, error.message);
+    console.error(`[WhatsApp] ❌ Falha catastrófica ao enviar para ${phone}:`, error.message);
     return { success: false, error: error.message };
   }
 }

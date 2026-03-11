@@ -481,7 +481,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center';
+export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal';
 
 // ============================================================================
 // SISTEMA DE MENSAGENS WHATSAPP - Interfaces

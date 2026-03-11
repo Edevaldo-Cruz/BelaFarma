@@ -1,8 +1,9 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 let db = require('./database.js');
 const multer = require('multer');
-const path = require('path');
 const fs = require('fs');
 
 const app = express();
@@ -2751,7 +2752,7 @@ app.put('/api/settings/:key', (req, res) => {
 });
 
 // ============================================================================
-// TESTE WHATSAPP - Endpoint para verificar integração com OpenClaw
+// TESTE WHATSAPP - Endpoint para verificar integração
 // ============================================================================
 app.get('/api/whatsapp/test', async (req, res) => {
   try {
@@ -2804,9 +2805,29 @@ initializeMessageEndpoints(app, db);
 messageScheduler.startScheduler(db);
 console.log('📱 Sistema de Mensagens WhatsApp inicializado.');
 
-// Inicia o Message Watcher via pastas locais/docker (OpenClaw file-based drop)
+// Inicia o Message Watcher via pastas locais/docker
 const messageWatcher = require('./services/message-watcher.service');
 messageWatcher.startWatching();
+
+// ============================================================================
+// AGENTE DE MARKETING IA - Inicialização
+// ============================================================================
+const { initializeMarketingEndpoints } = require('./marketing-endpoints.js');
+const marketingScheduler = require('./services/marketing-scheduler.service');
+
+// Registra endpoints da API de marketing
+initializeMarketingEndpoints(app, db);
+
+// Inicia o scheduler de marketing (relatório toda segunda-feira às 08:00)
+marketingScheduler.iniciarScheduler(db);
+console.log('🤖 Agente de Marketing IA inicializado.');
+
+// ============================================================================
+// AGENTE FINANCEIRO IA - Inicialização
+// ============================================================================
+const financeEndpoints = require('./finance-endpoints.js');
+app.use('/api/finance-agent', financeEndpoints(db));
+console.log('🤖 Agente Financeiro IA inicializado.');
 
 // Agendamento de Backup Automático (Diariamente à meia-noite)
 cron.schedule('0 0 * * *', () => {

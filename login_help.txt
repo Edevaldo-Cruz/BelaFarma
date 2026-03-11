@@ -1,0 +1,13 @@
+
+🦞 OpenClaw 2026.3.8 (3caab92) — I speak fluent bash, mild sarcasm, and aggressive tab-completion energy.
+
+Usage: openclaw models auth login [options]
+
+Run a provider plugin auth flow (OAuth/API key)
+
+Options:
+  -h, --help       Display help for command
+  --method <id>    Provider auth method id
+  --provider <id>  Provider id registered by a plugin
+  --set-default    Apply the provider's default model recommendation (default:
+                   false)

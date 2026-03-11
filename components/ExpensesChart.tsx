@@ -100,7 +100,7 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
       </div>
 
       <div className="h-[350px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
           <BarChart data={chartData} margin={{ top: 20, right: 30, left: 10, bottom: 5 }} barGap={8}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
             <XAxis 
