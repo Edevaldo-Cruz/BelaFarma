@@ -2822,12 +2822,15 @@ initializeMarketingEndpoints(app, db);
 marketingScheduler.iniciarScheduler(db);
 console.log('🤖 Agente de Marketing IA inicializado.');
 
-// ============================================================================
-// AGENTE FINANCEIRO IA - Inicialização
-// ============================================================================
-const financeEndpoints = require('./finance-endpoints.js');
 app.use('/api/finance-agent', financeEndpoints(db));
 console.log('🤖 Agente Financeiro IA inicializado.');
+
+// ============================================================================
+// AGENTE DE COMPRAS IA - Inicialização
+// ============================================================================
+const purchasingEndpoints = require('./purchasing-endpoints.js');
+app.use('/api/purchasing', purchasingEndpoints(db));
+console.log('🤖 Agente de Compras IA inicializado.');
 
 // Agendamento de Backup Automático (Diariamente à meia-noite)
 cron.schedule('0 0 * * *', () => {

@@ -273,6 +273,17 @@ try {
       );
     `;
 
+    // Purchasing (Isa-Compras) Tables
+    const createSuppliersTable = `
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        whatsapp TEXT NOT NULL,
+        category TEXT NOT NULL, -- 'Medicamentos', 'Perfumaria', etc.
+        createdAt TEXT NOT NULL
+      );
+    `;
+
     const createConsignadoProductsTable = `
       CREATE TABLE IF NOT EXISTS consignado_products (
         id TEXT PRIMARY KEY,
@@ -300,6 +311,7 @@ try {
     db.exec(createAICacheTable);
     db.exec(createConsignadoSuppliersTable);
     db.exec(createConsignadoProductsTable);
+    db.exec(createSuppliersTable);
     db.exec(createBoletosTable);
     db.exec(createMonthlyLimitsTable);
     db.exec(createDailyRecordsTable);

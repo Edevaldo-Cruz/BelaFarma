@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, Star, TrendingUp, ShoppingCart, BrainCircuit, Sparkles } from 'lucide-react';
 import MarketingAgent from './MarketingAgent';
 import FinancialAgent from './FinancialAgent';
+import PurchasingAgent from './PurchasingAgent';
 
 type ActiveAgent = 'portal' | 'marketing' | 'financeiro';
 
@@ -45,7 +46,7 @@ const agents: AgentCard[] = [
     emoji: '🛒',
     gradient: 'from-amber-500 via-orange-500 to-red-500',
     accentColor: 'amber',
-    available: false,
+    available: true,
   },
 ];
 
@@ -79,6 +80,30 @@ export default function AIPortal() {
           Voltar à Central de IAs
         </button>
         <FinancialAgent />
+      </div>
+    );
+  }
+
+  if (activeAgent === 'portal' && activeAgent !== 'portal') { // Type guard to allow future expansion
+    // ... logic below
+  }
+
+  if (activeAgent as any === 'portal_compras' || (activeAgent === 'portal' && false)) {
+     // ...
+  }
+
+  // Handle active session for Purchasing
+  if (activeAgent as any === 'compras') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setActiveAgent('portal')}
+          className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-amber-600 transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Voltar à Central de IAs
+        </button>
+        <PurchasingAgent />
       </div>
     );
   }
@@ -128,7 +153,13 @@ export default function AIPortal() {
         {agents.map((agent) => (
           <div
             key={agent.id}
-            onClick={() => agent.available && setActiveAgent(agent.id)}
+            onClick={() => {
+              if (agent.id === 'portal' && agent.name === 'Isa-Compras') {
+                setActiveAgent('compras' as any);
+              } else if (agent.available) {
+                setActiveAgent(agent.id);
+              }
+            }}
             className={`
               relative bg-white dark:bg-slate-900 border-2 rounded-3xl overflow-hidden shadow-sm
               transition-all duration-300 group
