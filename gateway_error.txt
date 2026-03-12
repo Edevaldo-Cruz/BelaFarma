@@ -1,2 +1,0 @@
-2026-03-10T17:38:54.235-03:00 Gateway start blocked: set gateway.mode=local (current: unset) or pass --allow-unconfigured.
-2026-03-10T17:38:54.254-03:00 Config write audit: /home/ed/.openclaw/logs/config-audit.jsonl

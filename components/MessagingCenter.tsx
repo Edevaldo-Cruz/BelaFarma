@@ -56,7 +56,7 @@ export const MessagingCenter: React.FC = () => {
             Central de Mensagens
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            WhatsApp via OpenClaw — Templates, Agendamentos e Campanhas
+            WhatsApp via Evolution API — Templates, Agendamentos e Campanhas
           </p>
         </div>
       </div>
