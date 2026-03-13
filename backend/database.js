@@ -880,6 +880,31 @@ try {
 
     console.log('✅ Agente de Marketing: Tabela marketing_reports criada!');
 
+    // Histórico de produtos sugeridos para evitar repetição
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS marketing_suggestions_history (
+        id TEXT PRIMARY KEY,
+        productName TEXT NOT NULL,
+        suggestedAction TEXT,
+        suggestedAt TEXT NOT NULL,
+        approved INTEGER DEFAULT 0,
+        taskId TEXT
+      )
+    `);
+
+    // Controle de aprovações pendentes (Nayane enviando "ok")
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nayane_pending_approvals (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        suggestionsJson TEXT NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        createdAt TEXT NOT NULL
+      )
+    `);
+
+    console.log('✅ Agente de Marketing: Tabelas de histórico e aprovações criadas!');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

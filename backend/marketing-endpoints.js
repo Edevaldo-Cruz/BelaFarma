@@ -249,10 +249,8 @@ function initializeMarketingEndpoints(app, db) {
   // ─── POST /api/marketing/diario/venda-parada ─────────────────────────────
   app.post('/api/marketing/diario/venda-parada', async (req, res) => {
     try {
-      console.log('[IsaMarketing] Analisando produtos parados para Nayane...');
-      const analise = await analisarProdutosParados90Dias();
-      
       const phone = req.body.phone || process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP;
+      const analise = await analisarProdutosParados90Dias(db, phone);
       
       if (analise) {
         await sendMessage(phone, analise);
@@ -262,6 +260,131 @@ function initializeMarketingEndpoints(app, db) {
       }
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/webhook/evolution ──────────────────────────────────────────
+  /**
+   * Webhook para receber mensagens da Evolution API.
+   * Configuração recomendada na Evolution: http://seu-ip:3001/api/webhook/evolution
+   */
+  app.post('/api/webhook/evolution', async (req, res) => {
+    try {
+      const payload = req.body;
+      
+      // O evento de mensagem recebida na Evolution v2 é 'messages.upsert'
+      if (payload.event !== 'messages.upsert') {
+        return res.status(200).send('OK');
+      }
+
+      const data = payload.data;
+      if (!data || !data.key || data.key.fromMe) {
+        return res.status(200).send('OK');
+      }
+
+      const remoteJid = data.key.remoteJid || '';
+      const phone = remoteJid.split('@')[0];
+      const messageContent = data.message?.conversation 
+        || data.message?.extendedTextMessage?.text 
+        || '';
+      
+      const text = messageContent.toLowerCase().trim();
+      const NAYANE_PHONE_CLEAN = (process.env.NAYANE_WHATSAPP || '').replace(/\D/g, '');
+
+      // Log para debug
+      console.log(`[IsaMarketing] Webhook recebido de ${phone}: "${text}"`);
+
+      if (phone === NAYANE_PHONE_CLEAN && text === 'ok') {
+        console.log(`[IsaMarketing] ✨ Nayane enviou 'ok'! Verificando aprovações pendentes...`);
+
+        // Buscar a aprovação pendente mais recente para este número
+        const pending = db.prepare(`
+          SELECT * FROM nayane_pending_approvals 
+          WHERE (phone LIKE ? OR phone = ?) 
+            AND status = 'Pendente' 
+          ORDER BY createdAt DESC LIMIT 1
+        `).get(`%${phone}%`, phone);
+
+        if (pending) {
+          const suggestions = JSON.parse(pending.suggestionsJson);
+          console.log(`[IsaMarketing] 🚀 Processando ${suggestions.length} tarefas para Nayane...`);
+
+          const now = new Date().toISOString();
+          const amanha = new Date();
+          amanha.setDate(amanha.getDate() + 1);
+          const dueDate = amanha.toISOString();
+
+          for (const sug of suggestions) {
+            const taskId = `mkt_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            
+            try {
+              db.prepare(`
+                INSERT INTO tasks (
+                  id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(
+                taskId,
+                `🛒 MKT: ${sug.productName}`,
+                `Ação sugerida pela Belinha: ${sug.action}`,
+                'all_users', // Enviado para todos os operadores verem
+                'Belinha (IA)',
+                'Média',
+                'A Fazer',
+                dueDate,
+                now,
+                '#8b5cf6' // Roxo para tarefas de marketing
+              );
+
+              // Atualizar histórico de sugestão
+              db.prepare('UPDATE marketing_suggestions_history SET approved = 1, taskId = ? WHERE productName = ? AND approved = 0')
+                .run(taskId, sug.productName);
+            } catch (taskErr) {
+              console.error(`[IsaMarketing] Erro ao criar tarefa para ${sug.productName}:`, taskErr.message);
+            }
+          }
+
+          // Marcar como aprovado
+          db.prepare('UPDATE nayane_pending_approvals SET status = ? WHERE id = ?').run('Aprovado', pending.id);
+
+          // Enviar confirmação via WhatsApp
+          await sendMessage(pending.phone, "✅ Combinado! Acabei de criar as tarefas no painel do sistema. Vamos pra cima! 🚀");
+          
+          console.log(`[IsaMarketing] ✅ ${suggestions.length} tarefas criadas com sucesso.`);
+        } else {
+          console.log(`[IsaMarketing] Nenhuma aprovação pendente encontrada para ${phone}`);
+        }
+      } else if (phone === NAYANE_PHONE_CLEAN && text === 'não') {
+        console.log(`[IsaMarketing] ❌ Nayane enviou 'não'. Cancelando sugestões pendentes...`);
+
+        const pending = db.prepare(`
+          SELECT * FROM nayane_pending_approvals 
+          WHERE (phone LIKE ? OR phone = ?) 
+            AND status = 'Pendente' 
+          ORDER BY createdAt DESC LIMIT 1
+        `).get(`%${phone}%`, phone);
+
+        if (pending) {
+          const suggestions = JSON.parse(pending.suggestionsJson);
+          
+          // Remover do histórico para permitir que esses produtos sejam sugeridos novamente no futuro
+          for (const sug of suggestions) {
+            db.prepare('DELETE FROM marketing_suggestions_history WHERE productName = ? AND approved = 0').run(sug.productName);
+          }
+
+          // Marcar como reprovado
+          db.prepare('UPDATE nayane_pending_approvals SET status = ? WHERE id = ?').run('Reprovado', pending.id);
+
+          // Enviar confirmação
+          await sendMessage(pending.phone, "Sem problemas, Nay! Entendi que essas ações não são o foco agora. Se precisar de novas sugestões amanhã, é só me chamar! 😊");
+          
+          console.log(`[IsaMarketing] ❌ ${suggestions.length} sugestões reprovadas.`);
+        }
+      }
+
+      res.status(200).send('OK');
+    } catch (err) {
+      console.error('[IsaMarketing] Erro no processamento do webhook:', err);
+      res.status(500).json({ error: 'Internal Server Error' });
     }
   });
 
@@ -310,8 +433,9 @@ function initializeMarketingEndpoints(app, db) {
   console.log('  POST /api/marketing/ideias/produto');
   console.log('  GET  /api/marketing/curadoria-noticias');
   console.log('  GET  /api/marketing/trend-hunting');
-  console.log('  POST /api/marketing/alerta-clima');
-  console.log('  GET  /api/marketing/clima-ipiranga');
+  console.log('  POST /api/marketing/diario/clima');
+  console.log('  POST /api/marketing/diario/venda-parada');
+  console.log('  POST /api/webhook/evolution (Configurar na Evolution API)');
   console.log('  GET  /api/marketing/status');
 }
 

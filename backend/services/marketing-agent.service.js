@@ -396,7 +396,7 @@ async function gerarMensagemClimaDiaria() {
   return chamarGemini(prompt, '', `clima_diario_rosana_${new Date().toISOString().split('T')[0]}`, 14400);
 }
 
-async function analisarProdutosParados90Dias() {
+async function analisarProdutosParados90Dias(db, phone = process.env.NAYANE_WHATSAPP) {
   const reportsDir = path.join(__dirname, '../reports/digifarma');
   if (!fs.existsSync(reportsDir)) return null;
 
@@ -436,14 +436,65 @@ async function analisarProdutosParados90Dias() {
     return null;
   }
 
-  const prompt = `RELATÓRIO DE PRODUTOS PARADOS (Últimos 90 dias):\n${targetFile.content.substring(0, 5000)}\n\n
-  TAREFA: Como a Isa-Marketing, identifique 10 produtos desta lista que merecem atenção IMEDIATA.
-  Para cada um, sugira:
-  1. Uma promoção criativa.
-  2. Uma ação de venda (ex: abordar clientes específicos, kit combo, destaque no balcão).
-  Formate como uma mensagem organizada para a Nayane, focada em "limpar" esse estoque parado.`;
+  // Buscar produtos já sugeridos para evitar repetição
+  const sugeridos = db ? db.prepare('SELECT productName FROM marketing_suggestions_history').all().map(r => r.productName) : [];
 
-  return chamarGemini(prompt, '', `analise_venda_parada_nayane_${new Date().toISOString().split('T')[0]}`, 86400);
+  const prompt = `RELATÓRIO DE PRODUTOS PARADOS (Últimos 90 dias):\n${targetFile.content.substring(0, 5000)}\n\n
+  PRODUTOS JÁ TRABALHADOS (NÃO SELECIONE ESTES): ${sugeridos.join(', ')}
+
+  TAREFA: Como a Belinha (especialista em marketing da Bela Farma Sul), identifique 10 produtos DESTA LISTA (que não estejam nos já trabalhados) que merecem atenção IMEDIATA.
+  
+  PERSONA E ESTILO:
+  - Use o nome "Belinha".
+  - Seja extremamente próxima, amigável e profissional com a Nayane.
+  - Use gírias e referências de Juiz de Fora/JF (Rio Branco, UFJF, mormaço da serra, ladeiras, etc).
+  - Use emojis e formatação Markdown atraente (negrito, itálico).
+  - Metáfora: Produtos parados são "inquilinos que não pagam aluguel".
+  
+  ESTRUTURA DA MENSAGEM (friendlyMessage):
+  1. Abertura calorosa mencionando o clima de JF e o estoque.
+  2. Seção "📋 Plano de Ação: Limpa Estoque (90 dias+)" com os 10 itens numerados.
+     Cada item deve ter: *Nome do Produto (Cód)*, *Promoção* (pense em nomes criativos) e *Ação* (estratégia de venda no balcão ou loja).
+  3. Seção "📲 Sugestão de Mensagem para Clientes (WhatsApp)" com um modelo de texto pronto para a Nayane copiar e enviar.
+  4. Fechamento perguntando o que ela acha e pedindo o "ok".
+
+  FORMATO DE RESPOSTA (OBRIGATÓRIO):
+  Sua resposta deve ser um JSON válido contendo:
+  1. "friendlyMessage": A mensagem completa descrita acima, formatada para WhatsApp (com quebras de linha \n).
+  2. "suggestions": Um array de objetos para criar as tarefas no sistema, onde cada objeto tem:
+     - "productName": Nome do produto
+     - "action": Resumo curto da Promoção + Ação de venda (máx 200 caracteres)
+  
+  Mantenha o JSON rigorosamente válido.`;
+
+  const respostaRaw = await chamarGemini(prompt, 'Responda APENAS com o JSON estruturado.', `analise_mkt_json_${new Date().toISOString().split('T')[0]}`, 86400);
+  
+  try {
+     const cleanJson = respostaRaw.replace(/```json|```/g, '').trim();
+     const data = JSON.parse(cleanJson);
+     
+     if (db && data.suggestions) {
+       // Salvar para aprovação
+       const pendingId = `pending_mkt_${Date.now()}`;
+       db.prepare(`
+         INSERT INTO nayane_pending_approvals (id, phone, suggestionsJson, status, createdAt)
+         VALUES (?, ?, ?, ?, ?)
+       `).run(pendingId, phone || process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP, JSON.stringify(data.suggestions), 'Pendente', new Date().toISOString());
+
+       // Registrar no histórico para não repetir
+       for (const sug of data.suggestions) {
+         db.prepare(`
+           INSERT OR IGNORE INTO marketing_suggestions_history (id, productName, suggestedAction, suggestedAt)
+           VALUES (?, ?, ?, ?)
+         `).run(`hist_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, sug.productName, sug.action, new Date().toISOString());
+       }
+     }
+
+     return data.friendlyMessage + "\n\nResponda com *ok* para criar as tarefas automaticamente! 👍";
+  } catch (e) {
+     console.error('[IsaMarketing] Falha ao processar JSON da IA:', e.message);
+     return respostaRaw; // Fallback se não for JSON
+  }
 }
 
 module.exports = {

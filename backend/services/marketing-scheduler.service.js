@@ -85,16 +85,28 @@ async function executarTarefasDiarias(db) {
   } catch (e) {
     console.error('[MarketingScheduler] Erro ao enviar clima para Rosana:', e.message);
   }
-
   // 2. Venda Parada para Nayane
   try {
-    const analiseNayane = await marketingAgent.analisarProdutosParados90Dias();
+    const analiseNayane = await marketingAgent.analisarProdutosParados90Dias(db, NAYANE_PHONE);
     if (analiseNayane) {
       console.log(`[MarketingScheduler] 📱 Enviando análise de venda parada para Nayane (${NAYANE_PHONE})...`);
       await sender.sendMessage(NAYANE_PHONE, analiseNayane);
     }
   } catch (e) {
     console.error('[MarketingScheduler] Erro ao enviar análise para Nayane:', e.message);
+  }
+
+
+  // 3. Notificar Admin (Edevaldo)
+  try {
+    const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
+    if (ADMIN_PHONE) {
+      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n✅ Previsão do tempo enviada para Rosana (${ROSANA_PHONE})\n✅ Análise de 10 produtos enviada para Nayane (${NAYANE_PHONE})\n\n_Aguardando aprovação da Nayane para criar tarefas._`;
+      console.log(`[MarketingScheduler] 📱 Enviando resumo da manhã para o Admin...`);
+      await sender.sendMessage(ADMIN_PHONE, resumo);
+    }
+  } catch (e) {
+    console.error('[MarketingScheduler] Erro ao enviar resumo para Admin:', e.message);
   }
 }
 
