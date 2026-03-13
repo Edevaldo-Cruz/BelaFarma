@@ -57,21 +57,21 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   };
   const handleReset = () => {
     if (confirm('ATENÇÃO: Isso apagará TODOS os registros salvos localmente no navegador. Se o Atlas estiver ativo, os dados na nuvem permanecerão. Deseja continuar?')) {
-      localStorage.removeItem('belafarma_orders_db');
-      localStorage.removeItem('belafarma_shortages_db');
-      localStorage.removeItem('belafarma_closing_history');
-      localStorage.removeItem('belafarma_safe_db');
-      localStorage.removeItem('belafarma_users_db');
+      localStorage.removeItem('belinha_orders_db');
+      localStorage.removeItem('belinha_shortages_db');
+      localStorage.removeItem('belinha_closing_history');
+      localStorage.removeItem('belinha_safe_db');
+      localStorage.removeItem('belinha_users_db');
       window.location.reload();
     }
   };
 
   const handleExport = () => {
     const data = {
-      orders: localStorage.getItem('belafarma_orders_db'),
-      shortages: localStorage.getItem('belafarma_shortages_db'),
-      safe: localStorage.getItem('belafarma_safe_db'),
-      history: localStorage.getItem('belafarma_closing_history'),
+      orders: localStorage.getItem('belinha_orders_db'),
+      shortages: localStorage.getItem('belinha_shortages_db'),
+      safe: localStorage.getItem('belinha_safe_db'),
+      history: localStorage.getItem('belinha_closing_history'),
       exportDate: new Date().toISOString()
     };
     
@@ -79,7 +79,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `belafarma_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `belinha_backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
   };
 

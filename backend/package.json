@@ -1,7 +1,7 @@
 {
-  "name": "belafarma-backend",
+  "name": "belinha-backend",
   "version": "1.0.0",
-  "description": "Backend API for BelaFarma",
+  "description": "Backend API for belinha",
   "main": "server.js",
   "scripts": {
     "start": "node --dns-result-order=ipv4first server.js",

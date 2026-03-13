@@ -63,7 +63,7 @@ const App: React.FC = () => {
   const [fixedAccounts, setFixedAccounts] = useState<FixedAccount[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('belafarma_theme');
+    const saved = localStorage.getItem('belinha_theme');
     return (saved as 'light' | 'dark') || 'light';
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -76,7 +76,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setUser(null);
     setCurrentView("dashboard");
-    localStorage.removeItem("belafarma_session_user");
+    localStorage.removeItem("belinha_session_user");
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
   };
 
@@ -107,7 +107,7 @@ const App: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem('belafarma_theme', theme);
+    localStorage.setItem('belinha_theme', theme);
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {

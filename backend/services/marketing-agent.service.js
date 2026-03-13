@@ -6,7 +6,7 @@ const db = require('../database');
 /**
  * Marketing Agent Service — BelaFarma Sul
  * 
- * 🤖 ISA-MARKETING — Especialista em comunicação e tendências da Bela Farma Sul
+ * 🤖 ISA-MARKETING — Especialista em comunicação e tendências da belinha
  * 
  * Persona: "Vizinha especialista" — amigável, prestativa, focada em bem-estar.
  * Tom de voz: próximo, acolhedor, direto, moderadamente divertido.
@@ -24,7 +24,7 @@ const db = require('../database');
 // ─── System Prompt da Isa-Marketing ─────────────────────────────────────────
 
 const ISA_SYSTEM_PROMPT = `
-Você é a ISA-MARKETING, a especialista em comunicação e tendências da Bela Farma Sul em Juiz de Fora, Minas Gerais.
+Você é a ISA-MARKETING, a especialista em comunicação e tendências da belinha em Juiz de Fora, Minas Gerais.
 
 PERFIL:
 Seu tom de voz é amigável, prestativo e focado em bem-estar. Você fala como uma "vizinha especialista": 

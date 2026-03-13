@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Script de Backup Automático - BelaFarma
+# Script de Backup Automático - belinha
 # Executado via Cron no servidor VPS
 
 # Configurações
-BACKUP_DIR="/home/ed/backups/belafarma"
+BACKUP_DIR="/home/ed/backups/belinha"
 DB_FILE="/home/ed/projetcs/BelaFarma/backend/belafarma.db"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-BACKUP_FILE="$BACKUP_DIR/belafarma_$TIMESTAMP.db"
+BACKUP_FILE="$BACKUP_DIR/belinha_$TIMESTAMP.db"
 LOG_FILE="$BACKUP_DIR/backup.log"
 
 # Garantir que o diretório existe
@@ -41,7 +41,7 @@ if [ -f "$DB_FILE" ]; then
         log "Backup criado com sucesso: $BACKUP_FILE ($SIZE)"
         
         # Limpeza de backups antigos (manter últimos 30 dias)
-        find "$BACKUP_DIR" -name "belafarma_*.db" -mtime +30 -delete
+        find "$BACKUP_DIR" -name "belinha_*.db" -mtime +30 -delete
         log "Limpeza de backups antigos (>30 dias) realizada."
     else
         log "ERRO: Falha ao criar backup. Código de saída: $EXIT_CODE"

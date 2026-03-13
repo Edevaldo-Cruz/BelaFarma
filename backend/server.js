@@ -71,7 +71,7 @@ app.post('/api/backups/create', (req, res) => {
   const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-  const filename = `belafarma_${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
+  const filename = `belinha_${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
   const dbPath = process.env.DB_PATH || path.join(__dirname, '../data/belafarma.db');
 
   console.log(`Creating backup... Source: ${dbPath}, Dest: ${path.join(backupDir, filename)}`);

@@ -103,9 +103,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     fetchHistory();
 
-    const savedNextInitial = localStorage.getItem('belafarma_next_initial_balance');
+    const savedNextInitial = localStorage.getItem('belinha_next_initial_balance');
     if (savedNextInitial) {
-      setInitialCash(JSON.parse(savedNextInitial));
+      localStorage.removeItem('belinha_next_initial_balance');
       localStorage.removeItem('belafarma_next_initial_balance');
     }
 
@@ -163,7 +163,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
 
     // Load saved form state
-    const savedFormState = localStorage.getItem('belafarma_closing_form_state');
+    const savedFormState = localStorage.getItem('belinha_closing_form_state');
     if (savedFormState) {
       const state = JSON.parse(savedFormState);
       setTotalSales(state.totalSales || 0);
@@ -214,7 +214,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       safeDepositValue,
       currentStep,
     };
-    localStorage.setItem('belafarma_closing_form_state', JSON.stringify(formState));
+    localStorage.setItem('belinha_closing_form_state', JSON.stringify(formState));
   }, [totalSales, receivedExtra, initialCash, currencyCount, credit, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
 
   const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0), [expensesList]);
@@ -494,7 +494,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   
 
-            localStorage.setItem('belafarma_next_initial_balance', JSON.stringify(nextInitialBalance));
+            localStorage.setItem('belinha_next_initial_balance', JSON.stringify(nextInitialBalance));
 
   
 
@@ -537,11 +537,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   
 
-            localStorage.removeItem('belafarma_daily_temp');
+            localStorage.removeItem('belinha_daily_temp');
 
   
 
-            localStorage.removeItem('belafarma_closing_form_state'); // Clear saved form state
+            localStorage.removeItem('belinha_closing_form_state'); // Clear saved form state
 
   
 
@@ -653,7 +653,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
               // Reset all fields to start a fresh closing
 
-              localStorage.removeItem('belafarma_closing_form_state');
+              localStorage.removeItem('belinha_closing_form_state');
 
               setTotalSales(0);
 
@@ -661,13 +661,13 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
               // Check for a carried-over initial balance
 
-              const savedNextInitial = localStorage.getItem('belafarma_next_initial_balance');
+              const savedNextInitial = localStorage.getItem('belinha_next_initial_balance');
 
               if (savedNextInitial) {
 
                 setInitialCash(JSON.parse(savedNextInitial));
 
-                localStorage.removeItem('belafarma_next_initial_balance');
+                localStorage.removeItem('belinha_next_initial_balance');
 
               } else {
 

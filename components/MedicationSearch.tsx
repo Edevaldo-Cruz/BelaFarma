@@ -10,7 +10,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { MedicationInfo } from '../types';
 
 // --- LocalStorage Cache Helpers ---
-const CACHE_KEY = 'belafarma_med_cache';
+const CACHE_KEY = 'belinha_med_cache';
 
 const getCachedMedication = (medName: string): MedicationInfo | null => {
   try {
