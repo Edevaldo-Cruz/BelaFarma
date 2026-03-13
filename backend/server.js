@@ -2822,6 +2822,7 @@ initializeMarketingEndpoints(app, db);
 marketingScheduler.iniciarScheduler(db);
 console.log('🤖 Agente de Marketing IA inicializado.');
 
+const financeEndpoints = require('./finance-endpoints.js');
 app.use('/api/finance-agent', financeEndpoints(db));
 console.log('🤖 Agente Financeiro IA inicializado.');
 
@@ -2829,8 +2830,11 @@ console.log('🤖 Agente Financeiro IA inicializado.');
 // AGENTE DE COMPRAS IA - Inicialização
 // ============================================================================
 const purchasingEndpoints = require('./purchasing-endpoints.js');
+const filesEndpoints = require('./files-endpoints.js');
+
 app.use('/api/purchasing', purchasingEndpoints(db));
-console.log('🤖 Agente de Compras IA inicializado.');
+app.use('/api/files', filesEndpoints(db));
+console.log('🤖 Agente de Compras e Central de Arquivos inicializados.');
 
 // Agendamento de Backup Automático (Diariamente à meia-noite)
 cron.schedule('0 0 * * *', () => {
@@ -2853,3 +2857,4 @@ app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
   console.log('📅 Sistema de backup automático agendado para 00:00 diariamente.');
 });
+ 

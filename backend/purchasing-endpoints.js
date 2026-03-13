@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const { analisarRelatoriosDigifarma } = require('./services/purchasing-agent.service');
 const whatsappService = require('./services/whatsapp.service');
 
@@ -26,7 +26,7 @@ module.exports = (db) => {
     }
 
     try {
-      const id = uuidv4();
+      const id = crypto.randomUUID();
       const createdAt = new Date().toISOString();
       db.prepare(`
         INSERT INTO suppliers (id, name, whatsapp, category, createdAt)
@@ -51,26 +51,43 @@ module.exports = (db) => {
   // --- Processamento de Relatórios ---
 
   router.post('/analyze-reports', async (req, res) => {
+    const { filenames } = req.body;
     const reportsDir = path.join(__dirname, 'reports/digifarma');
-    
-    if (!fs.existsSync(reportsDir)) {
-      return res.status(404).json({ error: 'Diretório de relatórios não encontrado.' });
-    }
 
     try {
-      const files = fs.readdirSync(reportsDir)
-        .filter(f => f.endsWith('.csv') || f.endsWith('.pdf'))
-        .map(f => ({
-          path: path.join(reportsDir, f),
-          name: f,
-          type: f.endsWith('.pdf') ? 'application/pdf' : 'text/csv'
-        }));
+      let filesToAnalyze = [];
 
-      if (files.length === 0) {
-        return res.status(400).json({ error: 'Nenhum relatório (CSV ou PDF) encontrado na pasta backend/reports/digifarma.' });
+      if (filenames && Array.isArray(filenames) && filenames.length > 0) {
+        filesToAnalyze = filenames.map(name => {
+          const filePath = path.join(reportsDir, name);
+          if (!fs.existsSync(filePath)) {
+            throw new Error(`Arquivo ${name} não encontrado.`);
+          }
+          return {
+            path: filePath,
+            name: name,
+            type: name.endsWith('.pdf') ? 'application/pdf' : 'text/csv'
+          };
+        });
+      } else {
+        // Fallback para manter compatibilidade ou analisar todos se o diretório existir
+        if (!fs.existsSync(reportsDir)) {
+          return res.status(404).json({ error: 'Diretório de relatórios não encontrado.' });
+        }
+        filesToAnalyze = fs.readdirSync(reportsDir)
+          .filter(f => f.endsWith('.csv') || f.endsWith('.pdf'))
+          .map(f => ({
+            path: path.join(reportsDir, f),
+            name: f,
+            type: f.endsWith('.pdf') ? 'application/pdf' : 'text/csv'
+          }));
+
+        if (filesToAnalyze.length === 0) {
+          return res.status(400).json({ error: 'Nenhum relatório selecionado.' });
+        }
       }
 
-      const suggestion = await analisarRelatoriosDigifarma(files);
+      const suggestion = await analisarRelatoriosDigifarma(filesToAnalyze);
       res.json({ suggestion });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -104,6 +121,21 @@ module.exports = (db) => {
       }
 
       res.json({ results });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/send-to-nayane', async (req, res) => {
+    const { list } = req.body;
+    const nayaneWhatsApp = process.env.NAYANE_WHATSAPP || '553299999999'; // Placeholder se não houver no .env
+
+    if (!list) return res.status(400).json({ error: 'Relatório vazio.' });
+
+    try {
+      const message = `Oi Nayane, aqui é a Isa. Segue o resumo de intenção de compra aprovado:\n\n${list}\n\nAtt, Isa-Compras 🛒`;
+      await whatsappService.sendMessage(nayaneWhatsApp, message);
+      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

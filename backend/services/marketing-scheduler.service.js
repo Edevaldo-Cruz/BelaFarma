@@ -8,57 +8,98 @@
 const marketingAgent = require('./marketing-agent.service');
 const sender = require('./message-sender.service');
 
-// Número da Rosana para receber os relatórios
-const ROSANA_PHONE = process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP || '+5532888765295';
+// Números para receber os relatórios
+const ROSANA_PHONE = process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP;
+const NAYANE_PHONE = process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP;
 
-// Intervalo quinzenal em dias
-const INTERVALO_DIAS = 15;
+// Intervalo quinzenal em dias para o relatório estratégico
+const INTERVALO_ESTRATEGICO_DIAS = 15;
 
 let schedulerInterval = null;
 let isRunning = false;
 
 /**
- * Verifica se já passaram 15 dias desde o último envio
+ * Verifica se já passou o tempo para o relatório estratégico (15 dias)
  */
-function deveExecutarHoje(db) {
-  const agora = new Date();
-  const agoraBrasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-  
-  const hora = agoraBrasilia.getHours();
-  const minuto = agoraBrasilia.getMinutes();
-
-  // Só executa no horário de 08:00-08:04
-  if (hora !== 8 || minuto >= 5) return false;
-
-  // Verifica último envio no banco
+function deveExecutarEstrategico(db) {
   try {
     const ultimoEnvio = db.prepare(`
       SELECT sentAt FROM marketing_reports 
-      WHERE sentToRosana = 1
+      WHERE sentToRosana = 1 AND metadata LIKE '%relatorio_completo%'
       ORDER BY createdAt DESC LIMIT 1
     `).get();
 
-    if (!ultimoEnvio || !ultimoEnvio.sentAt) {
-      // Nunca enviou, então deve executar
-      return true;
-    }
+    if (!ultimoEnvio || !ultimoEnvio.sentAt) return true;
 
+    const agora = new Date();
     const dataUltimoEnvio = new Date(ultimoEnvio.sentAt);
     const diffMs = agora.getTime() - dataUltimoEnvio.getTime();
     const diffDias = diffMs / (1000 * 60 * 60 * 24);
 
-    return diffDias >= INTERVALO_DIAS;
+    return diffDias >= INTERVALO_ESTRATEGICO_DIAS;
   } catch (e) {
-    console.error('[MarketingScheduler] Erro ao verificar último envio:', e.message);
     return false;
   }
 }
 
 /**
- * Executa o job completo de marketing:
- * 1. Gera o relatório com IA
- * 2. Salva no banco de dados
- * 3. Envia relatório completo para Rosana via WhatsApp
+ * Verifica se já executou as tarefas diárias hoje
+ */
+function jaExecutouDiario(db) {
+  const hoje = new Date().toISOString().split('T')[0];
+  try {
+    const registro = db.prepare(`
+      SELECT key FROM system_settings 
+      WHERE key = ? AND value = ?
+    `).get(`mkt_diario_executado`, hoje);
+    return !!registro;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Marca tarefas diárias como executadas
+ */
+function marcarDiarioExecutado(db) {
+  const hoje = new Date().toISOString().split('T')[0];
+  try {
+    db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)")
+      .run(`mkt_diario_executado`, hoje, new Date().toISOString());
+  } catch (e) {}
+}
+
+/**
+ * Executa as tarefas diárias
+ */
+async function executarTarefasDiarias(db) {
+  console.log('[MarketingScheduler] ☀️ Iniciando tarefas diárias de marketing...');
+
+  // 1. Clima para Rosana
+  try {
+    const mensagemClima = await marketingAgent.gerarMensagemClimaDiaria();
+    if (mensagemClima) {
+      console.log(`[MarketingScheduler] 📱 Enviando clima diário para Rosana (${ROSANA_PHONE})...`);
+      await sender.sendMessage(ROSANA_PHONE, mensagemClima);
+    }
+  } catch (e) {
+    console.error('[MarketingScheduler] Erro ao enviar clima para Rosana:', e.message);
+  }
+
+  // 2. Venda Parada para Nayane
+  try {
+    const analiseNayane = await marketingAgent.analisarProdutosParados90Dias();
+    if (analiseNayane) {
+      console.log(`[MarketingScheduler] 📱 Enviando análise de venda parada para Nayane (${NAYANE_PHONE})...`);
+      await sender.sendMessage(NAYANE_PHONE, analiseNayane);
+    }
+  } catch (e) {
+    console.error('[MarketingScheduler] Erro ao enviar análise para Nayane:', e.message);
+  }
+}
+
+/**
+ * Executa o job estratégico quinzenal
  */
 async function executarJobMarketing(db, opcoes = {}) {
   if (isRunning && !opcoes.forcar) {
@@ -67,63 +108,39 @@ async function executarJobMarketing(db, opcoes = {}) {
   }
 
   isRunning = true;
-  console.log('[MarketingScheduler] 🚀 Iniciando job de marketing...');
+  console.log('[MarketingScheduler] 🚀 Iniciando job estratégico quinzenal...');
 
   const phone = opcoes.phone || ROSANA_PHONE;
 
   try {
-    // 1. Gera o relatório
     const { relatorio, metadata } = await marketingAgent.gerarRelatorioCompleto(db);
-
-    // 2. Salva no banco
-    const id = `mkt-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const id = `mkt-est-${Date.now()}`;
     const agora = new Date().toISOString();
 
-    try {
-      db.prepare(`
-        INSERT INTO marketing_reports (id, content, metadata, sentToRosana, createdAt)
-        VALUES (@id, @content, @metadata, @sentToRosana, @createdAt)
-      `).run({
-        id,
-        content: relatorio,
-        metadata: JSON.stringify(metadata),
-        sentToRosana: 0,
-        createdAt: agora,
-      });
-      console.log(`[MarketingScheduler] 💾 Relatório salvo no banco — ID: ${id}`);
-    } catch (dbErr) {
-      console.error('[MarketingScheduler] ⚠️ Erro ao salvar no banco:', dbErr.message);
-    }
+    db.prepare(`
+      INSERT INTO marketing_reports (id, content, metadata, sentToRosana, createdAt)
+      VALUES (@id, @content, @metadata, @sentToRosana, @createdAt)
+    `).run({
+      id,
+      content: relatorio,
+      metadata: JSON.stringify({...metadata, type: 'relatorio_completo'}),
+      sentToRosana: 0,
+      createdAt: agora,
+    });
 
-    // 3. Monta mensagem completa e envia via WhatsApp
     const mensagemWhatsApp = marketingAgent.formatarResumoWhatsApp(relatorio, metadata);
-
-    console.log(`[MarketingScheduler] 📱 Enviando relatório completo para Rosana (${phone})...`);
     const envioResult = await sender.sendMessage(phone, mensagemWhatsApp);
 
-    // 4. Atualiza status de envio no banco
     if (envioResult.success && !envioResult.fallback) {
-      try {
-        db.prepare(`
-          UPDATE marketing_reports 
-          SET sentToRosana = 1, sentAt = @sentAt
-          WHERE id = @id
-        `).run({ id, sentAt: new Date().toISOString() });
-      } catch (e) { /* ignora */ }
-      
-      console.log('[MarketingScheduler] ✅ Relatório enviado para Rosana com sucesso!');
-    } else {
-      console.error('[MarketingScheduler] ❌ Falha ao enviar para Rosana:', envioResult.error);
+      db.prepare(`
+        UPDATE marketing_reports 
+        SET sentToRosana = 1, sentAt = @sentAt
+        WHERE id = @id
+      `).run({ id, sentAt: new Date().toISOString() });
+      console.log('[MarketingScheduler] ✅ Relatório estratégico enviado com sucesso!');
     }
 
-    return {
-      success: true,
-      reportId: id,
-      enviado: envioResult.success && !envioResult.fallback,
-      phone,
-      metadata,
-    };
-
+    return { success: true, reportId: id };
   } catch (error) {
     console.error('[MarketingScheduler] ❌ Erro no job de marketing:', error.message);
     return { success: false, error: error.message };
@@ -141,7 +158,7 @@ function iniciarScheduler(db) {
   }
 
   console.log('[MarketingScheduler] ⏰ Scheduler de marketing iniciado');
-  console.log(`[MarketingScheduler] 📅 Envio automático: a cada ${INTERVALO_DIAS} dias, às 08:00 (Brasília)`);
+  console.log(`[MarketingScheduler] 📅 Envio estratégico: a cada ${INTERVALO_ESTRATEGICO_DIAS} dias, às 08:00 (Brasília)`);
   console.log(`[MarketingScheduler] 📱 Destinatário: Rosana — ${ROSANA_PHONE}`);
 
   // Registra que o scheduler foi iniciado
@@ -164,9 +181,24 @@ function iniciarScheduler(db) {
 
   // Verifica a cada 5 minutos
   schedulerInterval = setInterval(async () => {
-    if (deveExecutarHoje(db)) {
-      console.log(`[MarketingScheduler] 📅 ${INTERVALO_DIAS} dias se passaram — executando job automático!`);
-      await executarJobMarketing(db);
+    const agora = new Date();
+    const agoraBrasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    
+    const hora = agoraBrasilia.getHours();
+    const minuto = agoraBrasilia.getMinutes();
+
+    // Só executa no horário de 08:00-08:10 para ter uma margem
+    if (hora === 8 && minuto < 10) {
+      // 1. Tarefas Diárias (Clima e Venda Parada)
+      if (!jaExecutouDiario(db)) {
+        await executarTarefasDiarias(db);
+        marcarDiarioExecutado(db);
+      }
+
+      // 2. Relatório Estratégico (Quinzenal)
+      if (deveExecutarEstrategico(db)) {
+        await executarJobMarketing(db);
+      }
     }
   }, 5 * 60 * 1000); // 5 minutos
 
@@ -201,7 +233,7 @@ function getStatus(db) {
     if (ultimo && ultimo.sentAt) {
       ultimoEnvio = ultimo.sentAt;
       const dataProximo = new Date(ultimo.sentAt);
-      dataProximo.setDate(dataProximo.getDate() + INTERVALO_DIAS);
+      dataProximo.setDate(dataProximo.getDate() + INTERVALO_ESTRATEGICO_DIAS);
       dataProximo.setHours(8, 0, 0, 0);
       proximoEnvio = dataProximo.toISOString();
     } else {
@@ -219,7 +251,7 @@ function getStatus(db) {
     ultimoEnvio,
     proximoEnvio,
     destinatario: ROSANA_PHONE,
-    frequencia: `A cada ${INTERVALO_DIAS} dias, às 08:00 (Brasília)`,
+    frequencia: `Relatório Estratégico: a cada ${INTERVALO_ESTRATEGICO_DIAS} dias | Tarefas diárias: 08h00`,
   };
 }
 

@@ -14,6 +14,8 @@ const {
   gerarRelatorioClimaIpiranga,
   formatarResumoWhatsApp,
   getDatasComemorativasProximos,
+  gerarMensagemClimaDiaria,
+  analisarProdutosParados90Dias,
 } = require('./services/marketing-agent.service');
 
 const { sendMessage } = require('./services/message-sender.service');
@@ -225,22 +227,40 @@ function initializeMarketingEndpoints(app, db) {
     }
   });
 
-  // ─── GET /api/marketing/clima-ipiranga ───────────────────────────────────
-  app.get('/api/marketing/clima-ipiranga', async (req, res) => {
+  // ─── POST /api/marketing/diario/clima ────────────────────────────────────
+  app.post('/api/marketing/diario/clima', async (req, res) => {
     try {
-      console.log('[IsaMarketing] 🌤️ Buscando clima real para o Ipiranga (JF)...');
-      const dadosClima = await buscarClimaReal();
+      console.log('[IsaMarketing] Gerando clima diário para Rosana...');
+      const mensagem = await gerarMensagemClimaDiaria();
       
-      console.log('[IsaMarketing] 🧠 Gerando conteúdo de clima com IA...');
-      const relatorio = await gerarRelatorioClimaIpiranga(dadosClima);
+      const phone = req.body.phone || process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP;
       
-      res.json({ 
-        sucesso: true, 
-        dadosClima, 
-        conteudo: relatorio 
-      });
+      if (mensagem) {
+        await sendMessage(phone, mensagem);
+        res.json({ success: true, message: `Clima enviado para ${phone}`, content: mensagem });
+      } else {
+        res.status(404).json({ error: 'Não foi possível gerar a mensagem de clima' });
+      }
     } catch (err) {
-      console.error('[IsaMarketing] Erro no clima Ipiranga:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/marketing/diario/venda-parada ─────────────────────────────
+  app.post('/api/marketing/diario/venda-parada', async (req, res) => {
+    try {
+      console.log('[IsaMarketing] Analisando produtos parados para Nayane...');
+      const analise = await analisarProdutosParados90Dias();
+      
+      const phone = req.body.phone || process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP;
+      
+      if (analise) {
+        await sendMessage(phone, analise);
+        res.json({ success: true, message: `Análise enviada para ${phone}`, content: analise });
+      } else {
+        res.status(404).json({ error: 'Relatório de venda parada não encontrado ou vazio' });
+      }
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });

@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useToast } from './ToastContext';
 import { 
   Bot, Spline as Sparkles, UploadCloud, FileText, TrendingDown,
-  LineChart, CheckCircle, AlertTriangle, Lightbulb
+  LineChart, CheckCircle, AlertTriangle, Lightbulb, ArrowLeft
 } from 'lucide-react';
+import FileSelector from './FileSelector';
 
 const API_BASE = 'http://localhost:3001';
 
-type Tab = 'dashboard' | 'caixa' | 'digifarma';
+type Tab = 'dashboard' | 'caixa' | 'central';
 
 export default function FinancialAgent() {
   const { addToast } = useToast();
@@ -61,41 +62,33 @@ export default function FinancialAgent() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setFileName(file.name);
+  const handleAnalyzeFile = async (filename: string) => {
     setLoadingUpload(true);
     setRelatorioArquivo('');
-    addToast(`📂 Enviando ${file.name} para a Isa ler...`, 'info');
-
-    const formData = new FormData();
-    formData.append('relatorio', file);
+    addToast(`📂 Analisando relatório ${filename}...`, 'info');
 
     try {
-      const r = await fetch(`${API_BASE}/api/finance-agent/upload-relatorio`, {
+      const r = await fetch(`${API_BASE}/api/finance-agent/analisar-arquivo-central`, {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       
       setRelatorioArquivo(data.relatorio);
-      addToast('✅ Relatório processado com sucesso!', 'success');
+      addToast('✅ Análise concluída!', 'success');
     } catch (err: unknown) {
-      addToast(`❌ Erro no upload: ${err instanceof Error ? err.message : 'Arquivo inválido'}`, 'error');
+      addToast(`❌ Erro na análise: ${err instanceof Error ? err.message : 'Falha total'}`, 'error');
     } finally {
       setLoadingUpload(false);
-      // reset file input
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const tabs: { id: Tab; label: string; icon: any }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: Bot },
     { id: 'caixa', label: 'Vigilância de Caixa', icon: LineChart },
-    { id: 'digifarma', label: 'Leitura Digifarma', icon: FileText },
+    { id: 'central', label: 'Análise de Relatórios', icon: FileText },
   ];
 
   return (
@@ -180,101 +173,34 @@ export default function FinancialAgent() {
                 Descubra instantaneamente se o lucro operacional cobre os boletos da semana sem falir seu caixa.
               </p>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm overflow-hidden relative group cursor-pointer hover:border-blue-300 transition-colors"
-                 onClick={() => setActiveTab('digifarma')}>
-              <div className="absolute -right-6 -top-6 opacity-5 group-hover:opacity-10 transition-opacity">
-                <FileText className="w-32 h-32" />
-              </div>
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-2xl w-fit mb-4">
-                <UploadCloud className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Leitor Digifarma (PDF/CSV)</h3>
-              <p className="text-sm text-slate-500 max-w-sm">
-                Jogue um relatório de vendas ou fluxo em formato PDF ou CSV. A Isa formata os dados complexos 
-                do Digifarma em um diagnóstico claro, apontando para onde o seu dinheiro está vazando.
-              </p>
-            </div>
           </div>
         )}
 
-        {/* ─── VIGILÂNCIA DE CAIXA ────────────────────────────────────────────── */}
-        {activeTab === 'caixa' && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="flex justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
-              <div>
-                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-1">Diagnóstico Semanal de Fluxo</h3>
-                <p className="text-sm text-slate-500">Avalia os fechamentos dos últimos 7 dias cruzando com Boletos que vencem logo.</p>
-              </div>
-              <button 
-                onClick={handleAnalisarCaixa} 
-                disabled={loadingCaixa}
-                className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all whitespace-nowrap"
-              >
-                {loadingCaixa ? 'Aguarde, calculando...' : 'Gerar Análise Crítica'}
-              </button>
-            </div>
-
-            {loadingCaixa && (
-              <div className="flex flex-col items-center justify-center p-20 gap-4 text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl">
-                <div className="w-10 h-10 border-4 border-slate-200 dark:border-slate-700 border-t-emerald-600 rounded-full animate-spin" />
-                <p className="font-bold">Cruzando dados de vendas e despesas do sistema...</p>
-              </div>
-            )}
-
-            {relatorioCaixa && !loadingCaixa && (
-              <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-3xl p-8 shadow-sm">
-                <pre className="text-sm font-medium whitespace-pre-wrap text-slate-800 dark:text-slate-200 font-sans leading-relaxed">
-                  {relatorioCaixa}
-                </pre>
-              </div>
-            )}
-
-            {!relatorioCaixa && !loadingCaixa && (
-              <div className="flex flex-col items-center justify-center p-16 gap-4 text-center border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl bg-slate-50/50 dark:bg-slate-800/30">
-                <div className="text-4xl opacity-80 mb-2">📉</div>
-                <h4 className="font-bold text-slate-700 dark:text-slate-300 text-lg">Sem relatório</h4>
-                <p className="text-sm text-slate-500 max-w-sm">Mande a Isa fazer a auditoria do seu faturamento.</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ─── LEITURA DIGIFARMA ──────────────────────────────────────────────── */}
-        {activeTab === 'digifarma' && (
+        {/* ─── ANÁLISE DE RELATÓRIOS (CENTRALIZADA) ─────────────────────────── */}
+        {activeTab === 'central' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-sm">
               <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-2">
-                <UploadCloud className="w-5 h-5 text-blue-500" /> Upload de Relatórios (CSV ou PDF)
+                <FileText className="w-5 h-5 text-blue-500" /> Analisar Relatórios do Digifarma
               </h3>
               <p className="text-sm text-slate-500 mb-6">
-                Faça o download de um relatório de giro de estoque, lucro ou vendas no software interno (Digifarma) e envie aqui. 
-                A Isa vai ler as planilhas e páginas de PDF e te resumir o que é mais alarmante ou positivo.
+                Selecione um dos relatórios que você enviou para a <strong>Central de Arquivos</strong> para que a Isa faça o diagnóstico financeiro.
               </p>
 
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-10 bg-slate-50 dark:bg-slate-800/30 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative">
-                <UploadCloud className="w-12 h-12 text-slate-400 mb-4" />
-                <p className="font-bold text-slate-700 dark:text-slate-300 text-lg mb-1">
-                  Arraste o arquivo ou Clique aqui
-                </p>
-                <p className="text-xs text-slate-500">.PDF ou .CSV aceitos.</p>
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  accept=".csv, .pdf, text/csv, application/pdf" 
-                  onChange={handleFileUpload}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  disabled={loadingUpload}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto p-2">
+                <FileSelector onSelect={(filename) => {
+                  setFileName(filename);
+                  handleAnalyzeFile(filename);
+                }} selectedFile={fileName} />
               </div>
-
-              {loadingUpload && (
-                <div className="mt-8 flex items-center justify-center gap-3 text-blue-600 dark:text-blue-400 font-bold">
-                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-                  A Isa está processando o arquivo {fileName}... Isso pode demorar.
-                </div>
-              )}
             </div>
+
+            {loadingUpload && (
+              <div className="flex flex-col items-center justify-center p-20 gap-4 text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl animate-pulse">
+                <div className="w-10 h-10 border-4 border-slate-200 dark:border-slate-700 border-t-blue-600 rounded-full animate-spin" />
+                <p className="font-bold">A Isa está lendo o relatório e preparando o diagnóstico...</p>
+              </div>
+            )}
 
             {relatorioArquivo && !loadingUpload && (
               <div className="bg-blue-50/50 dark:bg-slate-800/80 border border-blue-100 dark:border-slate-700 rounded-3xl p-8 shadow-sm">

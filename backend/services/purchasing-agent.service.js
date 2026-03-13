@@ -8,24 +8,30 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-flash-latest';
 
 const ISA_COMPRAS_SYSTEM_PROMPT = `
-Perfil: Você é a Isa-Compras, gerente de suprimentos da Bela Farma Sul. Sua missão é garantir o melhor giro de estoque com o menor capital imobilizado possível. Você é organizada, detalhista e focada em prazos.
+Você é a Isa-Compras, a inteligência estratégica de suprimentos da Bela Farma Sul. Sua missão é maximizar o lucro através de compras inteligentes, evitando a falta de produtos essenciais (Curva A) e impedindo o desperdício de capital em produtos parados.
 
-Fontes de Dados: Você deve basear suas decisões nos relatórios de Curva ABC e Estoque do Digifarma localizados no diretório comum do sistema.
+FONTES DE DADOS (Input Centralizado):
+1. Relatório de Curvas: Use para identificar a prioridade. Produtos Curva A são prioridade total. Produtos Curva C devem ter estoque mínimo.
+2. Relatório de Estoque Físico: Use para verificar o "Saldo" e o "Preço da Última Compra".
+3. Relatório de Produtos que não Vendem: Use como "Lista Negra". Se o produto estiver aqui, a reposição automática está proibida, mesmo que o saldo seja baixo.
 
-Rotinas Semanais:
-TERÇA-FEIRA (Medicamentos): Analisar faltas e giro de medicamentos. Gerar lista de compras formatada.
-QUARTA-FEIRA (Perfumaria): Analisar giro e novidades de perfumaria/HPC. Gerar lista de compras formatada.
-FECHAMENTO: Após a aprovação do Edevaldo, gerar um relatório resumido de intenção de compra e enviar para a Nayane via WhatsApp (Evolution API).
+LÓGICA DE ANÁLISE (O Cérebro da Isa):
+- Priorização por Curva:
+  * Se Curva A e Saldo < (Giro Médio), adicione imediatamente à lista de compras.
+  * Se Curva B, adicione se o saldo for crítico.
+  * Se Curva C, sugira a compra apenas se houver demanda específica ou pedido de cliente.
+- Filtro de Segurança: Se um produto estiver na lista de "Produtos que não Vendem", não adicione à lista. Em vez disso, gere um alerta: "Aviso: [Produto] está com estoque baixo, mas consta na lista de baixo giro. Reposição não sugerida."
+- Cálculo de Sugestão: Use a QTDE. VEND do relatório de Curvas para projetar a compra para 15 dias (Medicamentos) ou 30 dias (Perfumaria).
 
-Funções Específicas:
-Gestão de Fornecedores: Você mantém um cadastro de fornecedores (nome, contato WhatsApp e categoria).
-Cotação Automática: Ao gerar a lista, pergunte: "Ed, deseja que eu envie esta lista para cotação agora?". Se sim, dispare a lista para os fornecedores cadastrados via Evolution API.
-Separação por Categoria: Nunca misture medicamentos com perfumaria. São orçamentos e fornecedores diferentes.
+ROTINAS SEMANAIS E ENTREGAS:
+- TERÇA-FEIRA (Medicamentos): Focar em Genéricos, Similares e Éticos de Curva A e B. 
+- QUARTA-FEIRA (Perfumaria/HPC): Focar em Higiene, Cosméticos e conveniência.
+- Relatório para Nayane: Gerar uma mensagem de WhatsApp via Evolution API com o resumo: [Código] | [Produto] | [Curva] | [Sugestão].
 
-Formatação de Saída:
-Listas de compras devem conter: [Código Digifarma] | [Produto] | [Qtd Sugerida] | [Último Preço Pago].
+TOM DE VOZ:
+Analítica, rigorosa com o dinheiro da farmácia e proativa. Você não espera o Edevaldo pedir; você apresenta a solução pronta baseada nos dados.
 
-Frase de Ordem: "Comprar bem é o primeiro passo para vender com lucro."
+FRASE DE ORDEM: "Comprar bem é o primeiro passo para vender com lucro."
 `;
 
 async function chamarGemini(prompt, systemNote = '') {
@@ -71,8 +77,11 @@ async function analisarRelatoriosDigifarma(files) {
 
     if (mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {
       const dataBuffer = fs.readFileSync(filePath);
-      const pdfData = await pdf(dataBuffer);
-      fileText = pdfData.text;
+      const uint8Array = new Uint8Array(dataBuffer);
+      const parser = new pdf.PDFParse(uint8Array);
+      await parser.load();
+      const pdfData = await parser.getText();
+      fileText = pdfData.text || '';
     } 
     else if (fileName.endsWith('.csv') || mimeType === 'text/csv') {
       fileText = await new Promise((resolve, reject) => {
@@ -89,16 +98,18 @@ async function analisarRelatoriosDigifarma(files) {
   }
 
   const prompt = `
-Com base nos relatórios anexados (Curva ABC e/ou Estoque), identifique as necessidades de compra.
-Lembre-se das regras:
-1. Terça é Medicamentos, Quarta é Perfumaria.
-2. Formato: [Código Digifarma] | [Produto] | [Qtd Sugerida] | [Último Preço Pago].
-3. Não misture categorias.
+Com base nos relatórios anexados (Curva ABC, Estoque e/ou Lista Negra de baixa venda), identifique as necessidades de compra seguindo sua LÓGICA DE ANÁLISE estratégica.
+
+Lembre-se:
+1. Hoje é ${new Date().toLocaleDateString('pt-BR', { weekday: 'long' })}. 
+2. Se for Medicamentos, projete para 15 dias. Se for Perfumaria, 30 dias.
+3. Use o formato: [Código] | [Produto] | [Curva] | [Sugestão].
+4. RESPEITE a Lista Negra: Se o produto estiver nela, gere o alerta em vez de sugerir a compra.
 
 DADOS DOS RELATÓRIOS:
 ${combinedContent}
 
-TAREFA: Gere a lista de sugestão de compra e termine perguntando se deseja enviar para cotação.
+TAREFA: Gere o relatório de sugestão estrategicamente e termine perguntando se deseja que eu envie para cotação agora.
 `;
 
   return chamarGemini(prompt);

@@ -13,8 +13,12 @@ import {
   Tag,
   Search,
   BrainCircuit,
-  Sparkles
+  Sparkles,
+  ArrowLeft
 } from 'lucide-react';
+import FileSelector from './FileSelector';
+
+const API_BASE = 'http://localhost:3001';
 
 interface Supplier {
   id: string;
@@ -33,6 +37,8 @@ export default function PurchasingAgent() {
   const [showModal, setShowModal] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', whatsapp: '', category: 'Medicamentos' });
   const [sendingQuotes, setSendingQuotes] = useState(false);
+  const [sendingToNayane, setSendingToNayane] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
   useEffect(() => {
     fetchSuppliers();
@@ -40,7 +46,7 @@ export default function PurchasingAgent() {
 
   const fetchSuppliers = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/purchasing/suppliers');
+      const res = await fetch(`${API_BASE}/api/purchasing/suppliers`);
       const data = await res.json();
       setSuppliers(data);
     } catch (err) {
@@ -52,7 +58,7 @@ export default function PurchasingAgent() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/purchasing/suppliers', {
+      const res = await fetch(`${API_BASE}/api/purchasing/suppliers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSupplier)
@@ -72,7 +78,7 @@ export default function PurchasingAgent() {
   const handleDeleteSupplier = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir este fornecedor?')) return;
     try {
-      await fetch(`http://localhost:3001/api/purchasing/suppliers/${id}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/api/purchasing/suppliers/${id}`, { method: 'DELETE' });
       fetchSuppliers();
     } catch (err) {
       console.error('Erro ao excluir fornecedor:', err);
@@ -80,10 +86,19 @@ export default function PurchasingAgent() {
   };
 
   const handleAnalyzeReports = async () => {
+    if (selectedFiles.length === 0) {
+      alert('Por favor, selecione ao menos um relatório na central primeiro.');
+      return;
+    }
+
     setAnalyzing(true);
     setSuggestion(null);
     try {
-      const res = await fetch('http://localhost:3001/api/purchasing/analyze-reports', { method: 'POST' });
+      const res = await fetch(`${API_BASE}/api/purchasing/analyze-reports`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filenames: selectedFiles })
+      });
       const data = await res.json();
       if (data.suggestion) {
         setSuggestion(data.suggestion);
@@ -105,7 +120,7 @@ export default function PurchasingAgent() {
 
     setSendingQuotes(true);
     try {
-      const res = await fetch('http://localhost:3001/api/purchasing/send-quotes', {
+      const res = await fetch(`${API_BASE}/api/purchasing/send-quotes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -113,12 +128,32 @@ export default function PurchasingAgent() {
           category
         })
       });
-      const data = await res.json();
-      alert('Cotações enviadas com sucesso!');
+      if (res.ok) {
+        alert('Cotações enviadas com sucesso!');
+      }
     } catch (err) {
       console.error('Erro ao enviar cotações:', err);
     } finally {
       setSendingQuotes(false);
+    }
+  };
+
+  const handleSendToNayane = async () => {
+    if (!suggestion) return;
+    setSendingToNayane(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/purchasing/send-to-nayane`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ list: suggestion })
+      });
+      if (res.ok) {
+        alert('Relatório enviado para Nayane com sucesso!');
+      }
+    } catch (err) {
+      console.error('Erro ao enviar para Nayane:', err);
+    } finally {
+      setSendingToNayane(false);
     }
   };
 
@@ -148,7 +183,7 @@ export default function PurchasingAgent() {
               className={`px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'dashboard' ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               <FileText className="w-3.5 h-3.5" />
-              Relatórios
+              Análise
             </button>
             <button 
               onClick={() => setActiveTab('suppliers')}
@@ -163,7 +198,6 @@ export default function PurchasingAgent() {
 
       {activeTab === 'dashboard' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Analysis Area */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm">
               <div className="flex items-center justify-between mb-8">
@@ -172,7 +206,13 @@ export default function PurchasingAgent() {
                     <BrainCircuit className="w-5 h-5 text-amber-500" />
                     Análise Digifarma
                   </h2>
-                  <p className="text-sm text-slate-500 font-medium">Processamento de Curva ABC e Estoque</p>
+                  <p className="text-sm text-slate-500 font-medium">
+                    {selectedFiles.length > 0 ? (
+                      <span>Arquivos selecionados: <strong className="text-blue-600">{selectedFiles.length}</strong></span>
+                    ) : (
+                      "Selecione um ou mais arquivos (Curva, Estoque e Baixo Giro)"
+                    )}
+                  </p>
                 </div>
                 <button 
                   onClick={handleAnalyzeReports}
@@ -184,14 +224,21 @@ export default function PurchasingAgent() {
                 </button>
               </div>
 
-              {!suggestion && !analyzing && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-h-[400px] overflow-y-auto p-1">
+                <FileSelector 
+                  onSelect={(filenames) => setSelectedFiles(filenames)} 
+                  selectedFiles={selectedFiles} 
+                />
+              </div>
+
+              {!suggestion && !analyzing && selectedFiles.length === 0 && (
                 <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center">
                   <div className="h-16 w-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FileText className="w-8 h-8 text-slate-300" />
+                    <Search className="w-8 h-8 text-slate-300" />
                   </div>
-                  <h3 className="text-slate-600 dark:text-slate-300 font-bold mb-2">Nenhuma análise ativa</h3>
+                  <h3 className="text-slate-600 dark:text-slate-300 font-bold mb-2">Selecione um relatório</h3>
                   <p className="text-slate-400 text-sm max-w-sm mx-auto">
-                    Coloque os relatórios CSV ou PDF do Digifarma na pasta <code className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-xs">backend/reports/digifarma</code> e clique em Iniciar Análise.
+                    Escolha um arquivo do Digifarma acima para que a Isa-Compras comece a trabalhar.
                   </p>
                 </div>
               )}
@@ -204,7 +251,7 @@ export default function PurchasingAgent() {
                     </div>
                   </div>
                   
-                  <div className="flex justify-end gap-3">
+                  <div className="flex flex-wrap justify-end gap-3">
                     <button 
                       onClick={() => setSuggestion(null)}
                       className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
@@ -212,11 +259,19 @@ export default function PurchasingAgent() {
                       Descartar
                     </button>
                     <button 
+                      onClick={handleSendToNayane}
+                      disabled={sendingToNayane}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    >
+                      {sendingToNayane ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 text-xs" />}
+                      Enviar para Nayane
+                    </button>
+                    <button 
                       onClick={handleSendQuotes}
                       disabled={sendingQuotes}
                       className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-emerald-700 transition-colors disabled:opacity-50"
                     >
-                      {sendingQuotes ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      {sendingQuotes ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
                       Disparar Cotação para Fornecedores
                     </button>
                   </div>
@@ -225,7 +280,6 @@ export default function PurchasingAgent() {
             </div>
           </div>
 
-          {/* Tips / Summary Pane */}
           <div className="space-y-6">
             <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
                <div className="absolute -bottom-8 -right-8 w-32 h-32 bg-white/5 rounded-full blur-2xl" />
@@ -238,47 +292,21 @@ export default function PurchasingAgent() {
                    <div className="h-2 w-2 bg-amber-500 rounded-full mt-2 flex-shrink-0" />
                    <div>
                      <p className="text-xs font-black text-amber-400 uppercase tracking-widest mb-1">Terça-Feira</p>
-                     <p className="text-sm text-slate-300 leading-snug">Dia de focar nos medicamentos e faltas crônicas.</p>
+                     <p className="text-sm text-slate-300 leading-snug font-medium">Medicamentos: Genéricos, Similares e Éticos (Curva A e B).</p>
                    </div>
                  </li>
                  <li className="flex gap-4">
                    <div className="h-2 w-2 bg-purple-500 rounded-full mt-2 flex-shrink-0" />
                    <div>
                      <p className="text-xs font-black text-purple-400 uppercase tracking-widest mb-1">Quarta-Feira</p>
-                     <p className="text-sm text-slate-300 leading-snug">Perfumaria e HPC. De olho nas novidades e giro.</p>
+                     <p className="text-sm text-slate-300 leading-snug font-medium">Perfumaria/HPC: Higiene, Cosméticos e conveniência.</p>
                    </div>
                  </li>
                </ul>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
-              <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                Resumo da Loja
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                  <span className="text-xs font-bold text-slate-500">Fornecedores ativos</span>
-                  <span className="text-sm font-black text-slate-800 dark:text-slate-100">{suppliers.length}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                  <span className="text-xs font-bold text-slate-500">Cat. Medicamentos</span>
-                  <span className="text-sm font-black text-slate-800 dark:text-slate-100">
-                    {suppliers.filter(s => s.category === 'Medicamentos').length}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                  <span className="text-xs font-bold text-slate-500">Cat. Perfumaria</span>
-                  <span className="text-sm font-black text-slate-800 dark:text-slate-100">
-                    {suppliers.filter(s => s.category === 'Perfumaria').length}
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       ) : (
-        /* Suppliers Tab */
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 dark:border-slate-800">
             <div>
@@ -349,7 +377,6 @@ export default function PurchasingAgent() {
         </div>
       )}
 
-      {/* Modal Novo Fornecedor */}
       {showModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-md shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
@@ -357,7 +384,7 @@ export default function PurchasingAgent() {
               <div className="flex items-center justify-between mb-8">
                 <h3 className="text-xl font-black text-slate-800 dark:text-slate-100">Novo Fornecedor</h3>
                 <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
-                  <X className="w-5 h-5" />
+                  <XIcon className="w-5 h-5" />
                 </button>
               </div>
 
@@ -423,7 +450,7 @@ export default function PurchasingAgent() {
   );
 }
 
-function X(props: any) {
+function XIcon(props: any) {
   return (
     <svg 
       xmlns="http://www.w3.org/2000/svg" 

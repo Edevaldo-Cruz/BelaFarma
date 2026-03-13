@@ -3,25 +3,27 @@ import { ArrowLeft, Star, TrendingUp, ShoppingCart, BrainCircuit, Sparkles } fro
 import MarketingAgent from './MarketingAgent';
 import FinancialAgent from './FinancialAgent';
 import PurchasingAgent from './PurchasingAgent';
+import { MedicationSearch } from './MedicationSearch';
+import IsaFiles from './IsaFiles';
 
-type ActiveAgent = 'portal' | 'marketing' | 'financeiro';
+type ActiveAgent = 'portal' | 'marketing' | 'financeiro' | 'compras' | 'medicamentos' | 'arquivos';
 
-interface AgentCard {
+interface AIAgent {
   id: ActiveAgent;
   name: string;
-  subtitle: string;
-  description: string;
+  role: string;
+  description?: string; // Make description optional as it's not in all new agents
   emoji: string;
   gradient: string;
   accentColor: string;
   available: boolean;
 }
 
-const agents: AgentCard[] = [
+const agents: AIAgent[] = [
   {
     id: 'marketing',
     name: 'Isa-Marketing',
-    subtitle: 'Estrategista Digital',
+    role: 'Estrategista Digital',
     description: 'Relatórios quinzenais, datas comemorativas, ideias de promoção, curadoria de notícias e alertas climáticos para impulsionar suas vendas.',
     emoji: '📢',
     gradient: 'from-violet-600 via-purple-600 to-indigo-600',
@@ -31,7 +33,7 @@ const agents: AgentCard[] = [
   {
     id: 'financeiro',
     name: 'Isa-Financeiro',
-    subtitle: 'Vigilante Financeira',
+    role: 'Vigilante Financeira',
     description: 'Análise inteligente do caixa, cruzamento de faturamento com boletos, e leitura automática de relatórios Digifarma.',
     emoji: '💰',
     gradient: 'from-emerald-600 via-teal-600 to-cyan-500',
@@ -39,13 +41,31 @@ const agents: AgentCard[] = [
     available: true,
   },
   {
-    id: 'portal', // placeholder
+    id: 'compras', // Changed from 'portal'
     name: 'Isa-Compras',
-    subtitle: 'Gestora de Pedidos',
+    role: 'Gestora de Pedidos', // Changed from subtitle
     description: 'Sugestão de compras baseada no giro de estoque, detecção de produtos em falta e comparação de cotações entre fornecedores.',
     emoji: '🛒',
     gradient: 'from-amber-500 via-orange-500 to-red-500',
     accentColor: 'amber',
+    available: true,
+  },
+  {
+    id: 'medicamentos',
+    name: 'Isa-Medicamentos',
+    role: 'Busca Técnica',
+    emoji: '💊',
+    gradient: 'from-red-500 via-rose-500 to-pink-500',
+    accentColor: 'red',
+    available: true,
+  },
+  {
+    id: 'arquivos',
+    name: 'Isa-Arquivos',
+    role: 'Central de Relatórios',
+    emoji: '📂',
+    gradient: 'from-blue-500 via-indigo-500 to-cyan-500',
+    accentColor: 'blue',
     available: true,
   },
 ];
@@ -84,16 +104,8 @@ export default function AIPortal() {
     );
   }
 
-  if (activeAgent === 'portal' && activeAgent !== 'portal') { // Type guard to allow future expansion
-    // ... logic below
-  }
-
-  if (activeAgent as any === 'portal_compras' || (activeAgent === 'portal' && false)) {
-     // ...
-  }
-
   // Handle active session for Purchasing
-  if (activeAgent as any === 'compras') {
+  if (activeAgent === 'compras') {
     return (
       <div className="space-y-4">
         <button
@@ -104,6 +116,38 @@ export default function AIPortal() {
           Voltar à Central de IAs
         </button>
         <PurchasingAgent />
+      </div>
+    );
+  }
+
+  // Handle active session for Medication Search
+  if (activeAgent === 'medicamentos') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setActiveAgent('portal')}
+          className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-red-600 transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Voltar à Central de IAs
+        </button>
+        <MedicationSearch />
+      </div>
+    );
+  }
+
+  // Handle active session for Files Central
+  if (activeAgent === 'arquivos') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setActiveAgent('portal')}
+          className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Voltar à Central de IAs
+        </button>
+        <IsaFiles />
       </div>
     );
   }
@@ -154,9 +198,7 @@ export default function AIPortal() {
           <div
             key={agent.id}
             onClick={() => {
-              if (agent.id === 'portal' && agent.name === 'Isa-Compras') {
-                setActiveAgent('compras' as any);
-              } else if (agent.available) {
+              if (agent.available) {
                 setActiveAgent(agent.id);
               }
             }}
@@ -195,7 +237,7 @@ export default function AIPortal() {
 
               {/* Info */}
               <h3 className="text-xl font-black text-slate-800 dark:text-slate-200 mb-0.5">{agent.name}</h3>
-              <p className="text-sm font-semibold text-slate-400 mb-3">{agent.subtitle}</p>
+              <p className="text-sm font-semibold text-slate-400 mb-3">{agent.role}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-5">{agent.description}</p>
 
               {/* Botão */}

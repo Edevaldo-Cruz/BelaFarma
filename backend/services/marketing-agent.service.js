@@ -1,4 +1,6 @@
 const path = require('path');
+const fs = require('fs');
+const pdf = require('pdf-parse');
 const db = require('../database');
 
 /**
@@ -374,6 +376,71 @@ function formatarResumoWhatsApp(relatorio, metadata) {
   return `🌟 *RELATÓRIO ISA-MARKETING* 🌟\n📍 Bela Farma Sul\n📊 Período: *${formatData(agora)}*\n\n${relatorio.substring(0, 500)}...`;
 }
 
+async function gerarMensagemClimaDiaria() {
+  const climaRaw = await buscarClimaReal();
+  if (!climaRaw) return null;
+
+  const current = climaRaw.current_weather;
+  const temp = current.temperature;
+  const code = current.weathercode;
+
+  const interpretacao = {
+    0: 'Céu limpo ☀️', 1: 'Principalmente limpo 🌤️', 2: 'Parcialmente nublado ⛅', 3: 'Nublado ☁️',
+    45: 'Nevoeiro 🌫️', 51: 'Drizzle leve 🌦️', 61: 'Chuva leve 🌧️', 80: 'Pancadas de chuva ⛈️', 95: 'Tempestade ⚡'
+  };
+
+  const climaHumano = `${temp}°C - ${interpretacao[code] || 'Variável'}`;
+
+  const prompt = `Como a Isa-Marketing da Bela Farma Sul, escreva uma mensagem de WhatsApp para a Rosana (minha chefe) informando o clima de hoje em Juiz de Fora (${climaHumano}) e sugerindo uma pauta ou dica rápida de saúde para postar nas redes sociais da farmácia hoje. Seja amigável e proativa.`;
+
+  return chamarGemini(prompt, '', `clima_diario_rosana_${new Date().toISOString().split('T')[0]}`, 14400);
+}
+
+async function analisarProdutosParados90Dias() {
+  const reportsDir = path.join(__dirname, '../reports/digifarma');
+  if (!fs.existsSync(reportsDir)) return null;
+
+  const files = fs.readdirSync(reportsDir).filter(f => f.endsWith('.pdf'));
+  let targetFile = null;
+
+  // Busca o arquivo mais recente que contenha o texto de venda parada
+  // Para performance, verificamos os 5 mais recentes
+  const sortedFiles = files.map(f => ({
+    name: f,
+    mtime: fs.statSync(path.join(reportsDir, f)).mtime
+  })).sort((a, b) => b.mtime - a.mtime).slice(0, 5);
+
+  for (const fileObj of sortedFiles) {
+    const buf = fs.readFileSync(path.join(reportsDir, fileObj.name));
+    const parser = new pdf.PDFParse(new Uint8Array(buf));
+    try {
+      await parser.load();
+      const data = await parser.getText();
+      const text = (data.text || '').toLowerCase();
+      if (text.includes('90 dias') || text.includes('venda parada')) {
+        targetFile = { name: fileObj.name, content: data.text };
+        break;
+      }
+    } catch (e) {
+      console.error(`[IsaMarketing] Erro ao ler PDF ${fileObj.name}:`, e.message);
+    }
+  }
+
+  if (!targetFile) {
+    console.warn('[IsaMarketing] Relatório de venda parada a 90 dias não encontrado.');
+    return null;
+  }
+
+  const prompt = `RELATÓRIO DE PRODUTOS PARADOS (Últimos 90 dias):\n${targetFile.content.substring(0, 5000)}\n\n
+  TAREFA: Como a Isa-Marketing, identifique 10 produtos desta lista que merecem atenção IMEDIATA.
+  Para cada um, sugira:
+  1. Uma promoção criativa.
+  2. Uma ação de venda (ex: abordar clientes específicos, kit combo, destaque no balcão).
+  Formate como uma mensagem organizada para a Nayane, focada em "limpar" esse estoque parado.`;
+
+  return chamarGemini(prompt, '', `analise_venda_parada_nayane_${new Date().toISOString().split('T')[0]}`, 86400);
+}
+
 module.exports = {
   gerarRelatorioCompleto,
   gerarIdeiasProduto,
@@ -384,6 +451,8 @@ module.exports = {
   gerarRelatorioClimaIpiranga,
   formatarResumoWhatsApp,
   getDatasComemorativasProximos,
+  gerarMensagemClimaDiaria,
+  analisarProdutosParados90Dias,
   DATAS_COMEMORATIVAS,
   ISA_SYSTEM_PROMPT,
 };

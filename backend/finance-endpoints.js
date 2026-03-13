@@ -62,5 +62,35 @@ module.exports = function (db) {
     }
   });
 
+  // 4. Analisar arquivo já existente na central
+  router.post('/analisar-arquivo-central', async (req, res) => {
+    try {
+      const { filename } = req.body;
+      if (!filename) return res.status(400).json({ error: 'Nome do arquivo é obrigatório.' });
+
+      const path = require('path');
+      const fs = require('fs');
+      const reportsDir = path.join(__dirname, 'reports/digifarma');
+      const filePath = path.join(reportsDir, filename);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado na central.' });
+      }
+
+      console.log(`[IsaFinanceiro] 🤖 Analisando arquivo da central: ${filename}...`);
+      
+      const mimeType = filename.endsWith('.pdf') ? 'application/pdf' : 'text/csv';
+      const relatorioIA = await analisarRelatorioDigifarma(filePath, filename, mimeType);
+
+      res.json({ 
+        fileName: filename,
+        relatorio: relatorioIA 
+      });
+    } catch (err) {
+      console.error('[IsaFinanceiro] Erro na análise central:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };

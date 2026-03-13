@@ -141,8 +141,11 @@ async function analisarRelatorioDigifarma(filePath, fileName, mimeType) {
   try {
     if (mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {
       const dataBuffer = fs.readFileSync(filePath);
-      const pdfData = await pdf(dataBuffer);
-      conteudoTexto = pdfData.text.substring(0, 15000); // Limite de parsing para 15k chars
+      const uint8Array = new Uint8Array(dataBuffer);
+      const parser = new pdf.PDFParse(uint8Array);
+      await parser.load();
+      const pdfData = await parser.getText();
+      conteudoTexto = (pdfData.text || '').substring(0, 15000); 
     } 
     else if (fileName.endsWith('.csv') || mimeType === 'text/csv') {
       conteudoTexto = await new Promise((resolve, reject) => {
@@ -178,11 +181,6 @@ Formato esperado: Curto e grosso, em markdown, estruturado de forma fácil de le
 
   } catch (err) {
     throw new Error('Falha ao usar a IA para ler o relatório: ' + err.message);
-  } finally {
-    // Delete file after reading
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
   }
 }
 
