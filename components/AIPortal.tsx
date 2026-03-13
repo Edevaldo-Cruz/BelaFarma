@@ -172,7 +172,7 @@ export default function AIPortal() {
               <p className="text-slate-400 font-medium flex gap-2">
                 <span>Suas assistentes inteligentes</span>
                 <span className="text-slate-600">•</span>
-                <span>Bela Farma Sul</span>
+                <span>belinha</span>
               </p>
             </div>
           </div>

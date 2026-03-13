@@ -13,7 +13,7 @@ interface DailyRecordsProps {
   onSave: () => void;
 }
 
-type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered' | 'consignado' | 'ifood';
+type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered' | 'consignado' | 'ifood' | 'sangria';
 
 interface ExpenseItem {
   id: string;
@@ -72,6 +72,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   const [pixForm, setPixForm] = useState({ desc: '', val: '' });
   const [crediarioForm, setCrediarioForm] = useState({ customerId: '', client: '', val: '' });
   const [nonRegForm, setNonRegForm] = useState({ desc: '', val: '' });
+  const [sangriaForm, setSangriaForm] = useState({ desc: '', val: '' });
   
   // iFood form state
   const [ifoodForm, setIfoodForm] = useState({ val: '', feePercent: '6.5', desc: '' });
@@ -185,6 +186,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         pixDiretoList: [],
         crediarioList: [],
         nonRegistered: [],
+        sangrias: [],
         lancado: false, // Initialize as not processed
       });
     }
@@ -446,6 +448,17 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         updatedRecord.nonRegistered = [...updatedRecord.nonRegistered, newItem];
         setNonRegForm({ desc: '', val: '' });
         break;
+      
+      case 'sangria':
+        if (!sangriaForm.val) return;
+        newItem = {
+          id: Date.now().toString(),
+          desc: sangriaForm.desc || 'Sangria de Caixa',
+          val: parseCurrency(sangriaForm.val),
+        };
+        updatedRecord.sangrias = [...(updatedRecord.sangrias || []), newItem];
+        setSangriaForm({ desc: '', val: '' });
+        break;
 
       case 'consignado':
         if (consignadoMode === 'sale') {
@@ -539,6 +552,10 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         item = todayRecord.nonRegistered.find(n => n.id === id);
         if (item) setEditForm({ desc: item.desc, val: formatCurrency(item.val) });
         break;
+      case 'sangria':
+        item = (todayRecord.sangrias || []).find(s => s.id === id);
+        if (item) setEditForm({ desc: item.desc, val: formatCurrency(item.val) });
+        break;
     }
     setEditingItem({ type, id });
   };
@@ -569,6 +586,11 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
       case 'non-registered':
         updatedRecord.nonRegistered = updatedRecord.nonRegistered.map(n =>
           n.id === id ? { ...n, desc: editForm.desc, val: parseCurrency(editForm.val) } : n
+        );
+        break;
+      case 'sangria':
+        updatedRecord.sangrias = (updatedRecord.sangrias || []).map(s =>
+          s.id === id ? { ...s, desc: editForm.desc, val: parseCurrency(editForm.val) } : s
         );
         break;
     }
@@ -614,6 +636,9 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         break;
       case 'non-registered':
         updatedRecord.nonRegistered = updatedRecord.nonRegistered.filter(n => n.id !== id);
+        break;
+      case 'sangria':
+        updatedRecord.sangrias = (updatedRecord.sangrias || []).filter(s => s.id !== id);
         break;
     }
 
@@ -682,6 +707,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
     { id: 'pix' as TabType, label: 'Pix Direto na Conta', icon: DollarSign, color: 'cyan' },
     { id: 'crediario' as TabType, label: 'Crediário', icon: ShoppingBag, color: 'amber' },
     { id: 'non-registered' as TabType, label: 'Produto Não Cadastrado', icon: Plus, color: 'blue' },
+    { id: 'sangria' as TabType, label: 'Sangria', icon: ArrowRightLeft, color: 'orange' },
     { id: 'consignado' as TabType, label: 'Consignados', icon: Package, color: 'emerald' },
     { id: 'ifood' as TabType, label: 'iFood', icon: ShoppingBag, color: 'rose' },
   ];
@@ -703,6 +729,8 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
         ];
       case 'ifood':
         return todayRecord.nonRegistered.filter(i => i.desc.startsWith('iFood:'));
+      case 'sangria':
+        return todayRecord.sangrias || [];
       default: return [];
     }
   };
@@ -1242,6 +1270,32 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
                   {ifoodSaving ? 'Registrando...' : 'Registrar Venda iFood'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'sangria' && (
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Descrição (opcional)..."
+                value={sangriaForm.desc}
+                onChange={(e) => setSangriaForm({ ...sangriaForm, desc: e.target.value })}
+                className="flex-1 px-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <input
+                type="text"
+                placeholder="R$ 0,00"
+                value={sangriaForm.val}
+                onChange={(e) => handleCurrencyMask(e.target.value, (val) => setSangriaForm({ ...sangriaForm, val: val }))}
+                className="w-32 px-4 py-3 bg-slate-50 border-none rounded-2xl font-black text-sm text-orange-600 outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <button
+                onClick={() => addItem('sangria')}
+                disabled={isSaving}
+                className="px-6 py-3 bg-orange-600 text-white rounded-2xl font-black text-sm hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
             </div>
           )}
         </div>

@@ -73,6 +73,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const [pixDiretoList, setPixDiretoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
   const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
   const [creditReceiptsList, setCreditReceiptsList] = useState<Array<{ id: string, date: string, customer: string, val: number, description?: string }>>([]);
+  const [sangriaList, setSangriaList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
 
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,6 +119,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     let combinedPixDireto: Array<{ id: string, desc: string, val: number }> = [];
     let combinedCrediario: Array<{ id: string, client: string, val: number }> = [];
     let combinedCreditReceipts: Array<{ id: string, date: string, customer: string, val: number, description?: string }> = [];
+    let combinedSangria: Array<{ id: string, desc: string, val: number }> = [];
 
     todaysRecordEntries.forEach(entry => {
       combinedExpenses = combinedExpenses.concat(entry.expenses);
@@ -142,6 +144,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       combinedPixDireto = combinedPixDireto.concat(entry.pixDiretoList || []);
       combinedCrediario = combinedCrediario.concat(entry.crediarioList || []);
       combinedCreditReceipts = combinedCreditReceipts.concat(entry.creditReceipts || []);
+      combinedSangria = combinedSangria.concat(entry.sangrias || []);
     });
 
     setExpensesList(combinedExpenses);
@@ -150,6 +153,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     setPixDiretoList(combinedPixDireto);
     setCrediarioList(combinedCrediario);
     setCreditReceiptsList(combinedCreditReceipts);
+    setSangriaList(combinedSangria);
     
     // Sum up pixDireto for display
     if (combinedPixDireto.length > 0) {
@@ -218,6 +222,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const totalNonRegistered = useMemo(() => nonRegisteredList.reduce((acc, curr) => acc + curr.val, 0), [nonRegisteredList]);
   const totalCrediario = useMemo(() => crediarioList.reduce((acc, curr) => acc + curr.val, 0), [crediarioList]);
   const totalCreditReceipts = useMemo(() => creditReceiptsList.reduce((acc, curr) => acc + curr.val, 0), [creditReceiptsList]);
+  const totalSangria = useMemo(() => sangriaList.reduce((acc, curr) => acc + curr.val, 0), [sangriaList]);
 
   const totalInDrawer = useMemo(() => {
     return Object.entries(currencyCount).reduce((acc: number, [key, count]) => {
@@ -231,8 +236,8 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     // Expected Balance (Saldo Esperado): Sales + Initial + Received Extra + Credit Receipts + Non-Registered Products - Expenses - iFood - New Debts (Crediario)
     const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalIfood, totalCrediario]);
 
-    // Checked Total (Total Conferido): Drawer (Cash) + Digital
-    const totalConferido = useMemo(() => totalInDrawer + totalDigital, [totalInDrawer, totalDigital]);
+    // Checked Total (Total Conferido): Drawer (Cash) + Sangrias + Digital
+    const totalConferido = useMemo(() => totalInDrawer + totalSangria + totalDigital, [totalInDrawer, totalSangria, totalDigital]);
 
     const diff = totalConferido - subtotalSoma;
 
@@ -882,156 +887,97 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
                         </div>
 
-                        <div>
+                        </div>
 
+                        <div>
                           <p className="text-[10px] font-black uppercase text-slate-400">Total Conferido</p>
                           <p className="text-xl font-black text-slate-900 dark:text-slate-100">R$ {totalConferido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                           <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 mt-2">
-
-                            <li>+ Total em Gaveta: R$ {totalInDrawer.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>+ Total Digital: R$ {totalDigital.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
+                             <li>+ Dinheiro (Gaveta + Sangrias): R$ {(totalInDrawer + totalSangria).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+                             {totalSangria > 0 && <li className="pl-4 text-xs opacity-70">Sendo R$ {totalSangria.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em sangrias</li>}
+                             <li>+ Total Digital (Cartões/Pix): R$ {totalDigital.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
                           </ul>
-
                         </div>
-
                       </div>
-
                       
-
                       <p className="text-[10px] font-black uppercase text-slate-400 mt-4">Divergência Apurada</p>
-
                       <h3 className={`text-6xl font-black tracking-tighter ${Math.abs(diff) < 0.1 ? 'text-emerald-600' : 'text-red-600'}`}>
-
                         {formatCurrency(diff)}
-
                       </h3>
-
                       <button ref={firstInputRef} onClick={handleNext} className="mt-8 px-10 py-4 bg-red-600 text-white rounded-2xl font-black uppercase shadow-xl transition-all">Finalizar (ENTER)</button>
-
                     {(totalExpenses > 0 || totalNonRegistered > 0 || totalCrediario > 0) && (
                       <div className="mt-8 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 text-left space-y-4">
                         <h4 className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2">
-
                           <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados ({formatCurrency(totalExpenses + totalNonRegistered + totalCrediario)})
-
                         </h4>
-
                         {expensesList.length > 0 && (
-
                           <ul className="space-y-1">
-
                             {expensesList.map((item, idx) => (
-
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-
                                 <span>{item.desc}</span>
-
                                 <span>- {formatCurrency(item.val)}</span>
-
                               </li>
-
                             ))}
-
                           </ul>
-
                         )}
-
                         {ifoodList.length > 0 && (
-
                           <ul className="space-y-1 mt-2">
-
                             <h5 className="text-[10px] font-black uppercase text-rose-500">Vendas iFood</h5>
-
                             {ifoodList.map((item, idx) => (
-
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-
                                 <span>{item.desc}</span>
-
                                 <span>- {formatCurrency(item.val)}</span>
-
                               </li>
-
                             ))}
-
                           </ul>
-
                         )}
-
                         {nonRegisteredList.length > 0 && (
-
                           <ul className="space-y-1 mt-2">
-
                             {nonRegisteredList.map((item, idx) => (
-
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-
                                 <span>{item.desc} (s/ cadastro)</span>
-
                                 <span>- {formatCurrency(item.val)}</span>
-
                               </li>
-
                             ))}
-
                           </ul>
-
                         )}
-
                         {crediarioList.length > 0 && (
-
                           <ul className="space-y-1 mt-2">
-
                             <h5 className="text-[10px] font-black uppercase text-amber-500">Crediário</h5>
-
                             {crediarioList.map((item, idx) => (
-
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-
                                 <span>{item.client}</span>
-
                                 <span>- {formatCurrency(item.val)}</span>
-
                               </li>
-
                             ))}
-
                           </ul>
-
                         )}
-
                         {creditReceiptsList.length > 0 && (
-
                           <ul className="space-y-1 mt-2">
-
                             <h5 className="text-[10px] font-black uppercase text-emerald-500">Recebimento Crediário</h5>
-
                             {creditReceiptsList.map((item, idx) => (
-
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-
                                 <span>{item.customer}</span>
-
                                 <span>+ {formatCurrency(item.val)}</span>
-
                               </li>
-
                             ))}
-
                           </ul>
-
+                         )}
+                        {sangriaList.length > 0 && (
+                          <ul className="space-y-1 mt-2">
+                            <h5 className="text-[10px] font-black uppercase text-orange-500">Sangrias</h5>
+                            {sangriaList.map((item, idx) => (
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+                                <span>{item.desc}</span>
+                                <span>+ {formatCurrency(item.val)}</span>
+                              </li>
+                            ))}
+                          </ul>
                         )}
-
                       </div>
-
                     )}
 
-                    </div>
-
                   </div>
-
                 )}
 
               </div>

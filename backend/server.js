@@ -282,6 +282,7 @@ app.get('/api/all-data', (req, res) => {
         pixDiretoList: safelyParseJSON(record.pixDiretoList),
         crediarioList: safelyParseJSON(record.crediarioList),
         creditReceipts: safelyParseJSON(record.creditReceipts),
+        sangrias: safelyParseJSON(record.sangrias), // Parse sangrias
         lancado: !!record.lancado, // Convert 0/1 to boolean
       };
       console.log('Daily record from DB:', {
@@ -908,6 +909,7 @@ app.get('/api/daily-records', (req, res) => {
       pixDiretoList: safelyParseJSON(record.pixDiretoList),
       crediarioList: safelyParseJSON(record.crediarioList),
       creditReceipts: safelyParseJSON(record.creditReceipts),
+      sangrias: safelyParseJSON(record.sangrias), // Parse sangrias
       lancado: !!record.lancado, // Convert 0/1 to boolean
     }));
     res.json(records);
@@ -921,8 +923,8 @@ app.post('/api/daily-records', (req, res) => {
   try {
     const record = req.body;
     const stmt = db.prepare(`
-      INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, userName, lancado)
-      VALUES (@id, @date, @expenses, @nonRegistered, @pixDiretoList, @crediarioList, @creditReceipts, @userName, 0)
+      INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, sangrias, userName, lancado)
+      VALUES (@id, @date, @expenses, @nonRegistered, @pixDiretoList, @crediarioList, @creditReceipts, @sangrias, @userName, 0)
     `);
     const result = stmt.run({
       ...record,
@@ -931,6 +933,7 @@ app.post('/api/daily-records', (req, res) => {
       pixDiretoList: JSON.stringify(record.pixDiretoList || []),
       crediarioList: JSON.stringify(record.crediarioList || []),
       creditReceipts: JSON.stringify(record.creditReceipts || []),
+      sangrias: JSON.stringify(record.sangrias || []),
     });
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
@@ -983,6 +986,7 @@ app.put('/api/daily-records/:id', (req, res) => {
           pixDiretoList = @pixDiretoList, 
           crediarioList = @crediarioList,
           creditReceipts = @creditReceipts,
+          sangrias = @sangrias,
           date = @date
       WHERE id = @id AND lancado = 0
     `);
@@ -994,6 +998,7 @@ app.put('/api/daily-records/:id', (req, res) => {
       pixDiretoList: JSON.stringify(record.pixDiretoList || []),
       crediarioList: JSON.stringify(record.crediarioList || []),
       creditReceipts: JSON.stringify(record.creditReceipts || []),
+      sangrias: JSON.stringify(record.sangrias || []),
     });
     if (result.changes > 0) {
       res.status(200).json({ message: 'Daily record updated successfully.' });
@@ -2025,9 +2030,9 @@ app.put('/api/customer-debts/:id', (req, res) => {
           const crediarioList = [];
 
           db.prepare(`
-            INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, userName, lancado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `).run(id, date, JSON.stringify(expenses), JSON.stringify(nonRegistered), JSON.stringify(pixDiretoList), JSON.stringify(crediarioList), JSON.stringify(creditReceipts), debt.userName);
+            INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, sangrias, userName, lancado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+          `).run(id, date, JSON.stringify(expenses), JSON.stringify(nonRegistered), JSON.stringify(pixDiretoList), JSON.stringify(crediarioList), JSON.stringify(creditReceipts), JSON.stringify([]), debt.userName);
         }
       }
       return result;
@@ -2096,9 +2101,9 @@ app.post('/api/customer-debts/:id/partial-payment', (req, res) => {
         const crediarioList = [];
 
         db.prepare(`
-          INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, userName, lancado)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        `).run(recordId, date, JSON.stringify(expenses), JSON.stringify(nonRegistered), JSON.stringify(pixDiretoList), JSON.stringify(crediarioList), JSON.stringify(creditReceipts), debt.userName);
+          INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, sangrias, userName, lancado)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `).run(recordId, date, JSON.stringify(expenses), JSON.stringify(nonRegistered), JSON.stringify(pixDiretoList), JSON.stringify(crediarioList), JSON.stringify(creditReceipts), JSON.stringify([]), debt.userName);
       }
 
       return { success: true };

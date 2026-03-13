@@ -230,8 +230,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <PlusSquare className="w-6 h-6 text-white" />
               </div>
               <div className="flex flex-col leading-none">
-                <span className="text-xl font-black text-red-700 dark:text-red-500 tracking-tighter">BELA FARMA</span>
-                <span className="text-sm font-bold text-blue-700 dark:text-blue-400 ml-auto tracking-widest uppercase text-[10px]">Sul</span>
+                <span className="text-2xl font-black text-red-700 dark:text-red-500 tracking-tighter">belinha</span>
+                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 ml-auto tracking-widest uppercase italic">sistema</span>
               </div>
             </div>
             <div className="flex items-center gap-3">

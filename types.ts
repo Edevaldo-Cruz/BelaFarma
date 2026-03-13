@@ -106,6 +106,8 @@ export interface DailyRecordEntry {
   
   creditReceipts?: Array<{ id: string, date: string, customer: string, val: number, description?: string }>;
 
+  sangrias?: Array<{ id: string, desc: string, val: number }>;
+
   userName: string;
 
   lancado?: boolean; // Flag to indicate if this record has been processed in cash closing

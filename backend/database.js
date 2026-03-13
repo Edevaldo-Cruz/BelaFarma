@@ -180,6 +180,7 @@ try {
         pixDiretoList TEXT,
         crediarioList TEXT,
         creditReceipts TEXT,
+        sangrias TEXT, -- New column for sangrias
         userName TEXT NOT NULL,
         cashClosingId TEXT -- New column to link to cash closings
       );
@@ -442,6 +443,14 @@ try {
     } catch (e) {
       db.exec('ALTER TABLE daily_records ADD COLUMN creditReceipts TEXT');
       console.log('Added creditReceipts column to daily_records table.');
+    }
+
+    // Daily records sangrias migration
+    try {
+      db.prepare('SELECT sangrias FROM daily_records LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE daily_records ADD COLUMN sangrias TEXT');
+      console.log('Added sangrias column to daily_records table.');
     }
 
     // Migrate existing data: mark all records from previous days as lancado = 1

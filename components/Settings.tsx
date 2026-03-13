@@ -87,7 +87,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     <div className="space-y-8 animate-in fade-in duration-500">
       <header>
         <h1 className="text-2xl font-bold text-slate-900">Configurações</h1>
-        <p className="text-slate-500 font-medium">Bela Farma Sul • Painel de Controle</p>
+        <p className="text-slate-500 font-medium">belinha • Painel de Controle</p>
       </header>
 
       {user.role === UserRole.ADM && (
@@ -168,7 +168,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
             <div className="pt-2">
                <div className="flex items-center gap-2 text-slate-400">
                  <MapPin className="w-4 h-4" />
-                 <span className="text-xs font-bold">Localidade: Sul (Principal)</span>
+                 <span className="text-xs font-bold">Localidade: belinha (Principal)</span>
                </div>
             </div>
           </div>

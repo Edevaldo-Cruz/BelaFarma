@@ -50,7 +50,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           <div className="flex justify-center mb-6">
             <img 
               src="/images/logo-bela-farma.jpg" 
-              alt="Bela Farma Sul" 
+              alt="belinha" 
               className="h-32 w-auto object-contain"
             />
           </div>
@@ -92,7 +92,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           
           <div className="text-center space-y-2 pt-4">
             <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">
-              Plataforma de Gestão Integrada • Unidade Sul
+              belinha • Gestão Inteligente
             </p>
           </div>
         </form>

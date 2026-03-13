@@ -417,7 +417,12 @@ async function analisarProdutosParados90Dias() {
       await parser.load();
       const data = await parser.getText();
       const text = (data.text || '').toLowerCase();
-      if (text.includes('90 dias') || text.includes('venda parada')) {
+      
+      // Busca por palavras-chave que identifiquem o relatório de venda parada
+      const keywords = ['90 dias', 'venda parada', 'não vende', 'produto parado', 'sem venda'];
+      const isTarget = keywords.some(k => text.includes(k));
+
+      if (isTarget) {
         targetFile = { name: fileObj.name, content: data.text };
         break;
       }
@@ -427,7 +432,7 @@ async function analisarProdutosParados90Dias() {
   }
 
   if (!targetFile) {
-    console.warn('[IsaMarketing] Relatório de venda parada a 90 dias não encontrado.');
+    console.warn('[IsaMarketing] Relatório de venda parada não encontrado nos arquivos recentes.');
     return null;
   }
 
