@@ -126,15 +126,15 @@ module.exports = (db) => {
     }
   });
 
-  router.post('/send-to-nayane', async (req, res) => {
+  router.post('/send-to-edevaldo', async (req, res) => {
     const { list } = req.body;
-    const nayaneWhatsApp = process.env.NAYANE_WHATSAPP || '553299999999'; // Placeholder se não houver no .env
+    const edevaldoWhatsApp = process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP || '5532998073194';
 
     if (!list) return res.status(400).json({ error: 'Relatório vazio.' });
 
     try {
-      const message = `Oi Nayane, aqui é a Isa. Segue o resumo de intenção de compra aprovado:\n\n${list}\n\nAtt, Isa-Compras 🛒`;
-      await whatsappService.sendMessage(nayaneWhatsApp, message);
+      const message = `Oi Edevaldo, aqui é a Isa. Segue o resumo de intenção de compra aprovado:\n\n${list}\n\nAtt, Isa-Compras 🛒`;
+      await whatsappService.sendMessage(edevaldoWhatsApp, message);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

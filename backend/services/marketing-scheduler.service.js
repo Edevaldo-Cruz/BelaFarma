@@ -10,7 +10,7 @@ const sender = require('./message-sender.service');
 
 // Números para receber os relatórios
 const ROSANA_PHONE = process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP;
-const NAYANE_PHONE = process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP;
+const EDEVALDO_PHONE = process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP;
 
 // Intervalo quinzenal em dias para o relatório estratégico
 const INTERVALO_ESTRATEGICO_DIAS = 15;
@@ -87,10 +87,10 @@ async function executarTarefasDiarias(db) {
   }
   // 2. Venda Parada para Nayane
   try {
-    const analiseNayane = await marketingAgent.analisarProdutosParados90Dias(db, NAYANE_PHONE);
-    if (analiseNayane) {
-      console.log(`[MarketingScheduler] 📱 Enviando análise de venda parada para Nayane (${NAYANE_PHONE})...`);
-      await sender.sendMessage(NAYANE_PHONE, analiseNayane);
+    const analiseEdevaldo = await marketingAgent.analisarProdutosParados90Dias(db, EDEVALDO_PHONE);
+    if (analiseEdevaldo) {
+      console.log(`[MarketingScheduler] 📱 Enviando análise de venda parada para Edevaldo (${EDEVALDO_PHONE})...`);
+      await sender.sendMessage(EDEVALDO_PHONE, analiseEdevaldo);
     }
   } catch (e) {
     console.error('[MarketingScheduler] Erro ao enviar análise para Nayane:', e.message);
@@ -101,7 +101,7 @@ async function executarTarefasDiarias(db) {
   try {
     const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
     if (ADMIN_PHONE) {
-      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n✅ Previsão do tempo enviada para Rosana (${ROSANA_PHONE})\n✅ Análise de 10 produtos enviada para Nayane (${NAYANE_PHONE})\n\n_Aguardando aprovação da Nayane para criar tarefas._`;
+      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n✅ Previsão do tempo enviada para Rosana (${ROSANA_PHONE})\n✅ Análise de 10 produtos enviada para Edevaldo (${EDEVALDO_PHONE})\n\n_Aguardando sua aprovação para criar tarefas._`;
       console.log(`[MarketingScheduler] 📱 Enviando resumo da manhã para o Admin...`);
       await sender.sendMessage(ADMIN_PHONE, resumo);
     }

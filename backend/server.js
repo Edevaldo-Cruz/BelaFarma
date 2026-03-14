@@ -919,6 +919,42 @@ app.get('/api/daily-records', (req, res) => {
   }
 });
 
+// Helper function to sync sangrias to safe entries
+const syncSangriasToSafe = (sangrias, date, userName) => {
+  try {
+    const parsedSangrias = Array.isArray(sangrias) ? sangrias : JSON.parse(sangrias || '[]');
+    
+    db.transaction(() => {
+      // 1. Get current sangria entries in the safe for this source (to handle deletions)
+      // Note: This only works if we know which sangrias WERE there. 
+      // A better way is to delete all entries for sangrias associated with THIS daily record or just manage by ID.
+      
+      for (const s of parsedSangrias) {
+        if (!s.id || !s.val) continue;
+
+        const existing = db.prepare('SELECT id FROM safe_entries WHERE source_id = ?').get(s.id);
+        
+        if (existing) {
+          // Update existing
+          db.prepare(`
+            UPDATE safe_entries 
+            SET value = ?, date = ?, description = ?, userName = ?
+            WHERE source_id = ?
+          `).run(s.val, date, `[Sangria] ${s.desc}`, userName, s.id);
+        } else {
+          // Insert new
+          db.prepare(`
+            INSERT INTO safe_entries (id, date, description, type, value, userName, source_id)
+            VALUES (?, ?, ?, 'Entrada', ?, ?, ?)
+          `).run('S' + s.id, date, `[Sangria] ${s.desc}`, s.val, userName, s.id);
+        }
+      }
+    })();
+  } catch (err) {
+    console.error('Error syncing sangrias to safe:', err);
+  }
+};
+
 app.post('/api/daily-records', (req, res) => {
   try {
     const record = req.body;
@@ -926,7 +962,7 @@ app.post('/api/daily-records', (req, res) => {
       INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, sangrias, userName, lancado)
       VALUES (@id, @date, @expenses, @nonRegistered, @pixDiretoList, @crediarioList, @creditReceipts, @sangrias, @userName, 0)
     `);
-    const result = stmt.run({
+    stmt.run({
       ...record,
       expenses: JSON.stringify(record.expenses || []),
       nonRegistered: JSON.stringify(record.nonRegistered || []),
@@ -935,7 +971,13 @@ app.post('/api/daily-records', (req, res) => {
       creditReceipts: JSON.stringify(record.creditReceipts || []),
       sangrias: JSON.stringify(record.sangrias || []),
     });
-    res.status(201).json({ id: result.lastInsertRowid });
+    
+    // Sync sangrias to safe
+    if (record.sangrias && record.sangrias.length > 0) {
+      syncSangriasToSafe(record.sangrias, record.date, record.userName);
+    }
+
+    res.status(201).json({ id: record.id || Date.now().toString() });
   } catch (err) {
     console.error('Error creating daily record:', err);
     res.status(500).json({ error: 'Failed to create daily record.' });
@@ -1000,7 +1042,10 @@ app.put('/api/daily-records/:id', (req, res) => {
       creditReceipts: JSON.stringify(record.creditReceipts || []),
       sangrias: JSON.stringify(record.sangrias || []),
     });
+    
     if (result.changes > 0) {
+      // Sync sangrias to safe
+      syncSangriasToSafe(record.sangrias || [], record.date, record.userName);
       res.status(200).json({ message: 'Daily record updated successfully.' });
     } else {
       res.status(404).json({ error: 'Daily record not found or already processed.' });
@@ -1078,8 +1123,8 @@ app.post('/api/cash-closings', (req, res) => {
     `);
 
     const insertSafeEntryStmt = db.prepare(`
-      INSERT INTO safe_entries (id, date, description, type, value, userName)
-      VALUES (@id, @date, @description, @type, @value, @userName)
+      INSERT INTO safe_entries (id, date, description, type, value, userName, source_id)
+      VALUES (@id, @date, @description, @type, @value, @userName, @source_id)
     `);
 
     db.transaction(() => {
@@ -1103,7 +1148,8 @@ app.post('/api/cash-closings', (req, res) => {
           description: `Depósito Fechamento de Caixa`,
           type: 'Entrada',
           value: safeDepositVal,
-          userName: closing.userName
+          userName: closing.userName,
+          source_id: null
         });
       }
 
@@ -1694,10 +1740,10 @@ app.post('/api/safe-entries', (req, res) => {
   try {
     const entry = req.body;
     const stmt = db.prepare(`
-      INSERT INTO safe_entries (id, date, description, type, value, userName)
-      VALUES (@id, @date, @description, @type, @value, @userName)
+      INSERT INTO safe_entries (id, date, description, type, value, userName, source_id)
+      VALUES (@id, @date, @description, @type, @value, @userName, @source_id)
     `);
-    stmt.run(entry);
+    stmt.run({ ...entry, source_id: entry.source_id || null });
 
     // Auto-create task if withdrawal >= R$ 1000
     console.log(`[SAFE ENTRY] Created entry. Type: ${entry.type}, Value: ${entry.value}`);

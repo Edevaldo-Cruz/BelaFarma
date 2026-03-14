@@ -249,8 +249,8 @@ function initializeMarketingEndpoints(app, db) {
   // ─── POST /api/marketing/diario/venda-parada ─────────────────────────────
   app.post('/api/marketing/diario/venda-parada', async (req, res) => {
     try {
-      const phone = req.body.phone || process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP;
-      const analise = await analisarProdutosParados90Dias(db, phone);
+    const phone = req.body.phone || process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP;
+    const analise = await analisarProdutosParados90Dias(db, phone);
       
       if (analise) {
         await sendMessage(phone, analise);
@@ -289,13 +289,13 @@ function initializeMarketingEndpoints(app, db) {
         || '';
       
       const text = messageContent.toLowerCase().trim();
-      const NAYANE_PHONE_CLEAN = (process.env.NAYANE_WHATSAPP || '').replace(/\D/g, '');
+      const EDEVALDO_PHONE_CLEAN = (process.env.EDEVALDO_WHATSAPP || '').replace(/\D/g, '');
 
       // Log para debug
       console.log(`[IsaMarketing] Webhook recebido de ${phone}: "${text}"`);
 
-      if (phone === NAYANE_PHONE_CLEAN && text === 'ok') {
-        console.log(`[IsaMarketing] ✨ Nayane enviou 'ok'! Verificando aprovações pendentes...`);
+      if (phone === EDEVALDO_PHONE_CLEAN && text === 'ok') {
+        console.log(`[IsaMarketing] ✨ Edevaldo enviou 'ok'! Verificando aprovações pendentes...`);
 
         // Buscar a aprovação pendente mais recente para este número
         const pending = db.prepare(`
@@ -307,7 +307,7 @@ function initializeMarketingEndpoints(app, db) {
 
         if (pending) {
           const suggestions = JSON.parse(pending.suggestionsJson);
-          console.log(`[IsaMarketing] 🚀 Processando ${suggestions.length} tarefas para Nayane...`);
+          console.log(`[IsaMarketing] 🚀 Processando ${suggestions.length} tarefas para Edevaldo...`);
 
           const now = new Date().toISOString();
           const amanha = new Date();
@@ -353,8 +353,8 @@ function initializeMarketingEndpoints(app, db) {
         } else {
           console.log(`[IsaMarketing] Nenhuma aprovação pendente encontrada para ${phone}`);
         }
-      } else if (phone === NAYANE_PHONE_CLEAN && text === 'não') {
-        console.log(`[IsaMarketing] ❌ Nayane enviou 'não'. Cancelando sugestões pendentes...`);
+      } else if (phone === EDEVALDO_PHONE_CLEAN && text === 'não') {
+        console.log(`[IsaMarketing] ❌ Edevaldo enviou 'não'. Cancelando sugestões pendentes...`);
 
         const pending = db.prepare(`
           SELECT * FROM nayane_pending_approvals 
@@ -375,7 +375,7 @@ function initializeMarketingEndpoints(app, db) {
           db.prepare('UPDATE nayane_pending_approvals SET status = ? WHERE id = ?').run('Reprovado', pending.id);
 
           // Enviar confirmação
-          await sendMessage(pending.phone, "Sem problemas, Nay! Entendi que essas ações não são o foco agora. Se precisar de novas sugestões amanhã, é só me chamar! 😊");
+          await sendMessage(pending.phone, "Sem problemas! Entendi que essas ações não são o foco agora. Se precisar de novas sugestões amanhã, é só me chamar! 😊");
           
           console.log(`[IsaMarketing] ❌ ${suggestions.length} sugestões reprovadas.`);
         }

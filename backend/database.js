@@ -250,7 +250,8 @@ try {
         description TEXT NOT NULL,
         type TEXT CHECK(type IN ('Entrada', 'Saída')) NOT NULL,
         value REAL NOT NULL,
-        userName TEXT
+        userName TEXT,
+        source_id TEXT -- Para vincular a sangrias ou outros lançamentos
       );
     `;
 
@@ -714,9 +715,12 @@ try {
     try {
       db.exec('ALTER TABLE safe_entries ADD COLUMN userName TEXT');
       console.log('Coluna userName adicionada em safe_entries.');
-    } catch (e) {
-      // Coluna já existe
-    }
+    } catch (e) {}
+
+    try {
+      db.exec('ALTER TABLE safe_entries ADD COLUMN source_id TEXT');
+      console.log('Coluna source_id adicionada em safe_entries.');
+    } catch (e) {}
 
     // ========================================================================
     // MÓDULO iFOOD - Tabela para gestão de vendas iFood
