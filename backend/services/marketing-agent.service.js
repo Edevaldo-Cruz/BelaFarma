@@ -159,7 +159,7 @@ async function chamarGemini(prompt, systemNote = '', cacheKey = null, ttl = 3600
     throw new Error('A chave da API (GEMINI_API_KEY) não está sendo identificada.');
   }
 
-  const GEMINI_MODEL = 'gemini-flash-latest';
+  const GEMINI_MODEL = 'gemini-1.5-flash';
   const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
   console.log(`[IsaMarketing] 🚀 Chamando Gemini: ${GEMINI_MODEL}`);
@@ -396,7 +396,7 @@ async function gerarMensagemClimaDiaria() {
   return chamarGemini(prompt, '', `clima_diario_rosana_${new Date().toISOString().split('T')[0]}`, 14400);
 }
 
-async function analisarProdutosParados90Dias(db, phone = process.env.NAYANE_WHATSAPP) {
+async function analisarProdutosParados90Dias(db, phone = process.env.EDEVALDO_WHATSAPP) {
   const reportsDir = path.join(__dirname, '../reports/digifarma');
   if (!fs.existsSync(reportsDir)) return null;
 
@@ -446,8 +446,8 @@ async function analisarProdutosParados90Dias(db, phone = process.env.NAYANE_WHAT
   
   PERSONA E ESTILO:
   - Use o nome "Belinha".
-  - Seja extremamente próxima, amigável e profissional com a Nayane.
-  - Use gírias e referências de Juiz de Fora/JF (Rio Branco, UFJF, mormaço da serra, ladeiras, etc).
+  - Seja extremamente próxima, amigável e profissional com o Edevaldo.
+  - Use gírias e referências de Juiz de Fora/JF (Rio Branco, lanche no Calçadão, mormaço da serra, ladeiras, etc).
   - Use emojis e formatação Markdown atraente (negrito, itálico).
   - Metáfora: Produtos parados são "inquilinos que não pagam aluguel".
   
@@ -455,8 +455,8 @@ async function analisarProdutosParados90Dias(db, phone = process.env.NAYANE_WHAT
   1. Abertura calorosa mencionando o clima de JF e o estoque.
   2. Seção "📋 Plano de Ação: Limpa Estoque (90 dias+)" com os 10 itens numerados.
      Cada item deve ter: *Nome do Produto (Cód)*, *Promoção* (pense em nomes criativos) e *Ação* (estratégia de venda no balcão ou loja).
-  3. Seção "📲 Sugestão de Mensagem para Clientes (WhatsApp)" com um modelo de texto pronto para a Nayane copiar e enviar.
-  4. Fechamento perguntando o que ela acha e pedindo o "ok".
+  3. Seção "📲 Sugestão de Mensagem para Clientes (WhatsApp)" com um modelo de texto pronto para o Edevaldo copiar e enviar.
+  4. Fechamento perguntando o que ele acha e pedindo o "ok".
 
   FORMATO DE RESPOSTA (OBRIGATÓRIO):
   Sua resposta deve ser um JSON válido contendo:
@@ -470,7 +470,9 @@ async function analisarProdutosParados90Dias(db, phone = process.env.NAYANE_WHAT
   const respostaRaw = await chamarGemini(prompt, 'Responda APENAS com o JSON estruturado.', `analise_mkt_json_${new Date().toISOString().split('T')[0]}`, 86400);
   
   try {
-     const cleanJson = respostaRaw.replace(/```json|```/g, '').trim();
+     // Regex mais robusto para extrair apenas o JSON
+     const jsonMatch = respostaRaw.match(/\{[\s\S]*\}/);
+     const cleanJson = jsonMatch ? jsonMatch[0] : respostaRaw;
      const data = JSON.parse(cleanJson);
      
      if (db && data.suggestions) {
@@ -479,7 +481,7 @@ async function analisarProdutosParados90Dias(db, phone = process.env.NAYANE_WHAT
        db.prepare(`
          INSERT INTO nayane_pending_approvals (id, phone, suggestionsJson, status, createdAt)
          VALUES (?, ?, ?, ?, ?)
-       `).run(pendingId, phone || process.env.NAYANE_WHATSAPP || process.env.ADMIN_WHATSAPP, JSON.stringify(data.suggestions), 'Pendente', new Date().toISOString());
+       `).run(pendingId, phone || process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP, JSON.stringify(data.suggestions), 'Pendente', new Date().toISOString());
 
        // Registrar no histórico para não repetir
        for (const sug of data.suggestions) {
