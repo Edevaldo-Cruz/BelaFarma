@@ -1,5 +1,5 @@
-# Use uma imagem base do Node.js
-FROM node:18-alpine
+# Use uma imagem base do Node.js (v20+ necessário para better-sqlite3)
+FROM node:22-alpine
 
 # Crie e defina o diretório de trabalho dentro do contêiner
 WORKDIR /usr/src/app
