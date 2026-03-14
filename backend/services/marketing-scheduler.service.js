@@ -10,7 +10,7 @@ const sender = require('./message-sender.service');
 
 // Números para receber os relatórios
 const ROSANA_PHONE = process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP;
-const EDEVALDO_PHONE = process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP;
+const EDEVALDO_PHONE = process.env.EDEVALDO_WHATSAPP || '+5532988634755';
 
 // Intervalo quinzenal em dias para o relatório estratégico
 const INTERVALO_ESTRATEGICO_DIAS = 15;

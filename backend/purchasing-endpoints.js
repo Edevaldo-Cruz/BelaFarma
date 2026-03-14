@@ -128,7 +128,7 @@ module.exports = (db) => {
 
   router.post('/send-to-edevaldo', async (req, res) => {
     const { list } = req.body;
-    const edevaldoWhatsApp = process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP || '5532998073194';
+    const edevaldoWhatsApp = process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP || '5532988634755';
 
     if (!list) return res.status(400).json({ error: 'Relatório vazio.' });
 

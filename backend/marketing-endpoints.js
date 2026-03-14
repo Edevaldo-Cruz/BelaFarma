@@ -249,7 +249,7 @@ function initializeMarketingEndpoints(app, db) {
   // ─── POST /api/marketing/diario/venda-parada ─────────────────────────────
   app.post('/api/marketing/diario/venda-parada', async (req, res) => {
     try {
-    const phone = req.body.phone || process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP;
+    const phone = req.body.phone || process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP || '+5532988634755';
     const analise = await analisarProdutosParados90Dias(db, phone);
       
       if (analise) {
