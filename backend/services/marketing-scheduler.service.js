@@ -9,8 +9,9 @@ const marketingAgent = require('./marketing-agent.service');
 const sender = require('./message-sender.service');
 
 // Números para receber os relatórios
-const ROSANA_PHONE = process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP;
-const EDEVALDO_PHONE = process.env.EDEVALDO_WHATSAPP || '+5532988634755';
+// Usando lazy loading para process.env para refletir mudanças se necessário
+function getRosanaPhone() { return process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP; }
+function getEdevaldoPhone() { return process.env.EDEVALDO_WHATSAPP || '+5532988634755'; }
 
 // Intervalo quinzenal em dias para o relatório estratégico
 const INTERVALO_ESTRATEGICO_DIAS = 15;
@@ -77,31 +78,35 @@ async function executarTarefasDiarias(db) {
 
   // 1. Clima para Rosana
   try {
+    const phone = getRosanaPhone();
     const mensagemClima = await marketingAgent.gerarMensagemClimaDiaria();
     if (mensagemClima) {
-      console.log(`[MarketingScheduler] 📱 Enviando clima diário para Rosana (${ROSANA_PHONE})...`);
-      await sender.sendMessage(ROSANA_PHONE, mensagemClima);
+      console.log(`[MarketingScheduler] 📱 Enviando clima diário para Rosana (${phone})...`);
+      await sender.sendMessage(phone, mensagemClima);
     }
   } catch (e) {
     console.error('[MarketingScheduler] Erro ao enviar clima para Rosana:', e.message);
   }
-  // 2. Venda Parada para Nayane
+  // 2. Venda Parada para Edevaldo
   try {
-    const analiseEdevaldo = await marketingAgent.analisarProdutosParados90Dias(db, EDEVALDO_PHONE);
+    const phone = getEdevaldoPhone();
+    const analiseEdevaldo = await marketingAgent.analisarProdutosParados90Dias(db, phone);
     if (analiseEdevaldo) {
-      console.log(`[MarketingScheduler] 📱 Enviando análise de venda parada para Edevaldo (${EDEVALDO_PHONE})...`);
-      await sender.sendMessage(EDEVALDO_PHONE, analiseEdevaldo);
+      console.log(`[MarketingScheduler] 📱 Enviando análise de venda parada para Edevaldo (${phone})...`);
+      await sender.sendMessage(phone, analiseEdevaldo);
     }
   } catch (e) {
-    console.error('[MarketingScheduler] Erro ao enviar análise para Nayane:', e.message);
+    console.error('[MarketingScheduler] Erro ao enviar análise para Edevaldo:', e.message);
   }
 
 
   // 3. Notificar Admin (Edevaldo)
   try {
     const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
+    const rosanaPhone = getRosanaPhone();
+    const edevaldoPhone = getEdevaldoPhone();
     if (ADMIN_PHONE) {
-      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n✅ Previsão do tempo enviada para Rosana (${ROSANA_PHONE})\n✅ Análise de 10 produtos enviada para Edevaldo (${EDEVALDO_PHONE})\n\n_Aguardando sua aprovação para criar tarefas._`;
+      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n✅ Previsão do tempo enviada para Rosana (${rosanaPhone})\n✅ Análise de 10 produtos enviada para Edevaldo (${edevaldoPhone})\n\n_Aguardando sua aprovação para criar tarefas._`;
       console.log(`[MarketingScheduler] 📱 Enviando resumo da manhã para o Admin...`);
       await sender.sendMessage(ADMIN_PHONE, resumo);
     }
@@ -122,7 +127,7 @@ async function executarJobMarketing(db, opcoes = {}) {
   isRunning = true;
   console.log('[MarketingScheduler] 🚀 Iniciando job estratégico quinzenal...');
 
-  const phone = opcoes.phone || ROSANA_PHONE;
+  const phone = opcoes.phone || getRosanaPhone();
 
   try {
     const { relatorio, metadata } = await marketingAgent.gerarRelatorioCompleto(db);
@@ -171,7 +176,7 @@ function iniciarScheduler(db) {
 
   console.log('[MarketingScheduler] ⏰ Scheduler de marketing iniciado');
   console.log(`[MarketingScheduler] 📅 Envio estratégico: a cada ${INTERVALO_ESTRATEGICO_DIAS} dias, às 08:00 (Brasília)`);
-  console.log(`[MarketingScheduler] 📱 Destinatário: Rosana — ${ROSANA_PHONE}`);
+  console.log(`[MarketingScheduler] 📱 Destinatário: Rosana — ${getRosanaPhone()}`);
 
   // Registra que o scheduler foi iniciado
   try {
@@ -194,21 +199,30 @@ function iniciarScheduler(db) {
   // Verifica a cada 5 minutos
   schedulerInterval = setInterval(async () => {
     const agora = new Date();
-    const agoraBrasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    // Obtém hora em Brasília (UTC-3)
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false
+    });
     
-    const hora = agoraBrasilia.getHours();
-    const minuto = agoraBrasilia.getMinutes();
+    const parts = formatter.formatToParts(agora);
+    const hora = parseInt(parts.find(p => p.type === 'hour').value);
+    const minuto = parseInt(parts.find(p => p.type === 'minute').value);
 
-    // Só executa no horário de 08:00-08:10 para ter uma margem
-    if (hora === 8 && minuto < 10) {
+    // Janela de execução: a partir das 08h00. 
+    // Se ainda não executou hoje e já passou das 08h00, executa na primeira oportunidade.
+    if (hora >= 8) {
       // 1. Tarefas Diárias (Clima e Venda Parada)
       if (!jaExecutouDiario(db)) {
         await executarTarefasDiarias(db);
         marcarDiarioExecutado(db);
       }
 
-      // 2. Relatório Estratégico (Quinzenal)
-      if (deveExecutarEstrategico(db)) {
+      // 2. Relatório Estratégico (Quinzenal) - mantém a lógica de 08:00-08:15 para o quinzenal
+      // ou podemos flexibilizar também se preferir.
+      if (hora === 8 && minuto < 15 && deveExecutarEstrategico(db)) {
         await executarJobMarketing(db);
       }
     }
@@ -262,8 +276,8 @@ function getStatus(db) {
     emExecucao: isRunning,
     ultimoEnvio,
     proximoEnvio,
-    destinatario: ROSANA_PHONE,
-    frequencia: `Relatório Estratégico: a cada ${INTERVALO_ESTRATEGICO_DIAS} dias | Tarefas diárias: 08h00`,
+    destinatario: getRosanaPhone(),
+    frequencia: `Relatório Estratégico: a cada ${INTERVALO_ESTRATEGICO_DIAS} dias | Tarefas diárias: após 08h00`,
   };
 }
 
@@ -272,5 +286,5 @@ module.exports = {
   pararScheduler,
   executarJobMarketing,
   getStatus,
-  ROSANA_PHONE,
+  getRosanaPhone,
 };
