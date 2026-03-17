@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import FileSelector from './FileSelector';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
 
 type Tab = 'dashboard' | 'caixa' | 'central';
 
@@ -188,10 +188,11 @@ export default function FinancialAgent() {
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto p-2">
-                <FileSelector onSelect={(filename) => {
+                <FileSelector onSelect={(filenames) => {
+                  const filename = filenames[0] || '';
                   setFileName(filename);
-                  handleAnalyzeFile(filename);
-                }} selectedFile={fileName} />
+                  if (filename) handleAnalyzeFile(filename);
+                }} selectedFiles={fileName ? [fileName] : []} />
               </div>
             </div>
 

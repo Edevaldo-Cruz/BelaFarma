@@ -5,7 +5,7 @@ import {
   Calendar, CheckCircle, AlertTriangle, AlertCircle, MapPin
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
 
 interface MarketingReport {
   id: string;
