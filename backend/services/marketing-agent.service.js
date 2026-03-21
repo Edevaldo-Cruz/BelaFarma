@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const pdf = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 const db = require('../database');
 
 /**
@@ -411,19 +411,18 @@ async function analisarProdutosParados90Dias(db, phone = process.env.EDEVALDO_WH
   })).sort((a, b) => b.mtime - a.mtime).slice(0, 5);
 
   for (const fileObj of sortedFiles) {
-    const buf = fs.readFileSync(path.join(reportsDir, fileObj.name));
-    const parser = new pdf.PDFParse(new Uint8Array(buf));
     try {
-      await parser.load();
-      const data = await parser.getText();
-      const text = (data.text || '').toLowerCase();
+      const buf = fs.readFileSync(path.join(reportsDir, fileObj.name));
+      const parser = new PDFParse({ data: new Uint8Array(buf) });
+      const result = await parser.getText();
+      const text = (result.text || '').toLowerCase();
       
       // Busca por palavras-chave que identifiquem o relatório de venda parada
       const keywords = ['90 dias', 'venda parada', 'não vende', 'produto parado', 'sem venda'];
       const isTarget = keywords.some(k => text.includes(k));
 
       if (isTarget) {
-        targetFile = { name: fileObj.name, content: data.text };
+        targetFile = { name: fileObj.name, content: result.text };
         break;
       }
     } catch (e) {
