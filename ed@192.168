@@ -159,7 +159,7 @@ async function chamarGemini(prompt, systemNote = '', cacheKey = null, ttl = 3600
     throw new Error('A chave da API (GEMINI_API_KEY) não está sendo identificada.');
   }
 
-  const GEMINI_MODEL = 'gemini-flash-latest';
+  const GEMINI_MODEL = 'gemini-2.0-flash';
   const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
   console.log(`[IsaMarketing] 🚀 Chamando Gemini: ${GEMINI_MODEL}`);

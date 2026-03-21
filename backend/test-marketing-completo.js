@@ -10,7 +10,8 @@
  */
 
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+// Tenta carregar .env (ambiente local). No Docker, as variáveis já estão injetadas.
+try { require('dotenv').config({ path: path.join(__dirname, '../.env') }); } catch (_) {}
 
 const db = require('./database');
 const marketingAgent = require('./services/marketing-agent.service');

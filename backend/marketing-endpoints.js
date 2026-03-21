@@ -294,7 +294,7 @@ function initializeMarketingEndpoints(app, db) {
       // Log para debug
       console.log(`[IsaMarketing] Webhook recebido de ${phone}: "${text}"`);
 
-      if (phone === EDEVALDO_PHONE_CLEAN && text === 'ok') {
+      if (phone.endsWith(EDEVALDO_PHONE_CLEAN.slice(-8)) && text === 'ok') {
         console.log(`[IsaMarketing] ✨ Edevaldo enviou 'ok'! Verificando aprovações pendentes...`);
 
         // Buscar a aprovação pendente mais recente para este número
@@ -353,7 +353,7 @@ function initializeMarketingEndpoints(app, db) {
         } else {
           console.log(`[IsaMarketing] Nenhuma aprovação pendente encontrada para ${phone}`);
         }
-      } else if (phone === EDEVALDO_PHONE_CLEAN && text === 'não') {
+      } else if (phone.endsWith(EDEVALDO_PHONE_CLEAN.slice(-8)) && text === 'não') {
         console.log(`[IsaMarketing] ❌ Edevaldo enviou 'não'. Cancelando sugestões pendentes...`);
 
         const pending = db.prepare(`
