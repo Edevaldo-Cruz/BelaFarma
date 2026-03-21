@@ -920,33 +920,43 @@ app.get('/api/daily-records', (req, res) => {
 });
 
 // Helper function to sync sangrias to safe entries
-const syncSangriasToSafe = (sangrias, date, userName) => {
+const syncSangriasToSafe = (sangrias, date, userName, drId) => {
   try {
     const parsedSangrias = Array.isArray(sangrias) ? sangrias : JSON.parse(sangrias || '[]');
     
     db.transaction(() => {
-      // 1. Get current sangria entries in the safe for this source (to handle deletions)
-      // Note: This only works if we know which sangrias WERE there. 
-      // A better way is to delete all entries for sangrias associated with THIS daily record or just manage by ID.
+      // 1. Delete sangrias for this record that are NOT in the new list
+      const currentIds = parsedSangrias.map(s => s.id).filter(id => !!id);
       
+      if (currentIds.length > 0) {
+        const placeholders = currentIds.map(() => '?').join(',');
+        db.prepare(`
+          DELETE FROM safe_entries 
+          WHERE parent_id = ? 
+          AND description LIKE '[Sangria]%'
+          AND source_id NOT IN (${placeholders})
+        `).run(drId, ...currentIds);
+      } else {
+        db.prepare("DELETE FROM safe_entries WHERE parent_id = ? AND description LIKE '[Sangria]%'").run(drId);
+      }
+      
+      // 2. Insert or update the new list
       for (const s of parsedSangrias) {
         if (!s.id || !s.val) continue;
 
-        const existing = db.prepare('SELECT id FROM safe_entries WHERE source_id = ?').get(s.id);
+        const existing = db.prepare('SELECT id FROM safe_entries WHERE source_id = ? AND parent_id = ?').get(s.id, drId);
         
         if (existing) {
-          // Update existing
           db.prepare(`
             UPDATE safe_entries 
             SET value = ?, date = ?, description = ?, userName = ?
-            WHERE source_id = ?
-          `).run(s.val, date, `[Sangria] ${s.desc}`, userName, s.id);
+            WHERE source_id = ? AND parent_id = ?
+          `).run(s.val, date, `[Sangria] ${s.desc}`, userName, s.id, drId);
         } else {
-          // Insert new
           db.prepare(`
-            INSERT INTO safe_entries (id, date, description, type, value, userName, source_id)
-            VALUES (?, ?, ?, 'Entrada', ?, ?, ?)
-          `).run('S' + s.id, date, `[Sangria] ${s.desc}`, s.val, userName, s.id);
+            INSERT INTO safe_entries (id, date, description, type, value, userName, source_id, parent_id)
+            VALUES (?, ?, ?, 'Entrada', ?, ?, ?, ?)
+          `).run('S' + s.id, date, `[Sangria] ${s.desc}`, s.val, userName, s.id, drId);
         }
       }
     })();
@@ -973,8 +983,8 @@ app.post('/api/daily-records', (req, res) => {
     });
     
     // Sync sangrias to safe
-    if (record.sangrias && record.sangrias.length > 0) {
-      syncSangriasToSafe(record.sangrias, record.date, record.userName);
+    if (record.sangrias) {
+      syncSangriasToSafe(record.sangrias, record.date, record.userName, record.id);
     }
 
     res.status(201).json({ id: record.id || Date.now().toString() });
@@ -988,20 +998,22 @@ app.post('/api/daily-records', (req, res) => {
 // This must be BEFORE app.put('/api/daily-records/:id') to avoid route conflicts
 app.put('/api/daily-records/mark-processed', (req, res) => {
   try {
-    const { recordIds } = req.body;
+    const { recordIds, cashClosingId } = req.body;
     console.log('=== Mark Daily Records as Processed ===');
     console.log('Record IDs to mark:', recordIds);
     
-    if (!Array.isArray(recordIds) || recordIds.length === 0) {
-      return res.status(400).json({ error: 'Missing recordIds.' });
+    if (!recordIds || !Array.isArray(recordIds) || recordIds.length === 0) {
+      return res.status(400).json({ error: 'recordIds is required and must be a non-empty array.' });
     }
 
+    const placeholders = recordIds.map(() => '?').join(',');
     const stmt = db.prepare(`
-      UPDATE daily_records
-      SET lancado = 1
-      WHERE id IN (${recordIds.map(() => '?').join(',')})
+      UPDATE daily_records 
+      SET lancado = 1, cashClosingId = ?
+      WHERE id IN (${placeholders})
     `);
-    const result = stmt.run(...recordIds);
+    
+    const result = stmt.run(cashClosingId || null, ...recordIds);
 
     console.log('Records updated:', result.changes);
     
@@ -1045,7 +1057,7 @@ app.put('/api/daily-records/:id', (req, res) => {
     
     if (result.changes > 0) {
       // Sync sangrias to safe
-      syncSangriasToSafe(record.sangrias || [], record.date, record.userName);
+      syncSangriasToSafe(record.sangrias || [], record.date, record.userName, id);
       res.status(200).json({ message: 'Daily record updated successfully.' });
     } else {
       res.status(404).json({ error: 'Daily record not found or already processed.' });
@@ -1200,17 +1212,18 @@ app.post('/api/cash-closings', (req, res) => {
       console.log(`[CASH CLOSING] Safe deposit: R$ ${closing.safeDeposit.toFixed(2)}`);
       
       try {
-        // Calculate total of all safe deposits from cash closings
-        const result = db.prepare(`
-          SELECT SUM(safeDeposit) as total 
-          FROM cash_closings 
-          WHERE safeDeposit > 0
+        // Calculate current safe balance (Entradas - Saídas)
+        const balanceResult = db.prepare(`
+          SELECT 
+            SUM(CASE WHEN type = 'Entrada' THEN value ELSE 0 END) - 
+            SUM(CASE WHEN type = 'Saída' THEN value ELSE 0 END) as balance
+          FROM safe_entries
         `).get();
         
-        const totalSafeDeposits = result?.total || 0;
-        console.log(`[TASK AUTO] Total accumulated safe deposits: R$ ${totalSafeDeposits.toFixed(2)}`);
+        const currentSafeBalance = balanceResult?.balance || 0;
+        console.log(`[TASK AUTO] Current safe balance: R$ ${currentSafeBalance.toFixed(2)}`);
         
-        if (totalSafeDeposits >= 1000) {
+        if (currentSafeBalance >= 1000) {
           console.log('[TASK AUTO] Total >= 1000. Checking if task already exists...');
           
           // Check if there's already an open deposit task

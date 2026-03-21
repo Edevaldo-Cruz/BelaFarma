@@ -498,7 +498,7 @@ const App: React.FC = () => {
       const response = await fetch('/api/daily-records/mark-processed', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordIds }),
+        body: JSON.stringify({ recordIds, cashClosingId }),
       });
       
       console.log('Mark processed response:', response.status, response.statusText);

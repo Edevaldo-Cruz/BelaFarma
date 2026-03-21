@@ -251,7 +251,8 @@ try {
         type TEXT CHECK(type IN ('Entrada', 'Saída')) NOT NULL,
         value REAL NOT NULL,
         userName TEXT,
-        source_id TEXT -- Para vincular a sangrias ou outros lançamentos
+        source_id TEXT, -- Para vincular a sangrias ou outros lançamentos
+        parent_id TEXT -- Novo campo para vincular ao registro diário ou fechamento
       );
     `;
 

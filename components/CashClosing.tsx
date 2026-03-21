@@ -111,7 +111,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     // Load daily expenses/non-registered items from dailyRecords prop
     const todayStr = new Date().toISOString().split('T')[0];
-    const todaysRecordEntries = dailyRecords.filter(r => r.date.startsWith(todayStr) && !r.lancado);
+    const todaysRecordEntries = dailyRecords.filter(r => !r.lancado);
 
     let combinedExpenses: Array<{ id: string, desc: string, val: number }> = [];
     let combinedNonRegistered: Array<{ id: string, desc: string, val: number }> = [];
