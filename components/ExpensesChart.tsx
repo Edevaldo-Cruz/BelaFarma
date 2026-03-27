@@ -99,46 +99,46 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
         </div>
       </div>
 
-      <div className="h-[350px] w-full">
-        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-          <BarChart data={chartData} margin={{ top: 20, right: 30, left: 10, bottom: 5 }} barGap={8}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
-            <XAxis 
-              dataKey="name" 
-              axisLine={false} 
-              tickLine={false} 
-              tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} 
-            />
-            <YAxis 
-              axisLine={false} 
-              tickLine={false} 
-              tickFormatter={(value) => `R$${value >= 1000 ? (value/1000).toFixed(0) + 'k' : value}`} 
-              tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} 
-            />
-            <Tooltip
-              cursor={{ fill: '#f1f5f9', opacity: 0.5 }}
-              contentStyle={{ 
-                borderRadius: '16px', 
-                border: '1px solid #e2e8f0', 
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-                backgroundColor: '#ffffff',
-                color: '#1e293b' 
-              }}
-              itemStyle={{ fontWeight: 'bold', fontSize: '12px' }}
-              formatter={(value: number) => [new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)]}
-              labelFormatter={(label, payload) => payload[0]?.payload?.fullName || label}
-            />
-            <Legend 
-              verticalAlign="top" 
-              align="right" 
-              iconType="circle" 
-              wrapperStyle={{ paddingBottom: '20px', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }} 
-            />
-            <Bar dataKey="Receita" fill="#10b981" radius={[4, 4, 0, 0]} barSize={25} />
-            <Bar dataKey="Despesa" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={25} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+        <div style={{ width: '100%', height: '350px' }}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+            <BarChart data={chartData} margin={{ top: 20, right: 30, left: 10, bottom: 5 }} barGap={8}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
+              <XAxis 
+                dataKey="name" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} 
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tickFormatter={(value) => `R$${value >= 1000 ? (value/1000).toFixed(0) + 'k' : value}`} 
+                tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} 
+              />
+              <Tooltip
+                cursor={{ fill: '#f1f5f9', opacity: 0.5 }}
+                contentStyle={{ 
+                  borderRadius: '16px', 
+                  border: '1px solid #e2e8f0', 
+                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
+                  backgroundColor: '#ffffff',
+                  color: '#1e293b' 
+                }}
+                itemStyle={{ fontWeight: 'bold', fontSize: '12px' }}
+                formatter={(value: number) => [new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)]}
+                labelFormatter={(label, payload) => payload[0]?.payload?.fullName || label}
+              />
+              <Legend 
+                verticalAlign="top" 
+                align="right" 
+                iconType="circle" 
+                wrapperStyle={{ paddingBottom: '20px', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }} 
+              />
+              <Bar dataKey="Receita" fill="#10b981" radius={[4, 4, 0, 0]} barSize={25} />
+              <Bar dataKey="Despesa" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={25} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
     </>
   );
 };

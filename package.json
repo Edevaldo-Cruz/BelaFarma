@@ -13,6 +13,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@geoman-io/leaflet-geoman-free": "^2.19.0",
     "@google/genai": "^1.34.0",
+    "@supabase/supabase-js": "^2.100.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",

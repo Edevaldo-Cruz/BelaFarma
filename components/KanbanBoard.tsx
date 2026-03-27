@@ -3,6 +3,15 @@ import { useDroppable } from '@dnd-kit/core';
 import { Task, User } from '../types';
 import { TaskCard } from './TaskCard';
 
+// KanbanBoardProps
+interface KanbanBoardProps {
+  tasks: Task[];
+  user: User;
+  users: User[];
+  onViewTask: (task: Task) => void;
+  onUpdateTaskStatus: (taskId: string, newStatus: Task['status']) => void;
+}
+
 // TaskCardWrapper Component (replaces SortableTaskCard)
 interface TaskCardWrapperProps {
   task: Task;
@@ -17,7 +26,16 @@ const TaskCardWrapper: React.FC<TaskCardWrapperProps> = ({ task, user, users, on
       className="p-1" // Small padding to differentiate visually from column
       onDoubleClick={() => onViewTaskClick(task)}
     >
-      <TaskCard task={task} user={user} users={users} />
+      <TaskCard
+        task={task}
+        user={user}
+        users={users}
+        onViewTask={onViewTaskClick}
+        onEditTask={() => {}}
+        onDeleteTask={() => {}}
+        onUpdateTaskStatus={() => {}}
+        onArchiveTask={() => {}}
+      />
     </div>
   );
 };

@@ -111,8 +111,8 @@ const scanPendingMessages = async () => {
 
 // Inicia um "Cron/Loop"
 const startWatching = () => {
-    // Escaneia a cada 10 segundos
-    const INTERVAL = 10000;
+    // Escaneia a cada 30 segundos
+    const INTERVAL = 30000;
     
     console.log(`[Message Watcher] Iniciado. Observando arquivos na pasta: ${PENDENTES_DIR}`);
     

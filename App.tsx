@@ -28,6 +28,7 @@ import { IFoodControl } from "./components/iFoodControl";
 import { NotificationsPage } from "./components/NotificationsPage";
 import { MessagingCenter } from "./components/MessagingCenter";
 import AIPortal from "./components/AIPortal";
+import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
 import {
   Order,
   View,
@@ -689,6 +690,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'ai-portal' && user.role === UserRole.ADM && (
                 <AIPortal />
+              )}
+              {currentView === 'financial-health' && user.role === UserRole.ADM && (
+                <FinancialHealthAdvisor />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

@@ -1,5 +1,5 @@
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
+import { createClient } from '@supabase/supabase-js';
 
 // ID do projeto extraído da sua imagem
 const PROJECT_ID = 'shfdjkaosykgaikfazgl';

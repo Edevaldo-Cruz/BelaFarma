@@ -5,6 +5,7 @@ const cors = require('cors');
 let db = require('./database.js');
 const multer = require('multer');
 const fs = require('fs');
+const fetch = require('node-fetch');
 
 const app = express();
 const PORT = 3001;
@@ -2890,6 +2891,10 @@ const financeEndpoints = require('./finance-endpoints.js');
 app.use('/api/finance-agent', financeEndpoints(db));
 console.log('🤖 Agente Financeiro IA inicializado.');
 
+// Módulo Saúde Financeira (diagnóstico via Gemini)
+require('./financial-health-endpoints.js')(app, db);
+console.log('💊 Módulo Saúde Financeira inicializado.');
+
 // ============================================================================
 // AGENTE DE COMPRAS IA - Inicialização
 // ============================================================================
@@ -2900,21 +2905,282 @@ app.use('/api/purchasing', purchasingEndpoints(db));
 app.use('/api/files', filesEndpoints(db));
 console.log('🤖 Agente de Compras e Central de Arquivos inicializados.');
 
-// Agendamento de Backup Automático (Diariamente à meia-noite)
-cron.schedule('0 0 * * *', () => {
-  console.log('[BACKUP AUTO] Iniciando rotina de backup diário...');
-  const backupScript = path.join(__dirname, 'backup-script.js');
-  
-  exec(`node "${backupScript}"`, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`[BACKUP AUTO] Erro ao executar script: ${error.message}`);
+// ═══════════════════════════════════════════════════════════════════════════
+// BACKUP AUTOMÁTICO — Cópia local do banco + log
+// Roda 2x ao dia: 01:00 e 13:00 (horário de Brasília)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const BACKUP_DIR = path.join(__dirname, 'backups');
+const DB_BACKUP_PATH = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
+const MAX_BACKUPS = 30; // Mantém os últimos 30 arquivos
+
+function performLocalBackup() {
+  const logTag = '[BACKUP AUTO]';
+  const now = new Date();
+  const ts = now.toISOString()
+    .replace('T', '_')
+    .replace(/:/g, '-')
+    .replace(/\..+/, '');
+  const backupFileName = `backup_${ts}.db`;
+  const backupFilePath = path.join(BACKUP_DIR, backupFileName);
+
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      console.log(`${logTag} Diretório criado: ${BACKUP_DIR}`);
+    }
+
+    if (!fs.existsSync(DB_BACKUP_PATH)) {
+      console.error(`${logTag} ❌ Banco não encontrado em: ${DB_BACKUP_PATH}`);
       return;
     }
-    if (stderr) {
-      console.error(`[BACKUP AUTO] Stderr: ${stderr}`);
+
+    fs.copyFileSync(DB_BACKUP_PATH, backupFilePath);
+    const sizeKB = (fs.statSync(backupFilePath).size / 1024).toFixed(0);
+    console.log(`${logTag} ✅ Backup criado: ${backupFileName} (${sizeKB} KB)`);
+
+    // Limpeza: apaga os mais antigos, mantendo MAX_BACKUPS
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('backup_') && f.endsWith('.db'))
+      .map(f => ({ name: f, time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+
+    if (files.length > MAX_BACKUPS) {
+      const toDelete = files.slice(MAX_BACKUPS);
+      toDelete.forEach(({ name }) => {
+        fs.unlinkSync(path.join(BACKUP_DIR, name));
+        console.log(`${logTag} 🗑 Backup antigo removido: ${name}`);
+      });
     }
-    console.log(`[BACKUP AUTO] Resultado: ${stdout}`);
-  });
+
+    console.log(`${logTag} 📦 Total de backups: ${Math.min(files.length, MAX_BACKUPS)}/${MAX_BACKUPS}`);
+
+  } catch (err) {
+    console.error(`${logTag} ❌ Erro fatal no backup: ${err.message}`);
+  }
+}
+
+// Roda imediatamente 1 vez ao iniciar o servidor (para confirmar que funciona)
+setTimeout(() => {
+  console.log('[BACKUP AUTO] 🔄 Backup inicial ao subir o servidor...');
+  performLocalBackup();
+}, 15000); // 15s após iniciar
+
+// Roda às 01:00 e 13:00 (Brasília)
+cron.schedule('0 1 * * *',  performLocalBackup, { timezone: 'America/Sao_Paulo' });
+cron.schedule('0 13 * * *', performLocalBackup, { timezone: 'America/Sao_Paulo' });
+console.log('[BACKUP AUTO] ⏰ Agendado para 01:00 e 13:00 (Brasília).');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPARADOR DE COTAÇÕES — /api/quotation/analyze
+// Usa Gemini API para extrair dados estruturados de cotações brutas de texto
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/quotation/analyze', async (req, res) => {
+  try {
+    const { suppliers } = req.body;
+
+    if (!suppliers || !Array.isArray(suppliers) || suppliers.length < 2) {
+      return res.status(400).json({ error: 'Envie ao menos 2 fornecedores com nome e texto.' });
+    }
+
+    // Monta o prompt com todos os fornecedores
+    const supplierBlocks = suppliers
+      .filter(s => s.name && s.text)
+      .map((s, i) => `=== FORNECEDOR ${i + 1}: ${s.name} (id: ${s.id}) ===\n${s.text}`)
+      .join('\n\n');
+
+    const fullPrompt = `Você é um especialista em análise de cotações para farmácias brasileiras.
+Extraia os dados de forma estruturada. 
+
+REGRAS:
+1. Extraia SOMENTE itens com preço (ex: R$ 3,50 ou 3.50)
+2. Para descontos, coloque a condição em "condition"
+3. Nomes MAIÚSCULOS. Preserve IDs.
+
+VOCÊ DEVE RESPONDER ESTRITAMENTE COM UM JSON VÁLIDO. NÃO USE MARKDOWN (\`\`\`). INICIE DIRETAMENTE COM { e TERMINE COM }. NOMEIE A CHAVE RAIZ COMO "suppliers".
+
+FORMATO ESPERADO:
+{
+  "suppliers": [
+    {
+      "id": "1",
+      "name": "Nome",
+      "products": [{"name": "PRODUTO", "price": 10.50, "condition": null, "validity": null, "rawLine": "original"}]
+    }
+  ]
+}
+
+COTAÇÕES:
+${supplierBlocks}`;
+
+    const provider = process.env.AI_PROVIDER || 'gemini';
+    let rawText = '';
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutos
+
+    try {
+      if (provider === 'ollama') {
+        const ollamaUrl = `${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}/api/chat`;
+        const ollamaModel = process.env.OLLAMA_MODEL || 'llama3:latest';
+
+        console.log(`[QUOTATION] Analisando com Ollama (modelo: ${ollamaModel})...`);
+        
+        const response = await fetch(ollamaUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: ollamaModel,
+            messages: [{ role: 'user', content: fullPrompt }],
+            stream: false,
+            format: 'json',
+            options: { temperature: 0.1 }
+          }),
+          signal: controller.signal
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Ollama error (${response.status}): ${errText}`);
+        }
+
+        const data = await response.json();
+        rawText = data.message?.content || '';
+        console.log(`[QUOTATION] Ollama respondeu (${rawText.length} chars)`);
+      } else {
+        // Default: Gemini
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+        if (!GEMINI_API_KEY) {
+          return res.status(500).json({ error: 'GEMINI_API_KEY não configurada no servidor.' });
+        }
+
+        const modelId = 'gemini-1.5-flash';
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${GEMINI_API_KEY}`;
+        console.log(`[QUOTATION] Analisando com ${modelId} (input: ${JSON.stringify(suppliers).length} chars)...`);
+
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: fullPrompt }] }],
+            generationConfig: { 
+              temperature: 0.1, 
+              maxOutputTokens: 8192,
+              responseMimeType: "application/json"
+            }
+          }),
+          signal: controller.signal
+        });
+
+        if (!response.ok) {
+          const errBody = await response.text();
+          console.error('[QUOTATION] Gemini API error:', errBody);
+          return res.status(502).json({ error: `Erro na API do Gemini: ${response.status}`, details: errBody });
+        }
+
+        const data = await response.json();
+        const candidate = data?.candidates?.[0];
+        rawText = candidate?.content?.parts?.[0]?.text || '';
+        
+        if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+            console.warn(`[QUOTATION] Gemini finishReason: ${candidate.finishReason}`);
+            // Log this to the error log too
+            try {
+                const errorLogPath = path.join(__dirname, 'quotation_error.log');
+                fs.appendFileSync(errorLogPath, `[QUOTATION WARNING] finishReason: ${candidate.finishReason}\n`);
+            } catch (e) {}
+        }
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Tenta extrair JSON de forma mais robusta (comum para ambos)
+    let jsonText = (rawText || '').trim();
+    
+    // Log raw text completely for debugging
+    try {
+        const errorLogPath = path.join(__dirname, 'quotation_error.log');
+        fs.appendFileSync(errorLogPath, `--- RAW FROM ${provider} (len: ${jsonText.length}) ---\n${rawText}\n--- END RAW ---\n\n`);
+    } catch(e) {}
+
+    if (!jsonText) {
+      console.error('[QUOTATION] IA retornou resposta vazia.');
+      return res.status(500).json({ error: 'A IA retornou uma resposta vazia. Tente novamente.' });
+    }
+
+    const startIndex = jsonText.indexOf('{');
+    const endIndex = jsonText.lastIndexOf('}');
+    
+    if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+        jsonText = jsonText.substring(startIndex, endIndex + 1);
+    } else if (startIndex !== -1 && endIndex === -1) {
+        // Possível truncamento.
+        console.warn('[QUOTATION] Resposta parece truncada. Tentando recuperar JSON parcial removendo final pendente...');
+        
+        let partial = jsonText.substring(startIndex).trim();
+        // Remove trailing commas and unfinished structures
+        // This is a simple heuristic: stop at the last complete item if possible
+        // but for now let's just try to close it.
+        
+        // Remove anything after the last comma to avoid trailing comma issues in some parsers
+        const lastComma = partial.lastIndexOf(',');
+        if (lastComma > 0) {
+            partial = partial.substring(0, lastComma);
+        }
+        
+        // Try complex close
+        jsonText = partial + ' ] } ] }';
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (parseErr) {
+      // Tenta um reparo um pouco mais agressivo se falhou
+      try {
+          if (jsonText && !jsonText.endsWith('}')) {
+              parsed = JSON.parse(jsonText + ' }');
+          } else if (jsonText && !jsonText.endsWith(']')) {
+             parsed = JSON.parse(jsonText + ' ] } ] }');
+          } else {
+              throw parseErr;
+          }
+      } catch (e) {
+          console.error(`[QUOTATION] Failed to parse ${provider} response as JSON.`);
+          console.error('[QUOTATION] Raw text received:', rawText);
+          
+          // Salva log de erro para debug em arquivo
+          try {
+              const errorLogPath = path.join(__dirname, 'quotation_error.log');
+              const errorContent = `--- ERROR AT ${new Date().toISOString()} ---\nAI PROVIDER: ${provider}\nRAW RESPONSE:\n${rawText}\n--- END ERROR ---\n\n`;
+              fs.appendFileSync(errorLogPath, errorContent);
+          } catch (logErr) {}
+
+          return res.status(500).json({ 
+            error: 'Resposta da IA não está no formato esperado.',
+            details: `A IA (${provider}) respondeu, mas o formato não era um JSON válido (truncado?). O desenvolvedor foi notificado via logs.`,
+            rawSnippet: rawText.substring(0, 100) + '...'
+          });
+      }
+    }
+
+    if (!parsed.suppliers || !Array.isArray(parsed.suppliers)) {
+        console.error('[QUOTATION] Invalid JSON structure. Missing "suppliers" array:', parsed);
+        return res.status(500).json({ error: 'Resposta da IA com estrutura inválida (faltando lista de fornecedores).' });
+    }
+
+    console.log(`[QUOTATION] ${provider} analisou ${parsed.suppliers.length} fornecedores.`);
+    res.json(parsed);
+
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('[QUOTATION] Request timed out after 3 minutes.');
+      return res.status(504).json({ error: 'Tempo esgotado: A IA demorou muito para responder. Tente com menos itens.' });
+    }
+    console.error('[QUOTATION] Erro inesperado:', err);
+    res.status(500).json({ error: `Erro interno ao processar: ${err.message}` });
+  }
 });
 
 app.listen(PORT, () => {

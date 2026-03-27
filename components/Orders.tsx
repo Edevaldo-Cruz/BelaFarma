@@ -17,7 +17,8 @@ import {
   Calendar as CalendarIcon,
   Save,
   ChevronRight,
-  RotateCcw
+  RotateCcw,
+  BarChart3
 } from 'lucide-react';
 import { 
   Order, 
@@ -29,6 +30,7 @@ import {
 } from '../types';
 import { useToast } from './ToastContext';
 import { OrderForm } from './OrderForm';
+import { QuotationComparator } from './QuotationComparator';
 
 interface OrdersProps {
   user: User;
@@ -45,6 +47,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | undefined>(undefined);
+  const [showComparator, setShowComparator] = useState(false);
   
   // Estados para Modal de Status
   const [statusModalOrder, setStatusModalOrder] = useState<Order | null>(null);
@@ -230,6 +233,11 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
     );
   };
 
+  // Se modo comparador estiver ativo, renderiza o comparador
+  if (showComparator) {
+    return <QuotationComparator onBack={() => setShowComparator(false)} />;
+  }
+
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -238,17 +246,25 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
           <p className="text-slate-500 font-medium text-sm">Controle de suprimentos em trânsito e pendentes.</p>
         </div>
         
-        {user.role === UserRole.ADM && (
-          <button 
-            onClick={() => {
-              setEditingOrder(undefined);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-200 active:scale-95"
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowComparator(true)}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-700 text-white rounded-xl font-bold hover:bg-blue-800 transition-all shadow-lg shadow-blue-200 active:scale-95 text-sm"
           >
-            <Plus className="w-5 h-5" /> Novo Pedido
+            <BarChart3 className="w-4 h-4" /> Comparar Cotações
           </button>
-        )}
+          {user.role === UserRole.ADM && (
+            <button 
+              onClick={() => {
+                setEditingOrder(undefined);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-200 active:scale-95"
+            >
+              <Plus className="w-5 h-5" /> Novo Pedido
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
