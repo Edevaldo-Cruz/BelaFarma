@@ -46,7 +46,9 @@ try {
         paymentMethod TEXT NOT NULL,
         receiptDate TEXT,
         notes TEXT,
-        installments TEXT -- Armazenado como JSON
+        installments TEXT, -- Armazenado como JSON
+        isFogueteAmarelo INTEGER DEFAULT 0,
+        boletoPath TEXT
       );
     `;
 
@@ -394,6 +396,14 @@ try {
       db.prepare('SELECT boletoPath FROM orders LIMIT 1').get();
     } catch (e) {
       db.exec('ALTER TABLE orders ADD COLUMN boletoPath TEXT');
+    }
+
+    // Add isFogueteAmarelo column to orders table if it doesn't exist
+    try {
+      db.prepare('SELECT isFogueteAmarelo FROM orders LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE orders ADD COLUMN isFogueteAmarelo INTEGER DEFAULT 0');
+      console.log('Added isFogueteAmarelo column to orders table.');
     }
 
 

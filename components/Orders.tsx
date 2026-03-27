@@ -247,12 +247,14 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
         </div>
         
         <div className="flex items-center gap-3">
+          {/* Ocultado temporariamente a pedido do usuário
           <button
             onClick={() => setShowComparator(true)}
             className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-700 text-white rounded-xl font-bold hover:bg-blue-800 transition-all shadow-lg shadow-blue-200 active:scale-95 text-sm"
           >
             <BarChart3 className="w-4 h-4" /> Comparar Cotações
           </button>
+          */}
           {user.role === UserRole.ADM && (
             <button 
               onClick={() => {

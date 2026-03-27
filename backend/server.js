@@ -239,6 +239,7 @@ app.get('/api/all-data', (req, res) => {
     const orders = ordersRaw.map(order => ({
       ...order,
       installments: safelyParseJSON(order.installments),
+      isFogueteAmarelo: !!order.isFogueteAmarelo,
     }));
 
     const shortages = shortagesRaw.map(shortage => ({
@@ -607,12 +608,13 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
       order.boletoPath = req.file.path;
     }
     const stmt = db.prepare(`
-      INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, boletoPath)
-      VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @boletoPath)
+      INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, isFogueteAmarelo, boletoPath)
+      VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
     `);
     const result = stmt.run({
       ...order,
-      installments: JSON.stringify(order.installments || [])
+      installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true) ? 1 : 0
     });
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
@@ -631,13 +633,14 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
     }
     const stmt = db.prepare(`
       UPDATE orders 
-      SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, boletoPath = @boletoPath
+      SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, isFogueteAmarelo = @isFogueteAmarelo, boletoPath = @boletoPath
       WHERE id = @id
     `);
     const result = stmt.run({
       id,
       ...order,
-      installments: JSON.stringify(order.installments || [])
+      installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true) ? 1 : 0
     });
     if (result.changes > 0) {
       res.status(200).json({ message: 'Order updated successfully.' });
