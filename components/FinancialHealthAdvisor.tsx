@@ -5,7 +5,7 @@ import {
   AlertTriangle, CheckCircle2, Lightbulb, ShoppingCart,
   Target, BarChart3, DollarSign, CreditCard,
   Clock, Zap, RefreshCw, ChevronDown, ChevronUp,
-  Activity, CircleDollarSign, Banknote, Rocket
+  Activity, CircleDollarSign, Banknote, Rocket, MessageSquare, Send, Bot
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -70,6 +70,11 @@ interface Analysis {
   raw?: string;
 }
 
+interface ChatMessage {
+  role: 'user' | 'model';
+  content: string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmt = (v: number) =>
@@ -94,19 +99,48 @@ export const FinancialHealthAdvisor: React.FC = () => {
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [expandedAlerta, setExpandedAlerta] = useState<number | null>(null);
   const [showFixedList, setShowFixedList] = useState(false);
+  
+  // States for chat
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [isChatting, setIsChatting] = useState(false);
 
-  // Busca snapshot (KPIs rápidos) ao montar e trocar período
+  // Busca snapshot (KPIs rápidos) ou carrega análise completa anterior se não mudar período
+  const loadLastAnalysis = useCallback(async () => {
+    try {
+      const res = await fetch('/api/financial-health/last-analysis');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.snapshot && data.analysis) {
+          // Apenas usa se o período bater com o atual (ou a gente poderia forçar o período da análise)
+          if (data.snapshot.periodo.days === period) {
+            setSnapshot(data.snapshot);
+            setAnalysis(data.analysis);
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao carregar ultima analise', e);
+    }
+    return false;
+  }, [period]);
+
   const fetchSnapshot = useCallback(async () => {
     setLoadingSnapshot(true);
     try {
-      const res = await fetch(`/api/financial-health/snapshot?days=${period}`);
-      if (res.ok) setSnapshot(await res.json());
+      // Tenta pegar a ultima analise
+      const loaded = await loadLastAnalysis();
+      if (!loaded) {
+        const res = await fetch(`/api/financial-health/snapshot?days=${period}`);
+        if (res.ok) setSnapshot(await res.json());
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setLoadingSnapshot(false);
     }
-  }, [period]);
+  }, [period, loadLastAnalysis]);
 
   useEffect(() => { fetchSnapshot(); }, [fetchSnapshot]);
 
@@ -130,6 +164,34 @@ export const FinancialHealthAdvisor: React.FC = () => {
       addToast(`❌ ${err.message}`, 'error');
     } finally {
       setLoadingAnalysis(false);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentMessage.trim() || isChatting) return;
+
+    const userMsg = currentMessage.trim();
+    const newHistory: ChatMessage[] = [...chatHistory, { role: 'user', content: userMsg }];
+    
+    setChatHistory(newHistory);
+    setCurrentMessage('');
+    setIsChatting(true);
+
+    try {
+      const res = await fetch('/api/financial-health/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg, history: chatHistory })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      
+      setChatHistory([...newHistory, { role: 'model', content: data.reply }]);
+    } catch (err: any) {
+      addToast(`❌ Erro no chat: ${err.message}`, 'error');
+    } finally {
+      setIsChatting(false);
     }
   };
 
@@ -580,8 +642,65 @@ export const FinancialHealthAdvisor: React.FC = () => {
             </div>
           )}
 
+          {/* ── Chat Dinâmico com a Isa ─────────────────────────────────── */}
+          <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col mt-8">
+            <div className="px-8 py-5 border-b border-slate-100 flex items-center gap-3 bg-slate-50">
+              <MessageSquare className="w-5 h-5 text-blue-600" />
+              <div>
+                 <h3 className="font-black text-slate-900 uppercase tracking-tighter text-base">Converse com a Isa sobre a Análise</h3>
+                 <p className="text-xs font-bold text-slate-500">Tire dúvidas sobre os valores, dicas de corte ou estratégias.</p>
+              </div>
+            </div>
+            
+            <div className="flex-1 p-6 overflow-y-auto max-h-[400px] space-y-4 bg-slate-50/50">
+              {chatHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-center opacity-60">
+                  <Bot className="w-12 h-12 text-blue-300 mb-3" />
+                  <p className="text-sm font-bold text-slate-500 max-w-sm">Pergunte algo sobre o faturamento, ponto de equilíbrio ou os boletos pendentes detalhados acima.</p>
+                </div>
+              ) : (
+                chatHistory.map((msg, idx) => (
+                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+                      msg.role === 'user' 
+                        ? 'bg-blue-600 text-white font-medium rounded-tr-sm' 
+                        : 'bg-white border border-slate-200 text-slate-700 shadow-sm rounded-tl-sm'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))
+              )}
+              {isChatting && (
+                <div className="flex justify-start">
+                   <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-white border border-slate-200 shadow-sm rounded-tl-sm text-slate-400">
+                     <Loader2 className="w-4 h-4 animate-spin" />
+                   </div>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-slate-100 flex items-center gap-3">
+              <input
+                type="text"
+                placeholder="Ex: Como posso reduzir minhas contas fixas?"
+                value={currentMessage}
+                onChange={(e) => setCurrentMessage(e.target.value)}
+                disabled={isChatting}
+                className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={!currentMessage.trim() || isChatting}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 text-white p-3 rounded-xl transition-colors shadow-md"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </form>
+          </div>
+
           {/* Atualizar */}
-          <div className="flex justify-center">
+          <div className="flex justify-center mt-6">
             <button
               onClick={handleAnalyze}
               className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm hover:bg-slate-200 transition-all"

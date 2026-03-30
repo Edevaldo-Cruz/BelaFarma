@@ -129,13 +129,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
     { id: 'messaging-center', label: 'Mensagens WA', icon: MessageSquare },
     { id: 'ai-portal', label: 'Central de IAs', icon: BrainCircuit },
-    { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'financial-health']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

@@ -5,6 +5,9 @@
 
 const path = require('path');
 const fetch = require('node-fetch');
+const fs = require('fs');
+
+const LAST_ANALYSIS_FILE = path.join(__dirname, 'last_financial_analysis.json');
 
 module.exports = function (app, db) {
 
@@ -80,11 +83,93 @@ module.exports = function (app, db) {
         analysis = { raw: rawText };
       }
 
+      // Salva a última análise em disco
+      try {
+        fs.writeFileSync(LAST_ANALYSIS_FILE, JSON.stringify({ snapshot, analysis, timestamp: new Date() }), 'utf8');
+      } catch (fileErr) {
+        console.error('[FinancialHealth] Erro ao salvar análise no disco:', fileErr);
+      }
+
       res.json({ snapshot, analysis });
 
     } catch (err) {
       console.error('[FinancialHealth] Erro inesperado:', err);
       res.status(500).json({ error: `Erro interno: ${err.message}` });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/financial-health/last-analysis
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/financial-health/last-analysis', (req, res) => {
+    try {
+      if (fs.existsSync(LAST_ANALYSIS_FILE)) {
+        const data = fs.readFileSync(LAST_ANALYSIS_FILE, 'utf8');
+        res.json(JSON.parse(data));
+      } else {
+        res.json(null);
+      }
+    } catch (err) {
+      console.error('[FinancialHealth] Erro ao ler última análise:', err);
+      res.status(500).json({ error: 'Erro ao ler última análise' });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POST /api/financial-health/chat
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post('/api/financial-health/chat', async (req, res) => {
+    try {
+      const { message, history } = req.body;
+      const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+      if (!GEMINI_API_KEY) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY não configurada.' });
+      }
+
+      let lastAnalysisData = 'Nenhuma análise recente disponível.';
+      if (fs.existsSync(LAST_ANALYSIS_FILE)) {
+        const fileContent = fs.readFileSync(LAST_ANALYSIS_FILE, 'utf8');
+        const parsed = JSON.parse(fileContent);
+        lastAnalysisData = JSON.stringify(parsed?.analysis || parsed);
+      }
+
+      const systemPrompt = \`Você é a Isa, a Consultora Financeira da Bela Farma Sul.
+O usuário está fazendo uma pergunta. Contexto da última análise financeira: 
+\${lastAnalysisData}
+
+Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão financeira.\`;
+
+      const contents = (history || []).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }]
+      }));
+      contents.push({ role: 'user', parts: [{ text: message }] });
+
+      const geminiUrl = \`https://generativelanguage.googleapis.com/v1beta/models/\${GEMINI_MODEL}:generateContent?key=\${GEMINI_API_KEY}\`;
+      const payload = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: contents,
+        generationConfig: { temperature: 0.7 }
+      };
+
+      const geminiResponse = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!geminiResponse.ok) {
+        const errStr = await geminiResponse.text();
+        throw new Error(\`Gemini erro: \${errStr.substring(0, 100)}\`);
+      }
+
+      const geminiData = await geminiResponse.json();
+      const reply = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      res.json({ reply });
+
+    } catch (err) {
+      console.error('[FinancialHealth] Erro no chat:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 };

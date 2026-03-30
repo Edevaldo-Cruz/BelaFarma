@@ -5,8 +5,9 @@ import FinancialAgent from './FinancialAgent';
 import PurchasingAgent from './PurchasingAgent';
 import { MedicationSearch } from './MedicationSearch';
 import IsaFiles from './IsaFiles';
+import { FinancialHealthAdvisor } from './FinancialHealthAdvisor';
 
-type ActiveAgent = 'portal' | 'marketing' | 'financeiro' | 'compras' | 'medicamentos' | 'arquivos';
+type ActiveAgent = 'portal' | 'marketing' | 'financeiro' | 'compras' | 'medicamentos' | 'arquivos' | 'saude-financeira';
 
 interface AIAgent {
   id: ActiveAgent;
@@ -38,6 +39,16 @@ const agents: AIAgent[] = [
     emoji: '💰',
     gradient: 'from-emerald-600 via-teal-600 to-cyan-500',
     accentColor: 'emerald',
+    available: true,
+  },
+  {
+    id: 'saude-financeira',
+    name: 'Isa-Saúde Financeira',
+    role: 'Consultora Estratégica',
+    description: 'Diagnóstico detalhado da saúde do negócio, indicadores de margem, faturamento vs despesas e chat com a IA.',
+    emoji: '❤',
+    gradient: 'from-blue-600 via-blue-500 to-cyan-500',
+    accentColor: 'blue',
     available: true,
   },
   {
@@ -100,6 +111,21 @@ export default function AIPortal() {
           Voltar à Central de IAs
         </button>
         <FinancialAgent />
+      </div>
+    );
+  }
+
+  if (activeAgent === 'saude-financeira') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setActiveAgent('portal')}
+          className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Voltar à Central de IAs
+        </button>
+        <FinancialHealthAdvisor />
       </div>
     );
   }

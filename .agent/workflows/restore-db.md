@@ -7,7 +7,7 @@ description: Restaurar banco de dados de produção
 Este workflow descreve como restaurar o banco de dados de produção no ambiente de desenvolvimento local.
 
 ## Pré-requisitos
-- Acesso SSH ao servidor de produção (192.168.1.9)
+- Acesso SSH ao servidor de produção (192.168.1.10)
 - Senha do usuário `ed`: 2494
 - Servidor backend parado ou pronto para reiniciar
 
@@ -25,7 +25,7 @@ Abra um novo terminal (Git Bash ou terminal do VS Code) para ter controle visual
 ### 3. Copiar banco de produção via SCP
 ```bash
 cd f:\Documentos\Desenvolvimento\BelaFarma
-scp ed@192.168.1.9:/home/ed/projetcs/BelaFarma/backend/belafarma.db ./backend/banco-producao.db
+scp ed@192.168.1.10:/home/ed/projetcs/BelaFarma/backend/belafarma.db ./backend/banco-producao.db
 ```
 **Quando solicitado, digite a senha:** `2494`
 
@@ -82,13 +82,13 @@ Ou usando o script:
 ### Erro de conexão SSH
 ```bash
 # Testar conexão
-ssh ed@192.168.1.9
+ssh ed@192.168.1.10
 ```
 
 ### Arquivo não encontrado no servidor
 ```bash
 # Conectar via SSH e verificar
-ssh ed@192.168.1.9
+ssh ed@192.168.1.10
 ls -la /home/ed/projetcs/BelaFarma/backend/
 ```
 
