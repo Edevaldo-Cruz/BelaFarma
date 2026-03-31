@@ -133,11 +133,11 @@ module.exports = function (app, db) {
         lastAnalysisData = JSON.stringify(parsed?.analysis || parsed);
       }
 
-      const systemPrompt = \`Você é a Isa, a Consultora Financeira da Bela Farma Sul.
+      const systemPrompt = `Você é a Isa, a Consultora Financeira da Bela Farma Sul.
 O usuário está fazendo uma pergunta. Contexto da última análise financeira: 
-\${lastAnalysisData}
+${lastAnalysisData}
 
-Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão financeira.\`;
+Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão financeira.`;
 
       const contents = (history || []).map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
@@ -145,7 +145,7 @@ Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão 
       }));
       contents.push({ role: 'user', parts: [{ text: message }] });
 
-      const geminiUrl = \`https://generativelanguage.googleapis.com/v1beta/models/\${GEMINI_MODEL}:generateContent?key=\${GEMINI_API_KEY}\`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
       const payload = {
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: contents,
@@ -160,7 +160,7 @@ Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão 
 
       if (!geminiResponse.ok) {
         const errStr = await geminiResponse.text();
-        throw new Error(\`Gemini erro: \${errStr.substring(0, 100)}\`);
+        throw new Error(`Gemini erro: ${errStr.substring(0, 100)}`);
       }
 
       const geminiData = await geminiResponse.json();
