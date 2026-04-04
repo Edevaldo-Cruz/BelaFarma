@@ -2913,7 +2913,9 @@ console.log('🤖 Agente de Compras e Central de Arquivos inicializados.');
 // Roda 2x ao dia: 01:00 e 13:00 (horário de Brasília)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const BACKUP_DIR = path.join(__dirname, 'backups');
+const BACKUP_DIR = process.platform === 'win32'
+  ? path.join(__dirname, '../backups_dev_simulated')
+  : path.join(__dirname, '../data/backups');
 const DB_BACKUP_PATH = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
 const MAX_BACKUPS = 30; // Mantém os últimos 30 arquivos
 
