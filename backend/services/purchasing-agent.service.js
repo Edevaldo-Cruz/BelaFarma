@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-flash-latest';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 
 const ISA_COMPRAS_SYSTEM_PROMPT = `
 Você é a Isa-Compras, a inteligência estratégica de suprimentos da Bela Farma Sul. Sua missão é maximizar o lucro através de compras inteligentes, evitando a falta de produtos essenciais (Curva A) e impedindo o desperdício de capital em produtos parados.
@@ -40,7 +40,7 @@ async function chamarGemini(prompt, systemNote = '') {
     throw new Error('A chave da API (GEMINI_API_KEY) não está identificada.');
   }
 
-  const tokenUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+  const tokenUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
   const promptCompleto = `${ISA_COMPRAS_SYSTEM_PROMPT}\n\n${systemNote ? `CONTEXTO ADICIONAL:\n${systemNote}\n\n` : ''}TAREFA:\n${prompt}`;
 
   const response = await fetch(tokenUrl, {

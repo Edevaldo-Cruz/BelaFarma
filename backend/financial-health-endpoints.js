@@ -11,7 +11,7 @@ const LAST_ANALYSIS_FILE = path.join(__dirname, 'last_financial_analysis.json');
 
 module.exports = function (app, db) {
 
-  const GEMINI_MODEL = 'gemini-flash-latest';
+  const GEMINI_MODEL = 'gemini-2.0-flash';
 
   // ─────────────────────────────────────────────────────────────────────────
   // GET /api/financial-health/snapshot

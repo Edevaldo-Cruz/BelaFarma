@@ -3057,7 +3057,7 @@ ${supplierBlocks}`;
           return res.status(500).json({ error: 'GEMINI_API_KEY não configurada no servidor.' });
         }
 
-        const modelId = 'gemini-1.5-flash';
+        const modelId = 'gemini-2.0-flash';
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${GEMINI_API_KEY}`;
         console.log(`[QUOTATION] Analisando com ${modelId} (input: ${JSON.stringify(suppliers).length} chars)...`);
 

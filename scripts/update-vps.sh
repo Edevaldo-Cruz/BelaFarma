@@ -22,9 +22,9 @@ fi
 
 # 2. Atualizar e Reconstruir
 echo ""
-echo "2. Atualizando código via Git e reconstruindo Docker (Frontend + Backend)..."
+echo "2. Corrigindo permissões e atualizando código via Git..."
 echo "Isso pode levar alguns minutos..."
-ssh -t "$PROD_USER@$PROD_IP" "cd $REMOTE_DIR && git fetch origin && git reset --hard origin/main && docker-compose up -d --build"
+ssh -t "$PROD_USER@$PROD_IP" "cd $REMOTE_DIR && sudo chown -R ed:ed mensagens/ 2>/dev/null || true && git fetch origin && git reset --hard origin/main && docker-compose up -d --build"
 
 if [ $? -eq 0 ]; then
     echo ""
