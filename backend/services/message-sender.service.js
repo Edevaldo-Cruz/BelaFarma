@@ -59,7 +59,7 @@ function saveMessageToFile(phone, message) {
  * @param {string} message - Texto da mensagem
  * @returns {Promise<{success: boolean, messageId?: string, error?: string, fallback?: boolean}>}
  */
-async function sendMessage(phone, message) {
+async function sendMessage(phone, message, disableFallback = false) {
   if (!ENABLED) {
     console.log('[MessageSender] Notificações desabilitadas (WA_NOTIFICATIONS_ENABLED=false)');
     return { success: false, error: 'Notificações desabilitadas' };
@@ -105,6 +105,16 @@ async function sendMessage(phone, message) {
 
     if (!response.ok) {
       console.error(`[MessageSender] ❌ Falha na API (${response.status}) ao enviar para ${phone}`);
+      
+      if (disableFallback) {
+        return { 
+          success: false, 
+          error: result.message || `Erro API ${response.status}`,
+          fallback: false,
+          isApiError: true
+        };
+      }
+
       const saved = saveMessageToFile(phone, message);
       return { 
         success: saved, 
@@ -119,6 +129,15 @@ async function sendMessage(phone, message) {
   } catch (error) {
     console.error(`[MessageSender] ❌ Erro de conexão ao enviar para ${phone}:`, error.message);
     
+    if (disableFallback) {
+        return { 
+          success: false, 
+          error: error.message,
+          fallback: false,
+          isNetworkError: true
+        };
+    }
+
     // FALLBACK: Se falhar a conexão, salva no disco
     const saved = saveMessageToFile(phone, message);
     return { 

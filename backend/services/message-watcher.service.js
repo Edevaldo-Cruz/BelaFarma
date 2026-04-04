@@ -59,10 +59,14 @@ const scanPendingMessages = async () => {
                     }
                 }
                 
-                // Chamada do Sender de fato (que já integra na Evolution API)
-                const result = await messageSender.sendMessage(phone, textMessage);
-                const isSent = result.success && !result.fallback;
-                const isPersistentFailure = result.success === false && !result.fallback; // Erro real na API sem conseguir salvar fallback (raro)
+                // Chamada do Sender de fato (desabilita a criação de arquivo de fallback para evitar duplicação)
+                const result = await messageSender.sendMessage(phone, textMessage, true);
+                const isSent = result.success;
+                const isNetworkError = result.isNetworkError;
+                
+                // Se for erro de API (ex: número inválido), falha permanentemente e move para erros.
+                // Se for erro de rede (API fora do ar), mantém na lista de pendentes para tentar depois.
+                const isPersistentFailure = !isSent && !isNetworkError;
 
                 // Registro no Banco de Dados
                 try {
@@ -74,8 +78,8 @@ const scanPendingMessages = async () => {
                       `msg_${Date.now()}_${Math.random().toString(36).substring(2,7)}`, 
                       phone, 
                       'file_watcher', 
-                      isSent ? 'enviado' : (result.fallback ? 'pendente_offline' : 'falhou'),
-                      isSent ? null : (result.fallback ? 'Aguardando Evolution API ficar online.' : result.error || 'Erro desconhecido'),
+                      isSent ? 'enviado' : (isNetworkError ? 'pendente_offline' : 'falhou'),
+                      isSent ? null : (isNetworkError ? 'Aguardando Evolution API ficar online.' : result.error || 'Erro desconhecido'),
                       new Date().toISOString()
                    );
                 } catch(dbErr) {
@@ -92,7 +96,7 @@ const scanPendingMessages = async () => {
                     fs.renameSync(filePath, destPath);
                     console.log(`[Message Watcher] ❌ Falhou permanentemente. Arquivo movido para erros: ${file}`);
                 } else {
-                    // Se result.fallback é true, deixamos o arquivo na pasta de pendentes para a próxima tentativa
+                    // Mantem o arquivo na pasta de pendentes (não cria um novo)
                     console.log(`[Message Watcher] ⏳ API ainda offline para ${phone}. Mantendo arquivo em pendentes.`);
                 }
                 

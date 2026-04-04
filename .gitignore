@@ -22,6 +22,19 @@ dist-ssr
 *.sln
 *.sw?
 .env
+auth.json
+auth_check.json
+current_auth.json
+device_auth.json
+check_auth.json
+config_get.json
+device.json
+agents_cfg.json
+models_agent.json
+*.txt
+*.log
+nul
+.env
 
 # Database
 *.db
