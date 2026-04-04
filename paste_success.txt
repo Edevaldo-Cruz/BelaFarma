@@ -1,3 +1,0 @@
-error: unknown option '--token'
-error: unknown option '--provider'
-(Did you mean --profile?)

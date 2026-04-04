@@ -1,3 +1,0 @@
-error: unknown option '--force'
-
-removed 654 packages in 2s
