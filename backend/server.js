@@ -2936,34 +2936,79 @@ function performLocalBackup() {
     }
 
     if (!fs.existsSync(DB_BACKUP_PATH)) {
-      console.error(`${logTag} ❌ Banco não encontrado em: ${DB_BACKUP_PATH}`);
+      console.error(`${logTag} Banco nao encontrado em: ${DB_BACKUP_PATH}`);
       return;
     }
 
     fs.copyFileSync(DB_BACKUP_PATH, backupFilePath);
     const sizeKB = (fs.statSync(backupFilePath).size / 1024).toFixed(0);
-    console.log(`${logTag} ✅ Backup criado: ${backupFileName} (${sizeKB} KB)`);
+    console.log(`${logTag} Backup criado: ${backupFileName} (${sizeKB} KB)`);
 
-    // Limpeza: apaga os mais antigos, mantendo MAX_BACKUPS
     const files = fs.readdirSync(BACKUP_DIR)
       .filter(f => f.startsWith('backup_') && f.endsWith('.db'))
       .map(f => ({ name: f, time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
       .sort((a, b) => b.time - a.time);
 
     if (files.length > MAX_BACKUPS) {
-      const toDelete = files.slice(MAX_BACKUPS);
-      toDelete.forEach(({ name }) => {
+      files.slice(MAX_BACKUPS).forEach(({ name }) => {
         fs.unlinkSync(path.join(BACKUP_DIR, name));
-        console.log(`${logTag} 🗑 Backup antigo removido: ${name}`);
+        console.log(`${logTag} Backup antigo removido: ${name}`);
       });
     }
 
-    console.log(`${logTag} 📦 Total de backups: ${Math.min(files.length, MAX_BACKUPS)}/${MAX_BACKUPS}`);
+    console.log(`${logTag} Total de backups: ${Math.min(files.length, MAX_BACKUPS)}/${MAX_BACKUPS}`);
+
+    // Envia o backup via WhatsApp (apenas em producao Linux)
+    if (process.env.WA_NOTIFICATIONS_ENABLED !== 'false' && process.platform !== 'win32') {
+      sendBackupViaWhatsApp(backupFilePath, backupFileName, sizeKB).catch(err => {
+        console.error(`${logTag} Falha no envio do backup via WhatsApp: ${err.message}`);
+      });
+    }
 
   } catch (err) {
-    console.error(`${logTag} ❌ Erro fatal no backup: ${err.message}`);
+    console.error(`${logTag} Erro fatal no backup: ${err.message}`);
   }
 }
+
+async function sendBackupViaWhatsApp(filePath, fileName, sizeKB) {
+  const logTag = '[BACKUP WA]';
+  const EVOLUTION_URL  = process.env.EVOLUTION_API_URL || 'http://evolution-api:8080';
+  const EVOLUTION_KEY  = process.env.EVOLUTION_API_KEY  || 'BelafarmaSul2026';
+  const EVOLUTION_INST = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
+  const ADMIN_PHONE    = (process.env.ADMIN_WHATSAPP || '').replace(/\D/g, '');
+
+  if (!ADMIN_PHONE) {
+    console.warn(`${logTag} ADMIN_WHATSAPP nao configurado. Envio ignorado.`);
+    return;
+  }
+
+  const fileBuffer = fs.readFileSync(filePath);
+  const base64File = fileBuffer.toString('base64');
+  const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  const payload = {
+    number: ADMIN_PHONE,
+    mediatype: 'document',
+    mimetype: 'application/octet-stream',
+    caption: `*Backup BelaFarma*\n${agora}\nArquivo: ${fileName}\nTamanho: ${sizeKB} KB\n\nBackup automatico concluido com sucesso!`,
+    media: base64File,
+    fileName: fileName,
+  };
+
+  const response = await fetch(`${EVOLUTION_URL}/message/sendMedia/${EVOLUTION_INST}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
+    body: JSON.stringify(payload),
+  });
+
+  if (response.ok) {
+    console.log(`${logTag} Backup enviado para o WhatsApp (${ADMIN_PHONE})`);
+  } else {
+    const errText = await response.text();
+    console.error(`${logTag} Erro ao enviar (${response.status}): ${errText.substring(0, 200)}`);
+  }
+}
+
 
 // Roda imediatamente 1 vez ao iniciar o servidor (para confirmar que funciona)
 setTimeout(() => {
