@@ -48,3 +48,6 @@ backups/
 *.backup*
 nul
 .env
+
+# Mensagens WhatsApp (geradas em tempo de execução)
+mensagens/

@@ -25,48 +25,65 @@ const ERROS_DIR = path.join(MENSAGENS_DIR, 'erros');
   }
 });
 
+const MAX_PER_CYCLE  = 5;     // máximo de mensagens enviadas por scan
+const MSG_DELAY_MS   = 4000;  // 4s entre cada mensagem
+const MSG_MAX_AGE_MS = 24 * 60 * 60 * 1000; // descarta mensagens com mais de 24h
+
 const scanPendingMessages = async () => {
     try {
         const files = fs.readdirSync(PENDENTES_DIR);
         
+        let processedThisCycle = 0;
+
         for (const file of files) {
             if (!file.endsWith('.json')) continue;
-            
+            if (processedThisCycle >= MAX_PER_CYCLE) {
+                console.log(`[Message Watcher] ⏸ Limite de ${MAX_PER_CYCLE} msgs/ciclo atingido. Restantes no próximo ciclo.`);
+                break;
+            }
+
             const filePath = path.join(PENDENTES_DIR, file);
             
             try {
                 const fileContent = fs.readFileSync(filePath, 'utf-8');
                 const messageData = JSON.parse(fileContent);
                 
-                // Extrai as configurações (suportando diferentes formatos)
                 const phone = messageData.phone || messageData.number;
                 const textMessage = messageData.textMessage?.text || messageData.message;
-                const sendAt = messageData.sendAt; // Esperado em formato ISO (ex: "2026-03-09T14:30:00Z" ou timestamp de Data)
-                
+                const sendAt = messageData.sendAt;
+                const createdAt = messageData.createdAt;
+
                 if (!phone || !textMessage) {
-                    throw new Error("Arquivo JSON inválido. Faltando 'phone' ou propriedades de mensagem ('textMessage.text')");
+                    throw new Error("Arquivo JSON inválido. Faltando 'phone' ou propriedades de mensagem.");
                 }
-                
-                // Validação de Agendamento
-                if (sendAt) {
-                    const scheduledTime = new Date(sendAt).getTime();
-                    const now = Date.now();
-                    
-                    if (scheduledTime > now) {
-                        // Ainda não chegou a hora de enviar.
-                        // Ignora este arquivo por enquanto e deixa na pasta de pendentes.
+
+                // Descarta mensagens muito antigas (mais de 24h) para não fazer burst no restart
+                if (createdAt) {
+                    const age = Date.now() - new Date(createdAt).getTime();
+                    if (age > MSG_MAX_AGE_MS) {
+                        console.warn(`[Message Watcher] 🗑 Mensagem expirada (${Math.round(age/3600000)}h), descartando: ${file}`);
+                        fs.renameSync(filePath, path.join(ERROS_DIR, file));
                         continue;
                     }
                 }
+
+                // Validação de Agendamento
+                if (sendAt) {
+                    const scheduledTime = new Date(sendAt).getTime();
+                    if (scheduledTime > Date.now()) continue;
+                }
                 
-                // Chamada do Sender de fato (desabilita a criação de arquivo de fallback para evitar duplicação)
+                // Delay entre mensagens para evitar bloqueio de número
+                if (processedThisCycle > 0) {
+                    await new Promise(resolve => setTimeout(resolve, MSG_DELAY_MS));
+                }
+
                 const result = await messageSender.sendMessage(phone, textMessage, true);
                 const isSent = result.success;
                 const isNetworkError = result.isNetworkError;
-                
-                // Se for erro de API (ex: número inválido), falha permanentemente e move para erros.
-                // Se for erro de rede (API fora do ar), mantém na lista de pendentes para tentar depois.
                 const isPersistentFailure = !isSent && !isNetworkError;
+
+                processedThisCycle++;
 
                 // Registro no Banco de Dados
                 try {
@@ -86,26 +103,19 @@ const scanPendingMessages = async () => {
                    console.error("[Message Watcher] Falha ao registrar log no banco:", dbErr);
                 }
                 
-                // Mover arquivo
                 if (isSent) {
-                    const destPath = path.join(ENVIADAS_DIR, file);
-                    fs.renameSync(filePath, destPath);
-                    console.log(`[Message Watcher] ✅ Sucesso! Arquivo movido para enviadas: ${file}`);
+                    fs.renameSync(filePath, path.join(ENVIADAS_DIR, file));
+                    console.log(`[Message Watcher] ✅ Enviado e movido para enviadas: ${file}`);
                 } else if (isPersistentFailure) {
-                    const destPath = path.join(ERROS_DIR, file);
-                    fs.renameSync(filePath, destPath);
-                    console.log(`[Message Watcher] ❌ Falhou permanentemente. Arquivo movido para erros: ${file}`);
+                    fs.renameSync(filePath, path.join(ERROS_DIR, file));
+                    console.log(`[Message Watcher] ❌ Falhou permanentemente. Movido para erros: ${file}`);
                 } else {
-                    // Mantem o arquivo na pasta de pendentes (não cria um novo)
-                    console.log(`[Message Watcher] ⏳ API ainda offline para ${phone}. Mantendo arquivo em pendentes.`);
+                    console.log(`[Message Watcher] ⏳ API offline para ${phone}. Mantendo em pendentes.`);
                 }
                 
             } catch (err) {
-                console.error(`[Message Watcher] Erro ao ler/processar o arquivo ${file}:`, err);
-                // Move o arquivo com formato inválido para a pasta de erros para não travar o loop para sempre
-                try {
-                   fs.renameSync(filePath, path.join(ERROS_DIR, file));
-                } catch(e) {}
+                console.error(`[Message Watcher] Erro ao processar ${file}:`, err);
+                try { fs.renameSync(filePath, path.join(ERROS_DIR, file)); } catch(e) {}
             }
         }
     } catch (err) {
