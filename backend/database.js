@@ -733,6 +733,11 @@ try {
       console.log('Coluna source_id adicionada em safe_entries.');
     } catch (e) {}
 
+    try {
+      db.exec('ALTER TABLE safe_entries ADD COLUMN parent_id TEXT');
+      console.log('Coluna parent_id adicionada em safe_entries.');
+    } catch (e) {}
+
     // ========================================================================
     // MÓDULO iFOOD - Tabela para gestão de vendas iFood
     // ========================================================================

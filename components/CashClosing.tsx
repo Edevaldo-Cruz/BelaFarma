@@ -110,8 +110,14 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     }
 
     // Load daily expenses/non-registered items from dailyRecords prop
+    // IMPORTANT: Only load records from TODAY that are not yet processed.
+    // Previously this loaded ALL unprocessed records regardless of date,
+    // which caused sangrias from previous days to appear in every new closing.
     const todayStr = new Date().toISOString().split('T')[0];
-    const todaysRecordEntries = dailyRecords.filter(r => !r.lancado);
+    const todaysRecordEntries = dailyRecords.filter(r => {
+      const recordDate = r.date.split('T')[0];
+      return !r.lancado && recordDate === todayStr;
+    });
 
     let combinedExpenses: Array<{ id: string, desc: string, val: number }> = [];
     let combinedNonRegistered: Array<{ id: string, desc: string, val: number }> = [];

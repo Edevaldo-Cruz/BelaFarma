@@ -956,16 +956,19 @@ const syncSangriasToSafe = (sangrias, date, userName, drId) => {
             SET value = ?, date = ?, description = ?, userName = ?
             WHERE source_id = ? AND parent_id = ?
           `).run(s.val, date, `[Sangria] ${s.desc}`, userName, s.id, drId);
+          console.log(`[SANGRIA SYNC] ✓ Updated safe entry for sangria "${s.desc}" - R$ ${s.val}`);
         } else {
           db.prepare(`
             INSERT INTO safe_entries (id, date, description, type, value, userName, source_id, parent_id)
             VALUES (?, ?, ?, 'Entrada', ?, ?, ?, ?)
           `).run('S' + s.id, date, `[Sangria] ${s.desc}`, s.val, userName, s.id, drId);
+          console.log(`[SANGRIA SYNC] ✓ Created safe entry for sangria "${s.desc}" - R$ ${s.val}`);
         }
       }
     })();
   } catch (err) {
-    console.error('Error syncing sangrias to safe:', err);
+    console.error('[SANGRIA SYNC] ✗ Error syncing sangrias to safe:', err.message);
+    console.error('[SANGRIA SYNC] Parameters:', { sangrias: JSON.stringify(sangrias), date, userName, drId });
   }
 };
 
