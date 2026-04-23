@@ -2901,6 +2901,10 @@ console.log('🤖 Agente Financeiro IA inicializado.');
 require('./financial-health-endpoints.js')(app, db);
 console.log('💊 Módulo Saúde Financeira inicializado.');
 
+// Módulo Rádio Bela Farma
+require('./radio-endpoints.js')(app, db);
+console.log('📻 Módulo Rádio Bela Farma inicializado.');
+
 // ============================================================================
 // AGENTE DE COMPRAS IA - Inicialização
 // ============================================================================

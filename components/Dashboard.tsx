@@ -11,7 +11,10 @@ import {
   Lock,
   AlertTriangle,
   Truck,
-  BellRing // Added for Sunday alert
+  BellRing, // Added for Sunday alert
+  Radio,
+  Megaphone,
+  Square
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -41,6 +44,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
+  const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
+
+  const handleIniciarRadio = async () => {
+    setIniciandoRadio(true);
+    try {
+      await fetch('/api/radio/saudacao-proxy', {
+        method: 'POST'
+      });
+    } catch (e) {
+      console.error('Erro ao iniciar a rádio:', e);
+    } finally {
+      setTimeout(() => setIniciandoRadio(false), 2000);
+    }
+  };
+
+  const handleTocarNoticias = async () => {
+    try {
+      await fetch('/api/radio/noticias-proxy', {
+        method: 'POST'
+      });
+      alert('Boletim de notícias disparado na rádio!');
+    } catch (e) {
+      console.error('Erro ao tocar notícias:', e);
+    }
+  };
+
+  const handlePararRadio = async () => {
+    try {
+      await fetch('/api/radio/parar-proxy', {
+        method: 'POST'
+      });
+      alert('Comando para parar a rádio enviado!');
+    } catch (e) {
+      console.error('Erro ao parar a rádio:', e);
+    }
+  };
 
   const overdueOrders = orders.filter(o => {
     const forecast = new Date(o.arrivalForecast);
@@ -119,9 +158,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
             <p className="text-slate-500 dark:text-slate-400 font-medium">Resumo operacional belinha.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
-          <Calendar className="w-4 h-4" />
-          {now.toLocaleDateString('pt-BR')}
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleIniciarRadio}
+                disabled={iniciandoRadio}
+                className="flex items-center gap-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-4 py-2 rounded-full shadow-md transition-all"
+              >
+                <Radio className={`w-4 h-4 ${iniciandoRadio ? 'animate-pulse' : ''}`} />
+                {iniciandoRadio ? 'Iniciando...' : 'Iniciar Rádio'}
+              </button>
+              <button
+                onClick={handleTocarNoticias}
+                className="flex items-center gap-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full shadow-md transition-all"
+              >
+                <Megaphone className="w-4 h-4" />
+                Notícias
+              </button>
+              <button
+                onClick={handlePararRadio}
+                className="flex items-center gap-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-full shadow-md transition-all"
+              >
+                <Square className="w-4 h-4" />
+                Parar
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
+            <Calendar className="w-4 h-4" />
+            {now.toLocaleDateString('pt-BR')}
+          </div>
         </div>
       </header>
 

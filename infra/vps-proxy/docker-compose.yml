@@ -1,0 +1,75 @@
+# =============================================================
+# Docker Compose - VPS Caseira com Proxy Reverso e DDNS
+# Serviços: Nginx Proxy Manager + DuckDNS
+# =============================================================
+# Uso: docker compose up -d
+# Painel NPM: http://<IP_DA_VPS>:81
+# =============================================================
+
+services:
+  # ---------------------------------------------------------
+  # Nginx Proxy Manager (NPM)
+  # Gerencia proxy reverso + certificados SSL (Let's Encrypt)
+  # ---------------------------------------------------------
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP  - tráfego público
+      - "443:443"   # HTTPS - tráfego público (SSL)
+      - "81:81"     # Painel de administração do NPM
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    environment:
+      # Descomente e configure se quiser usar MySQL/MariaDB externo
+      # DB_MYSQL_HOST: "db"
+      # DB_MYSQL_PORT: 3306
+      # DB_MYSQL_USER: "npm"
+      # DB_MYSQL_PASSWORD: "npm_password"
+      # DB_MYSQL_NAME: "npm"
+      DISABLE_IPV6: "true"
+    healthcheck:
+      test: ["CMD", "/usr/bin/check-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - proxy-network
+
+  # ---------------------------------------------------------
+  # Cloudflare Tunnels (Zero Trust)
+  # Cria túnel seguro sem precisar abrir portas no roteador
+  # ---------------------------------------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      # O Token será gerado no painel do Cloudflare Zero Trust
+      - TUNNEL_TOKEN=eyJhIjoiMjZkOTNmYzJjZDY3YWEzZTU3YzEwZjE2ZDMyOWRmZjMiLCJ0IjoiNzY3ZWFmZWYtYTMzYy00ZWQyLTg2NzgtYWZlNDBmYWVkOGNmIiwicyI6Ik5UaGhOVFUyT0dFdE4yTTFZaTAwT0RrNExXSmhNbVF0WVRZME5tSTJNakJqT0dJNSJ9
+    networks:
+      - proxy-network
+
+# ---------------------------------------------------------
+# Rede compartilhada entre os serviços
+# Seus outros contêineres devem usar essa mesma rede
+# para serem acessíveis pelo Nginx Proxy Manager
+# ---------------------------------------------------------
+networks:
+  proxy-network:
+    name: proxy-network
+    driver: bridge
+
+# ---------------------------------------------------------
+# Volumes persistentes
+# ---------------------------------------------------------
+volumes:
+  npm_data:
+    name: npm_data
+  npm_letsencrypt:
+    name: npm_letsencrypt
+  duckdns_config:
+    name: duckdns_config

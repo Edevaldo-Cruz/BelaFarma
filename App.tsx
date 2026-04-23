@@ -29,6 +29,7 @@ import { NotificationsPage } from "./components/NotificationsPage";
 import { MessagingCenter } from "./components/MessagingCenter";
 import AIPortal from "./components/AIPortal";
 import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
+import { RadioManager } from "./components/RadioManager";
 import {
   Order,
   View,
@@ -693,6 +694,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'financial-health' && user.role === UserRole.ADM && (
                 <FinancialHealthAdvisor />
+              )}
+              {currentView === 'radio-manager' && user.role === UserRole.ADM && (
+                <RadioManager />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

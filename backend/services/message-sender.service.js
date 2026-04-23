@@ -3,7 +3,7 @@ const path = require('path');
 
 // Configurações do WhatsApp / Evolution API via .env
 const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
-const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
+const ADMIN_PHONES = (process.env.ADMIN_WHATSAPP || '').split(',').map(p => p.trim()).filter(p => !!p);
 const API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
 const API_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
 const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
@@ -68,6 +68,13 @@ async function sendMessage(phone, message, disableFallback = false) {
   if (!phone) {
     console.warn('[MessageSender] Número de destino não informado');
     return { success: false, error: 'Número não informado' };
+  }
+
+  // Suporte para múltiplos números separados por vírgula
+  if (typeof phone === 'string' && phone.includes(',')) {
+    const phones = phone.split(',').map(p => p.trim()).filter(p => !!p);
+    const results = await Promise.all(phones.map(p => sendMessage(p, message, disableFallback)));
+    return results.find(r => r.success) || results[0];
   }
 
   if (!message || message.trim() === '') {
@@ -152,11 +159,12 @@ async function sendMessage(phone, message, disableFallback = false) {
  * Envia notificação para o administrador da farmácia.
  */
 async function notifyAdmin(message) {
-  if (!ADMIN_PHONE) {
+  if (ADMIN_PHONES.length === 0) {
     console.warn('[MessageSender] ADMIN_WHATSAPP não configurado no .env');
     return { success: false, error: 'ADMIN_WHATSAPP não configurado' };
   }
-  return sendMessage(ADMIN_PHONE, message);
+  
+  return sendMessage(ADMIN_PHONES.join(','), message);
 }
 
 /**
@@ -205,6 +213,6 @@ module.exports = {
   sendMessage,
   notifyAdmin,
   sendBulk,
-  ADMIN_PHONE,
+  ADMIN_PHONES,
   ENABLED,
 };

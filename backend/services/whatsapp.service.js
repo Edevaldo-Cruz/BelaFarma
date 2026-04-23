@@ -10,7 +10,7 @@
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
-const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
+const ADMIN_PHONES = (process.env.ADMIN_WHATSAPP || '').split(',').map(p => p.trim()).filter(p => !!p);
 const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
 
 /**
@@ -30,11 +30,16 @@ async function sendMessage(phone, message) {
     return { success: false, error: 'Número não informado' };
   }
 
+  // Suporte para múltiplos números separados por vírgula
+  if (typeof phone === 'string' && phone.includes(',')) {
+    const phones = phone.split(',').map(p => p.trim()).filter(p => !!p);
+    const results = await Promise.all(phones.map(p => sendMessage(p, message)));
+    return results.find(r => r.success) || results[0];
+  }
+
   try {
     const cleanPhone = phone.replace(/\D/g, '');
     
-    // Suporte para fetch no Node.js (usando node-fetch se necessário, mas v18+ tem nativo)
-    // No projeto usamos node-fetch v2.7.0 importado no server.js ou via global
     const response = await fetch(`${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`, {
       method: 'POST',
       headers: {
@@ -71,11 +76,13 @@ async function sendMessage(phone, message) {
  * @param {string} message
  */
 async function notifyAdmin(message) {
-  if (!ADMIN_PHONE) {
+  if (ADMIN_PHONES.length === 0) {
     console.warn('[WhatsApp] ADMIN_WHATSAPP não configurado no .env');
     return { success: false, error: 'ADMIN_WHATSAPP não configurado' };
   }
-  return sendMessage(ADMIN_PHONE, message);
+  
+  // Como sendMessage agora suporta strings com vírgula, podemos passar a lista
+  return sendMessage(ADMIN_PHONES.join(','), message);
 }
 
 // ─── Mensagens pré-definidas ────────────────────────────────────────────────
