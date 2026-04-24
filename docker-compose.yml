@@ -57,7 +57,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     ports:
-      - "80:80" # Expõe a porta 80 do Nginx para o mundo exterior
+      - "8081:80" # Expõe na porta 8081 para não conflitar com o Proxy Manager
     depends_on:
       - backend # Garante que o backend inicie antes do frontend
     restart: unless-stopped
