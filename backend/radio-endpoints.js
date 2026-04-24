@@ -104,7 +104,7 @@ module.exports = (app, db) => {
   // Proxy: Status do Rádio (evita CORS bloqueando o navegador)
   app.get('/api/radio/status-proxy', async (req, res) => {
     try {
-      const response = await fetch('http://192.168.1.10:5050/api/status', { signal: AbortSignal.timeout(3000) });
+      const response = await fetch('http://192.168.1.10:5005/api/status', { signal: AbortSignal.timeout(3000) });
       if (!response.ok) throw new Error('Rádio não respondeu 200');
       const data = await response.json();
       res.json(data);
@@ -117,7 +117,7 @@ module.exports = (app, db) => {
   app.post('/api/radio/saudacao-proxy', async (req, res) => {
     try {
       console.log('Solicitando saudação ao Pi...');
-      const response = await fetch('http://192.168.1.10:5050/api/saudacao', { 
+      const response = await fetch('http://192.168.1.10:5005/api/saudacao', { 
         method: 'POST', 
         signal: AbortSignal.timeout(10000) 
       });
@@ -133,7 +133,7 @@ module.exports = (app, db) => {
   app.post('/api/radio/noticias-proxy', async (req, res) => {
     try {
       console.log('Solicitando notícias ao Pi...');
-      const response = await fetch('http://192.168.1.10:5050/api/noticias', { 
+      const response = await fetch('http://192.168.1.10:5005/api/noticias', { 
         method: 'POST', 
         signal: AbortSignal.timeout(10000) 
       });
@@ -149,7 +149,7 @@ module.exports = (app, db) => {
   app.post('/api/radio/parar-proxy', async (req, res) => {
     try {
       console.log('Solicitando parada ao Pi...');
-      const response = await fetch('http://192.168.1.10:5050/api/parar', { 
+      const response = await fetch('http://192.168.1.10:5005/api/parar', { 
         method: 'POST', 
         signal: AbortSignal.timeout(10000) 
       });
@@ -164,7 +164,7 @@ module.exports = (app, db) => {
   // Proxy: Disparar Anúncio (evita CORS)
   app.post('/api/radio/anunciar-proxy', async (req, res) => {
     try {
-      const response = await fetch('http://192.168.1.10:5050/api/anunciar', {
+      const response = await fetch('http://192.168.1.10:5005/api/anunciar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
@@ -181,7 +181,7 @@ module.exports = (app, db) => {
   app.post('/api/radio/playlist-proxy', async (req, res) => {
     try {
       console.log('Solicitando troca de playlist ao Pi...');
-      const response = await fetch('http://192.168.1.10:5050/api/playlist', {
+      const response = await fetch('http://192.168.1.10:5005/api/playlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
@@ -202,7 +202,7 @@ module.exports = (app, db) => {
   app.post('/api/radio/player-proxy', async (req, res) => {
     try {
       console.log(`Comando de player (${req.body.acao}) enviado ao Pi...`);
-      const response = await fetch('http://192.168.1.10:5050/api/player', {
+      const response = await fetch('http://192.168.1.10:5005/api/player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),

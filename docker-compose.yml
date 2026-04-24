@@ -57,10 +57,17 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     ports:
-      - "8081:80" # Expõe na porta 8081 para não conflitar com o Proxy Manager
+      - "8081:80"
     depends_on:
-      - backend # Garante que o backend inicie antes do frontend
+      - backend
+    networks:
+      - default
+      - proxy-network
     restart: unless-stopped
 
 volumes:
   evolution_data:
+
+networks:
+  proxy-network:
+    external: true
