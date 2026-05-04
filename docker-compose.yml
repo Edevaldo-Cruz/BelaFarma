@@ -14,6 +14,9 @@ services:
       - EDEVALDO_WHATSAPP=${EDEVALDO_WHATSAPP:-+5532988634755}
       - MARKETING_ROSANA_PHONE=${MARKETING_ROSANA_PHONE:-+5532988765295}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - GPT_MODEL=${GPT_MODEL:-gpt-4o-mini}
       - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
     volumes:
       # Monta diretório de dados (não apenas o arquivo)
