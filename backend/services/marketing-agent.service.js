@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { PDFParse } = require('pdf-parse');
 const db = require('../database');
+const { callAI } = require('./ai.service');
 
 /**
  * Marketing Agent Service — BelaFarma Sul
@@ -144,7 +145,7 @@ function putAICache(key, value, ttlSeconds = 3600) {
   }
 }
 
-async function chamarGemini(prompt, systemNote = '', cacheKey = null, ttl = 3600) {
+async function chamarIA(prompt, systemNote = '', cacheKey = null, ttl = 3600) {
   // 1. Tentar ler do cache se houver uma chave
   if (cacheKey) {
     const cached = getAICache(cacheKey);
@@ -154,49 +155,10 @@ async function chamarGemini(prompt, systemNote = '', cacheKey = null, ttl = 3600
     }
   }
 
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  if (!GEMINI_API_KEY) {
-    throw new Error('A chave da API (GEMINI_API_KEY) não está sendo identificada.');
-  }
-
-  const GEMINI_MODEL = 'gemini-2.0-flash';
-  const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-  console.log(`[IsaMarketing] 🚀 Chamando Gemini: ${GEMINI_MODEL}`);
-  
-  const promptCompleto = `${ISA_SYSTEM_PROMPT}\n\n${systemNote ? `CONTEXTO ADICIONAL:\n${systemNote}\n\n` : ''}TAREFA:\n${prompt}`;
+  const systemPrompt = `${ISA_SYSTEM_PROMPT}\n\n${systemNote ? `CONTEXTO ADICIONAL:\n${systemNote}` : ''}`;
 
   try {
-    const response = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: promptCompleto }] }],
-        generationConfig: {
-          temperature: 0.9,
-          topP: 0.95,
-          maxOutputTokens: 8192,
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[IsaMarketing] Erro Gemini (${response.status}):`, errText);
-      
-      if (response.status === 429 && cacheKey) {
-        const cached = getAICache(cacheKey);
-        if (cached) {
-          console.warn(`[IsaMarketing] ⚠️ Quota excedida. Usando cache expirado para: ${cacheKey}`);
-          return cached.value;
-        }
-      }
-      
-      throw new Error(`Gemini API error ${response.status}`);
-    }
-
-    const data = await response.json();
-    const result = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const result = await callAI(prompt, systemPrompt, { temperature: 0.9 });
     
     if (cacheKey && result) {
       putAICache(cacheKey, result, ttl);
@@ -290,7 +252,7 @@ Gere o RELATÓRIO ESTRATÉGICO COMPLETO da Isa-Marketing no seguinte formato con
 
   console.log('[IsaMarketing] 🧠 Chamando Gemini...');
   const cacheKey = `relatorio_completo_${agora.toISOString().split('T')[0]}`;
-  const relatorio = await chamarGemini(prompt, '', cacheKey, 86400); // 24h
+  const relatorio = await chamarIA(prompt, '', cacheKey, 86400); // 24h
   console.log('[IsaMarketing] ✅ Relatório da Isa gerado com sucesso!');
 
   return {
@@ -310,7 +272,7 @@ CATEGORIA: ${produto.categoria || 'farmácia'}
 Como a Isa-Marketing, crie 3 ideias CRIATIVAS de promoção para este produto em JF.`;
 
   const cacheKey = `ideias_produto_${produto.nome.toLowerCase().replace(/\s+/g, '_')}`;
-  return chamarGemini(prompt, '', cacheKey, 604800); // 7 dias
+  return chamarIA(prompt, '', cacheKey, 604800); // 7 dias
 }
 
 async function gerarCuradoriaNoticas() {
@@ -318,7 +280,7 @@ async function gerarCuradoriaNoticas() {
 
   const dataHoje = new Date().toISOString().split('T')[0];
   const cacheKey = `curadoria_noticias_${dataHoje}`;
-  return chamarGemini(prompt, '', cacheKey, 86400); // 24h
+  return chamarIA(prompt, '', cacheKey, 86400); // 24h
 }
 
 async function gerarTrendHunting() {
@@ -326,7 +288,7 @@ async function gerarTrendHunting() {
 
   const dataHoje = new Date().toISOString().split('T')[0];
   const cacheKey = `trend_hunting_${dataHoje}`;
-  return chamarGemini(prompt, '', cacheKey, 86400); // 24h
+  return chamarIA(prompt, '', cacheKey, 86400); // 24h
 }
 
 async function buscarClimaReal(lat = -21.78, lon = -43.34) {
@@ -346,7 +308,7 @@ async function gerarAlertaClima(clima) {
 Como a Isa-Marketing, crie uma mensagem de WhatsApp e Story com dica de saúde.`;
 
   const cacheKey = `alerta_clima_${clima.substring(0, 30).toLowerCase().replace(/\s+/g, '_')}`;
-  return chamarGemini(prompt, '', cacheKey, 7200); // 2h
+  return chamarIA(prompt, '', cacheKey, 7200); // 2h
 }
 
 async function gerarRelatorioClimaIpiranga(dadosClima) {
@@ -366,7 +328,7 @@ CLIMA ATUAL: ${climaHumano}
 Tarefa: Previsão, Dica de Saúde, Ideia de Post e WhatsApp.`;
 
   const cacheKey = `clima_ipiranga_${temp}_${code}`;
-  return chamarGemini(prompt, '', cacheKey, 14400); // 4h
+  return chamarIA(prompt, '', cacheKey, 14400); // 4h
 }
 
 function formatarResumoWhatsApp(relatorio, metadata) {
@@ -393,7 +355,7 @@ async function gerarMensagemClimaDiaria() {
 
   const prompt = `Como a Isa-Marketing da Bela Farma Sul, escreva uma mensagem de WhatsApp para a Rosana (minha chefe) informando o clima de hoje em Juiz de Fora (${climaHumano}) e sugerindo uma pauta ou dica rápida de saúde para postar nas redes sociais da farmácia hoje. Seja amigável e proativa.`;
 
-  return chamarGemini(prompt, '', `clima_diario_rosana_${new Date().toISOString().split('T')[0]}`, 14400);
+  return chamarIA(prompt, '', `clima_diario_rosana_${new Date().toISOString().split('T')[0]}`, 14400);
 }
 
 async function analisarProdutosParados90Dias(db, phone = process.env.EDEVALDO_WHATSAPP) {
@@ -466,7 +428,7 @@ async function analisarProdutosParados90Dias(db, phone = process.env.EDEVALDO_WH
   
   Mantenha o JSON rigorosamente válido.`;
 
-  const respostaRaw = await chamarGemini(prompt, 'Responda APENAS com o JSON estruturado.', `analise_mkt_json_${new Date().toISOString().split('T')[0]}`, 86400);
+  const respostaRaw = await chamarIA(prompt, 'Responda APENAS com o JSON estruturado.', `analise_mkt_json_${new Date().toISOString().split('T')[0]}`, 86400);
   
   try {
      // Regex mais robusto para extrair apenas o JSON

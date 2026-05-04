@@ -247,9 +247,26 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     const diff = totalConferido - subtotalSoma;
 
-  
+    // Sugestão de Retirada baseada nas regras do usuário:
+    // 100: todas, 50: >2, 20: >5, 10: >10, 5: >10, 2: >15
+    const suggestedWithdrawal = useMemo(() => {
+      let total = 0;
+      const c = currencyCount;
+      if (c['100']) total += c['100'] * 100;
+      if (c['50'] && c['50'] > 2) total += (c['50'] - 2) * 50;
+      if (c['20'] && c['20'] > 5) total += (c['20'] - 5) * 20;
+      if (c['10'] && c['10'] > 10) total += (c['10'] - 10) * 10;
+      if (c['5'] && c['5'] > 10) total += (c['5'] - 10) * 5;
+      if (c['2'] && c['2'] > 15) total += (c['2'] - 15) * 2;
+      return total;
+    }, [currencyCount]);
 
-    // FIX: Added filteredHistory memo to resolve the error in line 279
+    // Auto-preencher sugestão de retirada ao abrir o modal
+    useEffect(() => {
+      if (isDepositModalOpen && safeDepositValue === 0) {
+        setSafeDepositValue(suggestedWithdrawal);
+      }
+    }, [isDepositModalOpen, suggestedWithdrawal, safeDepositValue]);
 
     const filteredHistory = useMemo(() => {
       return history.filter(h => {

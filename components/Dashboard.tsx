@@ -14,7 +14,8 @@ import {
   BellRing, // Added for Sunday alert
   Radio,
   Megaphone,
-  Square
+  Square,
+  Database
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -45,6 +46,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
+  const [lastBackup, setLastBackup] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const fetchLastBackup = async () => {
+      try {
+        const response = await fetch('/api/backups');
+        const data = await response.json();
+        if (data && data.length > 0) {
+          // Os backups já vêm ordenados por data desc no backend
+          setLastBackup(new Date(data[0].date).toLocaleString('pt-BR'));
+        }
+      } catch (e) {
+        console.error('Erro ao buscar último backup:', e);
+      }
+    };
+    fetchLastBackup();
+  }, []);
 
   const handleIniciarRadio = async () => {
     setIniciandoRadio(true);
@@ -189,6 +207,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
             <Calendar className="w-4 h-4" />
             {now.toLocaleDateString('pt-BR')}
           </div>
+          {lastBackup && (
+            <div className="hidden md:flex items-center gap-2 text-sm font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm w-fit" title="Último Backup">
+              <Database className="w-4 h-4" />
+              {lastBackup}
+            </div>
+          )}
         </div>
       </header>
 

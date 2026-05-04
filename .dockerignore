@@ -1,11 +1,19 @@
 # Ignore node_modules directory
 node_modules
-/node_modules
+**/node_modules
 
 # Ignore build output directory
 dist
-/dist
+**/dist
 
 # Ignore git directory
 .git
-/.git
+**/.git
+
+# Data and backups
+data
+backups
+**/backups
+**/uploads
+*.db*
+*.log

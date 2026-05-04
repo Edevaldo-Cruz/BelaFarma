@@ -3,12 +3,7 @@ const csv = require('csv-parser');
 const pdf = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-// ─── System Prompt da Isa-Financeiro ────────────────────────────────────────
+const { callAI } = require('./ai.service');
 
 const ISA_FINANCE_SYSTEM_PROMPT = `
 Você é a ISA-FINANCEIRO, a consultora, vigilante financeira e conselheira da diretoria da Bela Farma Sul.
@@ -37,44 +32,15 @@ FORMATAÇÃO DO RELATÓRIO:
 - Seja visual (listas curtas, pontos de atenção bem destacados).
 `;
 
-// ─── Funções Utilitárias ───────────────────────────────────────────────────
-
-async function chamarGemini(prompt, systemNote = '') {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('A chave da API (GEMINI_API_KEY) não está identificada.');
+async function chamarIA(prompt, systemNote = '') {
+  try {
+    return await callAI(prompt, ISA_FINANCE_SYSTEM_PROMPT + (systemNote ? `\n\nCONTEXTO ADICIONAL:\n${systemNote}` : ''), { temperature: 0.7 });
+  } catch (error) {
+    console.error('[IsaFinance] Erro ao chamar IA:', error.message);
+    throw error;
   }
-
-  const tokenUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-  const promptCompleto = `${ISA_FINANCE_SYSTEM_PROMPT}\n\n${systemNote ? `CONTEXTO ADICIONAL:\n${systemNote}\n\n` : ''}TAREFA:\n${prompt}`;
-
-  const response = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: promptCompleto }] }],
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.95,
-        maxOutputTokens: 8192,
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${err}`);
-  }
-
-  const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-// ─── Funções Principais (Agente Financeiro) ───────────────────────────────
-
-/**
- * 1. Pílula de Gestão Diária (Insight rápido para o dashboard)
- */
 async function gerarPilulaEducacao() {
   const prompt = `
 Gere UMA pílula de gestão financeira (máximo de 3 linhas) para exibir no painel da Bela Farma Sul.
@@ -82,14 +48,10 @@ O foco hoje precisa ser: Separação de contas PF e PJ, ou Controle de Estoque o
 Inicie sempre com um emoji impactante.
 Assine como "— Isa 💰"
 `;
-  return chamarGemini(prompt);
+  return chamarIA(prompt);
 }
 
-/**
- * 2. Análise Instantânea de Caixa Baseada no DB
- */
 async function analisarFechamentoDeCaixa(db) {
-  // Coletar dados da tabela cash_closing_records para análise
   const fechamentos = db.prepare(`
     SELECT date, totalSales, difference, 
            pix, debit, credit, 
@@ -129,12 +91,9 @@ Escreva um laudo de Vigilância Financeira (Laudo da Isa) analisando estes núme
 4. Termine com um "Conselho de Ouro" focado em blindagem de caixa e fluxo.
 `;
 
-  return chamarGemini(prompt);
+  return chamarIA(prompt);
 }
 
-/**
- * 3. Análise de Relatórios Digifarma (Upload CSV/PDF)
- */
 async function analisarRelatorioDigifarma(filePath, fileName, mimeType) {
   let conteudoTexto = '';
 
@@ -153,7 +112,7 @@ async function analisarRelatorioDigifarma(filePath, fileName, mimeType) {
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', (data) => lines.push(JSON.stringify(data)))
-          .on('end', () => resolve(lines.slice(0, 200).join('\n'))) // Lê apenas 200 linhas de amostra para não estourar tokens
+          .on('end', () => resolve(lines.slice(0, 200).join('\n'))) 
           .on('error', reject);
       });
     } else {
@@ -177,7 +136,7 @@ TAREFA DA ISA-FINANCEIRO:
 Formato esperado: Curto e grosso, em markdown, estruturado de forma fácil de ler. 
 `;
 
-    return chamarGemini(prompt);
+    return chamarIA(prompt);
 
   } catch (err) {
     throw new Error('Falha ao usar a IA para ler o relatório: ' + err.message);

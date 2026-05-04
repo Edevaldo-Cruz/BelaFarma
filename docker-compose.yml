@@ -57,7 +57,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     ports:
-      - "8081:80"
+      - "8085:80"
     depends_on:
       - backend
     networks:

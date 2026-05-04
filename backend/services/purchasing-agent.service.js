@@ -3,9 +3,7 @@ const csv = require('csv-parser');
 const pdf = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const { callAI } = require('./ai.service');
 
 const ISA_COMPRAS_SYSTEM_PROMPT = `
 Você é a Isa-Compras, a inteligência estratégica de suprimentos da Bela Farma Sul. Sua missão é maximizar o lucro através de compras inteligentes, evitando a falta de produtos essenciais (Curva A) e impedindo o desperdício de capital em produtos parados.
@@ -34,40 +32,15 @@ Analítica, rigorosa com o dinheiro da farmácia e proativa. Você não espera o
 FRASE DE ORDEM: "Comprar bem é o primeiro passo para vender com lucro."
 `;
 
-async function chamarGemini(prompt, systemNote = '') {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('A chave da API (GEMINI_API_KEY) não está identificada.');
+async function chamarIA(prompt, systemNote = '') {
+  try {
+    return await callAI(prompt, ISA_COMPRAS_SYSTEM_PROMPT + (systemNote ? `\n\nCONTEXTO ADICIONAL:\n${systemNote}` : ''), { temperature: 0.2 });
+  } catch (error) {
+    console.error('[IsaCompras] Erro ao chamar IA:', error.message);
+    throw error;
   }
-
-  const tokenUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-  const promptCompleto = `${ISA_COMPRAS_SYSTEM_PROMPT}\n\n${systemNote ? `CONTEXTO ADICIONAL:\n${systemNote}\n\n` : ''}TAREFA:\n${prompt}`;
-
-  const response = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: promptCompleto }] }],
-      generationConfig: {
-        temperature: 0.2, // Temperatura baixa para maior precisão em listas
-        topP: 0.95,
-        maxOutputTokens: 8192,
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${err}`);
-  }
-
-  const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-/**
- * Processa relatórios do Digifarma para gerar sugestão de compra
- */
 async function analisarRelatoriosDigifarma(files) {
   let combinedContent = '';
 
@@ -112,7 +85,7 @@ ${combinedContent}
 TAREFA: Gere o relatório de sugestão estrategicamente e termine perguntando se deseja que eu envie para cotação agora.
 `;
 
-  return chamarGemini(prompt);
+  return chamarIA(prompt);
 }
 
 module.exports = {

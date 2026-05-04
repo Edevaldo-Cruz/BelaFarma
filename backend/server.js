@@ -423,6 +423,14 @@ app.put('/api/fixed-accounts/:id', (req, res) => {
           WHERE fixedAccountId = ? AND status = 'Pendente'
         `);
         updatePaymentsStmt.run(parseFloat(value), name, parseInt(dueDay), id);
+
+        // Se a conta foi desativada, remove os pagamentos pendentes já gerados
+        if (!isActive) {
+          db.prepare(`
+            DELETE FROM fixed_account_payments 
+            WHERE fixedAccountId = ? AND status = 'Pendente'
+          `).run(id);
+        }
       }
     })();
 
