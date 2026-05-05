@@ -15,7 +15,12 @@ import {
   Radio,
   Megaphone,
   Square,
-  Database
+  Database,
+  PlusCircle,
+  Clock,
+  CheckCircle2,
+  Smartphone,
+  CreditCard
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -39,9 +44,10 @@ interface DashboardProps {
   cashClosings: CashClosingRecord[];
   boletos: Boleto[];
   fixedAccounts: FixedAccount[];
+  onNavigate: (view: any) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate }) => {
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -215,6 +221,85 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           )}
         </div>
       </header>
+      
+      {/* Quick Actions Section */}
+      <section className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        <button 
+          onClick={() => onNavigate('medication-search')}
+          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900 transition-all group"
+        >
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+            <Pill className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Busca/Venda</span>
+        </button>
+
+        <button 
+          onClick={() => onNavigate('orders')}
+          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-blue-200 dark:hover:border-blue-900 transition-all group"
+        >
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+            <ShoppingCart className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Pedidos</span>
+        </button>
+
+        <button 
+          onClick={() => onNavigate('shortages')}
+          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-amber-200 dark:hover:border-amber-900 transition-all group"
+        >
+          <div className="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+            <ClipboardList className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Faltas</span>
+        </button>
+
+        {isAdmin && (
+          <button 
+            onClick={() => onNavigate('cash-closing')}
+            className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-900 transition-all group"
+          >
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+              <Lock className="w-6 h-6" />
+            </div>
+            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Fechamento</span>
+          </button>
+        )}
+
+        {isAdmin && (
+          <button 
+            onClick={() => onNavigate('financial')}
+            className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-purple-200 dark:hover:border-purple-900 transition-all group"
+          >
+            <div className="p-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+              <CreditCard className="w-6 h-6" />
+            </div>
+            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Financeiro</span>
+          </button>
+        )}
+
+        <button 
+          onClick={() => onNavigate('task-management')}
+          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-red-200 dark:hover:border-red-900 transition-all group"
+        >
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Tarefas</span>
+        </button>
+
+        {isAdmin && (
+          <button 
+            onClick={() => onNavigate('ifood-control')}
+            className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-pink-200 dark:hover:border-pink-900 transition-all group"
+          >
+            <div className="p-3 bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
+              <Smartphone className="w-6 h-6" />
+            </div>
+            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">iFood</span>
+          </button>
+        )}
+      </section>
 
       {overdueOrders.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-3xl p-6 animate-in fade-in duration-500">

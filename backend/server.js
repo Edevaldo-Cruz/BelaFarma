@@ -6,6 +6,7 @@ let db = require('./database.js');
 const multer = require('multer');
 const fs = require('fs');
 const fetch = require('node-fetch');
+const config = require('./config.js');
 
 const app = express();
 const PORT = 3001;
@@ -26,10 +27,7 @@ const safelyParseJSON = (jsonString, fallback = []) => {
 };
 
 app.get('/api/backups', (req, res) => {
-  // Define backup directory within the persistent data volume
-  // In Docker: /usr/src/app/data/backups
-  // In Dev: ../data/backups relative to server.js
-  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
+  const backupDir = config.backupDir;
 
   if (!fs.existsSync(backupDir)) {
     try {
@@ -69,30 +67,18 @@ app.get('/api/backups', (req, res) => {
 });
 
 app.post('/api/backups/create', (req, res) => {
-  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
+  const backupDir = config.backupDir;
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
   const filename = `belinha_${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
-  const dbPath = process.env.DB_PATH || path.join(__dirname, '../data/belafarma.db');
+  const sourcePath = config.dbPath;
 
-  console.log(`Creating backup... Source: ${dbPath}, Dest: ${path.join(backupDir, filename)}`);
+  console.log(`Creating backup... Source: ${sourcePath}, Dest: ${path.join(backupDir, filename)}`);
 
   try {
-    // Determine source DB path correctly based on environment
-    let sourcePath = dbPath;
-    if (process.platform === 'win32') {
-        sourcePath = path.join(__dirname, 'belafarma.db'); // In dev, we often use local db
-    }
-
     // Verify source exists
     if (!fs.existsSync(sourcePath)) {
-        // Fallback for Docker if env var not set correctly
-        const dockerDbPath = path.join(__dirname, '../data/belafarma.db');
-        if (fs.existsSync(dockerDbPath)) {
-            sourcePath = dockerDbPath;
-        } else {
-             throw new Error(`Source database not found at ${sourcePath}`);
-        }
+        throw new Error(`Source database not found at ${sourcePath}`);
     }
 
     fs.copyFileSync(sourcePath, path.join(backupDir, filename));

@@ -1,22 +1,14 @@
 const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const config = require('./config.js');
+config.log();
 
-// Suporta variável de ambiente para o caminho do banco
-const DB_FILE = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
-
-// Garante que o diretório existe
-const dbDir = path.dirname(DB_FILE);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-  console.log(`Diretório de dados criado: ${dbDir}`);
-}
+const DB_FILE = config.dbPath;
 
 let db;
 
 try {
   db = new Database(DB_FILE, { verbose: console.log });
-  console.log(`Conexão com o banco de dados SQLite estabelecida: ${DB_FILE}`);
+  console.log(`Conexão com o banco de dados SQLite estabelecida.`);
   
   // Ativa o modo WAL para melhor concorrência
   db.pragma('journal_mode = WAL');

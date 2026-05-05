@@ -109,15 +109,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       localStorage.removeItem('belafarma_next_initial_balance');
     }
 
-    // Load daily expenses/non-registered items from dailyRecords prop
-    // IMPORTANT: Only load records from TODAY that are not yet processed.
-    // Previously this loaded ALL unprocessed records regardless of date,
-    // which caused sangrias from previous days to appear in every new closing.
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todaysRecordEntries = dailyRecords.filter(r => {
-      const recordDate = r.date.split('T')[0];
-      return !r.lancado && recordDate === todayStr;
-    });
+    // Carregar registros diários (sangrias, despesas, etc.) que ainda não foram processados.
+    // REMOVIDO: Filtro por 'hoje' (todayStr) para evitar problemas em fechamentos após a meia-noite.
+    const todaysRecordEntries = dailyRecords.filter(r => !r.lancado);
 
     let combinedExpenses: Array<{ id: string, desc: string, val: number }> = [];
     let combinedNonRegistered: Array<{ id: string, desc: string, val: number }> = [];
@@ -239,13 +233,21 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
     const totalDigital = useMemo(() => credit + debit + pix + pixDirect + others, [credit, debit, pix, pixDirect, others]);
 
-    // Expected Balance (Saldo Esperado): Sales + Initial + Received Extra + Credit Receipts + Non-Registered Products - Expenses - iFood - New Debts (Crediario)
-    const subtotalSoma = useMemo(() => totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalIfood, totalCrediario]);
+    // Expected Balance (Saldo Esperado): 
+    // Venda Bruta + Troco + Entradas Extras + Recebimentos de Dívida + Produtos não registrados
+    // MENOS Despesas, Vendas iFood (que não ficam na gaveta) e Vendas no Crediário (dívidas novas)
+    const subtotalSoma = useMemo(() => {
+      const val = totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario;
+      return Number(val.toFixed(2));
+    }, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalIfood, totalCrediario]);
 
     // Checked Total (Total Conferido): Drawer (Cash) + Sangrias + Digital
-    const totalConferido = useMemo(() => totalInDrawer + totalSangria + totalDigital, [totalInDrawer, totalSangria, totalDigital]);
+    const totalConferido = useMemo(() => {
+      const val = totalInDrawer + totalSangria + totalDigital;
+      return Number(val.toFixed(2));
+    }, [totalInDrawer, totalSangria, totalDigital]);
 
-    const diff = totalConferido - subtotalSoma;
+    const diff = useMemo(() => Number((totalConferido - subtotalSoma).toFixed(2)), [totalConferido, subtotalSoma]);
 
     // Sugestão de Retirada baseada nas regras do usuário:
     // 100: todas, 50: >2, 20: >5, 10: >10, 5: >10, 2: >15
@@ -434,21 +436,18 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   
 
             dr => {
-              const recordDate = dr.date.split('T')[0];
-              const today = new Date().toISOString().split('T')[0];
-              const isToday = recordDate === today;
-              const notProcessed = !dr.lancado;
+              // Pegar todos os registros pendentes (sem filtro de data para não quebrar após a meia-noite)
+              const isPending = !dr.lancado;
               
               console.log('CashClosing - checking record:', {
                 id: dr.id,
-                date: recordDate,
+                date: dr.date,
                 lancado: dr.lancado,
-                isToday,
-                notProcessed,
-                willProcess: isToday && notProcessed
+                isPending,
+                willProcess: isPending
               });
               
-              return isToday && notProcessed;
+              return isPending;
             }
 
   

@@ -554,7 +554,7 @@ const App: React.FC = () => {
           ) : (
             <>
               {currentView === "dashboard" && (
-                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} fixedAccounts={fixedAccounts} />
+                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} fixedAccounts={fixedAccounts} onNavigate={setCurrentView} />
               )}
               {currentView === "orders" && (
                 <Orders
