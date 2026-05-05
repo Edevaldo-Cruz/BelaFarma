@@ -105,16 +105,13 @@ export const FinancialHealthAdvisor: React.FC = () => {
   const [currentMessage, setCurrentMessage] = useState('');
   const [isChatting, setIsChatting] = useState(false);
 
-  // Busca snapshot (KPIs rápidos) ou carrega análise completa anterior se não mudar período
   const loadLastAnalysis = useCallback(async () => {
     try {
       const res = await fetch('/api/financial-health/last-analysis');
       if (res.ok) {
         const data = await res.json();
-        if (data && data.snapshot && data.analysis) {
-          // Apenas usa se o período bater com o atual (ou a gente poderia forçar o período da análise)
+        if (data && data.analysis && data.snapshot) {
           if (data.snapshot.periodo.days === period) {
-            setSnapshot(data.snapshot);
             setAnalysis(data.analysis);
             return true;
           }
@@ -129,12 +126,13 @@ export const FinancialHealthAdvisor: React.FC = () => {
   const fetchSnapshot = useCallback(async () => {
     setLoadingSnapshot(true);
     try {
-      // Tenta pegar a ultima analise
-      const loaded = await loadLastAnalysis();
-      if (!loaded) {
-        const res = await fetch(`/api/financial-health/snapshot?days=${period}`);
-        if (res.ok) setSnapshot(await res.json());
+      // Sempre busca os dados reais (snapshot) mais recentes para os cards
+      const res = await fetch(`/api/financial-health/snapshot?days=${period}`);
+      if (res.ok) {
+        setSnapshot(await res.json());
       }
+      // Em paralelo, tenta carregar apenas o texto da última análise da IA
+      await loadLastAnalysis();
     } catch (e) {
       console.error(e);
     } finally {
