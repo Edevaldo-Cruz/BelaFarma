@@ -244,8 +244,8 @@ module.exports = (app, db) => {
   // Gerador IA de anúncios
   app.post('/api/radio/gerar-anuncio', async (req, res) => {
     const { ideia } = req.body;
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) return res.status(500).json({ erro: 'GEMINI_API_KEY não configurada no servidor Node.' });
+    const { callAI } = require('./services/ai.service');
+
     if (!ideia) return res.status(400).json({ erro: 'Forneça uma ideia.' });
 
     const prompt = `Você é um roteirista criativo de rádio indoor para uma farmácia chamada "Bela Farma".
@@ -255,32 +255,11 @@ Evite emojis e não coloque introduções como "Aqui está o texto". Responda ap
 Ideia do anúncio: ${ideia}`;
 
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.8, maxOutputTokens: 200 }
-        })
-      });
-      const data = await response.json();
-      
-      if (data.error) {
-        console.error('Erro na API do Gemini:', data.error);
-        return res.status(500).json({ erro: `Erro da IA: ${data.error.message}` });
-      }
-      
-      if (!data.candidates || !data.candidates[0]) {
-        console.error('Resposta inesperada do Gemini:', data);
-        return res.status(500).json({ erro: 'A IA não retornou um texto válido.' });
-      }
-
-      const texto = data.candidates[0].content.parts[0].text.trim();
-      res.json({ texto });
+      const texto = await callAI(prompt, "Você é um roteirista de rádio experiente.", { temperature: 0.8 });
+      res.json({ texto: texto.trim() });
     } catch (err) {
-      console.error('Erro na chamada da IA:', err);
-      res.status(500).json({ erro: 'Falha ao conectar com a IA.' });
+      console.error('[Radio AI] Erro na chamada da IA:', err.message);
+      res.status(500).json({ erro: 'Falha ao conectar com o serviço de IA.' });
     }
   });
 

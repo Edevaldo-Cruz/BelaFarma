@@ -4,14 +4,12 @@
  */
 
 const path = require('path');
-const fetch = require('node-fetch');
 const fs = require('fs');
+const { callAI } = require('./services/ai.service');
 
 const LAST_ANALYSIS_FILE = path.join(__dirname, 'last_financial_analysis.json');
 
 module.exports = function (app, db) {
-
-  const GEMINI_MODEL = 'gemini-2.0-flash';
 
   // ─────────────────────────────────────────────────────────────────────────
   // GET /api/financial-health/snapshot
@@ -34,38 +32,14 @@ module.exports = function (app, db) {
     try {
       const days = parseInt(req.body?.days) || 30;
 
-      // Lê a chave em tempo de execução (já carregada pelo dotenv do server.js)
-      const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-      if (!GEMINI_API_KEY) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY não configurada no servidor.' });
-      }
-
       // 1. Agrega dados
       const snapshot = buildSnapshot(db, days);
 
       // 2. Monta prompt
       const prompt = buildPrompt(snapshot, days);
 
-      // 3. Chama Gemini (mesmo modelo e padrão do finance-agent.service.js)
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-      const geminiResponse = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 8192 }
-        })
-      });
-
-      if (!geminiResponse.ok) {
-        const errBody = await geminiResponse.text();
-        console.error('[FinancialHealth] Gemini error:', geminiResponse.status, errBody.substring(0, 300));
-        return res.status(502).json({ error: `Erro na API Gemini (${geminiResponse.status}): ${errBody.substring(0, 200)}` });
-      }
-
-      const geminiData = await geminiResponse.json();
-      const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      // 3. Chama IA (via ai.service.js)
+      const rawText = await callAI(prompt, "Você é o Consultor Financeiro Sênior da Bela Farma Sul. Responda estritamente em JSON.", { temperature: 0.3 });
 
       // 4. Extrai JSON da resposta
       let analysis;
@@ -121,10 +95,6 @@ module.exports = function (app, db) {
   app.post('/api/financial-health/chat', async (req, res) => {
     try {
       const { message, history } = req.body;
-      const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-      if (!GEMINI_API_KEY) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY não configurada.' });
-      }
 
       let lastAnalysisData = 'Nenhuma análise recente disponível.';
       if (fs.existsSync(LAST_ANALYSIS_FILE)) {
@@ -139,32 +109,11 @@ ${lastAnalysisData}
 
 Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão financeira.`;
 
-      const contents = (history || []).map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      }));
-      contents.push({ role: 'user', parts: [{ text: message }] });
+      // Converte o histórico para texto simples para o callAI que espera uma string
+      const historyContext = (history || []).map(msg => `${msg.role === 'user' ? 'Usuário' : 'Isa'}: ${msg.content}`).join('\n');
+      const fullPrompt = historyContext ? `${historyContext}\nUsuário: ${message}` : message;
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-      const payload = {
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: contents,
-        generationConfig: { temperature: 0.7 }
-      };
-
-      const geminiResponse = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!geminiResponse.ok) {
-        const errStr = await geminiResponse.text();
-        throw new Error(`Gemini erro: ${errStr.substring(0, 100)}`);
-      }
-
-      const geminiData = await geminiResponse.json();
-      const reply = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const reply = await callAI(fullPrompt, systemPrompt, { temperature: 0.7 });
       res.json({ reply });
 
     } catch (err) {
@@ -185,7 +134,6 @@ function buildSnapshot(db, days) {
   const today = new Date().toISOString().split('T')[0];
 
   // 1. Fechamentos de caixa
-  // Colunas confirmadas: date, totalSales, difference, pix, debit, credit, totalInDrawer, expenses
   const cashClosings = db.prepare(`
     SELECT date, totalSales, difference, pix, debit, credit, totalInDrawer, expenses
     FROM cash_closings
@@ -398,5 +346,6 @@ INSTRUÇÕES:
     { "prioridade": 1, "titulo": "Dica 1", "descricao": "Detalhe prático", "impactoEstimado": "Economia/ganho", "prazo": "Esta semana|Este mês|Próximo trimestre" }
   ],
   "dicasDeOuro": ["Ideia 1", "Ideia 2", "Ideia 3"]
-}`;
+}
+`;
 }
