@@ -48,6 +48,7 @@ import {
 } from "./types";
 import { Loader2 } from "lucide-react";
 import { useToast } from "./components/ToastContext";
+import { trackViewUsage } from "./utils";
 
 const LOGOUT_TIME = 15 * 60 * 1000;
 
@@ -77,9 +78,14 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setUser(null);
-    setCurrentView("dashboard");
+    handleNavigate("dashboard");
     localStorage.removeItem("belinha_session_user");
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+  };
+
+  const handleNavigate = (view: View) => {
+    setCurrentView(view);
+    trackViewUsage(view);
   };
 
   const resetLogoutTimer = () => {
@@ -533,7 +539,7 @@ const App: React.FC = () => {
       <Sidebar
         user={user}
         currentView={currentView}
-        setView={setCurrentView}
+        setView={handleNavigate}
         onLogout={() => {
           createLog("Sistema", "Logout", "Sessão encerrada");
           handleLogout();
@@ -554,7 +560,7 @@ const App: React.FC = () => {
           ) : (
             <>
               {currentView === "dashboard" && (
-                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} fixedAccounts={fixedAccounts} onNavigate={setCurrentView} />
+                <Dashboard user={user} orders={orders} shortages={shortages} cashClosings={cashClosings} boletos={boletos} fixedAccounts={fixedAccounts} onNavigate={handleNavigate} />
               )}
               {currentView === "orders" && (
                 <Orders
@@ -586,7 +592,7 @@ const App: React.FC = () => {
               {currentView === "cash-closing" && user.role === UserRole.ADM && (
                 <CashClosing
                   user={user}
-                  onFinish={() => setCurrentView("dashboard")}
+                  onFinish={() => handleNavigate("dashboard")}
                   onLog={(act, det) => createLog("Financeiro", act, det)}
                   onSave={fetchData}
                   dailyRecords={dailyRecords}
@@ -679,7 +685,7 @@ const App: React.FC = () => {
                   tasks={tasks}
                   boletos={boletos}
                   user={user}
-                  onNavigate={setCurrentView}
+                  onNavigate={handleNavigate}
                   onViewTask={(task) => {
                     setSelectedTask(task);
                     setCurrentView('task-management');

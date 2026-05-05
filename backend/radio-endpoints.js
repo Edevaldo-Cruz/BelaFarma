@@ -80,12 +80,34 @@ module.exports = (app, db) => {
   app.put('/api/radio/anuncios/:id', (req, res) => {
     const { id } = req.params;
     const { titulo, mensagem, voz, ativo, validade_ate } = req.body;
+    
+    console.log(`[Radio] Tentando atualizar anúncio ${id}:`, { titulo, mensagem, voz, ativo, validade_ate });
+    
     try {
-      db.prepare(`
-        UPDATE radio_anuncios SET titulo=?, mensagem=?, voz=?, ativo=?, validade_ate=? WHERE id=?
-      `).run(titulo, mensagem, voz, ativo ? 1 : 0, validade_ate || null, id);
+      const stmt = db.prepare(`
+        UPDATE radio_anuncios 
+        SET titulo = ?, mensagem = ?, voz = ?, ativo = ?, validade_ate = ? 
+        WHERE id = ?
+      `);
+      
+      const result = stmt.run(
+        titulo, 
+        mensagem, 
+        voz, 
+        ativo ? 1 : 0, 
+        validade_ate || null, 
+        id
+      );
+      
+      if (result.changes === 0) {
+        console.warn(`[Radio] Nenhum anúncio encontrado com ID ${id}`);
+        return res.status(404).json({ erro: 'Anúncio não encontrado.' });
+      }
+      
+      console.log(`[Radio] Anúncio ${id} atualizado com sucesso.`);
       res.json({ ok: true });
     } catch (err) {
+      console.error(`[Radio] Erro ao atualizar anúncio ${id}:`, err.message);
       res.status(500).json({ erro: err.message });
     }
   });

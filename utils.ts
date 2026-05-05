@@ -27,3 +27,14 @@ export const getDayFromDate = (dateString: string): number => {
         return parseInt(parts[2], 10);
     }
 }
+
+export const trackViewUsage = (view: string): void => {
+  try {
+    const statsStr = localStorage.getItem('belinha_usage_stats') || '{}';
+    const stats = JSON.parse(statsStr);
+    stats[view] = (stats[view] || 0) + 1;
+    localStorage.setItem('belinha_usage_stats', JSON.stringify(stats));
+  } catch (e) {
+    console.error('Erro ao salvar estatísticas de uso:', e);
+  }
+};

@@ -428,29 +428,37 @@ app.put('/api/fixed-accounts/:id', (req, res) => {
 });
 
 app.delete('/api/fixed-accounts/:id', (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    db.transaction(() => {
-      // 1. Deleta o template
-      const stmt = db.prepare('DELETE FROM fixed_accounts WHERE id = ?');
-      const result = stmt.run(id);
+  const { id } = req.params;
+  console.log(`[FixedAccounts] Tentando excluir conta fixa: ${id}`);
 
-      if (result.changes > 0) {
-        // 2. Opcional: Deleta pagamentos pendentes associados
-        // Se a conta fixa foi excluída, geralmente não queremos mais pagar as instâncias pendentes futuras
-        const deletePaymentsStmt = db.prepare(`
-          DELETE FROM fixed_account_payments 
-          WHERE fixedAccountId = ? AND status = 'Pendente'
-        `);
-        deletePaymentsStmt.run(id);
-      }
+  try {
+    const result = db.transaction(() => {
+      // 1. Opcional: Deleta pagamentos pendentes associados primeiro
+      // Se a conta fixa foi excluída, geralmente não queremos mais pagar as instâncias pendentes futuras
+      const deletePaymentsStmt = db.prepare(`
+        DELETE FROM fixed_account_payments 
+        WHERE fixedAccountId = ? AND status = 'Pendente'
+      `);
+      const paymentChanges = deletePaymentsStmt.run(id).changes;
+      console.log(`[FixedAccounts] ${paymentChanges} pagamentos pendentes removidos para a conta ${id}`);
+
+      // 2. Deleta o template da conta fixa
+      const stmt = db.prepare('DELETE FROM fixed_accounts WHERE id = ?');
+      const deleteResult = stmt.run(id);
+      
+      return deleteResult;
     })();
     
-    res.status(200).json({ message: 'Fixed account and pending payments deleted successfully.' });
+    if (result.changes === 0) {
+      console.warn(`[FixedAccounts] Nenhuma conta fixa encontrada com o ID: ${id}`);
+      return res.status(404).json({ error: 'Conta fixa não encontrada no banco de dados.' });
+    }
+
+    console.log(`[FixedAccounts] Conta ${id} excluída com sucesso.`);
+    res.status(200).json({ message: 'Conta fixa e pagamentos pendentes excluídos com sucesso.' });
   } catch (err) {
-    console.error('Error deleting fixed account:', err);
-    res.status(500).json({ error: 'Failed to delete fixed account.' });
+    console.error(`[FixedAccounts] Erro crítico ao excluir conta ${id}:`, err);
+    res.status(500).json({ error: 'Erro interno ao excluir a conta: ' + err.message });
   }
 });
 
@@ -2895,9 +2903,12 @@ console.log('🤖 Agente Financeiro IA inicializado.');
 require('./financial-health-endpoints.js')(app, db);
 console.log('💊 Módulo Saúde Financeira inicializado.');
 
-// Módulo Rádio Bela Farma
 require('./radio-endpoints.js')(app, db);
 console.log('📻 Módulo Rádio Bela Farma inicializado.');
+
+// Módulo Consulta Técnica (IA de Medicamentos)
+require('./medication-ai-endpoints.js')(app);
+console.log('💊 Módulo IA de Medicamentos inicializado.');
 
 // ============================================================================
 // AGENTE DE COMPRAS IA - Inicialização

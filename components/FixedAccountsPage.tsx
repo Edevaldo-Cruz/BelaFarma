@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Check, X, AlertCircle, Calendar, DollarSign, Activity, History } from 'lucide-react';
+import { useToast } from './ToastContext';
 import { FixedAccount, User } from '../types';
 
 interface FixedAccountsPageProps {
@@ -7,19 +8,14 @@ interface FixedAccountsPageProps {
   onLog: (action: string, details: string) => void;
 }
 
-interface Toast {
-  id: string;
-  message: string;
-  type: 'success' | 'error';
-}
 
 export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLog }) => {
+  const { addToast } = useToast();
   const [accounts, setAccounts] = useState<FixedAccount[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<{ open: boolean, id: string | null }>({ open: false, id: null });
   const [editingAccount, setEditingAccount] = useState<FixedAccount | null>(null);
   const [formData, setFormData] = useState({ name: '', value: '', dueDay: '', isActive: true });
-  const [toasts, setToasts] = useState<Toast[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchAccounts = async () => {
@@ -30,7 +26,7 @@ export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLo
       const data = await response.json();
       setAccounts(data);
     } catch (error) {
-      showToast('Erro ao carregar contas fixas', 'error');
+      addToast('Erro ao carregar contas fixas', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -40,13 +36,6 @@ export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLo
     fetchAccounts();
   }, []);
 
-  const showToast = (message: string, type: 'success' | 'error') => {
-    const id = Math.random().toString(36).substr(2, 9);
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 3000);
-  };
 
   const handleOpenModal = (account?: FixedAccount) => {
     if (account) {
@@ -86,12 +75,12 @@ export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLo
 
       if (!response.ok) throw new Error('Falha ao salvar conta');
 
-      showToast(`Conta ${editingAccount ? 'atualizada' : 'criada'} com sucesso!`, 'success');
+      addToast(`Conta ${editingAccount ? 'atualizada' : 'criada'} com sucesso!`, 'success');
       onLog(editingAccount ? 'Editou Conta Fixa' : 'Criou Conta Fixa', `Conta: ${accountData.name}, Valor: R$ ${accountData.value}`);
       setIsModalOpen(false);
       fetchAccounts();
     } catch (error) {
-      showToast('Erro ao salvar conta', 'error');
+      addToast('Erro ao salvar conta', 'error');
     }
   };
 
@@ -101,14 +90,19 @@ export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLo
       const response = await fetch(`/api/fixed-accounts/${isDeleteModalOpen.id}`, {
         method: 'DELETE'
       });
-      if (!response.ok) throw new Error('Falha ao excluir conta');
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Falha na comunicação com o servidor' }));
+        throw new Error(errorData.error || 'Falha ao excluir conta');
+      }
 
-      showToast('Conta excluída com sucesso!', 'success');
+      addToast('Conta excluída com sucesso!', 'success');
       onLog('Excluiu Conta Fixa', `ID: ${isDeleteModalOpen.id}`);
       setIsDeleteModalOpen({ open: false, id: null });
       fetchAccounts();
-    } catch (error) {
-      showToast('Erro ao excluir conta', 'error');
+    } catch (error: any) {
+      console.error('Erro ao excluir conta:', error);
+      addToast(error.message || 'Erro ao excluir conta', 'error');
     }
   };
 
@@ -299,19 +293,6 @@ export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLo
         </div>
       )}
 
-      {/* Toast Notification Support */}
-      <div className="fixed bottom-8 right-8 z-[100] space-y-4">
-        {toasts.map(toast => (
-          <div 
-            key={toast.id} 
-            className={`flex items-center gap-4 px-6 py-4 rounded-2xl shadow-2xl animate-in slide-in-from-right duration-500 ${
-              toast.type === 'success' ? 'bg-slate-900 text-white' : 'bg-red-600 text-white'
-            }`}
-          >
-            <p className="font-black uppercase text-[10px] tracking-widest">{toast.message}</p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 };

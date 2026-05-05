@@ -20,7 +20,9 @@ import {
   Clock,
   CheckCircle2,
   Smartphone,
-  CreditCard
+  CreditCard,
+  User as UserIcon,
+  Receipt
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -222,83 +224,66 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       </header>
       
-      {/* Quick Actions Section */}
+      {/* Quick Actions Section - Dynamic based on usage */}
       <section className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        <button 
-          onClick={() => onNavigate('medication-search')}
-          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900 transition-all group"
-        >
-          <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-            <Pill className="w-6 h-6" />
-          </div>
-          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Busca/Venda</span>
-        </button>
+        {(() => {
+          const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
+          
+          const allShortcuts = [
+            { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
+            { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
+            { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },
+            { id: 'cash-closing', label: 'Fechamento', icon: Lock, color: 'emerald', adminOnly: true },
+            { id: 'financial', label: 'Financeiro', icon: CreditCard, color: 'purple', adminOnly: true },
+            { id: 'task-management', label: 'Tarefas', icon: CheckCircle2, color: 'red' },
+            { id: 'ifood-control', label: 'iFood', icon: Smartphone, color: 'pink', adminOnly: true },
+            { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
+            { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
+            { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
+          ];
 
-        <button 
-          onClick={() => onNavigate('orders')}
-          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-blue-200 dark:hover:border-blue-900 transition-all group"
-        >
-          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-            <ShoppingCart className="w-6 h-6" />
-          </div>
-          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Pedidos</span>
-        </button>
+          // Filter by permission and sort by usage
+          const visibleShortcuts = allShortcuts
+            .filter(s => !s.adminOnly || isAdmin)
+            .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0))
+            .slice(0, 7); // Show top 7
 
-        <button 
-          onClick={() => onNavigate('shortages')}
-          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-amber-200 dark:hover:border-amber-900 transition-all group"
-        >
-          <div className="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-            <ClipboardList className="w-6 h-6" />
-          </div>
-          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Faltas</span>
-        </button>
+          return visibleShortcuts.map(s => {
+            const Icon = s.icon;
+            const colorMap: any = {
+              indigo: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900',
+              blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900',
+              amber: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
+              emerald: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900',
+              purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900',
+              red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900',
+              pink: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-900',
+              slate: 'bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-900',
+              orange: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-900',
+              gray: 'bg-gray-50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-900'
+            };
 
-        {isAdmin && (
-          <button 
-            onClick={() => onNavigate('cash-closing')}
-            className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-900 transition-all group"
-          >
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-              <Lock className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Fechamento</span>
-          </button>
-        )}
+            const colors = colorMap[s.color] || colorMap.slate;
 
-        {isAdmin && (
-          <button 
-            onClick={() => onNavigate('financial')}
-            className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-purple-200 dark:hover:border-purple-900 transition-all group"
-          >
-            <div className="p-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-              <CreditCard className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Financeiro</span>
-          </button>
-        )}
-
-        <button 
-          onClick={() => onNavigate('task-management')}
-          className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-red-200 dark:hover:border-red-900 transition-all group"
-        >
-          <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Tarefas</span>
-        </button>
-
-        {isAdmin && (
-          <button 
-            onClick={() => onNavigate('ifood-control')}
-            className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-pink-200 dark:hover:border-pink-900 transition-all group"
-          >
-            <div className="p-3 bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 rounded-2xl mb-2 group-hover:scale-110 transition-transform">
-              <Smartphone className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">iFood</span>
-          </button>
-        )}
+            return (
+              <button 
+                key={s.id}
+                onClick={() => {
+                  const currentStats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
+                  currentStats[s.id] = (currentStats[s.id] || 0) + 1;
+                  localStorage.setItem('belinha_usage_stats', JSON.stringify(currentStats));
+                  onNavigate(s.id);
+                }}
+                className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group"
+              >
+                <div className={`p-3 rounded-2xl mb-2 group-hover:scale-110 transition-transform ${colors.split(' ').slice(0,3).join(' ')}`}>
+                  <Icon className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{s.label}</span>
+              </button>
+            );
+          });
+        })()}
       </section>
 
       {overdueOrders.length > 0 && (

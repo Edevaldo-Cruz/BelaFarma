@@ -6,7 +6,6 @@ import {
   ShieldAlert, ClipboardCheck, AlertTriangle,
   Zap, RefreshCw, Cpu
 } from 'lucide-react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { MedicationInfo } from '../types';
 
 // --- LocalStorage Cache Helpers ---
@@ -46,39 +45,6 @@ export const MedicationSearch: React.FC = () => {
   const [engineStatus, setEngineStatus] = useState<'primary' | 'fallback' | 'error'>('primary');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Função auxiliar para chamadas com Fallback
-  const callAIWithFallback = async (prompt: string, schema: any, mimeType: string = "application/json") => {
-    // Instantiate GoogleGenAI right before the API call to ensure fresh configuration
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const models = ['gemini-3-flash-preview', 'gemini-flash-lite-latest'];
-    
-    for (let i = 0; i < models.length; i++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: models[i],
-          contents: prompt,
-          config: {
-            responseMimeType: mimeType,
-            thinkingConfig: { thinkingBudget: 0 },
-            responseSchema: schema
-          }
-        });
-        
-        // Se chegou aqui, funcionou. Define o status do motor.
-        setEngineStatus(i === 0 ? 'primary' : 'fallback');
-        return response.text;
-      } catch (err: any) {
-        console.warn(`Erro no modelo ${models[i]}:`, err.message);
-        // Se for o último modelo da lista, lança o erro
-        if (i === models.length - 1) {
-          setEngineStatus('error');
-          throw err;
-        }
-        // Caso contrário, continua para o próximo loop (fallback)
-      }
-    }
-  };
-
   useEffect(() => {
     const fetchSuggestions = async () => {
       if (query.length < 3 || selectedMed || isLoading) {
@@ -87,19 +53,20 @@ export const MedicationSearch: React.FC = () => {
       }
 
       setIsSearching(true);
-      setErrorMessage(null); // Limpa o erro ao digitar
+      setErrorMessage(null);
       try {
-        const prompt = `Sugira 5 nomes de medicamentos que começam ou soam parecidos com: "${query}". Retorne apenas uma lista JSON de strings.`;
-        const schema = {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        };
+        const response = await fetch('/api/ai/medication-suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+
+        if (!response.ok) throw new Error('Servidor de IA indisponível');
         
-        const result = await callAIWithFallback(prompt, schema);
-        const data = JSON.parse(result || '[]');
+        const data = await response.json();
         setSuggestions(data);
       } catch (err) {
-        console.error("Erro fatal nas sugestões:", err);
+        console.error("Erro nas sugestões:", err);
         setErrorMessage("API de sugestões indisponível.");
       } finally {
         setIsSearching(false);
@@ -120,7 +87,7 @@ export const MedicationSearch: React.FC = () => {
     const cachedMed = getCachedMedication(medName);
     if (cachedMed) {
       setSelectedMed(cachedMed);
-      setEngineStatus('primary'); // Reset visual
+      setEngineStatus('primary');
       return;
     }
 
@@ -128,51 +95,24 @@ export const MedicationSearch: React.FC = () => {
     setSelectedMed(null);
 
     try {
-      const prompt = `Forneça informações técnicas detalhadas para o medicamento: "${medName}". 
-      Destaque claramente o Princípio Ativo (DCB/DCI).
-      Inclua apresentações comuns. 
-      Se o medicamento for Isento de Prescrição (MIP), o campo required deve ser false e a color deve ser "Nenhuma".`;
-      
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          activeIngredient: { type: Type.STRING },
-          indication: { type: Type.STRING },
-          presentations: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                label: { type: Type.STRING },
-                adult: { type: Type.STRING },
-                pediatric: { type: Type.STRING }
-              },
-              required: ["label", "adult", "pediatric"]
-            }
-          },
-          prescriptionRequirement: {
-            type: Type.OBJECT,
-            properties: {
-              required: { type: Type.BOOLEAN },
-              color: { type: Type.STRING },
-              description: { type: Type.STRING }
-            },
-            required: ["required", "color", "description"]
-          },
-          restrictions: { type: Type.ARRAY, items: { type: Type.STRING } },
-          contraindications: { type: Type.STRING }
-        },
-        required: ["name", "activeIngredient", "indication", "presentations", "prescriptionRequirement", "restrictions", "contraindications"]
-      };
+      const response = await fetch('/api/ai/medication-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ medName })
+      });
 
-      const result = await callAIWithFallback(prompt, schema);
-      const data = JSON.parse(result || '{}') as MedicationInfo;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Erro ao obter detalhes');
+      }
+      
+      const data = await response.json();
       setCachedMedication(medName, data);
       setSelectedMed(data);
-    } catch (err) {
-      console.error("Erro fatal nos detalhes:", err);
-      setErrorMessage("O limite de consultas foi atingido. Tente novamente mais tarde.");
+      setEngineStatus('primary');
+    } catch (err: any) {
+      console.error("Erro nos detalhes:", err);
+      setErrorMessage(err.message || "O limite de consultas foi atingido. Tente novamente mais tarde.");
       setEngineStatus('error');
     } finally {
       setIsLoading(false);

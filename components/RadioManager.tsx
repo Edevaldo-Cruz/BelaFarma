@@ -4,6 +4,7 @@ import {
   Clock, Zap, RefreshCw, Wifi, WifiOff, Music2, Megaphone,
   Music, Disc3, Play, Pause, SkipBack, SkipForward
 } from 'lucide-react';
+import { useToast } from './ToastContext';
 
 interface Anuncio {
   id: number;
@@ -111,6 +112,7 @@ const PlayerMusica: React.FC<{ musica: MusicaAtual; progresso: number; onAction:
 
 // ─── Componente Principal ────────────────────────────────────────────────────
 export const RadioManager: React.FC = () => {
+  const { addToast } = useToast();
   const [anuncios, setAnuncios] = useState<Anuncio[]>([]);
   const [radioStatus, setRadioStatus] = useState<RadioStatus | null>(null);
   const [radioOnline, setRadioOnline] = useState(false);
@@ -194,25 +196,40 @@ export const RadioManager: React.FC = () => {
         ...form,
         validade_ate: form.validade_ate || null
       };
-      await fetch(url, {
+      
+      const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ erro: 'Erro desconhecido' }));
+        throw new Error(errorData.erro || 'Erro ao salvar anúncio');
+      }
+
+      addToast(editando ? 'Anúncio atualizado com sucesso!' : 'Anúncio criado com sucesso!', 'success');
       setShowForm(false);
       setEditando(null);
       setForm({ titulo: '', mensagem: '', voz: 'feminina', ativo: true, validade_ate: '' });
       setIdeiaIA('');
       carregarAnuncios();
-    } catch {
-      console.error('Erro ao salvar anúncio');
+    } catch (e: any) {
+      console.error('Erro ao salvar anúncio:', e);
+      addToast(`Erro: ${e.message}`, 'error');
     }
   };
 
   const deletarAnuncio = async (id: number) => {
     if (!confirm('Tem certeza que deseja excluir este anúncio?')) return;
-    await fetch(`/api/radio/anuncios/${id}`, { method: 'DELETE' });
-    carregarAnuncios();
+    try {
+      const res = await fetch(`/api/radio/anuncios/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Erro ao excluir');
+      addToast('Anúncio excluído!', 'success');
+      carregarAnuncios();
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    }
   };
 
   const dispararAnuncio = async (anuncio: Anuncio) => {
@@ -300,12 +317,14 @@ export const RadioManager: React.FC = () => {
       });
       if (res.ok) {
         setNovaPlaylist('');
+        addToast('Playlist enviada para a rádio!', 'success');
         setTimeout(verificarStatus, 1500); // Atualiza para pegar a capa da nova música
       } else {
-        alert("Erro ao trocar playlist. O Rádio pode não estar pronto.");
+        const errorData = await res.json().catch(() => ({ erro: 'Rádio offline ou ocupada' }));
+        addToast(`Erro: ${errorData.erro}`, 'error');
       }
     } catch (e) {
-      alert("Falha de conexão com a rádio.");
+      addToast("Falha de conexão com a rádio.", "error");
     } finally {
       setTrocandoPlaylist(false);
     }
