@@ -56,6 +56,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
+  const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -88,13 +89,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   };
 
   const handleTocarNoticias = async () => {
+    setCarregandoNoticias(true);
+    addToast('A Isa está preparando o resumo de notícias... Isso pode levar alguns segundos.', 'info');
     try {
-      await fetch('/api/radio/disparar-noticias-ia', {
+      const resp = await fetch('/api/radio/disparar-noticias-ia', {
         method: 'POST'
       });
-      addToast('A Isa está preparando o resumo de notícias para a rádio...', 'success');
+      if (!resp.ok) throw new Error('Erro no servidor');
+      addToast('Notícias enviadas para a rádio com sucesso!', 'success');
     } catch (err) {
-      addToast('Erro ao acionar notícias da Isa', 'error');
+      addToast('Falha ao acionar notícias da Isa. Verifique a conexão com a rádio.', 'error');
+    } finally {
+      setCarregandoNoticias(false);
     }
   };
 
@@ -103,7 +109,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       await fetch('/api/radio/parar-proxy', {
         method: 'POST'
       });
-      alert('Comando para parar a rádio enviado!');
+      addToast('Comando para parar a rádio enviado!', 'info');
     } catch (e) {
       console.error('Erro ao parar a rádio:', e);
     }
@@ -199,10 +205,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
               </button>
               <button
                 onClick={handleTocarNoticias}
-                className="flex items-center gap-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full shadow-md transition-all"
+                disabled={carregandoNoticias}
+                className="flex items-center gap-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded-full shadow-md transition-all"
               >
-                <Megaphone className="w-4 h-4" />
-                Notícias
+                <Megaphone className={`w-4 h-4 ${carregandoNoticias ? 'animate-bounce' : ''}`} />
+                {carregandoNoticias ? 'Preparando...' : 'Notícias'}
               </button>
               <button
                 onClick={handlePararRadio}

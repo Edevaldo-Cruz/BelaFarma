@@ -170,29 +170,40 @@ module.exports = (app, db) => {
   // Disparar Notícias Geradas por IA (ISA-Marketing)
   app.post('/api/radio/disparar-noticias-ia', async (req, res) => {
     try {
+      console.log('[Radio] 📰 Iniciando fluxo de notícias IA...');
       const { gerarCuradoriaNoticas } = require('./services/marketing-agent.service');
-      console.log('[Radio] Gerando notícias via Isa-Marketing...');
+      
+      console.log('[Radio] 🧠 Gerando texto via Isa-Marketing...');
       const noticias = await gerarCuradoriaNoticas();
       
-      console.log('[Radio] Enviando notícias para o Pi...');
-      const response = await fetch('http://192.168.1.10:5005/api/anunciar', {
+      if (!noticias) {
+        throw new Error('A IA não retornou nenhum texto de notícia.');
+      }
+      
+      console.log('[Radio] 📡 Enviando para o Pi (192.168.1.10:5005)...');
+      // Tenta usar o fetch global ou o do node-fetch se disponível
+      const fetchApi = typeof fetch !== 'undefined' ? fetch : require('node-fetch');
+      
+      const response = await fetchApi('http://192.168.1.10:5005/api/anunciar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mensagem: noticias,
           voz: 'feminina'
         }),
-        signal: AbortSignal.timeout(20000)
+        signal: AbortSignal.timeout(30000) // Aumentado para 30s
       });
       
       if (!response.ok) {
         const errText = await response.text().catch(() => 'Erro desconhecido');
-        throw new Error(`Pi respondeu com erro (${response.status}): ${errText}`);
+        console.error(`[Radio] ❌ Erro no Pi: ${response.status} - ${errText}`);
+        throw new Error(`O dispositivo da rádio (Pi) respondeu com erro: ${response.status}`);
       }
       
+      console.log('[Radio] ✅ Notícias enviadas com sucesso!');
       res.json({ ok: true, noticias });
     } catch (err) {
-      console.error('[Radio] Erro ao disparar notícias IA:', err.message);
+      console.error('[Radio] 💥 Erro crítico no disparar-noticias-ia:', err.message);
       res.status(500).json({ erro: err.message });
     }
   });

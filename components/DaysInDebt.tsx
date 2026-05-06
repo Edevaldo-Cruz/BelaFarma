@@ -366,47 +366,52 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
 
         {/* DETAILS SECTION */}
         <section className="space-y-4">
-          <div className="flex justify-between items-end px-2">
-            <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-              {selectedDateStrings.length > 0
-                ? `${selectedDateStrings.length} Dia(s) Selecionado(s)`
-                : 'Selecione dias no calendário'}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50/50 dark:bg-slate-800/30 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+            <h2 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Resumo da Simulação
             </h2>
+            
             {selectedDateStrings.length > 0 && (
-              <div className="flex items-end gap-6">
-                 {/* Venda Prevista */}
-                <div className="flex flex-col items-end hidden md:flex">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Venda Prevista (Média Mês)</span>
-                  <span className="text-xl font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-xl border border-blue-100 dark:border-blue-800">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full md:w-auto">
+                {/* Venda Prevista */}
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center min-w-[160px]">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Venda Prevista</span>
+                  <span className="text-lg font-black text-blue-600 dark:text-blue-400">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(salesForecast)}
                   </span>
                 </div>
 
                 {/* Saldo em Caixa (Editável) */}
-                <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Saldo em Caixa</span>
-                  <div className="relative group">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border-2 border-blue-200 dark:border-blue-900/50 shadow-md flex flex-col items-center justify-center min-w-[160px] group transition-all hover:border-blue-400">
+                  <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1 text-center">Saldo em Caixa</span>
+                  <div className="flex items-center">
+                    <span className="text-lg font-black text-slate-400 mr-1">R$</span>
                     <input
                       type="text"
                       value={currentCashInput}
                       onChange={handleChangeCurrentCash}
-                      className="text-xl font-black text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-blue-500 transition-all w-32 text-right"
+                      className="text-lg font-black text-slate-900 dark:text-slate-100 bg-transparent outline-none w-24 text-center focus:ring-0"
                     />
                   </div>
                 </div>
 
-                 {/* Total Selecionado */}
-                <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Despesas Selecionadas</span>
-                  <span className="text-xl font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-1 rounded-xl border border-red-100 dark:border-red-800">
+                {/* Total Selecionado */}
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center min-w-[160px]">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Despesas</span>
+                  <span className="text-lg font-black text-red-600 dark:text-red-400">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedTotal)}
                   </span>
                 </div>
 
                 {/* Saldo Previsto */}
-                <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Saldo Previsto</span>
-                  <span className={`text-xl font-black px-3 py-1 rounded-xl border ${forecastBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800'}`}>
+                <div className={`p-4 rounded-2xl shadow-sm flex flex-col items-center justify-center min-w-[160px] border ${
+                  forecastBalance >= 0 
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400' 
+                    : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400'
+                }`}>
+                  <span className="text-[9px] font-black uppercase tracking-widest mb-1 text-center opacity-70">Saldo Previsto</span>
+                  <span className="text-lg font-black">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(forecastBalance)}
                   </span>
                 </div>
