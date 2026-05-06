@@ -193,7 +193,7 @@ module.exports = (app, db) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mensagem: noticias,
-          voz: 'feminina'
+          voz: 'pt-BR-FranciscaNeural'
         }),
         signal: AbortSignal.timeout(30000) // Aumentado para 30s
       });

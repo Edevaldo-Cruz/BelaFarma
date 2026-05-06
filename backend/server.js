@@ -3050,7 +3050,7 @@ const dispararNoticiasAutomatico = async () => {
     const response = await fetch('http://192.168.1.10:5005/api/anunciar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mensagem: noticias, voz: 'feminina' })
+      body: JSON.stringify({ mensagem: noticias, voz: 'pt-BR-FranciscaNeural' })
     });
     
     if (response.ok) {
