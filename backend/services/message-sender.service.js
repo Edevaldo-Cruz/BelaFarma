@@ -217,15 +217,29 @@ async function fetchGroups() {
   if (!ENABLED) return [];
   try {
     const url = `${API_URL}/group/fetchAllGroups/${INSTANCE_NAME}`;
+    console.log(`[MessageSender] 🔍 Buscando grupos em: ${url}`);
+    
     const response = await fetch(url, {
       method: 'GET',
       headers: { 'apikey': API_KEY }
     });
 
-    if (!response.ok) throw new Error(`Erro API: ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[MessageSender] ❌ Erro API (${response.status}):`, errorText);
+      throw new Error(`Erro API: ${response.status}`);
+    }
+
     const data = await response.json();
+    console.log(`[MessageSender] 📦 Dados recebidos da API (tipo: ${typeof data}, isArray: ${Array.isArray(data)})`);
     
-    // A Evolution API retorna um array de grupos
+    // Se for um objeto, pode estar dentro de uma propriedade
+    if (!Array.isArray(data) && data && typeof data === 'object') {
+       console.log('[MessageSender] Chaves do objeto:', Object.keys(data));
+       if (data.groups && Array.isArray(data.groups)) return data.groups;
+       if (data.data && Array.isArray(data.data)) return data.data;
+    }
+
     return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('[MessageSender] ❌ Erro ao buscar grupos:', error.message);
