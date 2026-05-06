@@ -1152,10 +1152,19 @@ const WhatsAppGroupsTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <Users className="w-5 h-5 text-green-600" />
-          Agendamento em Grupos
-        </h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Users className="w-5 h-5 text-green-600" />
+            Agendamento em Grupos
+          </h3>
+          <button
+            onClick={() => { setLoading(true); fetchData(); }}
+            className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all"
+            title="Atualizar lista de grupos"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
         <button
           onClick={() => setShowCreate(!showCreate)}
           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-all shadow-md"
@@ -1164,6 +1173,15 @@ const WhatsAppGroupsTab: React.FC = () => {
           {showCreate ? 'Cancelar' : 'Novo Agendamento'}
         </button>
       </div>
+
+      {groups.length === 0 && !loading && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600" />
+          <p className="text-sm text-amber-700 font-medium">
+            Nenhum grupo encontrado. Verifique se o WhatsApp está conectado no painel da API.
+          </p>
+        </div>
+      )}
 
       {showCreate && (
         <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
