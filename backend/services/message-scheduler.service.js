@@ -273,6 +273,46 @@ async function runDebtCollectionJob(db) {
 }
 
 /**
+ * Executa o job de postagens agendadas em grupos
+ */
+async function runScheduledGroupPostsJob(db) {
+  try {
+    const now = new Date().toISOString();
+    const pendingPosts = db.prepare(`
+      SELECT * FROM whatsapp_group_posts 
+      WHERE status = 'Pendente' AND scheduledAt <= ?
+    `).all(now);
+
+    if (pendingPosts.length === 0) return;
+
+    console.log(`[MessageScheduler] 📱 Enviando ${pendingPosts.length} postagem(ns) agendada(s) para grupos...`);
+
+    for (const post of pendingPosts) {
+      let result;
+      if (post.mediaPath) {
+        // Envio com imagem
+        result = await sender.sendMediaMessage(post.groupId, post.content, post.mediaPath);
+      } else {
+        // Envio apenas texto
+        result = await sender.sendMessage(post.groupId, post.content);
+      }
+
+      if (result.success) {
+        db.prepare('UPDATE whatsapp_group_posts SET status = "Enviado", sentAt = ? WHERE id = ?')
+          .run(new Date().toISOString(), post.id);
+        console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo ${post.groupName || post.groupId}`);
+      } else {
+        db.prepare('UPDATE whatsapp_group_posts SET status = "Erro", errorMessage = ? WHERE id = ?')
+          .run(result.error || 'Erro desconhecido', post.id);
+        console.log(`[MessageScheduler] ❌ Falha ao enviar post ${post.id}: ${result.error}`);
+      }
+    }
+  } catch (error) {
+    console.error('[MessageScheduler] Erro no job de postagens em grupos:', error.message);
+  }
+}
+
+/**
  * Inicia todos os cron jobs baseados nas configurações do banco
  */
 function startScheduler(db) {
@@ -312,6 +352,14 @@ function startScheduler(db) {
 
       scheduledJobs[type] = job;
     }
+
+    // Agendamento Recurrente: Verificar postagens em grupos a cada minuto
+    const groupPostsJob = cron.schedule('* * * * *', async () => {
+      await runScheduledGroupPostsJob(db);
+    }, {
+      timezone: 'America/Sao_Paulo'
+    });
+    scheduledJobs['group_posts'] = groupPostsJob;
 
     console.log(`[MessageScheduler] ✅ ${Object.keys(scheduledJobs).length} job(s) agendado(s).`);
 

@@ -853,20 +853,22 @@ try {
     `);
     console.log('Message campaigns table verified/created.');
 
-    // Tabela: message_schedule_config (Configuração de horários)
+    // Tabela: whatsapp_group_posts (Agendamento de postagens em grupos)
     db.exec(`
-      CREATE TABLE IF NOT EXISTS message_schedule_config (
+      CREATE TABLE IF NOT EXISTS whatsapp_group_posts (
         id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        description TEXT,
-        hour INTEGER NOT NULL,
-        minute INTEGER NOT NULL,
-        isEnabled INTEGER DEFAULT 1,
-        lastRun TEXT,
-        createdAt TEXT NOT NULL
+        groupId TEXT NOT NULL,
+        groupName TEXT,
+        content TEXT NOT NULL,
+        mediaPath TEXT,
+        scheduledAt TEXT NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        errorMessage TEXT,
+        createdAt TEXT NOT NULL,
+        sentAt TEXT
       )
     `);
-    console.log('Message schedule config table verified/created.');
+    console.log('WhatsApp group posts table verified/created.');
 
     console.log('✅ Sistema de Mensagens: Tabelas criadas com sucesso!');
 

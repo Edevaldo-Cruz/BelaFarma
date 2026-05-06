@@ -2895,6 +2895,10 @@ const marketingScheduler = require('./services/marketing-scheduler.service');
 // Registra endpoints da API de marketing
 initializeMarketingEndpoints(app, db);
 
+// Módulo Grupos de WhatsApp
+const { initializeWhatsAppGroupEndpoints } = require('./whatsapp-group-endpoints.js');
+initializeWhatsAppGroupEndpoints(app, db);
+
 // Inicia o scheduler de marketing (relatório toda segunda-feira às 08:00)
 marketingScheduler.iniciarScheduler(db);
 console.log('🤖 Agente de Marketing IA inicializado.');

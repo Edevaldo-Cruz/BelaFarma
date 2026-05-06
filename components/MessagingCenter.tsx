@@ -13,7 +13,7 @@ import { MessageTemplate, MessageLog, MessageCampaign, MessageSchedule, Customer
 // ============================================================================
 // TABS
 // ============================================================================
-type Tab = 'templates' | 'schedules' | 'send' | 'campaigns' | 'log' | 'stats';
+type Tab = 'templates' | 'schedules' | 'send' | 'campaigns' | 'log' | 'stats' | 'whatsapp-groups';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'templates', label: 'Templates', icon: Edit3 },
@@ -22,6 +22,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
   { id: 'log', label: 'Histórico', icon: History },
   { id: 'stats', label: 'Estatísticas', icon: BarChart3 },
+  { id: 'whatsapp-groups', label: 'Grupos WA', icon: Users },
 ];
 
 const TYPE_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
@@ -90,6 +91,7 @@ export const MessagingCenter: React.FC = () => {
       {activeTab === 'campaigns' && <CampaignsTab />}
       {activeTab === 'log' && <LogTab />}
       {activeTab === 'stats' && <StatsTab />}
+      {activeTab === 'whatsapp-groups' && <WhatsAppGroupsTab />}
     </div>
   );
 };
@@ -1054,6 +1056,237 @@ const StatsTab: React.FC = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// WHATSAPP GROUPS TAB
+// ============================================================================
+const WhatsAppGroupsTab: React.FC = () => {
+  const [groups, setGroups] = useState<any[]>([]);
+  const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [content, setContent] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const { addToast } = useToast();
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [groupsRes, postsRes] = await Promise.all([
+        fetch('/api/whatsapp/groups'),
+        fetch('/api/whatsapp/scheduled-posts')
+      ]);
+      setGroups(await groupsRes.json());
+      setScheduledPosts(await postsRes.json());
+    } catch (err) {
+      addToast('Erro ao carregar dados dos grupos.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroup || !content || !scheduledAt) {
+      addToast('Preencha todos os campos obrigatórios.', 'warning');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const formData = new FormData();
+      const group = groups.find(g => g.id === selectedGroup);
+      formData.append('groupId', selectedGroup);
+      formData.append('groupName', group?.subject || selectedGroup);
+      formData.append('content', content);
+      formData.append('scheduledAt', new Date(scheduledAt).toISOString());
+      if (mediaFile) {
+        formData.append('media', mediaFile);
+      }
+
+      const res = await fetch('/api/whatsapp/scheduled-posts', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        addToast('Agendamento criado com sucesso!', 'success');
+        setShowCreate(false);
+        setContent('');
+        setScheduledAt('');
+        setMediaFile(null);
+        fetchData();
+      } else {
+        const data = await res.json();
+        addToast(data.error || 'Erro ao agendar.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro de conexão.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Deseja realmente cancelar este agendamento?')) return;
+    try {
+      const res = await fetch(`/api/whatsapp/scheduled-posts/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        addToast('Agendamento excluído.', 'success');
+        fetchData();
+      }
+    } catch {
+      addToast('Erro ao excluir.', 'error');
+    }
+  };
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+          <Users className="w-5 h-5 text-green-600" />
+          Agendamento em Grupos
+        </h3>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-all shadow-md"
+        >
+          {showCreate ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          {showCreate ? 'Cancelar' : 'Novo Agendamento'}
+        </button>
+      </div>
+
+      {showCreate && (
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp</label>
+              <select
+                value={selectedGroup}
+                onChange={e => setSelectedGroup(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">Selecione um grupo...</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.subject} ({g.size} membros)</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Data e Hora do Envio</label>
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={e => setScheduledAt(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Mensagem</label>
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              rows={4}
+              placeholder="Digite o texto da publicação..."
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Imagem (Opcional)</label>
+            <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={e => setMediaFile(e.target.files?.[0] || null)}
+                className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+              />
+              {mediaFile && (
+                <span className="text-xs font-bold text-green-600">✓ {mediaFile.name}</span>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-sm shadow-lg shadow-green-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+            Confirmar Agendamento
+          </button>
+        </form>
+      )}
+
+      <div className="grid grid-cols-1 gap-4">
+        {scheduledPosts.length === 0 ? (
+          <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+            <Clock className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+            <p className="text-slate-500 font-medium">Nenhum agendamento pendente.</p>
+          </div>
+        ) : (
+          scheduledPosts.map(post => (
+            <div key={post.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row gap-4">
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2.5 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-xs font-black uppercase tracking-wider">
+                    👥 {post.groupName || 'Grupo'}
+                  </span>
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${
+                    post.status === 'Enviado' ? 'bg-blue-50 text-blue-600' : 
+                    post.status === 'Erro' ? 'bg-red-50 text-red-600' : 
+                    'bg-amber-50 text-amber-600'
+                  }`}>
+                    {post.status}
+                  </span>
+                  <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    {new Date(post.scheduledAt).toLocaleString('pt-BR')}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-3">{post.content}</p>
+                {post.mediaPath && (
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-blue-500 uppercase tracking-widest">
+                    🖼️ Contém imagem anexada
+                  </div>
+                )}
+                {post.errorMessage && (
+                  <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg border border-red-100">
+                    Erro: {post.errorMessage}
+                  </p>
+                )}
+              </div>
+              <div className="flex md:flex-col justify-end gap-2">
+                {post.status === 'Pendente' && (
+                  <button
+                    onClick={() => handleDelete(post.id)}
+                    className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                    title="Excluir"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 };

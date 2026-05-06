@@ -156,6 +156,85 @@ async function sendMessage(phone, message, disableFallback = false) {
 }
 
 /**
+ * Envia uma mensagem de mídia (imagem) para um número ou JID de grupo via Evolution API.
+ * @param {string} target - Número ou JID do grupo (ex: 5532999058008 ou 123456789@g.us)
+ * @param {string} caption - Texto da legenda
+ * @param {string} mediaPath - Caminho local absoluto do arquivo (ex: F:/.../uploads/imagem.jpg)
+ */
+async function sendMediaMessage(target, caption, mediaPath) {
+  if (!ENABLED) return { success: false, error: 'Notificações desabilitadas' };
+  if (!target || !mediaPath) return { success: false, error: 'Destino ou Mídia não informados' };
+
+  try {
+    const url = `${API_URL}/message/sendMedia/${INSTANCE_NAME}`;
+    
+    // Se for um caminho de arquivo local, converte para Base64
+    let mediaData = mediaPath;
+    if (fs.existsSync(mediaPath)) {
+      const fileBuffer = fs.readFileSync(mediaPath);
+      const extension = path.extname(mediaPath).replace('.', '');
+      mediaData = `data:image/${extension};base64,${fileBuffer.toString('base64')}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': API_KEY
+      },
+      body: JSON.stringify({
+        number: target,
+        mediaMessage: {
+          mediatype: "image",
+          caption: caption || "",
+          media: mediaData
+        },
+        options: {
+          delay: 1500,
+          presence: "composing"
+        }
+      })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error(`[MessageSender] ❌ Erro ao enviar mídia para ${target}:`, result.message || response.status);
+      return { success: false, error: result.message || `Erro API ${response.status}` };
+    }
+
+    console.log(`[MessageSender] ✅ Mídia enviada com sucesso para ${target}`);
+    return { success: true, messageId: result.key?.id };
+  } catch (error) {
+    console.error(`[MessageSender] 💥 Erro crítico no sendMediaMessage para ${target}:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Busca todos os grupos vinculados à instância.
+ */
+async function fetchGroups() {
+  if (!ENABLED) return [];
+  try {
+    const url = `${API_URL}/group/fetchAllGroups/${INSTANCE_NAME}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'apikey': API_KEY }
+    });
+
+    if (!response.ok) throw new Error(`Erro API: ${response.status}`);
+    const data = await response.json();
+    
+    // A Evolution API retorna um array de grupos
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('[MessageSender] ❌ Erro ao buscar grupos:', error.message);
+    return [];
+  }
+}
+
+
+/**
  * Envia notificação para o administrador da farmácia.
  */
 async function notifyAdmin(message) {
@@ -211,6 +290,8 @@ async function sendBulk(messages, onProgress = null) {
 
 module.exports = {
   sendMessage,
+  sendMediaMessage,
+  fetchGroups,
   notifyAdmin,
   sendBulk,
   ADMIN_PHONES,
