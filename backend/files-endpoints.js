@@ -54,15 +54,21 @@ module.exports = (db) => {
 
   // Upload de novos arquivos (suporta múltiplos)
   router.post('/upload', upload.array('relatorio', 10), (req, res) => {
+    console.log(`[FILES] Recebida requisição de upload. Arquivos: ${req.files ? req.files.length : 0}`);
+    
     if (!req.files || req.files.length === 0) {
+      console.warn('[FILES] Nenhum arquivo foi recebido pelo Multer.');
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
     }
     
-    const uploadedFiles = req.files.map(file => ({
-      name: file.filename,
-      size: file.size,
-      date: new Date()
-    }));
+    const uploadedFiles = req.files.map(file => {
+      console.log(`[FILES] Arquivo recebido: ${file.filename} (${file.size} bytes)`);
+      return {
+        name: file.filename,
+        size: file.size,
+        date: new Date()
+      };
+    });
 
     res.json({ 
       message: `${uploadedFiles.length} arquivo(s) enviado(s) com sucesso!`,

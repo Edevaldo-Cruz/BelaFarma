@@ -58,10 +58,12 @@ export default function IsaFiles() {
     });
 
     try {
+      console.log(`[IsaFiles] Iniciando upload de ${selectedFiles.length} arquivos...`);
       const res = await fetch(`${API_BASE}/api/files/upload`, {
         method: 'POST',
         body: formData
       });
+      
       if (res.ok) {
         const msg = selectedFiles.length > 1 
           ? `${selectedFiles.length} arquivos enviados para a central!` 
@@ -69,10 +71,13 @@ export default function IsaFiles() {
         addToast(msg, 'success');
         fetchFiles();
       } else {
-        throw new Error('Erro no upload');
+        const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+        console.error('[IsaFiles] Falha no upload:', res.status, errorData);
+        throw new Error(errorData.error || `Erro ${res.status}`);
       }
-    } catch (err) {
-      addToast('Erro ao enviar arquivo(s)', 'error');
+    } catch (err: any) {
+      console.error('[IsaFiles] Erro durante o upload:', err);
+      addToast(`Erro ao enviar: ${err.message}`, 'error');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
