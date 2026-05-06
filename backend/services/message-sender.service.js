@@ -216,7 +216,7 @@ async function sendMediaMessage(target, caption, mediaPath) {
 async function fetchGroups() {
   if (!ENABLED) return [];
   try {
-    const url = `${API_URL}/group/fetchAllGroups/${INSTANCE_NAME}`;
+    const url = `${API_URL}/group/fetchAllGroups/${INSTANCE_NAME}?getParticipants=false`;
     console.log(`[MessageSender] 🔍 Buscando grupos em: ${url}`);
     
     const response = await fetch(url, {
