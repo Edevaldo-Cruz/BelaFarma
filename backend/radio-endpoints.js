@@ -174,11 +174,15 @@ module.exports = (app, db) => {
       const { gerarCuradoriaNoticas } = require('./services/marketing-agent.service');
       
       console.log('[Radio] 🧠 Gerando texto via Isa-Marketing...');
-      const noticias = await gerarCuradoriaNoticas();
+      let noticias = await gerarCuradoriaNoticas();
       
       if (!noticias) {
         throw new Error('A IA não retornou nenhum texto de notícia.');
       }
+
+      // Remover emojis e markdown para evitar falhas no TTS do Pi
+      noticias = noticias.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '');
+      noticias = noticias.replace(/[*_#\[\]]/g, '');
       
       console.log('[Radio] 📡 Enviando para o Pi (192.168.1.10:5005)...');
       // Tenta usar o fetch global ou o do node-fetch se disponível

@@ -373,7 +373,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
             </h2>
             
             {selectedDateStrings.length > 0 && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full md:w-auto">
+              <div className="grid grid-cols-2 gap-4 w-full md:w-auto mt-4 md:mt-0">
                 {/* Venda Prevista */}
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center min-w-[160px]">
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Venda Prevista</span>

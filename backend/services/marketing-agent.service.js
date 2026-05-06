@@ -295,11 +295,12 @@ REGRAS:
 - Tom de voz de rádio: dinâmico, amigável e direto.
 - Inicie com: "Olá amigos da Bela Farma! Aqui é a Isa com o nosso giro de notícias para começar bem a sua ${periodo}."
 - Termine com uma dica de saúde e um convite: "Bela Farma Sul, cuidando sempre de você. Uma ótima ${periodo}!".
-- O texto total deve ter entre 1 e 2 minutos de fala (aprox. 150-200 palavras).`;
+- O texto total deve ter entre 1 e 2 minutos de fala (aprox. 150-200 palavras).
+- EXTREMAMENTE IMPORTANTE: Não use NENHUM emoji. Não use formatação markdown (sem asteriscos, sem negrito, sem hashtags). O texto deve ser 100% limpo, apenas texto puro e pontuação básica para ser lido em voz alta por um sistema de áudio.`;
 
   const dataHoje = agora.toISOString().split('T')[0];
-  const cacheKey = `curadoria_noticias_${dataHoje}_${periodo}`;
-  return chamarIA(prompt, 'Responda apenas com o roteiro para ser lido pela voz da rádio.', cacheKey, 14400); // 4h
+  const cacheKey = `curadoria_noticias_${dataHoje}_${periodo}_v2`;
+  return chamarIA(prompt, 'Responda apenas com o texto puro e limpo para o TTS da rádio, sem emojis ou marcações.', cacheKey, 14400); // 4h
 }
 
 async function gerarTrendHunting() {
