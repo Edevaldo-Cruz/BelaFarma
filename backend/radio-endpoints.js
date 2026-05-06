@@ -151,7 +151,7 @@ module.exports = (app, db) => {
     }
   });
 
-  // Proxy: Disparar Notícias
+  // Proxy: Disparar Notícias (Antigo - Direto do Pi)
   app.post('/api/radio/noticias-proxy', async (req, res) => {
     try {
       console.log('Solicitando notícias ao Pi...');
@@ -163,6 +163,36 @@ module.exports = (app, db) => {
       res.json({ ok: true });
     } catch (err) {
       console.error('Erro no noticias-proxy:', err.message);
+      res.status(500).json({ erro: err.message });
+    }
+  });
+
+  // Disparar Notícias Geradas por IA (ISA-Marketing)
+  app.post('/api/radio/disparar-noticias-ia', async (req, res) => {
+    try {
+      const { gerarCuradoriaNoticas } = require('./services/marketing-agent.service');
+      console.log('[Radio] Gerando notícias via Isa-Marketing...');
+      const noticias = await gerarCuradoriaNoticas();
+      
+      console.log('[Radio] Enviando notícias para o Pi...');
+      const response = await fetch('http://192.168.1.10:5005/api/anunciar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensagem: noticias,
+          voz: 'feminina'
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+      
+      if (!response.ok) {
+        const errText = await response.text().catch(() => 'Erro desconhecido');
+        throw new Error(`Pi respondeu com erro (${response.status}): ${errText}`);
+      }
+      
+      res.json({ ok: true, noticias });
+    } catch (err) {
+      console.error('[Radio] Erro ao disparar notícias IA:', err.message);
       res.status(500).json({ erro: err.message });
     }
   });

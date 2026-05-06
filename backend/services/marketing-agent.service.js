@@ -276,11 +276,30 @@ Como a Isa-Marketing, crie 3 ideias CRIATIVAS de promoção para este produto em
 }
 
 async function gerarCuradoriaNoticas() {
-  const prompt = `Como a Isa-Marketing de JF, simule 5 notícias recentes relevantes do setor de saúde.`;
+  const agora = new Date();
+  const hora = agora.getHours();
+  let periodo = 'manhã';
+  if (hora >= 12 && hora < 18) periodo = 'tarde';
+  if (hora >= 18) periodo = 'noite';
 
-  const dataHoje = new Date().toISOString().split('T')[0];
-  const cacheKey = `curadoria_noticias_${dataHoje}`;
-  return chamarIA(prompt, '', cacheKey, 86400); // 24h
+  const prompt = `Você é a ISA-MARKETING, a voz da Bela Farma Sul em Juiz de Fora.
+Gere um roteiro de NOTÍCIAS RÁPIDAS para a rádio interna da farmácia (período da ${periodo}).
+
+CONTEÚDO OBRIGATÓRIO:
+1. JUIZ DE FORA: Destaque algo importante da cidade hoje (clima, trânsito ou evento).
+2. BRASIL E MUNDO: As 2 notícias mais impactantes do momento.
+3. ECONOMIA E VAREJO: Algo sobre preços, dólar ou dicas de economia para o consumidor.
+4. SAÚDE: Uma novidade da ANVISA, dica de prevenção ou curiosidade sobre bem-estar.
+
+REGRAS:
+- Tom de voz de rádio: dinâmico, amigável e direto.
+- Inicie com: "Olá amigos da Bela Farma! Aqui é a Isa com o nosso giro de notícias para começar bem a sua ${periodo}."
+- Termine com uma dica de saúde e um convite: "Bela Farma Sul, cuidando sempre de você. Uma ótima ${periodo}!".
+- O texto total deve ter entre 1 e 2 minutos de fala (aprox. 150-200 palavras).`;
+
+  const dataHoje = agora.toISOString().split('T')[0];
+  const cacheKey = `curadoria_noticias_${dataHoje}_${periodo}`;
+  return chamarIA(prompt, 'Responda apenas com o roteiro para ser lido pela voz da rádio.', cacheKey, 14400); // 4h
 }
 
 async function gerarTrendHunting() {

@@ -24,6 +24,7 @@ import {
   User as UserIcon,
   Receipt
 } from 'lucide-react';
+import { useToast } from './ToastContext';
 import { 
   BarChart, 
   Bar, 
@@ -50,6 +51,7 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate }) => {
+  const { addToast } = useToast();
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -87,12 +89,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
 
   const handleTocarNoticias = async () => {
     try {
-      await fetch('/api/radio/noticias-proxy', {
+      await fetch('/api/radio/disparar-noticias-ia', {
         method: 'POST'
       });
-      alert('Boletim de notícias disparado na rádio!');
-    } catch (e) {
-      console.error('Erro ao tocar notícias:', e);
+      addToast('A Isa está preparando o resumo de notícias para a rádio...', 'success');
+    } catch (err) {
+      addToast('Erro ao acionar notícias da Isa', 'error');
     }
   };
 

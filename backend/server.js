@@ -3038,6 +3038,37 @@ cron.schedule('0 13 * * *', performLocalBackup, { timezone: 'America/Sao_Paulo' 
 console.log('[BACKUP AUTO] ⏰ Agendado para 01:00 e 13:00 (Brasília).');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AGENDAMENTO DE NOTÍCIAS IA NA RÁDIO (3x ao dia)
+// 08:30 (Manhã), 14:30 (Tarde), 19:30 (Noite)
+// ─────────────────────────────────────────────────────────────────────────────
+const dispararNoticiasAutomatico = async () => {
+  try {
+    console.log('[CRON] Iniciando disparo automático de notícias IA...');
+    const { gerarCuradoriaNoticas } = require('./services/marketing-agent.service');
+    const noticias = await gerarCuradoriaNoticas();
+    
+    const response = await fetch('http://192.168.1.10:5005/api/anunciar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mensagem: noticias, voz: 'feminina' })
+    });
+    
+    if (response.ok) {
+      console.log('[CRON] Notícias IA disparadas com sucesso na rádio.');
+    } else {
+      console.error('[CRON] Rádio não respondeu ao disparo de notícias.');
+    }
+  } catch (err) {
+    console.error('[CRON] Erro ao disparar notícias automáticas:', err.message);
+  }
+};
+
+cron.schedule('30 8 * * *',  dispararNoticiasAutomatico, { timezone: 'America/Sao_Paulo' });
+cron.schedule('30 14 * * *', dispararNoticiasAutomatico, { timezone: 'America/Sao_Paulo' });
+cron.schedule('30 19 * * *', dispararNoticiasAutomatico, { timezone: 'America/Sao_Paulo' });
+console.log('[RADIO CRON] 📻 Notícias agendadas: 08:30, 14:30 e 19:30.');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COMPARADOR DE COTAÇÕES — /api/quotation/analyze
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/quotation/analyze', async (req, res) => {

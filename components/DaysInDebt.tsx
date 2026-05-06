@@ -51,6 +51,8 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   const [totalValueInput, setTotalValueInput] = useState('0,00');
   const [installments, setInstallments] = useState(1);
   const [days, setDays] = useState<string>('15');
+  const [currentCash, setCurrentCash] = useState(0);
+  const [currentCashInput, setCurrentCashInput] = useState('0,00');
   const [simulationResult, setSimulationResult] = useState<DebtCardInfo[]>([]);
   const [fixedPayments, setFixedPayments] = useState<FixedAccountPayment[]>([]);
   const [currentCalendarMonth, setCurrentCalendarMonth] = useState<string>(() => {
@@ -95,6 +97,26 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     const numericValue = parseInt(value, 10) / 100;
     setTotalValue(numericValue);
     setTotalValueInput(
+      new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(numericValue)
+    );
+  };
+
+  const handleChangeCurrentCash = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value;
+    value = value.replace(/\D/g, ''); 
+
+    if (value === '') {
+      setCurrentCash(0);
+      setCurrentCashInput('0,00');
+      return;
+    }
+
+    const numericValue = parseInt(value, 10) / 100;
+    setCurrentCash(numericValue);
+    setCurrentCashInput(
       new Intl.NumberFormat('pt-BR', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -303,7 +325,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   }, [cashClosings]);
 
   const salesForecast = averageDailySales * selectedDateStrings.length;
-  const forecastBalance = salesForecast - selectedTotal;
+  const forecastBalance = currentCash + salesForecast - selectedTotal;
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -352,12 +374,25 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
             </h2>
             {selectedDateStrings.length > 0 && (
               <div className="flex items-end gap-6">
-                {/* Venda Prevista */}
+                 {/* Venda Prevista */}
                 <div className="flex flex-col items-end hidden md:flex">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Venda Prevista (Média Mês)</span>
                   <span className="text-xl font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-xl border border-blue-100 dark:border-blue-800">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(salesForecast)}
                   </span>
+                </div>
+
+                {/* Saldo em Caixa (Editável) */}
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Saldo em Caixa</span>
+                  <div className="relative group">
+                    <input
+                      type="text"
+                      value={currentCashInput}
+                      onChange={handleChangeCurrentCash}
+                      className="text-xl font-black text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-blue-500 transition-all w-32 text-right"
+                    />
+                  </div>
                 </div>
 
                  {/* Total Selecionado */}
