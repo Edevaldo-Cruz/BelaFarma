@@ -22,7 +22,11 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
+
 
 module.exports = (db) => {
   
@@ -48,18 +52,21 @@ module.exports = (db) => {
     }
   });
 
-  // Upload de novos arquivos
-  router.post('/upload', upload.single('relatorio'), (req, res) => {
-    if (!req.file) {
+  // Upload de novos arquivos (suporta múltiplos)
+  router.post('/upload', upload.array('relatorio', 10), (req, res) => {
+    if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
     }
+    
+    const uploadedFiles = req.files.map(file => ({
+      name: file.filename,
+      size: file.size,
+      date: new Date()
+    }));
+
     res.json({ 
-      message: 'Arquivo enviado com sucesso!',
-      file: {
-        name: req.file.filename,
-        size: req.file.size,
-        date: new Date()
-      }
+      message: `${uploadedFiles.length} arquivo(s) enviado(s) com sucesso!`,
+      files: uploadedFiles
     });
   });
 

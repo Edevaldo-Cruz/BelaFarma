@@ -46,12 +46,16 @@ export default function IsaFiles() {
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const selectedFiles = e.target.files;
+    if (!selectedFiles || selectedFiles.length === 0) return;
 
     setUploading(true);
     const formData = new FormData();
-    formData.append('relatorio', file);
+    
+    // Adiciona todos os arquivos ao FormData
+    Array.from(selectedFiles).forEach(file => {
+      formData.append('relatorio', file);
+    });
 
     try {
       const res = await fetch(`${API_BASE}/api/files/upload`, {
@@ -59,13 +63,16 @@ export default function IsaFiles() {
         body: formData
       });
       if (res.ok) {
-        addToast('Arquivo enviado para a central!', 'success');
+        const msg = selectedFiles.length > 1 
+          ? `${selectedFiles.length} arquivos enviados para a central!` 
+          : 'Arquivo enviado para a central!';
+        addToast(msg, 'success');
         fetchFiles();
       } else {
         throw new Error('Erro no upload');
       }
     } catch (err) {
-      addToast('Erro ao enviar arquivo', 'error');
+      addToast('Erro ao enviar arquivo(s)', 'error');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -121,6 +128,7 @@ export default function IsaFiles() {
             onChange={handleUpload} 
             className="hidden" 
             accept=".csv,.pdf"
+            multiple
           />
         </div>
 
