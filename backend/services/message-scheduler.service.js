@@ -353,18 +353,22 @@ function startScheduler(db) {
       scheduledJobs[type] = job;
     }
 
-    // Agendamento Recurrente: Verificar postagens em grupos a cada minuto
+    console.log(`[MessageScheduler] ✅ Jobs de configurações agendados.`);
+  } catch (error) {
+    console.error('[MessageScheduler] Erro ao iniciar agendamentos da tabela:', error.message);
+  }
+
+  // Agendamento Recurrente (INDEPENDENTE): Verificar postagens em grupos a cada minuto
+  try {
     const groupPostsJob = cron.schedule('* * * * *', async () => {
       await runScheduledGroupPostsJob(db);
     }, {
       timezone: 'America/Sao_Paulo'
     });
     scheduledJobs['group_posts'] = groupPostsJob;
-
-    console.log(`[MessageScheduler] ✅ ${Object.keys(scheduledJobs).length} job(s) agendado(s).`);
-
+    console.log(`[MessageScheduler] ✅ Job de grupos agendado com sucesso.`);
   } catch (error) {
-    console.error('[MessageScheduler] Erro ao iniciar agendamentos:', error.message);
+    console.error('[MessageScheduler] Erro ao agendar job de grupos:', error.message);
   }
 }
 
