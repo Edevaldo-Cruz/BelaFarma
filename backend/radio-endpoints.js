@@ -204,7 +204,26 @@ module.exports = (app, db) => {
         throw new Error(`O dispositivo da rádio (Pi) respondeu com erro: ${response.status}`);
       }
       
-      console.log('[Radio] ✅ Notícias enviadas com sucesso!');
+      console.log('[Radio] ✅ Notícias enviadas para a fila do Pi com sucesso!');
+      
+      // Fallback: Forçar o "Play" no Spotify após o tempo estimado da fala
+      // Velocidade média da Francisca: ~13 caracteres por segundo
+      const tempoEstimadoFalaMs = Math.ceil((noticias.length / 13) * 1000);
+      const margemGeracaoTTSMs = 10000; // 10 segundos para gerar o áudio
+      const tempoTotalMs = tempoEstimadoFalaMs + margemGeracaoTTSMs;
+      
+      console.log(`[Radio] ⏱️ O Spotify será retomado em ~${Math.ceil(tempoTotalMs / 1000)} segundos.`);
+      
+      setTimeout(async () => {
+        try {
+          console.log('[Radio] 🔄 Forçando o Play no Spotify pós-notícias...');
+          await fetchApi('http://192.168.1.10:5005/api/player/play', { method: 'POST' });
+          console.log('[Radio] ▶️ Comando de Play enviado com sucesso.');
+        } catch (e) {
+          console.error('[Radio] Erro no fallback de Play do Spotify:', e.message);
+        }
+      }, tempoTotalMs);
+
       res.json({ ok: true, noticias });
     } catch (err) {
       console.error('[Radio] 💥 Erro crítico no disparar-noticias-ia:', err.message);
