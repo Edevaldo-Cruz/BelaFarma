@@ -82,7 +82,9 @@ async function sendMessage(phone, message, disableFallback = false) {
     return { success: false, error: 'Mensagem vazia' };
   }
 
-  const formattedPhone = formatPhone(phone);
+  // Se for um grupo (@g.us), não formata o número
+  const isGroup = typeof phone === 'string' && phone.includes('@g.us');
+  const target = isGroup ? phone : formatPhone(phone);
 
   try {
     const url = `${API_URL}/message/sendText/${INSTANCE_NAME}`;
@@ -94,14 +96,9 @@ async function sendMessage(phone, message, disableFallback = false) {
         'apikey': API_KEY
       },
       body: JSON.stringify({
-        number: formattedPhone,
-        textMessage: {
-          text: message
-        },
-        options: {
-          delay: 1200,
-          presence: "composing"
-        }
+        number: target,
+        text: message,
+        delay: 1200
       })
     });
 
@@ -168,6 +165,10 @@ async function sendMediaMessage(target, caption, mediaPath) {
   try {
     const url = `${API_URL}/message/sendMedia/${INSTANCE_NAME}`;
     
+    // Se for um grupo (@g.us), não formata o destino
+    const isGroup = typeof target === 'string' && target.includes('@g.us');
+    const dest = isGroup ? target : formatPhone(target);
+
     // Se for um caminho de arquivo local, converte para Base64
     let mediaData = mediaPath;
     if (fs.existsSync(mediaPath)) {
@@ -183,16 +184,11 @@ async function sendMediaMessage(target, caption, mediaPath) {
         'apikey': API_KEY
       },
       body: JSON.stringify({
-        number: target,
-        mediaMessage: {
-          mediatype: "image",
-          caption: caption || "",
-          media: mediaData
-        },
-        options: {
-          delay: 1500,
-          presence: "composing"
-        }
+        number: dest,
+        mediatype: "image",
+        caption: caption || "",
+        media: mediaData,
+        delay: 1500
       })
     });
 
@@ -217,6 +213,8 @@ async function fetchGroups() {
   if (!ENABLED) return [];
   try {
     const url = `${API_URL}/group/fetchAllGroups/${INSTANCE_NAME}?getParticipants=false`;
+    // Fallback: na v2 pode ser /group/fetchAll/{instance}
+    // Vamos tentar o endpoint principal primeiro
     console.log(`[MessageSender] 🔍 Buscando grupos em: ${url}`);
     
     const response = await fetch(url, {

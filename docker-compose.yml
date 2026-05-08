@@ -31,23 +31,25 @@ services:
     # pois o Nginx se comunicará com ele pela rede interna do Docker.
 
   evolution-api:
-    image: atendai/evolution-api:v1.8.2
+    image: evoapicloud/evolution-api:v2.3.7
     environment:
       # Configuração básica
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-BelafarmaSul2026}
-      # Rodar sem banco de dados externo (Arquivos locais)
+      # Sem banco de dados externo (armazenamento local)
       - DATABASE_ENABLED=false
+      - DATABASE_PROVIDER=postgresql
       - DATABASE_SAVE_DATA_INSTANCE=false
       - DATABASE_SAVE_DATA_NEW_MESSAGE=false
       - DATABASE_SAVE_DATA_CONTACTS=false
       - DATABASE_SAVE_DATA_CHATS=false
       # Configuração do servidor
+      - SERVER_TYPE=http
       - SERVER_PORT=8080
       - SERVER_URL=http://evolution-api:8080
       - DEL_INSTANCE=false
       # Log
-      - LOG_LEVEL=WARN
+      - LOG_LEVEL=ERROR,WARN
     volumes:
       - evolution_data:/evolution/instances
     ports:

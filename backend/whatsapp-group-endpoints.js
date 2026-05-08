@@ -100,6 +100,62 @@ function initializeWhatsAppGroupEndpoints(app, db) {
     }
   });
 
+  // 5. DIAGNÓSTICO: Testar envio direto para grupo
+  app.post('/api/whatsapp/test-send', async (req, res) => {
+    try {
+      const { groupId, message } = req.body;
+      if (!groupId || !message) {
+        return res.status(400).json({ error: 'groupId e message são obrigatórios.' });
+      }
+      console.log(`[WhatsAppGroups] 🧪 TESTE: Enviando para ${groupId}: "${message}"`);
+      const result = await sender.sendMessage(groupId, message);
+      console.log(`[WhatsAppGroups] 🧪 Resultado do teste:`, JSON.stringify(result));
+      res.json(result);
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro no teste de envio:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6. DIAGNÓSTICO: Forçar processamento dos pendentes
+  app.post('/api/whatsapp/process-pending', async (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const pendingPosts = db.prepare(`
+        SELECT * FROM whatsapp_group_posts 
+        WHERE status = 'Pendente' AND scheduledAt <= ?
+      `).all(now);
+
+      console.log(`[WhatsAppGroups] 🔄 Processando ${pendingPosts.length} post(s) pendente(s). Hora atual: ${now}`);
+      
+      const results = [];
+      for (const post of pendingPosts) {
+        console.log(`[WhatsAppGroups] 📤 Enviando post ${post.id} para ${post.groupId}...`);
+        let result;
+        if (post.mediaPath) {
+          result = await sender.sendMediaMessage(post.groupId, post.content, post.mediaPath);
+        } else {
+          result = await sender.sendMessage(post.groupId, post.content);
+        }
+        console.log(`[WhatsAppGroups] Resultado:`, JSON.stringify(result));
+
+        if (result.success) {
+          db.prepare('UPDATE whatsapp_group_posts SET status = "Enviado", sentAt = ? WHERE id = ?')
+            .run(new Date().toISOString(), post.id);
+        } else {
+          db.prepare('UPDATE whatsapp_group_posts SET status = "Erro", errorMessage = ? WHERE id = ?')
+            .run(result.error || 'Erro desconhecido', post.id);
+        }
+        results.push({ id: post.id, groupId: post.groupId, result });
+      }
+
+      res.json({ processed: results.length, results });
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro ao processar pendentes:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 
