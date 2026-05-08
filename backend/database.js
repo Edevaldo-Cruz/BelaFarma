@@ -190,6 +190,19 @@ try {
       );
     `;
 
+    const createPixConfirmationsTable = `
+      CREATE TABLE IF NOT EXISTS pix_confirmations (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        value REAL,
+        senderName TEXT,
+        pixDate TEXT,
+        status TEXT NOT NULL,
+        aiAnalysis TEXT,
+        createdAt TEXT NOT NULL
+      );
+    `;
+
     const createFixedAccountPaymentsTable = `
       CREATE TABLE IF NOT EXISTS fixed_account_payments (
         id TEXT PRIMARY KEY,
@@ -314,6 +327,7 @@ try {
     db.exec(createDailyRecordsTable);
     db.exec(createFixedAccountsTable);
     db.exec(createFixedAccountPaymentsTable);
+    db.exec(createPixConfirmationsTable);
     db.exec(createCustomersTable);
     db.exec(createCustomerDebtsTable);
     // --- Boletos Table Migrations ---

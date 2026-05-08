@@ -12,19 +12,39 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
   const primaryProvider = process.env.AI_PROVIDER || 'openai';
   const temperature = options.temperature || 0.7;
   const maxTokens = options.maxTokens || 8192;
+  const imageData = options.imageData; // Base64 da imagem se houver
 
   const runAI = async (provider) => {
     const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
     
     if (provider === 'openai') {
       const model = process.env.GPT_MODEL || 'gpt-4o-mini';
-      console.log(`[AI] Tentando OpenAI: ${model}`);
+      console.log(`[AI] Tentando OpenAI: ${model} ${imageData ? '(com imagem)' : ''}`);
+      
+      const messages = [
+        { role: 'system', content: systemPrompt }
+      ];
+
+      if (imageData) {
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageData.startsWith('data:') ? imageData : `data:image/jpeg;base64,${imageData}`
+              }
+            }
+          ]
+        });
+      } else {
+        messages.push({ role: 'user', content: prompt });
+      }
+
       const response = await openai.chat.completions.create({
         model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
-        ],
+        messages: messages,
         temperature: temperature,
         max_tokens: maxTokens,
       });
@@ -37,13 +57,29 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
       if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      console.log(`[AI] Tentando Fallback Gemini: ${model}`);
+      console.log(`[AI] Tentando Fallback Gemini: ${model} ${imageData ? '(com imagem)' : ''}`);
       
+      const contents = [];
+      const parts = [{ text: fullPrompt }];
+
+      if (imageData) {
+        // Remover prefixo data:image/xxx;base64, se houver para o Gemini
+        const base64Content = imageData.includes('base64,') ? imageData.split('base64,')[1] : imageData;
+        parts.push({
+          inline_data: {
+            mime_type: 'image/jpeg',
+            data: base64Content
+          }
+        });
+      }
+
+      contents.push({ parts });
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
+          contents: contents,
           generationConfig: {
             temperature: temperature,
             maxOutputTokens: maxTokens,

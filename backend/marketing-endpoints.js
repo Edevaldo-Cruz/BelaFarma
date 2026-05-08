@@ -19,8 +19,10 @@ const {
 } = require('./services/marketing-agent.service');
 
 const { sendMessage } = require('./services/message-sender.service');
+const PixBotService = require('./services/pix-bot.service');
 
 function initializeMarketingEndpoints(app, db) {
+  const pixBot = new PixBotService(db);
   console.log('[IsaMarketing] Registrando endpoints de marketing...');
 
   // ─── POST /api/marketing/gerar-relatorio ───────────────────────────────────
@@ -272,6 +274,9 @@ function initializeMarketingEndpoints(app, db) {
     try {
       const payload = req.body;
       
+      // 🤖 Chamar o Robô de PIX para processar a mensagem (em background)
+      pixBot.processMessage(payload).catch(err => console.error('[PixBot] Erro:', err.message));
+
       // O evento de mensagem recebida na Evolution v2 é 'messages.upsert'
       if (payload.event !== 'messages.upsert') {
         return res.status(200).send('OK');
