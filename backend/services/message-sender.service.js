@@ -97,8 +97,13 @@ async function sendMessage(phone, message, disableFallback = false) {
       },
       body: JSON.stringify({
         number: target,
-        text: message,
-        delay: 1200
+        textMessage: {
+          text: message
+        },
+        options: {
+          delay: 1200,
+          presence: "composing"
+        }
       })
     });
 
@@ -165,10 +170,6 @@ async function sendMediaMessage(target, caption, mediaPath) {
   try {
     const url = `${API_URL}/message/sendMedia/${INSTANCE_NAME}`;
     
-    // Se for um grupo (@g.us), não formata o destino
-    const isGroup = typeof target === 'string' && target.includes('@g.us');
-    const dest = isGroup ? target : formatPhone(target);
-
     // Se for um caminho de arquivo local, converte para Base64
     let mediaData = mediaPath;
     if (fs.existsSync(mediaPath)) {
@@ -176,6 +177,10 @@ async function sendMediaMessage(target, caption, mediaPath) {
       const extension = path.extname(mediaPath).replace('.', '');
       mediaData = `data:image/${extension};base64,${fileBuffer.toString('base64')}`;
     }
+
+    // Se for um grupo (@g.us), não formata o destino
+    const isGroup = typeof target === 'string' && target.includes('@g.us');
+    const dest = isGroup ? target : formatPhone(target);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -185,10 +190,15 @@ async function sendMediaMessage(target, caption, mediaPath) {
       },
       body: JSON.stringify({
         number: dest,
-        mediatype: "image",
-        caption: caption || "",
-        media: mediaData,
-        delay: 1500
+        mediaMessage: {
+          mediatype: "image",
+          caption: caption || "",
+          media: mediaData
+        },
+        options: {
+          delay: 1500,
+          presence: "composing"
+        }
       })
     });
 
