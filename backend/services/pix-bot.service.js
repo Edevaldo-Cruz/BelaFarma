@@ -125,14 +125,15 @@ class PixBotService {
   }
 
   /**
-   * Registra a confirmação do PIX e cria uma notificação/tarefa
+   * Registra a confirmação do PIX, cria uma tarefa e faz o lançamento financeiro
    */
   async confirmPix(pixData, phone, messageId) {
     const now = new Date().toISOString();
+    const today = now.split('T')[0];
     const id = `pix_${Date.now()}`;
 
     try {
-      // 1. Salvar no banco
+      // 1. Salvar no histórico de confirmações PIX
       this.db.prepare(`
         INSERT INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -149,7 +150,10 @@ class PixBotService {
 
       console.log(`[PixBot] ✅ PIX de R$ ${pixData.value} (${pixData.senderName}) confirmado com sucesso!`);
 
-      // 2. Criar uma tarefa no sistema para os vendedores verem
+      // 2. Lançamento automático no PIX Direto (Financeiro)
+      this.recordPixDirect(pixData.value, pixData.senderName, today);
+
+      // 3. Criar uma tarefa no sistema para os vendedores verem
       const taskId = `task_pix_${Date.now()}`;
       this.db.prepare(`
         INSERT INTO tasks (
@@ -158,21 +162,68 @@ class PixBotService {
       `).run(
         taskId,
         `💰 PIX Recebido: R$ ${pixData.value}`,
-        `Comprovante enviado por ${phone}.\nPagador: ${pixData.senderName}\nData: ${pixData.date}\nRef: ${messageId}`,
+        `Lançamento automático realizado no PIX Direto.\nPagador: ${pixData.senderName}\nData no comprovante: ${pixData.date}\nWhatsApp: ${phone}`,
         'all_users',
         'Robô de PIX',
         'Alta',
-        'Concluído', // Já marca como concluído pois é apenas informativo
+        'Concluído',
         now,
         now,
         '#22c55e' // Verde PIX
       );
 
-      // 3. (Opcional) Enviar confirmação via WhatsApp para o cliente
-      // require('./message-sender.service').sendMessage(phone, `✅ *Comprovante Recebido!* \n\nOlá! Identificamos seu PIX de *R$ ${pixData.value}*. Obrigado pela preferência! 💊🚀`);
-
     } catch (err) {
       console.error('[PixBot] Erro ao salvar confirmação:', err.message);
+    }
+  }
+
+  /**
+   * Realiza o lançamento financeiro na tabela daily_records
+   */
+  recordPixDirect(value, senderName, date) {
+    try {
+      // Buscar registro do dia
+      let record = this.db.prepare('SELECT * FROM daily_records WHERE date = ?').get(date);
+      
+      const newEntry = {
+        client: senderName || 'Cliente WhatsApp',
+        value: parseFloat(value)
+      };
+
+      if (!record) {
+        // Criar novo registro para hoje se não existir
+        const id = `daily_${Date.now()}`;
+        this.db.prepare(`
+          INSERT INTO daily_records (id, date, expenses, nonRegistered, pixDiretoList, crediarioList, creditReceipts, sangrias, userName, lancado)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `).run(
+          id, 
+          date, 
+          JSON.stringify([]), 
+          JSON.stringify([]), 
+          JSON.stringify([newEntry]), 
+          JSON.stringify([]), 
+          JSON.stringify([]), 
+          JSON.stringify([]), 
+          'Robô de PIX'
+        );
+        console.log(`[PixBot] ✨ Novo registro diário criado para ${date} com PIX de R$ ${value}`);
+      } else {
+        // Atualizar lista existente
+        let pixList = [];
+        try {
+          pixList = JSON.parse(record.pixDiretoList || '[]');
+        } catch (e) { pixList = []; }
+        
+        pixList.push(newEntry);
+
+        this.db.prepare('UPDATE daily_records SET pixDiretoList = ? WHERE id = ?')
+          .run(JSON.stringify(pixList), record.id);
+        
+        console.log(`[PixBot] 📈 PIX de R$ ${value} adicionado ao registro diário de ${date}`);
+      }
+    } catch (err) {
+      console.error('[PixBot] Erro ao realizar lançamento financeiro:', err.message);
     }
   }
 }
