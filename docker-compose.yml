@@ -18,6 +18,8 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-openai}
       - GPT_MODEL=${GPT_MODEL:-gpt-4o-mini}
       - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
+      - EVOLUTION_INSTANCE_NAME=BelaFarma2
+      - EVOLUTION_API_KEY=BelafarmaSul2026
     volumes:
       # Monta diretório de dados (não apenas o arquivo)
       # Isso garante que o SQLite possa criar arquivos -wal e -shm
