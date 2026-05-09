@@ -11,7 +11,7 @@ class PixBotService {
     this.db = db;
     this.evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://evolution-api:8080';
     this.evolutionApiKey = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
-    this.instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
+    this.instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'BelaFarma2';
   }
 
   /**
