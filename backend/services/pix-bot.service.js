@@ -1,4 +1,5 @@
 const { callAI } = require('./ai.service');
+const { notifyAdmin } = require('./whatsapp.service');
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
@@ -21,69 +22,99 @@ class PixBotService {
     const event = payload.event;
     const data = payload.data;
 
-    if (event !== 'messages.upsert' || !data || data.key.fromMe) return;
+    console.log(`[PixBot] 📥 Webhook recebido - Evento: "${event}", fromMe: ${data?.key?.fromMe}, temImagem: ${!!(data?.message?.imageMessage)}`);
+    console.log(`[PixBot] 🔍 Chaves do payload:`, Object.keys(payload));
+    console.log(`[PixBot] 🔍 Chaves do data:`, data ? Object.keys(data) : 'null');
+    console.log(`[PixBot] 🔍 Chaves do message:`, data?.message ? Object.keys(data.message) : 'null');
+    console.log(`[PixBot] 🔍 messageType:`, data?.messageType || 'N/A');
+
+    if (!event || event.toLowerCase() !== 'messages.upsert' || !data || data.key.fromMe) return;
 
     const message = data.message;
     const remoteJid = data.key.remoteJid;
     const phone = remoteJid.split('@')[0];
+    const messageType = data.messageType || '';
 
-    // Verifica se é uma imagem
-    const isImage = !!(message?.imageMessage || message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage);
+    // Verifica se é uma imagem (vários formatos possíveis do WhatsApp)
+    const isImage = !!(
+      message?.imageMessage || 
+      messageType === 'imageMessage' ||
+      messageType === 'documentWithCaptionMessage' ||
+      messageType === 'documentMessage' ||
+      message?.documentWithCaptionMessage ||
+      message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage
+    );
     
     if (isImage) {
-      console.log(`[PixBot] 📸 Foto recebida de ${phone}. Analisando se é um PIX...`);
-      return this.handleImageMessage(data, phone);
+      console.log(`[PixBot] 📸 Foto recebida de ${phone} via ${payload.instance} (tipo: ${messageType}). Analisando se é um PIX...`);
+      return this.handleImageMessage(data, phone, payload.instance);
     }
   }
 
   /**
    * Baixa a imagem e envia para análise da IA
    */
-  async handleImageMessage(messageData, phone) {
+  async handleImageMessage(messageData, phone, instanceName) {
     try {
-      const messageId = messageData.key.id;
+      const messageKey = messageData.key;
       
-      // 1. Obter o Base64 da imagem via Evolution API
-      const base64 = await this.getBase64FromEvolution(messageId);
-      if (!base64) {
+      // 1. Obter o Base64 e o formato da mídia via Evolution API usando a instância dinâmica
+      const media = await this.getBase64FromEvolution(messageKey, messageData.message, instanceName);
+      if (!media || !media.base64) {
         console.error('[PixBot] ❌ Não foi possível obter o base64 da imagem.');
         return;
       }
 
-      // 2. Chamar a IA para analisar o comprovante
+      const todayDateStr = new Date().toLocaleDateString('pt-BR');
       const prompt = `
-        Analise esta imagem e verifique se é um comprovante de transferência PIX.
-        Critérios obrigatórios:
-        1. O destino deve ser "Bela Farma" ou "Bela Farma Ltda" ou algo muito similar que indique a farmácia.
-        2. Deve ser um comprovante de ENVIO/TRANSFERÊNCIA concluída, não apenas um agendamento.
+        Você é um Auditor Financeiro Antifraude rigoroso da farmácia "Bela Farma Sul Ltda".
+        Analise esta imagem e verifique se é um comprovante PIX 100% VÁLIDO E SEGURO.
+        
+        CRITÉRIOS DE SEGURANÇA OBRIGATÓRIOS (Recuse se algum falhar):
+        1. DESTINATÁRIO: O recebedor deve ser "Bela Farma Sul Ltda", "Bela Farma", ou um padrão mascarado/oculto que seja claramente a farmácia (ex: B*** F*** S*** Ltda, ***ela Farma***, CNPJ terminando em dígitos conhecidos se houver). RECUSE se o recebedor final for uma pessoa física (CPF) ou nome de outra empresa.
+        2. STATUS CONCLUÍDO: A transferência DEVE ser efetivada (Sucesso, Realizada, Concluída). RECUSE IMEDIATAMENTE se houver as palavras "Agendamento", "Aguardando", "Em processamento" ou "Agendado para".
+        3. DATA E HORA: A data da transação do comprovante NÃO PODE SER ANTIGA. Hoje é: ${todayDateStr}. Valide rigidamente se o comprovante é de HOJE.
+        4. INTEGRIDADE VISUAL: Busque ativamente por indícios de "comprovante falso" (fontes de texto misturadas, linhas tortas, valor em fonte diferente do resto, cor de fundo alterada).
 
-        Responda EXATAMENTE no formato JSON abaixo:
+        Responda EXATAMENTE no formato JSON abaixo (sem \`\`\`json ou texto extra):
         {
           "isPix": boolean,
           "isBelaFarma": boolean,
-          "value": number,
+          "isValidStatus": boolean,
+          "isTodayDate": boolean,
+          "value": number (use ponto para decimais),
           "senderName": string,
-          "date": string (ISO ou formato legível),
+          "date": string (data extraída da imagem),
           "confidence": number (0 a 1),
-          "reason": "breve explicação do motivo de ser ou não um PIX válido"
+          "reason": "Se aprovado, escreva APENAS 'OK'. Se recusado, explique o motivo em NO MÁXIMO 10 palavras."
         }
       `;
 
-      const aiResponse = await callAI(prompt, "Você é um assistente financeiro especializado em validar comprovantes bancários para a farmácia Bela Farma.", {
-        imageData: base64,
-        temperature: 0.1 // Baixa temperatura para ser mais preciso
+      const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
+        imageData: media.base64,
+        mimeType: media.mimeType,
+        temperature: 0.0 // 0.0 para ser estritamente analítico e sem alucinações
       });
 
       // Limpar resposta da IA (remover markdown de JSON se houver)
       const cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanJson);
 
-      console.log(`[PixBot] 🤖 Resultado da IA para ${phone}:`, result);
+      console.log(`[PixBot] 🤖 Auditoria IA para ${phone}:`, result);
 
-      if (result.isPix && result.isBelaFarma && result.confidence > 0.8) {
-        await this.confirmPix(result, phone, messageId);
-      } else if (result.isPix && !result.isBelaFarma) {
-        console.log(`[PixBot] ⚠️ PIX detectado, mas destino NÃO é Bela Farma: ${result.reason}`);
+      const aprovado = result.isPix && 
+                       result.isBelaFarma && 
+                       result.isValidStatus && 
+                       result.isTodayDate && 
+                       result.confidence > 0.85;
+
+      if (aprovado) {
+        await this.confirmPix(result, phone, messageKey.id);
+      } else {
+        console.log(`[PixBot] 🚫 PIX RECUSADO PELA SEGURANÇA: ${result.reason}`);
+        
+        // Registrar a recusa como uma tarefa para que os caixas fiquem cientes da tentativa suspeita
+        await this.logRejectedPix(result, phone);
       }
 
     } catch (err) {
@@ -92,11 +123,54 @@ class PixBotService {
   }
 
   /**
+   * Cria uma tarefa de alerta quando um PIX for recusado por fraude ou inconsistência
+   */
+  async logRejectedPix(result, phone) {
+    const now = new Date().toISOString();
+    const id = `fraud_${Date.now()}`;
+    
+    try {
+      this.db.prepare(`
+        INSERT INTO tasks (
+          id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        `⚠️ ALERTA DE FRAUDE: PIX Recusado`,
+        `Motivo: ${result.reason}\nRemetente: ${result.senderName || 'Desconhecido'}\nValor: R$ ${result.value || 0}\nData na imagem: ${result.date || 'Desconhecida'}\nWhatsApp: ${phone}`,
+        'all_users',
+        'Segurança PixBot',
+        'Alta',
+        'A Fazer',
+        now,
+        now,
+        '#ef4444' // Vermelho para indicar alerta de fraude
+      );
+      console.log(`[PixBot] 🚨 Alerta de fraude registrado nas tarefas.`);
+
+      // Notifica os administradores via WhatsApp
+      const alertMessage = `🚨 *ALERTA DE FRAUDE NO PIX* 🚨\n\n` +
+                           `Uma tentativa de pagamento suspeita foi bloqueada pelo robô:\n\n` +
+                           `📱 *WhatsApp Origem:* ${phone}\n` +
+                           `👤 *Remetente do Pix:* ${result.senderName || 'Desconhecido'}\n` +
+                           `💰 *Valor Tentado:* R$ ${Number(result.value || 0).toFixed(2)}\n\n` +
+                           `🛑 *MOTIVO DO BLOQUEIO:*\n${result.reason}\n\n` +
+                           `_Verifique o painel de tarefas do sistema._`;
+      
+      notifyAdmin(alertMessage).catch(err => console.error('[PixBot] Falha ao notificar admins:', err));
+
+    } catch (err) {
+      console.error('[PixBot] Erro ao registrar alerta de fraude:', err.message);
+    }
+  }
+
+  /**
    * Obtém a mídia em base64 da Evolution API
    */
-  async getBase64FromEvolution(messageId) {
+  async getBase64FromEvolution(messageKey, message, instanceName) {
     try {
-      const url = `${this.evolutionApiUrl}/message/getBase64FromMediaMessage/${this.instanceName}`;
+      const targetInstance = instanceName || this.instanceName;
+      const url = `${this.evolutionApiUrl}/chat/getBase64FromMediaMessage/${targetInstance}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -104,8 +178,9 @@ class PixBotService {
           'apikey': this.evolutionApiKey
         },
         body: JSON.stringify({
-          messageKey: {
-            id: messageId
+          message: {
+            key: messageKey,
+            message: message
           },
           convertToMp4: false
         })
@@ -117,7 +192,10 @@ class PixBotService {
       }
 
       const data = await response.json();
-      return data.base64 || data.data?.base64;
+      return {
+        base64: data.base64 || data.data?.base64,
+        mimeType: data.mimetype || data.data?.mimetype || 'image/jpeg'
+      };
     } catch (err) {
       console.error('[PixBot] Erro ao baixar mídia:', err.message);
       return null;
@@ -186,8 +264,9 @@ class PixBotService {
       let record = this.db.prepare('SELECT * FROM daily_records WHERE date = ?').get(date);
       
       const newEntry = {
-        client: senderName || 'Cliente WhatsApp',
-        value: parseFloat(value)
+        id: Date.now().toString(),
+        desc: senderName || 'Cliente WhatsApp',
+        val: parseFloat(value)
       };
 
       if (!record) {

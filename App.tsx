@@ -192,9 +192,12 @@ const App: React.FC = () => {
   };
 
   const addOrder = async (order: Order) => {
+    const previousOrders = [...orders];
+    
     // Optimistic UI update
     const updated = [order, ...orders];
     setOrders(updated);
+    
     createLog(
       "Pedidos",
       "Criou Pedido",
@@ -211,26 +214,37 @@ const App: React.FC = () => {
         } else if (key === 'installments') {
           formData.append('installments', JSON.stringify(order.installments || []));
         } else {
-          formData.append(key, order[key]);
+          formData.append(key, (order as any)[key]);
         }
       });
 
-      await fetch('/api/orders', {
+      const response = await fetch('/api/orders', {
         method: "POST",
         body: formData,
       });
+
+      if (!response.ok) {
+        throw new Error(`Erro no servidor: ${response.statusText}`);
+      }
+      
+      addToast("✅ Pedido salvo com sucesso!", "success");
+      fetchData(); // Refresh to get the actual ID from server
     } catch (e) {
       console.error("Failed to add order:", e);
-      // TODO: Implement rollback logic
+      setOrders(previousOrders); // Rollback
+      addToast("❌ Erro ao salvar pedido. Tente novamente.", "error");
     }
   };
 
   const updateOrder = async (updatedOrder: Order) => {
+    const previousOrders = [...orders];
+    
     // Optimistic UI update
     const updatedList = orders.map((o) =>
       o.id === updatedOrder.id ? updatedOrder : o
     );
     setOrders(updatedList);
+    
     createLog(
       "Pedidos",
       "Atualizou Pedido",
@@ -247,17 +261,24 @@ const App: React.FC = () => {
         } else if (key === 'installments') {
           formData.append('installments', JSON.stringify(updatedOrder.installments || []));
         } else {
-          formData.append(key, updatedOrder[key]);
+          formData.append(key, (updatedOrder as any)[key]);
         }
       });
 
-      await fetch(`/api/orders/${updatedOrder.id}`, {
+      const response = await fetch(`/api/orders/${updatedOrder.id}`, {
         method: "PUT",
         body: formData,
       });
+
+      if (!response.ok) {
+        throw new Error(`Erro no servidor: ${response.statusText}`);
+      }
+
+      addToast("✅ Pedido atualizado com sucesso!", "success");
     } catch (e) {
       console.error("Failed to update order:", e);
-      // TODO: Implement rollback logic
+      setOrders(previousOrders); // Rollback
+      addToast("❌ Erro ao atualizar pedido. Tente novamente.", "error");
     }
   };
 

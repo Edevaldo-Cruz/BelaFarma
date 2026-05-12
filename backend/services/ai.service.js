@@ -52,7 +52,7 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
     } 
     
     if (provider === 'gemini') {
-      const model = 'gemini-2.0-flash';
+      const model = 'gemini-flash-latest';
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 
@@ -63,11 +63,22 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
       const parts = [{ text: fullPrompt }];
 
       if (imageData) {
-        // Remover prefixo data:image/xxx;base64, se houver para o Gemini
-        const base64Content = imageData.includes('base64,') ? imageData.split('base64,')[1] : imageData;
+        let mimeType = options.mimeType || 'image/jpeg';
+        let base64Content = imageData;
+
+        if (imageData.startsWith('data:')) {
+          const match = imageData.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            mimeType = match[1];
+            base64Content = match[2];
+          }
+        } else if (imageData.includes('base64,')) {
+          base64Content = imageData.split('base64,')[1];
+        }
+
         parts.push({
           inline_data: {
-            mime_type: 'image/jpeg',
+            mime_type: mimeType,
             data: base64Content
           }
         });

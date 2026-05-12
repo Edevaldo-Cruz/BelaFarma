@@ -608,54 +608,83 @@ app.post('/api/login', (req, res) => {
 // --- Orders CUD ---
 // CREATE Order
 app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
+  console.log('[ORDERS] Recebendo novo pedido:', req.body.id, 'de', req.body.distributor);
   try {
-    const order = req.body;
+    const order = { ...req.body };
     if (req.file) {
       order.boletoPath = req.file.path;
+      console.log('[ORDERS] Boleto anexado:', req.file.filename);
     }
+
+    // Conversão explícita para garantir integridade numérica no SQLite
+    const totalValue = parseFloat(order.totalValue);
+    if (isNaN(totalValue)) {
+      console.error('[ORDERS] Erro: valor total inválido:', order.totalValue);
+      return res.status(400).json({ error: 'Valor total inválido.' });
+    }
+
     const stmt = db.prepare(`
       INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, isFogueteAmarelo, boletoPath)
       VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
     `);
+    
     const result = stmt.run({
       ...order,
+      totalValue: totalValue,
       installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
-      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true) ? 1 : 0
+      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0
     });
-    res.status(201).json({ id: result.lastInsertRowid });
+
+    console.log('[ORDERS] Pedido salvo com sucesso. RowID:', result.lastInsertRowid);
+    res.status(201).json({ id: order.id, lastInsertRowid: result.lastInsertRowid });
   } catch (err) {
-    console.error('Error creating order:', err);
-    res.status(500).json({ error: 'Failed to create order.' });
+    console.error('[ORDERS] Erro ao criar pedido:', err);
+    res.status(500).json({ error: 'Failed to create order.', details: err.message });
   }
 });
 
 // UPDATE Order
 app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
+  const { id } = req.params;
+  console.log('[ORDERS] Atualizando pedido:', id);
   try {
-    const { id } = req.params;
-    const order = req.body;
+    const order = { ...req.body };
     if (req.file) {
       order.boletoPath = req.file.path;
+      console.log('[ORDERS] Novo boleto anexado:', req.file.filename);
     }
+
+    // Conversão explícita
+    const totalValue = parseFloat(order.totalValue);
+    if (isNaN(totalValue)) {
+      console.error('[ORDERS] Erro: valor total inválido na atualização:', order.totalValue);
+      return res.status(400).json({ error: 'Valor total inválido.' });
+    }
+
     const stmt = db.prepare(`
       UPDATE orders 
       SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, isFogueteAmarelo = @isFogueteAmarelo, boletoPath = @boletoPath
       WHERE id = @id
     `);
+
     const result = stmt.run({
       id,
       ...order,
+      totalValue: totalValue,
       installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
-      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true) ? 1 : 0
+      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0
     });
+
     if (result.changes > 0) {
+      console.log('[ORDERS] Pedido atualizado com sucesso:', id);
       res.status(200).json({ message: 'Order updated successfully.' });
     } else {
+      console.warn('[ORDERS] Pedido não encontrado para atualização:', id);
       res.status(404).json({ error: 'Order not found.' });
     }
   } catch (err) {
-    console.error('Error updating order:', err);
-    res.status(500).json({ error: 'Failed to update order.' });
+    console.error('[ORDERS] Erro ao atualizar pedido:', id, err);
+    res.status(500).json({ error: 'Failed to update order.', details: err.message });
   }
 });
 

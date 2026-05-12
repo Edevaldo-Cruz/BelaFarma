@@ -40,6 +40,15 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState<'closing' | 'history'>('history');
   const [currentStep, setCurrentStep] = useState<Step>('sales');
+
+  const withdrawalLimits: Record<string, number> = {
+    '100': 0,
+    '50': 2,
+    '20': 5,
+    '10': 10,
+    '5': 10,
+    '2': 15,
+  };
   
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isPrevDayModalOpen, setIsPrevDayModalOpen] = useState(false);
@@ -799,18 +808,33 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
                           <div className="flex items-center gap-3">
 
-                            <input 
-                              ref={i === 0 ? firstInputRef : null}
-                              type="number" min="0"
-                              className="w-20 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-slate-900 dark:text-slate-100 outline-none"
-                              value={currencyCount[denom.key] || ''}
-                              onChange={(e) => setCurrencyCount({...currencyCount, [denom.key]: parseInt(e.target.value) || 0})}
-                            />
+                            <div className="relative">
+                              <input 
+                                ref={i === 0 ? firstInputRef : null}
+                                type="number" min="0"
+                                className="w-20 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                value={currencyCount[denom.key] || ''}
+                                onChange={(e) => setCurrencyCount({...currencyCount, [denom.key]: parseInt(e.target.value) || 0})}
+                              />
+                              
+                              {(() => {
+                                const limit = withdrawalLimits[denom.key];
+                                const currentCount = currencyCount[denom.key] || 0;
+                                const toWithdraw = limit !== undefined ? Math.max(0, currentCount - limit) : 0;
+                                
+                                if (toWithdraw > 0) {
+                                  return (
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-red-100 dark:bg-red-900/60 text-red-600 dark:text-red-400 text-[8px] font-black px-1.5 py-0.5 rounded-md border border-red-200 dark:border-red-900/50 whitespace-nowrap animate-in fade-in slide-in-from-bottom-1 duration-300 shadow-sm z-10">
+                                      RETIRAR {toWithdraw}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
 
                             <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 w-24 text-right">
-
                               = R$ {( (currencyCount[denom.key] || 0) * denom.val ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-
                             </span>
 
                           </div>
@@ -1186,6 +1210,32 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                 <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
                   <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase">Dinheiro em Gaveta</p>
                   <p className="text-4xl font-black text-slate-900 dark:text-slate-100">{formatCurrency(totalInDrawer)}</p>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] p-6 text-left border-2 border-slate-100 dark:border-slate-800 shadow-inner">
+                  <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase mb-4 text-center tracking-widest">Resumo de Retirada (por notas)</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                    {denominations.map(denom => {
+                      const limit = withdrawalLimits[denom.key];
+                      const currentCount = currencyCount[denom.key] || 0;
+                      const toWithdraw = limit !== undefined ? Math.max(0, currentCount - limit) : 0;
+                      
+                      if (toWithdraw > 0) {
+                        return (
+                          <div key={denom.key} className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                            <span>{denom.label}</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-black">
+                              {toWithdraw}x
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                  {suggestedWithdrawal > 0 && (
+                    <p className="mt-4 text-[9px] font-black text-center text-emerald-600 dark:text-emerald-500 uppercase">Sugestão total: {formatCurrency(suggestedWithdrawal)}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2 text-left">
