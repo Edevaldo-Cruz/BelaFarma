@@ -824,7 +824,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                                 
                                 if (toWithdraw > 0) {
                                   return (
-                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-red-100 dark:bg-red-900/60 text-red-600 dark:text-red-400 text-[8px] font-black px-1.5 py-0.5 rounded-md border border-red-200 dark:border-red-900/50 whitespace-nowrap animate-in fade-in slide-in-from-bottom-1 duration-300 shadow-sm z-10">
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-red-100 dark:bg-red-900/60 text-red-600 dark:text-red-400 text-[8px] font-black px-1.5 py-0.5 rounded-md border border-red-200 dark:border-red-900/50 whitespace-nowrap animate-pulse shadow-sm z-10">
                                       RETIRAR {toWithdraw}
                                     </div>
                                   );

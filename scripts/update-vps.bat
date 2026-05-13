@@ -1,6 +1,6 @@
 @echo off
 set PROD_USER=ed
-set PROD_IP=192.168.1.10
+set PROD_IP=192.168.1.70
 set REMOTE_DIR=~/projects/BelaFarma
 
 echo ===============================================

@@ -3,7 +3,7 @@
 # Script para verificar status do agendamento e hora do servidor
 # Ajuda a garantir que os backups rodarão na hora certa
 
-SERVER="ed@192.168.1.10"
+SERVER="ed@192.168.1.70"
 
 # Cores
 GREEN='\033[0;32m'

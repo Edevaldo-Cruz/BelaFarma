@@ -27,7 +27,7 @@ Após o comando `docker-compose up -d --build` rodar, a Evolution API estará ro
 
 ### Acessar a interface de gerência (Manager)
 1. Abra o navegador e digite o IP da sua VPS na porta 8080, seguido de `/manager`
-   - Exemplo: `http://192.168.1.100:8080/manager` ou `http://IP_DA_VPS:8080/manager`
+   - Exemplo: `http://192.168.1.700:8080/manager` ou `http://IP_DA_VPS:8080/manager`
 2. Escolha **Português**.
 3. Em "Autenticação", escolha **Global API Key**.
 4. Coloque a senha que configuramos: `BelafarmaSul2026`
