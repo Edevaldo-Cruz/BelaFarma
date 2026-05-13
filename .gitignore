@@ -21,6 +21,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment & Configs
 .env
 auth.json
 auth_check.json
@@ -32,22 +34,21 @@ device.json
 agents_cfg.json
 models_agent.json
 *.txt
-*.log
-nul
-.env
 
 # Database
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
 *.sqlite
 *.sqlite3
 
 # Backups
 backups/
 *.backup*
-nul
-.env
 
-# Mensagens WhatsApp (geradas em tempo de execução)
+# App Data & Temporary Files
 mensagens/
+uploads/
+whatsapp-session-rpa/
+rpa-debug.log
