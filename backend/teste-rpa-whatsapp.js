@@ -5,8 +5,8 @@ async function testarRPA() {
   // ==============================================================
   // ⚙️ CONFIGURAÇÃO - MUDE AQUI ANTES DE RODAR
   // ==============================================================
-  const grupoNome = 'NOME_DO_SEU_GRUPO'; // <-- Exato nome do grupo
-  const imagemPath = 'C:\\Users\\Edevaldo\\Downloads\\WhatsApp Image 2026-05-12 at 12.18.56.jpg'; // <-- Caminho da imagem
+  const grupoNome = 'Marketing'; // <-- Exato nome do grupo
+  const imagemPath = 'C:\\Users\\Edevaldo\\Downloads\\WhatsApp Image 2026-05-12 at 12.18.56.jpeg'; // <-- Caminho da imagem
   const mensagem = '🚀 Olá! Este é um teste do Robô RPA da BelaFarma enviando imagem sozinho!';
   // ==============================================================
 
@@ -33,70 +33,84 @@ async function testarRPA() {
   console.log('🌐 Abrindo WhatsApp Web...');
   await page.goto('https://web.whatsapp.com');
 
-  console.log('⏳ Aguardando login... (Na primeira vez, escaneie o QR Code na tela)');
+  // Esperar o WhatsApp carregar visualmente (15 segundos garantidos)
+  console.log('⏳ Aguardando 15 segundos para o WhatsApp carregar completamente...');
+  await new Promise(r => setTimeout(r, 15000));
   
-  // Esperar até a barra de pesquisa carregar
-  await page.waitForSelector('#side div[contenteditable="true"]', { timeout: 120000 });
-  console.log('✅ Login confirmado!');
+  console.log('✅ Interface assumida como carregada!');
 
-  // --- BUSCA DO GRUPO ---
-  console.log(`🔍 Pesquisando pelo grupo: "${grupoNome}"...`);
-  await page.click('#side div[contenteditable="true"]');
+  // --- BUSCA DO GRUPO (ESTRATÉGIA HUMANA) ---
+  console.log(`🔍 Focando na pesquisa com atalho de teclado (Ctrl + Alt + /)...`);
   
-  // Limpar campo de busca
+  // Atalho universal do WhatsApp Web para focar na busca
   await page.keyboard.down('Control');
-  await page.keyboard.press('A');
+  await page.keyboard.down('Alt');
+  await page.keyboard.press('/');
+  await page.keyboard.up('Alt');
   await page.keyboard.up('Control');
-  await page.keyboard.press('Backspace');
-
-  // Digita devagar parecendo humano
-  await page.keyboard.type(grupoNome, { delay: 100 });
-  
-  // Esperar o grupo aparecer nos resultados
-  await new Promise(r => setTimeout(r, 2000));
-  
-  console.log('👆 Clicando no grupo...');
-  const grupoSelector = `span[title="${grupoNome}"]`;
-  await page.waitForSelector(grupoSelector, { timeout: 10000 });
-  await page.click(grupoSelector);
-
-  // --- ENVIO DA IMAGEM ---
-  console.log('📎 Clicando no botão de Anexar (+)...');
-  await new Promise(r => setTimeout(r, 2000));
-  
-  // Abre o menu de anexos (Layout novo é o 'plus', o antigo era 'clip')
-  try {
-    await page.waitForSelector('span[data-icon="plus"]', { timeout: 3000 });
-    await page.click('span[data-icon="plus"]');
-  } catch (e) {
-    await page.waitForSelector('span[data-icon="clip"]', { timeout: 3000 });
-    await page.click('span[data-icon="clip"]');
-  }
   
   await new Promise(r => setTimeout(r, 1000));
 
-  console.log('🖼️ Fazendo upload da imagem direto no input invisível...');
-  // O WhatsApp usa um input invisível para Fotos e Vídeos
-  const uploadInputSelector = 'input[accept="image/*,video/mp4,video/3gpp,video/quicktime"]';
-  await page.waitForSelector(uploadInputSelector);
+  console.log(`⌨️ Digitando o nome do grupo: "${grupoNome}"...`);
+  // Digita devagar parecendo humano
+  await page.keyboard.type(grupoNome, { delay: 150 });
   
-  const fileInput = await page.$(uploadInputSelector);
-  await fileInput.uploadFile(imagemPath);
-
-  // Aguardar a tela de pré-visualização carregar
-  console.log('✍️ Escrevendo a legenda...');
+  // Esperar a busca filtrar
+  console.log('⏳ Aguardando resultados...');
   await new Promise(r => setTimeout(r, 3000));
   
-  // Clica no campo de adicionar legenda
-  try {
-    // Tenta pelo texto comum no Brasil
-    await page.waitForSelector('div[aria-placeholder="Adicione uma legenda"]', { timeout: 5000 });
-    await page.click('div[aria-placeholder="Adicione uma legenda"]');
-  } catch(e) {
-    console.log('⚠️ Aviso: Focando usando tabulação...');
-  }
+  console.log('👆 Procurando o chat exato na lista e clicando...');
   
-  // Digita a legenda da foto
+  // Calcula a posição (X, Y) exata do elemento na tela
+  const chatRect = await page.evaluate((nome) => {
+    const spans = Array.from(document.querySelectorAll('span'));
+    const chat = spans.find(s => s.title === nome || s.innerText === nome);
+    if (chat) {
+      const rect = chat.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }
+    return null;
+  }, grupoNome);
+
+  if (chatRect) {
+    // FIM DA BRINCADEIRA: O robô move o mouse invisível e clica exatamente na palavra
+    await page.mouse.click(chatRect.x, chatRect.y);
+    console.log('✅ Clique físico realizado com sucesso!');
+  } else {
+    console.log('⚠️ Aviso: Grupo não visível. Tentando atalho...');
+    await page.keyboard.press('ArrowDown');
+    await new Promise(r => setTimeout(r, 500));
+    await page.keyboard.press('Enter');
+  }
+
+  // Esperar a tela do chat abrir
+  await new Promise(r => setTimeout(r, 2000));
+
+  // --- ENVIO DA IMAGEM (ESTRATÉGIA CTRL+C / CTRL+V) ---
+  console.log('📎 Copiando a imagem para a Área de Transferência do Windows...');
+  
+  try {
+    const psCommand = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('${imagemPath}'))"`;
+    require('child_process').execSync(psCommand);
+    console.log('✅ Imagem copiada para a memória!');
+  } catch (err) {
+    console.error('❌ Erro ao copiar imagem pro Windows:', err.message);
+  }
+
+  // Espera 1 segundinho pra garantir que a memória assimilou
+  await new Promise(r => setTimeout(r, 1000));
+
+  console.log('📋 Colando (Ctrl+V) no WhatsApp...');
+  await page.keyboard.down('Control');
+  await page.keyboard.press('V');
+  await page.keyboard.up('Control');
+
+  // Aguardar a tela de pré-visualização carregar
+  console.log('⏳ Esperando a janela de pré-visualização da foto abrir...');
+  await new Promise(r => setTimeout(r, 4000)); 
+
+  console.log('✍️ Escrevendo a legenda...');
+  // O WhatsApp foca automaticamente no campo de legenda da foto colada
   await page.keyboard.type(mensagem, { delay: 50 });
 
   console.log('🚀 Apertando Enter para enviar!');

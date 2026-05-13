@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, AlertCircle, RefreshCw,
   ChevronDown, ChevronUp, Loader2, Search,
   ToggleLeft, ToggleRight, Zap, Users, Cake, CreditCard,
-  BarChart3
+  BarChart3, ArrowLeft, Calendar, ChevronLeft, ChevronRight, ImageIcon
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { MessageTemplate, MessageLog, MessageCampaign, MessageSchedule, Customer } from '../types';
@@ -1061,17 +1061,23 @@ const StatsTab: React.FC = () => {
 };
 
 // ============================================================================
-// WHATSAPP GROUPS TAB
+// WHATSAPP GROUPS TAB (CALENDAR VIEW)
 // ============================================================================
 const WhatsAppGroupsTab: React.FC = () => {
   const [groups, setGroups] = useState<any[]>([]);
   const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  
+  // Calendar States
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  
+  // Form States
+  const [showCreate, setShowCreate] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [content, setContent] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('10:00');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const { addToast } = useToast();
 
@@ -1084,7 +1090,7 @@ const WhatsAppGroupsTab: React.FC = () => {
       setGroups(await groupsRes.json());
       setScheduledPosts(await postsRes.json());
     } catch (err) {
-      addToast('Erro ao carregar dados dos grupos.', 'error');
+      addToast('Erro ao carregar dados.', 'error');
     } finally {
       setLoading(false);
     }
@@ -1092,9 +1098,44 @@ const WhatsAppGroupsTab: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Calendar Logic
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return { firstDay, daysInMonth, year, month };
+  };
+
+  const { firstDay, daysInMonth, year, month } = getDaysInMonth(currentMonth);
+  
+  const days = Array.from({ length: 42 }, (_, i) => {
+    const dayNumber = i - firstDay + 1;
+    const isCurrentMonth = dayNumber > 0 && dayNumber <= daysInMonth;
+    return isCurrentMonth ? new Date(year, month, dayNumber) : null;
+  });
+
+  const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1));
+  const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1));
+  const today = new Date();
+
+  const getPostsForDate = (date: Date) => {
+    return scheduledPosts.filter(post => {
+      const postDate = new Date(post.scheduledAt);
+      return postDate.getDate() === date.getDate() &&
+             postDate.getMonth() === date.getMonth() &&
+             postDate.getFullYear() === date.getFullYear();
+    }).sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  };
+
+  const handleDayClick = (date: Date) => {
+    setSelectedDate(date);
+    setShowCreate(false); // Reset form when changing days
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedGroup || !content || !scheduledAt) {
+    if (!selectedGroup || !content || !selectedDate || !scheduledTime) {
       addToast('Preencha todos os campos obrigatórios.', 'warning');
       return;
     }
@@ -1102,11 +1143,17 @@ const WhatsAppGroupsTab: React.FC = () => {
     setSubmitting(true);
     try {
       const formData = new FormData();
-      const group = groups.find(g => g.id === selectedGroup);
-      formData.append('groupId', selectedGroup);
-      formData.append('groupName', group?.subject || selectedGroup);
+      const [hours, minutes] = scheduledTime.split(':');
+      const finalDate = new Date(selectedDate);
+      finalDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+      // We allow typing custom group names or selecting existing ones
+      const groupObj = groups.find(g => g.id === selectedGroup || g.subject === selectedGroup);
+      
+      formData.append('groupId', groupObj ? groupObj.id : selectedGroup); // Se não achou ID, passa o nome como ID (o backend lida com fallback)
+      formData.append('groupName', groupObj ? groupObj.subject : selectedGroup);
       formData.append('content', content);
-      formData.append('scheduledAt', new Date(scheduledAt).toISOString());
+      formData.append('scheduledAt', finalDate.toISOString());
       if (mediaFile) {
         formData.append('media', mediaFile);
       }
@@ -1120,7 +1167,6 @@ const WhatsAppGroupsTab: React.FC = () => {
         addToast('Agendamento criado com sucesso!', 'success');
         setShowCreate(false);
         setContent('');
-        setScheduledAt('');
         setMediaFile(null);
         fetchData();
       } else {
@@ -1149,156 +1195,306 @@ const WhatsAppGroupsTab: React.FC = () => {
 
   if (loading) return <LoadingState />;
 
+  // Se um dia foi selecionado, mostra a "Visão do Dia"
+  if (selectedDate) {
+    const dayPosts = getPostsForDate(selectedDate);
+    const dateTitle = selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="flex items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSelectedDate(null)}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors text-slate-500"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 capitalize">{dateTitle}</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{dayPosts.length} agendamento(s) para este dia</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black transition-all shadow-md ${
+              showCreate 
+                ? 'bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200' 
+                : 'bg-green-600 text-white hover:bg-green-700 shadow-green-500/20'
+            }`}
+          >
+            {showCreate ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {showCreate ? 'Cancelar' : 'Nova Postagem'}
+          </button>
+        </div>
+
+        {showCreate && (
+          <form onSubmit={handleSubmit} className="bg-gradient-to-br from-white to-green-50/30 dark:from-slate-800 dark:to-slate-800 border border-green-100 dark:border-slate-700 rounded-3xl p-6 shadow-xl space-y-5 animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-green-600 dark:text-green-400" />
+              </div>
+              <h4 className="text-base font-black text-slate-800 dark:text-slate-200">Criar Novo Agendamento</h4>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp (Nome Exato)</label>
+                <input
+                  type="text"
+                  list="whatsapp-groups"
+                  value={selectedGroup}
+                  onChange={e => setSelectedGroup(e.target.value)}
+                  placeholder="Ex: Marketing"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
+                />
+                <datalist id="whatsapp-groups">
+                  {groups.map(g => (
+                    <option key={g.id} value={g.subject} />
+                  ))}
+                </datalist>
+                <p className="text-[10px] text-green-600 font-bold ml-1">O robô pesquisará pelo nome que você digitar.</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Horário do Disparo</label>
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={e => setScheduledTime(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Legenda / Texto da Mensagem</label>
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                rows={3}
+                placeholder="Escreva a mensagem incrível que vai engajar seus clientes..."
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none shadow-sm"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Imagem (Opcional)</label>
+              <div className="flex items-center gap-4 p-4 bg-white dark:bg-slate-900 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-green-400 transition-colors">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => setMediaFile(e.target.files?.[0] || null)}
+                  className="text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-green-50 file:text-green-700 hover:file:bg-green-100 cursor-pointer transition-colors"
+                />
+                {mediaFile && (
+                  <span className="text-xs font-bold text-green-600 bg-green-50 px-3 py-1 rounded-full">
+                    ✓ {mediaFile.name} pronto
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full py-3.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-sm shadow-xl shadow-green-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+            >
+              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              Agendar Postagem para as {scheduledTime}
+            </button>
+          </form>
+        )}
+
+        <div className="grid grid-cols-1 gap-4">
+          {dayPosts.length === 0 && !showCreate ? (
+            <div className="text-center py-16 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+              <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                <Clock className="w-8 h-8 text-slate-300" />
+              </div>
+              <p className="text-slate-500 font-bold">Nenhuma postagem agendada para este dia.</p>
+              <button 
+                onClick={() => setShowCreate(true)}
+                className="mt-4 px-4 py-2 text-sm font-bold text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-xl transition-colors"
+              >
+                + Criar primeira postagem do dia
+              </button>
+            </div>
+          ) : (
+            dayPosts.map(post => {
+              const postTime = new Date(post.scheduledAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              const isError = post.status === 'Erro';
+              const isSent = post.status === 'Enviado';
+              const isPending = post.status === 'Pendente';
+
+              return (
+                <div key={post.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row gap-4 relative overflow-hidden group">
+                  {/* Decorative side bar */}
+                  <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+                    isSent ? 'bg-green-500' : isError ? 'bg-red-500' : 'bg-amber-400'
+                  }`} />
+                  
+                  <div className="flex-1 space-y-3 pl-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-black uppercase tracking-wider">
+                        <Users className="w-3.5 h-3.5" /> {post.groupName || post.groupId || 'Grupo'}
+                      </span>
+                      <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 ${
+                        isSent ? 'bg-green-50 text-green-600' : 
+                        isError ? 'bg-red-50 text-red-600' : 
+                        'bg-amber-50 text-amber-600'
+                      }`}>
+                        {isSent && <CheckCircle className="w-3 h-3" />}
+                        {isError && <XCircle className="w-3 h-3" />}
+                        {isPending && <Clock className="w-3 h-3" />}
+                        {post.status}
+                      </span>
+                      <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        {postTime}
+                      </span>
+                    </div>
+                    
+                    <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                      {post.content}
+                    </p>
+                    
+                    {post.mediaPath && (
+                      <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-black uppercase tracking-widest">
+                        <ImageIcon className="w-3.5 h-3.5" /> Contém imagem
+                      </div>
+                    )}
+                    
+                    {post.errorMessage && (
+                      <p className="text-xs text-red-600 font-bold bg-red-50 p-2.5 rounded-xl border border-red-100 flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        {post.errorMessage}
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div className="flex md:flex-col justify-end gap-2 items-center md:items-end">
+                    {isPending && (
+                      <button
+                        onClick={() => handleDelete(post.id)}
+                        className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+                        title="Excluir agendamento"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Visualização de Calendário
+  const monthName = currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <Users className="w-5 h-5 text-green-600" />
-            Agendamento em Grupos
-          </h3>
-          <button
-            onClick={() => { setLoading(true); fetchData(); }}
-            className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-all"
-            title="Atualizar lista de grupos"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <Calendar className="w-6 h-6 text-green-600" />
+          Calendário de Disparos
+        </h3>
+        
+        <div className="flex items-center bg-white dark:bg-slate-800 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-700">
+          <button onClick={prevMonth} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-600">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="px-4 text-sm font-black text-slate-700 dark:text-slate-200 capitalize min-w-[150px] text-center">
+            {monthName}
+          </span>
+          <button onClick={nextMonth} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-600">
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-all shadow-md"
-        >
-          {showCreate ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          {showCreate ? 'Cancelar' : 'Novo Agendamento'}
-        </button>
       </div>
 
-      {groups.length === 0 && !loading && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600" />
-          <p className="text-sm text-amber-700 font-medium">
-            Nenhum grupo encontrado. Verifique se o WhatsApp está conectado no painel da API.
-          </p>
+      <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        {/* Cabeçalho dos Dias */}
+        <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+          {weekDays.map(day => (
+            <div key={day} className="py-3 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              {day}
+            </div>
+          ))}
         </div>
-      )}
 
-      {showCreate && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-xl space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp</label>
-              <select
-                value={selectedGroup}
-                onChange={e => setSelectedGroup(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500"
+        {/* Grid de Dias */}
+        <div className="grid grid-cols-7">
+          {days.map((date, i) => {
+            if (!date) {
+              return <div key={`empty-${i}`} className="min-h-[120px] bg-slate-50/50 dark:bg-slate-900/20 border-r border-b border-slate-100 dark:border-slate-800/50" />;
+            }
+
+            const dayPosts = getPostsForDate(date);
+            const isToday = date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
+            
+            return (
+              <div
+                key={date.toISOString()}
+                onClick={() => handleDayClick(date)}
+                className={`min-h-[120px] border-r border-b border-slate-100 dark:border-slate-800/50 p-2 cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-slate-700/30 group relative ${
+                  isToday ? 'bg-green-50/30 dark:bg-green-900/10' : ''
+                }`}
               >
-                <option value="">Selecione um grupo...</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.subject} ({g.size} membros)</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Data e Hora do Envio</label>
-              <input
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={e => setScheduledAt(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Mensagem</label>
-            <textarea
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              rows={4}
-              placeholder="Digite o texto da publicação..."
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Imagem (Opcional)</label>
-            <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={e => setMediaFile(e.target.files?.[0] || null)}
-                className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-              />
-              {mediaFile && (
-                <span className="text-xs font-bold text-green-600">✓ {mediaFile.name}</span>
-              )}
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-sm shadow-lg shadow-green-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            Confirmar Agendamento
-          </button>
-        </form>
-      )}
-
-      <div className="grid grid-cols-1 gap-4">
-        {scheduledPosts.length === 0 ? (
-          <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-            <Clock className="w-12 h-12 text-slate-300 mx-auto mb-2" />
-            <p className="text-slate-500 font-medium">Nenhum agendamento pendente.</p>
-          </div>
-        ) : (
-          scheduledPosts.map(post => (
-            <div key={post.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row gap-4">
-              <div className="flex-1 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2.5 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-xs font-black uppercase tracking-wider">
-                    👥 {post.groupName || 'Grupo'}
-                  </span>
-                  <span className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${
-                    post.status === 'Enviado' ? 'bg-blue-50 text-blue-600' : 
-                    post.status === 'Erro' ? 'bg-red-50 text-red-600' : 
-                    'bg-amber-50 text-amber-600'
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-black ${
+                    isToday 
+                      ? 'bg-green-600 text-white shadow-md shadow-green-500/30' 
+                      : 'text-slate-600 dark:text-slate-400 group-hover:text-green-600'
                   }`}>
-                    {post.status}
+                    {date.getDate()}
                   </span>
-                  <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    {new Date(post.scheduledAt).toLocaleString('pt-BR')}
-                  </span>
+                  {dayPosts.length > 0 && (
+                    <span className="text-[9px] font-black text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
+                      {dayPosts.length}
+                    </span>
+                  )}
                 </div>
-                <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-3">{post.content}</p>
-                {post.mediaPath && (
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-blue-500 uppercase tracking-widest">
-                    🖼️ Contém imagem anexada
+
+                <div className="space-y-1.5">
+                  {dayPosts.slice(0, 3).map(post => {
+                    const isSent = post.status === 'Enviado';
+                    const isError = post.status === 'Erro';
+                    return (
+                      <div 
+                        key={post.id}
+                        title={post.content}
+                        className={`text-[9px] font-bold px-2 py-1 rounded truncate transition-all ${
+                          isSent ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                          isError ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                          'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        }`}
+                      >
+                        {new Date(post.scheduledAt).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})} - {post.groupName || 'Grupo'}
+                      </div>
+                    );
+                  })}
+                  {dayPosts.length > 3 && (
+                    <div className="text-[9px] font-black text-slate-400 text-center pt-1">
+                      + {dayPosts.length - 3} postagens
+                    </div>
+                  )}
+                </div>
+
+                {/* Botão sutil de + que aparece no hover */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none bg-white/40 dark:bg-slate-900/40 backdrop-blur-[1px] transition-opacity">
+                  <div className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-100 transition-all">
+                    <Plus className="w-5 h-5" />
                   </div>
-                )}
-                {post.errorMessage && (
-                  <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg border border-red-100">
-                    Erro: {post.errorMessage}
-                  </p>
-                )}
+                </div>
               </div>
-              <div className="flex md:flex-col justify-end gap-2">
-                {post.status === 'Pendente' && (
-                  <button
-                    onClick={() => handleDelete(post.id)}
-                    className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                    title="Excluir"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))
-        )}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -12,6 +12,7 @@
 const cron = require('node-cron');
 const sender = require('./message-sender.service');
 const templates = require('./message-templates.service');
+const rpaWhatsapp = require('./rpa-whatsapp.service');
 
 let scheduledJobs = {};
 let dbInstance = null;
@@ -288,21 +289,18 @@ async function runScheduledGroupPostsJob(db) {
     console.log(`[MessageScheduler] 📱 Enviando ${pendingPosts.length} postagem(ns) agendada(s) para grupos...`);
 
     for (const post of pendingPosts) {
-      let result;
-      if (post.mediaPath) {
-        // Envio com imagem
-        result = await sender.sendMediaMessage(post.groupId, post.content, post.mediaPath);
-      } else {
-        // Envio apenas texto
-        result = await sender.sendMessage(post.groupId, post.content);
-      }
+      // Usa o serviço RPA para disparar nos grupos de marketing
+      const targetGroupName = post.groupName || post.groupId;
+      console.log(`[MessageScheduler] Acordando o RPA para postar no grupo: ${targetGroupName}`);
+      
+      const result = await rpaWhatsapp.sendGroupMessage(targetGroupName, post.content, post.mediaPath);
 
       if (result.success) {
-        db.prepare('UPDATE whatsapp_group_posts SET status = "Enviado", sentAt = ? WHERE id = ?')
+        db.prepare("UPDATE whatsapp_group_posts SET status = 'Enviado', sentAt = ? WHERE id = ?")
           .run(new Date().toISOString(), post.id);
         console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo ${post.groupName || post.groupId}`);
       } else {
-        db.prepare('UPDATE whatsapp_group_posts SET status = "Erro", errorMessage = ? WHERE id = ?')
+        db.prepare("UPDATE whatsapp_group_posts SET status = 'Erro', errorMessage = ? WHERE id = ?")
           .run(result.error || 'Erro desconhecido', post.id);
         console.log(`[MessageScheduler] ❌ Falha ao enviar post ${post.id}: ${result.error}`);
       }

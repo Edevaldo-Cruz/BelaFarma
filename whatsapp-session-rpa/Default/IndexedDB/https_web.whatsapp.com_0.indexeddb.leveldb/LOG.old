@@ -1,0 +1,79 @@
+2026/05/13-12:07:40.468 4160 Reusing MANIFEST F:\Documentos\Desenvolvimento\BelaFarma\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/05/13-12:07:40.470 4160 Recovering log #706
+2026/05/13-12:07:40.515 4160 Reusing old log F:\Documentos\Desenvolvimento\BelaFarma\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000706.log 
+2026/05/13-12:07:40.516 4160 Delete type=2 #699
+2026/05/13-12:07:40.516 4160 Delete type=2 #707
+2026/05/13-12:07:40.516 4160 Delete type=2 #716
+2026/05/13-12:07:40.516 4160 Delete type=2 #717
+2026/05/13-12:07:40.516 4160 Delete type=2 #718
+2026/05/13-12:07:40.516 4160 Delete type=2 #719
+2026/05/13-12:07:40.516 4160 Delete type=2 #720
+2026/05/13-12:07:40.516 4160 Delete type=2 #721
+2026/05/13-12:07:40.517 4160 Delete type=2 #722
+2026/05/13-12:07:40.517 4160 Delete type=2 #723
+2026/05/13-12:07:42.003 6cfc Compacting 1@1 + 10@2 files
+2026/05/13-12:07:42.561 6cfc Generated table #717@1: 76619 keys, 2264209 bytes
+2026/05/13-12:07:42.858 6cfc Generated table #718@1: 22679 keys, 2176690 bytes
+2026/05/13-12:07:43.507 6cfc Generated table #719@1: 948 keys, 2133813 bytes
+2026/05/13-12:07:46.435 6cfc Generated table #720@1: 2613 keys, 2153379 bytes
+2026/05/13-12:07:48.671 6cfc Generated table #721@1: 2110 keys, 2145151 bytes
+2026/05/13-12:07:51.959 6cfc Generated table #722@1: 2614 keys, 2150575 bytes
+2026/05/13-12:07:55.515 6cfc Generated table #723@1: 1297 keys, 2135719 bytes
+2026/05/13-12:07:55.515 6cfc Level-0 table #725: started
+2026/05/13-12:07:57.461 6cfc Level-0 table #725: 1218631 bytes OK
+2026/05/13-12:07:57.586 6cfc Delete type=0 #706
+2026/05/13-12:08:00.742 6cfc Generated table #726@1: 3057 keys, 2152706 bytes
+2026/05/13-12:08:01.078 6cfc Generated table #727@1: 3185 keys, 2153446 bytes
+2026/05/13-12:08:01.605 6cfc Generated table #728@1: 32145 keys, 2233583 bytes
+2026/05/13-12:08:01.764 6cfc Generated table #729@1: 2075 keys, 152393 bytes
+2026/05/13-12:08:01.764 6cfc Compacted 1@1 + 10@2 files => 21851664 bytes
+2026/05/13-12:08:01.896 6cfc compacted to: files[ 1 1 26 0 0 0 0 ]
+2026/05/13-12:08:01.898 6cfc Delete type=2 #701
+2026/05/13-12:08:01.898 6cfc Delete type=2 #702
+2026/05/13-12:08:01.898 6cfc Delete type=2 #703
+2026/05/13-12:08:01.898 6cfc Delete type=2 #704
+2026/05/13-12:08:01.898 6cfc Delete type=2 #705
+2026/05/13-12:08:01.898 6cfc Delete type=2 #708
+2026/05/13-12:08:01.898 6cfc Delete type=2 #709
+2026/05/13-12:08:01.899 6cfc Delete type=2 #710
+2026/05/13-12:08:01.899 6cfc Delete type=2 #711
+2026/05/13-12:08:01.899 6cfc Delete type=2 #712
+2026/05/13-12:08:01.899 6cfc Delete type=2 #714
+2026/05/13-12:08:01.965 6cfc Compacting 1@0 + 1@1 files
+2026/05/13-12:08:02.180 6cfc Generated table #730@0: 27301 keys, 559087 bytes
+2026/05/13-12:08:02.339 6cfc Generated table #731@0: 1305 keys, 122969 bytes
+2026/05/13-12:08:02.339 6cfc Compacted 1@0 + 1@1 files => 682056 bytes
+2026/05/13-12:08:02.470 6cfc compacted to: files[ 0 2 26 0 0 0 0 ]
+2026/05/13-12:08:02.537 6cfc Compacting 1@1 + 10@2 files
+2026/05/13-12:08:04.376 6cfc Generated table #732@1: 80575 keys, 2272791 bytes
+2026/05/13-12:08:05.290 6cfc Generated table #733@1: 25238 keys, 2181394 bytes
+2026/05/13-12:08:05.706 6cfc Generated table #734@1: 921 keys, 2132392 bytes
+2026/05/13-12:08:05.880 6cfc Generated table #735@1: 2505 keys, 2151479 bytes
+2026/05/13-12:08:06.105 6cfc Generated table #736@1: 2097 keys, 2147227 bytes
+2026/05/13-12:08:06.396 6cfc Generated table #737@1: 2549 keys, 2151217 bytes
+2026/05/13-12:08:06.744 6cfc Generated table #738@1: 1538 keys, 2138179 bytes
+2026/05/13-12:08:07.138 6cfc Generated table #739@1: 2868 keys, 2148695 bytes
+2026/05/13-12:08:07.315 6cfc Generated table #740@1: 3185 keys, 2151585 bytes
+2026/05/13-12:08:07.603 6cfc Generated table #741@1: 30206 keys, 2225761 bytes
+2026/05/13-12:08:07.747 6cfc Generated table #742@1: 2159 keys, 152812 bytes
+2026/05/13-12:08:07.747 6cfc Compacted 1@1 + 10@2 files => 21853532 bytes
+2026/05/13-12:08:07.870 6cfc compacted to: files[ 0 1 27 0 0 0 0 ]
+2026/05/13-12:08:07.872 6cfc Delete type=2 #715
+2026/05/13-12:08:07.872 6cfc Delete type=2 #717
+2026/05/13-12:08:07.872 6cfc Delete type=2 #718
+2026/05/13-12:08:07.872 6cfc Delete type=2 #719
+2026/05/13-12:08:07.872 6cfc Delete type=2 #720
+2026/05/13-12:08:07.872 6cfc Delete type=2 #721
+2026/05/13-12:08:07.872 6cfc Delete type=2 #722
+2026/05/13-12:08:07.872 6cfc Delete type=2 #723
+2026/05/13-12:08:07.872 6cfc Delete type=2 #725
+2026/05/13-12:08:07.872 6cfc Delete type=2 #726
+2026/05/13-12:08:07.873 6cfc Delete type=2 #727
+2026/05/13-12:08:07.873 6cfc Delete type=2 #728
+2026/05/13-12:08:07.873 6cfc Delete type=2 #730
+2026/05/13-12:08:15.498 6cfc Compacting 1@1 + 14@2 files
+2026/05/13-12:08:18.837 6cfc Generated table #743@1: 30449 keys, 2268543 bytes
+2026/05/13-12:08:19.356 6cfc Generated table #744@1: 25305 keys, 2226731 bytes
+2026/05/13-12:08:19.764 6cfc Generated table #745@1: 7535 keys, 2127204 bytes
+2026/05/13-12:08:21.559 6cfc Generated table #746@1: 6405 keys, 2126100 bytes
+2026/05/13-12:08:21.559 6cfc compacted to: files[ 0 1 27 0 0 0 0 ]
