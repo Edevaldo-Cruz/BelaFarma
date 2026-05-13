@@ -102,8 +102,12 @@ class PixBotService {
 
       console.log(`[PixBot] 🤖 Auditoria IA para ${phone}:`, result);
 
-      const aprovado = result.isPix && 
-                       result.isBelaFarma && 
+      if (!result.isPix) {
+        console.log(`[PixBot] ℹ️ A imagem recebida de ${phone} não é um comprovante PIX (ex: receita médica). Ignorando silenciosamente.`);
+        return;
+      }
+
+      const aprovado = result.isBelaFarma && 
                        result.isValidStatus && 
                        result.isTodayDate && 
                        result.confidence > 0.85;

@@ -123,6 +123,54 @@ const App: React.FC = () => {
     }
   }, [theme]);
 
+  // --- 🔔 NOTIFICAÇÕES INTELIGENTES (SSE) ---
+  useEffect(() => {
+    if (!user) return;
+
+    let lastNotificationTime = 0;
+    const eventSource = new EventSource('/api/webhook/stream');
+    
+    eventSource.onmessage = (event) => {
+      if (event.data === 'message') {
+        const now = Date.now();
+        // Debounce de 15 segundos: Só toca o som se houver silêncio nos últimos 15s
+        if (now - lastNotificationTime > 15000) {
+          lastNotificationTime = now;
+          tocarSino();
+        }
+      }
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [user]);
+
+  // Sintetizador de Som Leve (Web Audio API) - Ding suave de notificação
+  const tocarSino = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // Frequência alta inicial
+      oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.5); // Fading para grave
+
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05); // Volume sobe muito rápido
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5); // Ecos no fundo
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 1.5);
+    } catch (e) {
+      console.log('Navegador bloqueou áudio ou erro interno:', e);
+    }
+  };
+
   const fetchData = async () => {
     setIsLoading(true);
     console.log("fetchData: Iniciando...");

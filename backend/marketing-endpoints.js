@@ -20,6 +20,10 @@ const {
 
 const { sendMessage } = require('./services/message-sender.service');
 const PixBotService = require('./services/pix-bot.service');
+const EventEmitter = require('events');
+
+// Emissor global para notificações em tempo real (Painel Web)
+const notificationEmitter = new EventEmitter();
 
 function initializeMarketingEndpoints(app, db) {
   const pixBot = new PixBotService(db);
@@ -265,6 +269,18 @@ function initializeMarketingEndpoints(app, db) {
     }
   });
 
+  // ─── GET /api/webhook/stream ──────────────────────────────────────────────
+  app.get('/api/webhook/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const onMessage = () => res.write(`data: message\n\n`);
+    notificationEmitter.on('message', onMessage);
+    req.on('close', () => notificationEmitter.off('message', onMessage));
+  });
+
   // ─── POST /api/webhook/evolution ──────────────────────────────────────────
   /**
    * Webhook para receber mensagens da Evolution API.
@@ -277,8 +293,13 @@ function initializeMarketingEndpoints(app, db) {
       // 🤖 Chamar o Robô de PIX para processar a mensagem (em background)
       pixBot.processMessage(payload).catch(err => console.error('[PixBot] Erro:', err.message));
 
+      // Emitir evento para SSE se for uma mensagem nova de cliente
+      if (payload.event === 'messages.upsert' && !payload.data.key?.fromMe) {
+        notificationEmitter.emit('message');
+      }
+
       // O evento de mensagem recebida na Evolution v2 é 'messages.upsert'
-      if (payload.event !== 'messages.upsert') {
+      if (payload.event && payload.event.toLowerCase() !== 'messages.upsert') {
         return res.status(200).send('OK');
       }
 
@@ -441,6 +462,7 @@ function initializeMarketingEndpoints(app, db) {
   console.log('  POST /api/marketing/diario/clima');
   console.log('  POST /api/marketing/diario/venda-parada');
   console.log('  POST /api/webhook/evolution (Configurar na Evolution API)');
+  console.log('  GET  /api/webhook/stream');
   console.log('  GET  /api/marketing/status');
 }
 
