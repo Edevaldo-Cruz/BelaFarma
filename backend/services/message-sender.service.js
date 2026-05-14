@@ -235,17 +235,30 @@ async function fetchGroups() {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[MessageSender] ❌ Erro API (${response.status}):`, errorText);
+      
+      // Fallback para v2 ou outras versões de endpoint
+      if (response.status === 404) {
+        const fallbackUrl = `${API_URL}/group/fetchAll/${INSTANCE_NAME}`;
+        console.log(`[MessageSender] 🔄 Tentando fallback em: ${fallbackUrl}`);
+        const fallbackRes = await fetch(fallbackUrl, {
+            method: 'GET',
+            headers: { 'apikey': API_KEY }
+        });
+        if (fallbackRes.ok) return await fallbackRes.json();
+      }
+      
       throw new Error(`Erro API: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log(`[MessageSender] 📦 Dados recebidos da API (tipo: ${typeof data}, isArray: ${Array.isArray(data)})`);
+    console.log(`[MessageSender] 📦 Grupos recebidos:`, Array.isArray(data) ? data.length : 'Objeto');
     
-    // Se for um objeto, pode estar dentro de uma propriedade
+    // Se for um objeto, tenta extrair a lista de várias formas comuns na Evolution API
     if (!Array.isArray(data) && data && typeof data === 'object') {
-       console.log('[MessageSender] Chaves do objeto:', Object.keys(data));
        if (data.groups && Array.isArray(data.groups)) return data.groups;
        if (data.data && Array.isArray(data.data)) return data.data;
+       if (data.instance && Array.isArray(data.instance)) return data.instance;
+       // Se o objeto em si tiver chaves que parecem JIDs, pode ser um mapa (raro na v1)
     }
 
     return Array.isArray(data) ? data : [];

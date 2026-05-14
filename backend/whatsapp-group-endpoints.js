@@ -157,6 +157,31 @@ function initializeWhatsAppGroupEndpoints(app, db) {
     }
   });
 
+  // 6. Enviar Agora (Disparo Imediato via RPA)
+  app.post('/api/whatsapp/send-immediate', upload.single('media'), async (req, res) => {
+    const { groupId, groupName, content } = req.body;
+    let mediaPath = null;
+
+    if (req.file) {
+        mediaPath = req.file.path;
+    }
+
+    console.log(`[WhatsAppGroups] 🚀 Iniciando envio imediato para: ${groupName || groupId}`);
+
+    try {
+        const result = await rpaWhatsapp.sendGroupMessage(groupName || groupId, content, mediaPath);
+        
+        if (result.success) {
+            res.json({ success: true, message: 'Mensagem enviada com sucesso!' });
+        } else {
+            res.status(500).json({ success: false, error: result.error || 'Falha no envio via RPA' });
+        }
+    } catch (error) {
+        console.error('[WhatsAppGroups] 💥 Erro no envio imediato:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 

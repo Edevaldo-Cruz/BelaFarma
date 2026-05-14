@@ -1080,6 +1080,46 @@ const WhatsAppGroupsTab: React.FC = () => {
   const [scheduledTime, setScheduledTime] = useState('10:00');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const { addToast } = useToast();
+  
+  const handleImmediateSend = async () => {
+    if (!selectedGroup || !content) {
+      addToast('Preencha o grupo e a mensagem.', 'warning');
+      return;
+    }
+
+    if (!confirm('Deseja enviar esta mensagem agora mesmo via Navegador?')) return;
+
+    setSubmitting(true);
+    try {
+      const formData = new FormData();
+      const groupObj = groups.find(g => g.id === selectedGroup || g.subject === selectedGroup || g.name === selectedGroup);
+      
+      formData.append('groupId', groupObj ? groupObj.id : selectedGroup);
+      formData.append('groupName', groupObj ? (groupObj.subject || groupObj.name) : selectedGroup);
+      formData.append('content', content);
+      if (mediaFile) {
+        formData.append('media', mediaFile);
+      }
+
+      const res = await fetch('/api/whatsapp/send-immediate', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('Mensagem enviada com sucesso via RPA!', 'success');
+        setContent('');
+        setMediaFile(null);
+      } else {
+        addToast(data.error || 'Erro ao enviar agora.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro de conexão ao enviar agora.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -1239,7 +1279,16 @@ const WhatsAppGroupsTab: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp</label>
+                  <button 
+                    type="button"
+                    onClick={() => { setLoading(true); fetchData(); }}
+                    className="text-[9px] font-black text-blue-500 hover:text-blue-600 flex items-center gap-1 uppercase"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Atualizar Grupos
+                  </button>
+                </div>
                 <div className="relative">
                   <select
                     value={selectedGroup}
@@ -1316,14 +1365,26 @@ const WhatsAppGroupsTab: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-sm shadow-xl shadow-green-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
-            >
-              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              Agendar Postagem para as {scheduledTime}
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="py-3.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-sm shadow-xl shadow-amber-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Clock className="w-5 h-5" />}
+                Agendar para as {scheduledTime}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleImmediateSend}
+                disabled={submitting}
+                className="py-3.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-sm shadow-xl shadow-green-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+                Disparar Agora 🚀
+              </button>
+            </div>
           </form>
         )}
 
