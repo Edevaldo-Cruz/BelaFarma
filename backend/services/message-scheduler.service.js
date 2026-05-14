@@ -273,40 +273,57 @@ async function runDebtCollectionJob(db) {
   return result;
 }
 
+// Trava de concorrência: evita que múltiplas execuções do RPA ocorram ao mesmo tempo
+let rpaRunning = false;
+
 /**
  * Executa o job de postagens agendadas em grupos
  */
 async function runScheduledGroupPostsJob(db) {
+  // Se o RPA ainda estiver rodando do minuto anterior, pula esta execução
+  if (rpaRunning) {
+    console.log('[MessageScheduler] ⏳ RPA ainda em execução, aguardando próximo ciclo...');
+    return;
+  }
+
   try {
     const now = new Date().toISOString();
     const pendingPosts = db.prepare(`
       SELECT * FROM whatsapp_group_posts 
-      WHERE status = 'Pendente' AND scheduledAt <= ?
+      WHERE status IN ('Pendente', 'Processando') AND scheduledAt <= ?
     `).all(now);
 
     if (pendingPosts.length === 0) return;
 
     console.log(`[MessageScheduler] 📱 Enviando ${pendingPosts.length} postagem(ns) agendada(s) para grupos...`);
 
+    rpaRunning = true;
+
     for (const post of pendingPosts) {
-      // Usa o serviço RPA para disparar nos grupos de marketing
       const targetGroupName = post.groupName || post.groupId;
-      console.log(`[MessageScheduler] Acordando o RPA para postar no grupo: ${targetGroupName}`);
+
+      // Marca como 'Processando' IMEDIATAMENTE para evitar que outro tick do cron pegue o mesmo post
+      db.prepare("UPDATE whatsapp_group_posts SET status = 'Processando' WHERE id = ?")
+        .run(post.id);
+
+      console.log(`[MessageScheduler] 🤖 Acionando RPA para o grupo: "${targetGroupName}"`);
       
       const result = await rpaWhatsapp.sendGroupMessage(targetGroupName, post.content, post.mediaPath);
 
       if (result.success) {
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Enviado', sentAt = ? WHERE id = ?")
           .run(new Date().toISOString(), post.id);
-        console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo ${post.groupName || post.groupId}`);
+        console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo "${targetGroupName}"`);
       } else {
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Erro', errorMessage = ? WHERE id = ?")
           .run(result.error || 'Erro desconhecido', post.id);
-        console.log(`[MessageScheduler] ❌ Falha ao enviar post ${post.id}: ${result.error}`);
+        console.error(`[MessageScheduler] ❌ Falha ao enviar post ${post.id} no grupo "${targetGroupName}": ${result.error}`);
       }
     }
   } catch (error) {
     console.error('[MessageScheduler] Erro no job de postagens em grupos:', error.message);
+  } finally {
+    rpaRunning = false;
   }
 }
 

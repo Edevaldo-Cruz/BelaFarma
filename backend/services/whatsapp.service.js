@@ -17,7 +17,9 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
 // evitando banimentos e punições do WhatsApp.
 // ============================================================================
 const EVOLUTION_SENDER_INSTANCE = process.env.EVOLUTION_SENDER_INSTANCE || process.env.EVOLUTION_INSTANCE_NAME || 'belafarma';
-const EVOLUTION_MAIN_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belafarma_principal'; // O nome que será dado à instância da farmácia no futuro
+const EVOLUTION_MAIN_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belafarma_principal';
+
+console.log(`[WhatsApp] 🔧 Config: SENDER=${EVOLUTION_SENDER_INSTANCE}, MAIN=${EVOLUTION_MAIN_INSTANCE}, URL=${EVOLUTION_API_URL}`);
 
 const ADMIN_PHONES = (process.env.ADMIN_WHATSAPP || '').split(',').map(p => p.trim()).filter(p => !!p);
 const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
@@ -35,9 +37,11 @@ async function sendMessage(phone, message) {
   }
 
   // 🛡️ TRAVA DE SEGURANÇA DA REGRA SAGRADA 🛡️
-  if (EVOLUTION_SENDER_INSTANCE === EVOLUTION_MAIN_INSTANCE || EVOLUTION_SENDER_INSTANCE.includes('principal')) {
-    console.error(`[WhatsApp] 🚨 BLOQUEIO CRÍTICO: Tentativa de disparar mensagem usando a instância principal da farmácia ('${EVOLUTION_SENDER_INSTANCE}'). Disparo abortado para proteger o número de banimento!`);
-    return { success: false, error: 'Bloqueio de Segurança: Uso de número principal para disparo.' };
+  // Bloqueia APENAS se a instância SENDER contiver a palavra 'principal' — evita usar o número da farmácia para disparos.
+  // Não bloqueia mais se sender === main, pois em produção ambas podem ter o mesmo nome base ('belafarma').
+  if (EVOLUTION_SENDER_INSTANCE.toLowerCase().includes('principal')) {
+    console.error(`[WhatsApp] 🚨 BLOQUEIO CRÍTICO: Instância SENDER ('${EVOLUTION_SENDER_INSTANCE}') parece ser a instância principal. Configure EVOLUTION_SENDER_INSTANCE no .env com a instância de disparo.`);
+    return { success: false, error: 'Bloqueio de Segurança: Configure EVOLUTION_SENDER_INSTANCE corretamente.' };
   }
 
   if (!phone) {

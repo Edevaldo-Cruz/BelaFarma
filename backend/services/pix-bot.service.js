@@ -35,15 +35,21 @@ class PixBotService {
     const phone = remoteJid.split('@')[0];
     const messageType = data.messageType || '';
 
-    // Verifica se é uma imagem (vários formatos possíveis do WhatsApp)
+    // Verifica se é uma imagem (vários formatos possíveis do WhatsApp / Evolution API)
     const isImage = !!(
       message?.imageMessage || 
       messageType === 'imageMessage' ||
       messageType === 'documentWithCaptionMessage' ||
       messageType === 'documentMessage' ||
       message?.documentWithCaptionMessage ||
-      message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage
+      message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage ||
+      // Formato alternativo da Evolution API v2
+      (data.messageType && data.messageType.toLowerCase().includes('image')) ||
+      // Verifica se o objeto message tem uma chave que termine em 'Message' e contenha mimeType de imagem
+      Object.keys(message || {}).some(key => key.endsWith('Message') && message[key]?.mimetype?.startsWith('image/'))
     );
+    
+    console.log(`[PixBot] 🔍 isImage=${isImage}, messageType='${messageType}', messageKeys=[${Object.keys(message || {}).join(', ')}]`);
     
     if (isImage) {
       console.log(`[PixBot] 📸 Foto recebida de ${phone} via ${payload.instance} (tipo: ${messageType}). Analisando se é um PIX...`);
@@ -253,6 +259,37 @@ class PixBotService {
         now,
         '#22c55e' // Verde PIX
       );
+
+      // 4. Enviar mensagem de confirmação para o cliente via WhatsApp
+      const valorFormatado = Number(pixData.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const confirmMsg = `✅ *PIX Confirmado — Bela Farma Sul*\n\n` +
+        `Olá! Recebemos o seu comprovante e o pagamento foi confirmado com sucesso!\n\n` +
+        `💰 *Valor:* ${valorFormatado}\n` +
+        `📅 *Data do Comprovante:* ${pixData.date}\n\n` +
+        `Obrigado pela preferência! 🙏`;
+
+      try {
+        const { sendMessage } = require('./message-sender.service');
+        const sendResult = await sendMessage(phone, confirmMsg, true); // disableFallback=true para não salvar em arquivo
+        if (sendResult.success) {
+          console.log(`[PixBot] 📱 Confirmação enviada para o cliente ${phone}`);
+        } else {
+          console.warn(`[PixBot] ⚠️ Não foi possível enviar confirmação ao cliente ${phone}: ${sendResult.error}`);
+        }
+      } catch (sendErr) {
+        console.warn(`[PixBot] ⚠️ Erro ao enviar confirmação ao cliente:`, sendErr.message);
+      }
+
+      // 5. Notificar admins sobre o PIX recebido
+      const { notifyAdmin } = require('./message-sender.service');
+      notifyAdmin(
+        `💸 *PIX Recebido — Bela Farma*\n\n` +
+        `👤 *Pagador:* ${pixData.senderName}\n` +
+        `💰 *Valor:* ${valorFormatado}\n` +
+        `📱 *WhatsApp:* ${phone}\n` +
+        `📅 *Data no Comprovante:* ${pixData.date}\n\n` +
+        `✅ Lançamento automático realizado no PIX Direto.`
+      ).catch(e => console.warn('[PixBot] Falha ao notificar admins:', e.message));
 
     } catch (err) {
       console.error('[PixBot] Erro ao salvar confirmação:', err.message);
