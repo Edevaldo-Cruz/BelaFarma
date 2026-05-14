@@ -1,23 +1,55 @@
-# Use uma imagem base do Node.js (v20+ necessário para better-sqlite3)
-FROM node:22-alpine
+# Use Debian Bullseye (mais estável para Puppeteer)
+FROM node:22-bullseye-slim
 
 # Crie e defina o diretório de trabalho dentro do contêiner
 WORKDIR /usr/src/app
 
 # Instale dependências para o Puppeteer e o Chromium
-RUN apk add --no-cache \
-      chromium \
-      nss \
-      freetype \
-      harfbuzz \
-      ca-certificates \
-      ttf-freefont \
-      font-noto-emoji \
-      powershell-jumbo || true
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libc6 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm1 \
+    libgcc1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libstdc++6 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxss1 \
+    libxtst6 \
+    lsb-release \
+    wget \
+    xdg-utils \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
-# Configurações para Puppeteer encontrar o Chromium no Alpine
+# Configurações para Puppeteer encontrar o Chromium no Debian
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
+# Copie os arquivos de manifesto do pacote e instale as dependências
 COPY package*.json ./
 RUN npm install
 
