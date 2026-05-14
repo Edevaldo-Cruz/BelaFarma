@@ -45,12 +45,14 @@ class RpaWhatsappService {
 
       const launchOptions = {
         headless: isWindows ? false : 'new', // Headless no Linux/Docker
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         userDataDir: sessionPath,
         defaultViewport: null,
         args: [
           '--start-maximized',
           '--no-sandbox',
-          '--disable-setuid-sandbox'
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage'
         ]
       };
 

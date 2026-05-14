@@ -4,8 +4,20 @@ FROM node:22-alpine
 # Crie e defina o diretório de trabalho dentro do contêiner
 WORKDIR /usr/src/app
 
-# Copie os arquivos de manifesto do pacote e instale as dependências
-# Usar 'COPY' separado para package*.json aproveita o cache do Docker
+# Instale dependências para o Puppeteer e o Chromium
+RUN apk add --no-cache \
+      chromium \
+      nss \
+      freetype \
+      harfbuzz \
+      ca-certificates \
+      ttf-freefont \
+      font-noto-emoji \
+      powershell-jumbo || true
+
+# Configurações para Puppeteer encontrar o Chromium no Alpine
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 COPY package*.json ./
 RUN npm install
 
