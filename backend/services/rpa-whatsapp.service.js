@@ -12,6 +12,22 @@ function logToFile(msg) {
   } catch (e) {}
 }
 
+const os = require('os');
+
+async function uploadViaInput(page, imagePath) {
+  try {
+    const attachBtn = await page.waitForSelector('span[data-icon="plus"], span[data-icon="attach-menu-plus"]', { timeout: 5000 });
+    await attachBtn.click();
+    
+    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 5000 });
+    await fileInput.uploadFile(imagePath);
+    return true;
+  } catch (e) {
+    console.error('Erro ao fazer upload via input:', e.message);
+    return false;
+  }
+}
+
 /**
  * RPA WhatsApp Service
  * Responsável por automatizar o envio de mensagens para Grupos no WhatsApp Web usando Puppeteer.
@@ -23,16 +39,23 @@ class RpaWhatsappService {
     let browser = null;
 
     try {
-      const os = require('os');
+      const isWindows = process.platform === 'win32';
       const sessionPath = path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa');
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
-      browser = await puppeteer.launch({
-        headless: false,
+      const launchOptions = {
+        headless: isWindows ? false : 'new', // Headless no Linux/Docker
         userDataDir: sessionPath,
         defaultViewport: null,
-        args: ['--start-maximized']
-      });
+        args: [
+          '--start-maximized',
+          '--no-sandbox',
+          '--disable-setuid-sandbox'
+        ]
+      };
+
+      logToFile(`🌐 Lançando browser (${isWindows ? 'Windows' : 'Linux/Docker'})...`);
+      browser = await puppeteer.launch(launchOptions);
 
       logToFile(`🌐 Browser lançado com sucesso. Abrindo nova página...`);
       const page = await browser.newPage();
@@ -106,21 +129,27 @@ class RpaWhatsappService {
         
         logToFile(`📁 Imagem válida encontrada em: ${absoluteImagePath}`);
 
-        logToFile(`📋 Disparando PowerShell para copiar a imagem...`);
-        try {
-          const psCommand = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('${absoluteImagePath.replace(/\\/g, '\\\\')}'))"`;
-          execSync(psCommand);
-          logToFile(`📋 PowerShell retornou com sucesso!`);
-        } catch (err) {
-          throw new Error('Falha do PowerShell: ' + err.message);
+        if (isWindows) {
+          logToFile(`📋 Disparando PowerShell para copiar a imagem...`);
+          try {
+            const psCommand = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('${absoluteImagePath.replace(/\\/g, '\\\\')}'))"`;
+            execSync(psCommand);
+            logToFile(`📋 PowerShell retornou com sucesso!`);
+          } catch (err) {
+            logToFile(`⚠️ Falha do PowerShell: ${err.message}. Tentando via input de arquivo...`);
+            await uploadViaInput(page, absoluteImagePath);
+          }
+
+          await new Promise(r => setTimeout(r, 1000));
+
+          logToFile(`📋 Injetando Ctrl+V...`);
+          await page.keyboard.down('Control');
+          await page.keyboard.press('V');
+          await page.keyboard.up('Control');
+        } else {
+          logToFile(`📎 Sistema Linux/Docker detectado. Usando upload via input de arquivo...`);
+          await uploadViaInput(page, absoluteImagePath);
         }
-
-        await new Promise(r => setTimeout(r, 1000));
-
-        logToFile(`📋 Injetando Ctrl+V...`);
-        await page.keyboard.down('Control');
-        await page.keyboard.press('V');
-        await page.keyboard.up('Control');
 
         logToFile(`⏳ Aguardando pré-visualização carregar...`);
         await new Promise(r => setTimeout(r, 4000)); 
