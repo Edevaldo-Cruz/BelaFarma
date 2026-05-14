@@ -212,8 +212,17 @@ function initializeWhatsAppGroupEndpoints(app, db) {
                 INSTANCE: process.env.EVOLUTION_INSTANCE_NAME
             }
         });
+  // 9. Ver Screenshot do RPA (QR Code / Erro)
+  app.get('/api/whatsapp/rpa-screenshot', (req, res) => {
+    try {
+        const screenshotPath = path.join(__dirname, 'rpa-screenshot.png');
+        if (fs.existsSync(screenshotPath)) {
+            res.sendFile(screenshotPath);
+        } else {
+            res.status(404).send('Nenhum screenshot disponível. Tente realizar um disparo para gerar um.');
+        }
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).send(err.message);
     }
   });
 

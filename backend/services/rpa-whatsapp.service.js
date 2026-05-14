@@ -40,7 +40,11 @@ class RpaWhatsappService {
 
     try {
       const isWindows = process.platform === 'win32';
-      const sessionPath = path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa');
+      // No Docker, usamos a pasta data que já está mapeada como volume
+      const sessionPath = isWindows 
+        ? path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa')
+        : path.join(__dirname, '..', '..', 'data', 'whatsapp-session-rpa');
+      
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
       let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
@@ -194,8 +198,22 @@ class RpaWhatsappService {
 
     } catch (error) {
       logToFile(`🚨 ERRO CRÍTICO CAPTURADO: ${error.message}`);
-      logToFile(`⏳ Aguardando 15 segundos antes de abortar o navegador...`);
-      await new Promise(r => setTimeout(r, 15000));
+      
+      if (browser) {
+          try {
+              const pages = await browser.pages();
+              if (pages.length > 0) {
+                  const screenshotPath = path.join(__dirname, '..', 'rpa-screenshot.png');
+                  await pages[0].screenshot({ path: screenshotPath });
+                  logToFile(`📸 Screenshot de erro salvo em: ${screenshotPath}`);
+              }
+          } catch (e) {
+              logToFile(`⚠️ Falha ao tirar screenshot: ${e.message}`);
+          }
+      }
+
+      logToFile(`⏳ Aguardando 5 segundos antes de abortar o navegador...`);
+      await new Promise(r => setTimeout(r, 5000));
       if (browser) await browser.close();
       logToFile(`☠️ Navegador abortado.`);
       return { success: false, error: error.message };
