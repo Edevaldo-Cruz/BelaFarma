@@ -195,6 +195,26 @@ function initializeWhatsAppGroupEndpoints(app, db) {
     } catch (err) {
         res.status(500).send(err.message);
     }
+  // 8. Debug Evolution API Status
+  app.get('/api/whatsapp/debug-evolution', async (req, res) => {
+    try {
+        const url = `${process.env.EVOLUTION_API_URL || 'http://evolution-api:8080'}/instance/connectionState/${process.env.EVOLUTION_INSTANCE_NAME || 'belaFarma'}`;
+        const response = await fetch(url, {
+            headers: { 'apikey': process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026' }
+        });
+        const data = await response.json();
+        res.json({
+            url,
+            status: response.status,
+            data,
+            env: {
+                URL: process.env.EVOLUTION_API_URL,
+                INSTANCE: process.env.EVOLUTION_INSTANCE_NAME
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
   });
 
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
