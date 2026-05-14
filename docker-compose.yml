@@ -10,6 +10,8 @@ services:
       - EVOLUTION_API_URL=http://evolution-api:8080
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-BelafarmaSul2026}
       - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME:-belafarma}
+      - EVOLUTION_SENDER_INSTANCE=${EVOLUTION_SENDER_INSTANCE:-belafarma}
+      - EVOLUTION_MAIN_INSTANCE=${EVOLUTION_MAIN_INSTANCE:-belafarma_principal}
       - ADMIN_WHATSAPP=${ADMIN_WHATSAPP:-+5532988634755}
       - EDEVALDO_WHATSAPP=${EDEVALDO_WHATSAPP:-+5532988634755}
       - MARKETING_ROSANA_PHONE=${MARKETING_ROSANA_PHONE:-+5532988765295}
@@ -18,8 +20,6 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-openai}
       - GPT_MODEL=${GPT_MODEL:-gpt-4o-mini}
       - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
-      - EVOLUTION_INSTANCE_NAME=BelaFarma2
-      - EVOLUTION_API_KEY=BelafarmaSul2026
     volumes:
       # Monta diretório de dados (não apenas o arquivo)
       # Isso garante que o SQLite possa criar arquivos -wal e -shm
