@@ -1239,21 +1239,43 @@ const WhatsAppGroupsTab: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp (Nome Exato)</label>
-                <input
-                  type="text"
-                  list="whatsapp-groups"
-                  value={selectedGroup}
-                  onChange={e => setSelectedGroup(e.target.value)}
-                  placeholder="Ex: Marketing"
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
-                />
-                <datalist id="whatsapp-groups">
-                  {groups.map(g => (
-                    <option key={g.id} value={g.subject} />
-                  ))}
-                </datalist>
-                <p className="text-[10px] text-green-600 font-bold ml-1">O robô pesquisará pelo nome que você digitar.</p>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grupo do WhatsApp</label>
+                <div className="relative">
+                  <select
+                    value={selectedGroup}
+                    onChange={e => setSelectedGroup(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm appearance-none cursor-pointer"
+                  >
+                    <option value="">Selecione um grupo...</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id}>
+                        {g.subject || g.name || g.id}
+                      </option>
+                    ))}
+                    <option value="custom">-- Digitar nome manualmente --</option>
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+                
+                {selectedGroup === 'custom' && (
+                  <input
+                    type="text"
+                    placeholder="Digite o nome exato do grupo..."
+                    className="w-full mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm animate-in fade-in slide-in-from-top-2"
+                    onChange={e => {
+                      // Usamos um truque aqui: mantemos custom no select mas guardamos o valor digitado
+                      // Para simplificar, vamos mudar como lidamos com isso no handleSubmit
+                      (e.target as any)._manualValue = e.target.value;
+                    }}
+                    onBlur={e => {
+                      const val = e.target.value;
+                      if (val) {
+                        setSelectedGroup(val); // Define o valor final como o texto digitado
+                      }
+                    }}
+                  />
+                )}
+                <p className="text-[10px] text-green-600 font-bold ml-1">O robô pesquisará pelo nome do grupo selecionado.</p>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Horário do Disparo</label>
