@@ -182,6 +182,21 @@ function initializeWhatsAppGroupEndpoints(app, db) {
     }
   });
 
+  // 7. Ver Logs do RPA (Debug)
+  app.get('/api/whatsapp/rpa-logs', (req, res) => {
+    try {
+        const logPath = path.join(__dirname, 'rpa-debug.log');
+        if (fs.existsSync(logPath)) {
+            const content = fs.readFileSync(logPath, 'utf8');
+            res.send(`<pre>${content}</pre>`);
+        } else {
+            res.send('Arquivo de log não encontrado.');
+        }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 
