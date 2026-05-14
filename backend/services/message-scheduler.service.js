@@ -306,17 +306,17 @@ async function runScheduledGroupPostsJob(db) {
       db.prepare("UPDATE whatsapp_group_posts SET status = 'Processando' WHERE id = ?")
         .run(post.id);
 
-      console.log(`[MessageScheduler] 🚀 Acionando API Nativa para o grupo: "${targetGroupId}"`);
-      
-      let result;
-      // Garante que o ID do grupo está correto (termina com @g.us)
-      const safeGroupId = targetGroupId.includes('@g.us') ? targetGroupId : `${targetGroupId}@g.us`;
+      // Preferência pelo NOME do grupo para o RPA, pois ele pesquisa pelo texto na tela
+      const targetName = post.groupName || post.groupId;
 
-      if (post.mediaPath && post.mediaPath.trim() !== '') {
-        result = await sender.sendMediaMessage(safeGroupId, post.content, post.mediaPath);
-      } else {
-        result = await sender.sendMessage(safeGroupId, post.content);
-      }
+      console.log(`[MessageScheduler] 🚀 Acionando RPA (Navegador) para o grupo: "${targetName}"`);
+      
+      const result = await rpaWhatsapp.sendGroupMessage(
+        targetName, 
+        post.content, 
+        post.mediaPath
+      );
+
 
       if (result.success) {
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Enviado', sentAt = ? WHERE id = ?")

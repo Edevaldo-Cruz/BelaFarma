@@ -4,6 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const sender = require('./services/message-sender.service');
+const rpaWhatsapp = require('./services/rpa-whatsapp.service');
+
 
 // Diretório para as imagens do WhatsApp
 const whatsappUploadsDir = path.join(__dirname, 'public/uploads/whatsapp');
@@ -103,12 +105,14 @@ function initializeWhatsAppGroupEndpoints(app, db) {
   // 5. DIAGNÓSTICO: Testar envio direto para grupo
   app.post('/api/whatsapp/test-send', async (req, res) => {
     try {
-      const { groupId, message } = req.body;
-      if (!groupId || !message) {
-        return res.status(400).json({ error: 'groupId e message são obrigatórios.' });
+      const { groupId, groupName, message } = req.body;
+      const target = groupName || groupId;
+      
+      if (!target || !message) {
+        return res.status(400).json({ error: 'groupId/groupName e message são obrigatórios.' });
       }
-      console.log(`[WhatsAppGroups] 🧪 TESTE: Enviando para ${groupId}: "${message}"`);
-      const result = await sender.sendMessage(groupId, message);
+      console.log(`[WhatsAppGroups] 🧪 TESTE RPA: Enviando para "${target}": "${message}"`);
+      const result = await rpaWhatsapp.sendGroupMessage(target, message);
       console.log(`[WhatsAppGroups] 🧪 Resultado do teste:`, JSON.stringify(result));
       res.json(result);
     } catch (err) {
@@ -126,17 +130,14 @@ function initializeWhatsAppGroupEndpoints(app, db) {
         WHERE status = 'Pendente' AND scheduledAt <= ?
       `).all(now);
 
-      console.log(`[WhatsAppGroups] 🔄 Processando ${pendingPosts.length} post(s) pendente(s). Hora atual: ${now}`);
+      console.log(`[WhatsAppGroups] 🔄 Processando ${pendingPosts.length} post(s) pendente(s) via RPA. Hora atual: ${now}`);
       
       const results = [];
       for (const post of pendingPosts) {
-        console.log(`[WhatsAppGroups] 📤 Enviando post ${post.id} para ${post.groupId}...`);
-        let result;
-        if (post.mediaPath) {
-          result = await sender.sendMediaMessage(post.groupId, post.content, post.mediaPath);
-        } else {
-          result = await sender.sendMessage(post.groupId, post.content);
-        }
+        const target = post.groupName || post.groupId;
+        console.log(`[WhatsAppGroups] 📤 Enviando post ${post.id} para "${target}" via RPA...`);
+        
+        const result = await rpaWhatsapp.sendGroupMessage(target, post.content, post.mediaPath);
         console.log(`[WhatsAppGroups] Resultado:`, JSON.stringify(result));
 
         if (result.success) {
@@ -146,7 +147,7 @@ function initializeWhatsAppGroupEndpoints(app, db) {
           db.prepare('UPDATE whatsapp_group_posts SET status = "Erro", errorMessage = ? WHERE id = ?')
             .run(result.error || 'Erro desconhecido', post.id);
         }
-        results.push({ id: post.id, groupId: post.groupId, result });
+        results.push({ id: post.id, group: target, result });
       }
 
       res.json({ processed: results.length, results });
