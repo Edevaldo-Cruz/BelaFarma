@@ -300,24 +300,32 @@ async function runScheduledGroupPostsJob(db) {
     rpaRunning = true;
 
     for (const post of pendingPosts) {
-      const targetGroupName = post.groupName || post.groupId;
+      const targetGroupId = post.groupId; // Sempre usar o ID (JID) para a API
 
       // Marca como 'Processando' IMEDIATAMENTE para evitar que outro tick do cron pegue o mesmo post
       db.prepare("UPDATE whatsapp_group_posts SET status = 'Processando' WHERE id = ?")
         .run(post.id);
 
-      console.log(`[MessageScheduler] 🤖 Acionando RPA para o grupo: "${targetGroupName}"`);
+      console.log(`[MessageScheduler] 🚀 Acionando API Nativa para o grupo: "${targetGroupId}"`);
       
-      const result = await rpaWhatsapp.sendGroupMessage(targetGroupName, post.content, post.mediaPath);
+      let result;
+      // Garante que o ID do grupo está correto (termina com @g.us)
+      const safeGroupId = targetGroupId.includes('@g.us') ? targetGroupId : `${targetGroupId}@g.us`;
+
+      if (post.mediaPath && post.mediaPath.trim() !== '') {
+        result = await sender.sendMediaMessage(safeGroupId, post.content, post.mediaPath);
+      } else {
+        result = await sender.sendMessage(safeGroupId, post.content);
+      }
 
       if (result.success) {
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Enviado', sentAt = ? WHERE id = ?")
           .run(new Date().toISOString(), post.id);
-        console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo "${targetGroupName}"`);
+        console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo "${targetGroupId}"`);
       } else {
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Erro', errorMessage = ? WHERE id = ?")
           .run(result.error || 'Erro desconhecido', post.id);
-        console.error(`[MessageScheduler] ❌ Falha ao enviar post ${post.id} no grupo "${targetGroupName}": ${result.error}`);
+        console.error(`[MessageScheduler] ❌ Falha ao enviar post ${post.id} no grupo "${targetGroupId}": ${result.error}`);
       }
     }
   } catch (error) {
