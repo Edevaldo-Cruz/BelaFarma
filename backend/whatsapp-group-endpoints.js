@@ -192,9 +192,9 @@ function initializeWhatsAppGroupEndpoints(app, db) {
         } else {
             res.send('Arquivo de log não encontrado.');
         }
-    } catch (err) {
-        res.status(500).send(err.message);
     }
+  });
+
   // 8. Debug Evolution API Status
   app.get('/api/whatsapp/debug-evolution', async (req, res) => {
     try {
