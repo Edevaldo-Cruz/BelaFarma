@@ -16,7 +16,7 @@ RUN apk add --no-cache \
       powershell-jumbo || true
 
 # Configurações para Puppeteer encontrar o Chromium no Alpine
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 COPY package*.json ./
 RUN npm install

@@ -43,9 +43,22 @@ class RpaWhatsappService {
       const sessionPath = path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa');
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
+      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+      
+      // Fallback para caminhos comuns no Linux
+      if (!isWindows && !executablePath) {
+        const commonPaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+        for (const p of commonPaths) {
+            if (fs.existsSync(p)) {
+                executablePath = p;
+                break;
+            }
+        }
+      }
+
       const launchOptions = {
         headless: isWindows ? false : 'new', // Headless no Linux/Docker
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        executablePath: executablePath,
         userDataDir: sessionPath,
         defaultViewport: null,
         args: [
