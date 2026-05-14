@@ -1,152 +1,107 @@
 const express = require('express');
-const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const sender = require('./services/message-sender.service');
 const rpaWhatsapp = require('./services/rpa-whatsapp.service');
+const messageSender = require('./services/message-sender.service');
+const db = require('./database-factory');
 
-
-// Diretório para as imagens do WhatsApp
-const whatsappUploadsDir = path.join(__dirname, 'public/uploads/whatsapp');
-if (!fs.existsSync(whatsappUploadsDir)) {
-  fs.mkdirSync(whatsappUploadsDir, { recursive: true });
-}
-
-// Configuração do Multer
+// Configuração do Multer para upload de imagens
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, whatsappUploadsDir);
+    const uploadDir = path.join(__dirname, 'public', 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'wa-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
 
-const upload = multer({ storage });
+const upload = multer({ storage: storage });
 
-function initializeWhatsAppGroupEndpoints(app, db) {
+/**
+ * Inicializa os endpoints relacionados aos grupos do WhatsApp
+ * @param {express.Application} app 
+ */
+function initializeWhatsAppGroupEndpoints(app) {
   
-  // 1. Listar Grupos (Proxy para Evolution API)
+  // 1. Listar Grupos (Consome a Evolution API para preencher o select no frontend)
   app.get('/api/whatsapp/groups', async (req, res) => {
     try {
-      const groups = await sender.fetchGroups();
+      const groups = await messageSender.fetchGroups();
       res.json(groups);
     } catch (err) {
       console.error('[WhatsAppGroups] Erro ao buscar grupos:', err);
-      res.status(500).json({ error: 'Falha ao buscar grupos do WhatsApp.' });
-    }
-  });
-
-  // 2. Listar Agendamentos
-  app.get('/api/whatsapp/scheduled-posts', (req, res) => {
-    try {
-      const posts = db.prepare('SELECT * FROM whatsapp_group_posts ORDER BY scheduledAt ASC').all();
-      res.json(posts);
-    } catch (err) {
-      console.error('[WhatsAppGroups] Erro ao buscar agendamentos:', err);
-      res.status(500).json({ error: 'Falha ao buscar agendamentos.' });
-    }
-  });
-
-  // 3. Criar Agendamento (com Imagem Opcional)
-  app.post('/api/whatsapp/scheduled-posts', upload.single('media'), (req, res) => {
-    try {
-      const { groupId, groupName, content, scheduledAt } = req.body;
-      const mediaPath = req.file ? req.file.path : null;
-
-      if (!groupId || !content || !scheduledAt) {
-        return res.status(400).json({ error: 'groupId, content e scheduledAt são obrigatórios.' });
-      }
-
-      const id = `post-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-      const createdAt = new Date().toISOString();
-
-      db.prepare(`
-        INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
-        VALUES (@id, @groupId, @groupName, @content, @mediaPath, @scheduledAt, 'Pendente', @createdAt)
-      `).run({
-        id, groupId, groupName, content, mediaPath, scheduledAt, createdAt
-      });
-
-      res.status(201).json({ id, status: 'Pendente' });
-    } catch (err) {
-      console.error('[WhatsAppGroups] Erro ao criar agendamento:', err);
-      res.status(500).json({ error: 'Falha ao criar agendamento.' });
-    }
-  });
-
-  // 4. Deletar/Cancelar Agendamento
-  app.delete('/api/whatsapp/scheduled-posts/:id', (req, res) => {
-    try {
-      const { id } = req.params;
-      
-      // Busca o post para remover a imagem se existir
-      const post = db.prepare('SELECT mediaPath FROM whatsapp_group_posts WHERE id = ?').get(id);
-      
-      if (post && post.mediaPath && fs.existsSync(post.mediaPath)) {
-        fs.unlinkSync(post.mediaPath);
-      }
-
-      const result = db.prepare('DELETE FROM whatsapp_group_posts WHERE id = ?').run(id);
-      
-      if (result.changes > 0) {
-        res.json({ success: true });
-      } else {
-        res.status(404).json({ error: 'Agendamento não encontrado.' });
-      }
-    } catch (err) {
-      console.error('[WhatsAppGroups] Erro ao deletar agendamento:', err);
-      res.status(500).json({ error: 'Falha ao deletar agendamento.' });
-    }
-  });
-
-  // 5. DIAGNÓSTICO: Testar envio direto para grupo
-  app.post('/api/whatsapp/test-send', async (req, res) => {
-    try {
-      const { groupId, groupName, message } = req.body;
-      const target = groupName || groupId;
-      
-      if (!target || !message) {
-        return res.status(400).json({ error: 'groupId/groupName e message são obrigatórios.' });
-      }
-      console.log(`[WhatsAppGroups] 🧪 TESTE RPA: Enviando para "${target}": "${message}"`);
-      const result = await rpaWhatsapp.sendGroupMessage(target, message);
-      console.log(`[WhatsAppGroups] 🧪 Resultado do teste:`, JSON.stringify(result));
-      res.json(result);
-    } catch (err) {
-      console.error('[WhatsAppGroups] Erro no teste de envio:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 6. DIAGNÓSTICO: Forçar processamento dos pendentes
+  // 2. Listar Postagens Agendadas
+  app.get('/api/whatsapp/scheduled-posts', async (req, res) => {
+    try {
+      const posts = await db.all('SELECT * FROM whatsapp_group_posts ORDER BY scheduledAt ASC');
+      res.json(posts);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Criar Novo Agendamento
+  app.post('/api/whatsapp/scheduled-posts', upload.single('media'), async (req, res) => {
+    try {
+      const { groupId, groupName, content, scheduledAt } = req.body;
+      const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
+
+      const result = await db.run(
+        'INSERT INTO whatsapp_group_posts (groupId, groupName, content, mediaPath, scheduledAt, status) VALUES (?, ?, ?, ?, ?, ?)',
+        [groupId, groupName, content, mediaPath, scheduledAt, 'Pendente']
+      );
+
+      res.status(201).json({ id: result.lastID, message: 'Agendamento criado com sucesso!' });
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro ao agendar:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4. Excluir Agendamento
+  app.delete('/api/whatsapp/scheduled-posts/:id', async (req, res) => {
+    try {
+      await db.run('DELETE FROM whatsapp_group_posts WHERE id = ?', [req.params.id]);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. Processar Postagens Pendentes Manualmente (Botão de Teste)
   app.post('/api/whatsapp/process-pending', async (req, res) => {
     try {
       const now = new Date().toISOString();
-      const pendingPosts = db.prepare(`
-        SELECT * FROM whatsapp_group_posts 
-        WHERE status = 'Pendente' AND scheduledAt <= ?
-      `).all(now);
+      const pendingPosts = await db.all(
+        'SELECT * FROM whatsapp_group_posts WHERE status = ? AND scheduledAt <= ?',
+        ['Pendente', now]
+      );
 
-      console.log(`[WhatsAppGroups] 🔄 Processando ${pendingPosts.length} post(s) pendente(s) via RPA. Hora atual: ${now}`);
+      console.log(`[WhatsAppGroups] Processando ${pendingPosts.length} postagens pendentes via RPA...`);
       
       const results = [];
       for (const post of pendingPosts) {
         const target = post.groupName || post.groupId;
-        console.log(`[WhatsAppGroups] 📤 Enviando post ${post.id} para "${target}" via RPA...`);
-        
         const result = await rpaWhatsapp.sendGroupMessage(target, post.content, post.mediaPath);
-        console.log(`[WhatsAppGroups] Resultado:`, JSON.stringify(result));
+        
+        const status = result.success ? 'Enviado' : 'Erro';
+        const errorMsg = result.success ? null : result.error;
 
-        if (result.success) {
-          db.prepare('UPDATE whatsapp_group_posts SET status = "Enviado", sentAt = ? WHERE id = ?')
-            .run(new Date().toISOString(), post.id);
-        } else {
-          db.prepare('UPDATE whatsapp_group_posts SET status = "Erro", errorMessage = ? WHERE id = ?')
-            .run(result.error || 'Erro desconhecido', post.id);
-        }
+        await db.run(
+          'UPDATE whatsapp_group_posts SET status = ?, errorMessage = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+          [status, errorMsg, post.id]
+        );
+        
         results.push({ id: post.id, group: target, result });
       }
 
@@ -192,6 +147,8 @@ function initializeWhatsAppGroupEndpoints(app, db) {
         } else {
             res.send('Arquivo de log não encontrado.');
         }
+    } catch (err) {
+        res.status(500).send(err.message);
     }
   });
 
@@ -212,6 +169,11 @@ function initializeWhatsAppGroupEndpoints(app, db) {
                 INSTANCE: process.env.EVOLUTION_INSTANCE_NAME
             }
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+  });
+
   // 9. Ver Screenshot do RPA (QR Code / Erro)
   app.get('/api/whatsapp/rpa-screenshot', (req, res) => {
     try {
