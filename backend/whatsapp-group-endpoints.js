@@ -205,6 +205,24 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
+  // 11. Rodar Comando de Diagnóstico/Criação (Evolution API)
+  app.get('/api/system/run-diag', async (req, res) => {
+    try {
+        const { exec } = require('child_process');
+        const cmd = `curl -X POST http://evolution-api:8080/instance/create -H 'Content-Type: application/json' -H 'apikey: BelafarmaSul2026' -d '{"instanceName": "belaFarma", "token": "BelafarmaSul2026", "qrcode": true}'`;
+        exec(cmd, (error, stdout, stderr) => {
+            res.json({ 
+                command: 'Criar Instância belaFarma',
+                stdout: stdout ? JSON.parse(stdout) : null,
+                stderr,
+                error: error ? error.message : null
+            });
+        });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 
