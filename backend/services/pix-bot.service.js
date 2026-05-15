@@ -76,11 +76,18 @@ class PixBotService {
         Você é um Auditor Financeiro Antifraude rigoroso da farmácia "Bela Farma Sul Ltda".
         Analise esta imagem e verifique se é um comprovante PIX 100% VÁLIDO E SEGURO.
         
+        DADOS OFICIAIS DA FARMÁCIA (destinatário esperado):
+        - Nome: "BELA FARMA SUL LTDA" ou "Bela Farma Sul Ltda" ou "Bela Farma"
+        - CPF/CNPJ: pode aparecer parcialmente mascarado (ex: ***.785.780-**140 ou 47.378.578/****-**)
+        - Chave PIX: pode ser email (belafarmasul@gmail.com), CPF ou CNPJ mascarado
+        - Instituição: Mercado Pago ou qualquer banco
+
         CRITÉRIOS DE SEGURANÇA OBRIGATÓRIOS (Recuse se algum falhar):
-        1. DESTINATÁRIO: O recebedor deve ser "Bela Farma Sul Ltda", "Bela Farma", ou um padrão mascarado/oculto que seja claramente a farmácia (ex: B*** F*** S*** Ltda, ***ela Farma***, CNPJ terminando em dígitos conhecidos se houver). RECUSE se o recebedor final for uma pessoa física (CPF) ou nome de outra empresa.
-        2. STATUS CONCLUÍDO: A transferência DEVE ser efetivada (Sucesso, Realizada, Concluída). RECUSE IMEDIATAMENTE se houver as palavras "Agendamento", "Aguardando", "Em processamento" ou "Agendado para".
-        3. DATA E HORA: A data da transação do comprovante NÃO PODE SER ANTIGA. Hoje é: ${todayDateStr}. Valide rigidamente se o comprovante é de HOJE.
-        4. INTEGRIDADE VISUAL: Busque ativamente por indícios de "comprovante falso" (fontes de texto misturadas, linhas tortas, valor em fonte diferente do resto, cor de fundo alterada).
+        1. DESTINATÁRIO (campo "Para" no comprovante): O nome deve corresponder à farmácia conforme dados acima. CPF/CNPJ e chave PIX podem estar parcialmente ocultos — isso é NORMAL nos comprovantes brasileiros. RECUSE apenas se o nome do destinatário for claramente outra pessoa ou empresa.
+        2. REMETENTE (campo "De" no comprovante): Pode ser qualquer pessoa física (CPF) ou jurídica (CNPJ), com documento parcial ou totalmente mascarado. NUNCA recuse por causa do remetente.
+        3. STATUS CONCLUÍDO: A transferência DEVE ser efetivada (Sucesso, Realizada, Concluída). RECUSE IMEDIATAMENTE se houver as palavras "Agendamento", "Aguardando", "Em processamento" ou "Agendado para".
+        4. DATA E HORA: A data da transação NÃO PODE SER ANTIGA. Hoje é: ${todayDateStr}. Valide se o comprovante é de HOJE.
+        5. INTEGRIDADE VISUAL: Busque por indícios de falsificação (fontes misturadas, linhas tortas, valores em fonte diferente).
 
         Responda EXATAMENTE no formato JSON abaixo (sem \`\`\`json ou texto extra):
         {
