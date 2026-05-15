@@ -213,7 +213,9 @@ class PixBotService {
   }
 
   /**
-   * Registra a confirmação do PIX, cria uma tarefa e faz o lançamento financeiro
+   * Registra a confirmação do PIX e faz o lançamento financeiro
+   * Comportamento intencional: sem mensagens, sem tarefas, sem notificações para PIX válido.
+   * Admins são notificados APENAS em casos de fraude (ver logRejectedPix).
    */
   async confirmPix(pixData, phone, messageId) {
     const now = new Date().toISOString();
@@ -225,71 +227,12 @@ class PixBotService {
       this.db.prepare(`
         INSERT INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id, 
-        phone, 
-        pixData.value, 
-        pixData.senderName, 
-        pixData.date, 
-        'Confirmado', 
-        pixData.reason, 
-        now
-      );
+      `).run(id, phone, pixData.value, pixData.senderName, pixData.date, 'Confirmado', pixData.reason, now);
 
-      console.log(`[PixBot] ✅ PIX de R$ ${pixData.value} (${pixData.senderName}) confirmado com sucesso!`);
+      console.log(`[PixBot] ✅ PIX de R$ ${pixData.value} (${pixData.senderName}) confirmado. Realizando lançamento financeiro...`);
 
-      // 2. Lançamento automático no PIX Direto (Financeiro)
+      // 2. Lançamento no Pix Direto (registro diário / fechamento)
       this.recordPixDirect(pixData.value, pixData.senderName, today);
-
-      // 3. Criar uma tarefa no sistema para os vendedores verem
-      const taskId = `task_pix_${Date.now()}`;
-      this.db.prepare(`
-        INSERT INTO tasks (
-          id, title, description, assignedUser, creator, priority, status, dueDate, creationDate, color
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        taskId,
-        `💰 PIX Recebido: R$ ${pixData.value}`,
-        `Lançamento automático realizado no PIX Direto.\nPagador: ${pixData.senderName}\nData no comprovante: ${pixData.date}\nWhatsApp: ${phone}`,
-        'all_users',
-        'Robô de PIX',
-        'Alta',
-        'Concluído',
-        now,
-        now,
-        '#22c55e' // Verde PIX
-      );
-
-      // 4. Enviar mensagem de confirmação para o cliente via WhatsApp
-      const valorFormatado = Number(pixData.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-      const confirmMsg = `✅ *PIX Confirmado — Bela Farma Sul*\n\n` +
-        `Olá! Recebemos o seu comprovante e o pagamento foi confirmado com sucesso!\n\n` +
-        `💰 *Valor:* ${valorFormatado}\n` +
-        `📅 *Data do Comprovante:* ${pixData.date}\n\n` +
-        `Obrigado pela preferência! 🙏`;
-
-      try {
-        const { sendMessage } = require('./message-sender.service');
-        const sendResult = await sendMessage(phone, confirmMsg, true); // disableFallback=true para não salvar em arquivo
-        if (sendResult.success) {
-          console.log(`[PixBot] 📱 Confirmação enviada para o cliente ${phone}`);
-        } else {
-          console.warn(`[PixBot] ⚠️ Não foi possível enviar confirmação ao cliente ${phone}: ${sendResult.error}`);
-        }
-      } catch (sendErr) {
-        console.warn(`[PixBot] ⚠️ Erro ao enviar confirmação ao cliente:`, sendErr.message);
-      }
-
-      // 5. Notificar admins sobre o PIX recebido
-      const { notifyAdmin } = require('./message-sender.service');
-      notifyAdmin(
-        `💸 *PIX Recebido — Bela Farma*\n\n` +
-        `👤 *Pagador:* ${pixData.senderName}\n` +
-        `💰 *Valor:* ${valorFormatado}\n` +
-        `📱 *WhatsApp:* ${phone}\n` +
-        `📅 *Data no Comprovante:* ${pixData.date}\n\n` +
-        `✅ Lançamento automático realizado no PIX Direto.`
-      ).catch(e => console.warn('[PixBot] Falha ao notificar admins:', e.message));
 
     } catch (err) {
       console.error('[PixBot] Erro ao salvar confirmação:', err.message);
