@@ -191,7 +191,9 @@ function initializeWhatsAppGroupEndpoints(app) {
   // 10. Ver Logs do Sistema (Arquivo)
   app.get('/api/system/logs', (req, res) => {
     try {
-        const logPath = path.join(__dirname, 'backend.log');
+        const logPath = process.platform === 'win32'
+            ? path.join(__dirname, 'backend.log')
+            : path.join(__dirname, '..', 'data', 'backend.log');
         if (fs.existsSync(logPath)) {
             const content = fs.readFileSync(logPath, 'utf8');
             const lines = content.split('\n').slice(-200).join('\n');
@@ -209,7 +211,9 @@ function initializeWhatsAppGroupEndpoints(app) {
     try {
         const { q } = req.query;
         if (!q) return res.status(400).send('Use ?q=termo para buscar.');
-        const logPath = path.join(__dirname, 'backend.log');
+        const logPath = process.platform === 'win32'
+            ? path.join(__dirname, 'backend.log')
+            : path.join(__dirname, '..', 'data', 'backend.log');
         if (!fs.existsSync(logPath)) return res.send('Log não encontrado.');
         const content = fs.readFileSync(logPath, 'utf8');
         const lines = content.split('\n').filter(l => l.toLowerCase().includes(q.toLowerCase()));
