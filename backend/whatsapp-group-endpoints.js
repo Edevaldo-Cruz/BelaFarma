@@ -194,12 +194,27 @@ function initializeWhatsAppGroupEndpoints(app) {
         const logPath = path.join(__dirname, 'backend.log');
         if (fs.existsSync(logPath)) {
             const content = fs.readFileSync(logPath, 'utf8');
-            // Retornar apenas as últimas 200 linhas para não travar o browser
             const lines = content.split('\n').slice(-200).join('\n');
             res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace; white-space:pre-wrap;">${lines}</pre>`);
         } else {
-            res.send('Arquivo de log ainda não gerado. Tente interagir com o sistema primeiro.');
+            res.send('Arquivo de log ainda não gerado.');
         }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+  });
+
+  // 10b. Busca no log completo por palavra-chave
+  app.get('/api/system/logs/search', (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q) return res.status(400).send('Use ?q=termo para buscar.');
+        const logPath = path.join(__dirname, 'backend.log');
+        if (!fs.existsSync(logPath)) return res.send('Log não encontrado.');
+        const content = fs.readFileSync(logPath, 'utf8');
+        const lines = content.split('\n').filter(l => l.toLowerCase().includes(q.toLowerCase()));
+        const result = lines.length > 0 ? lines.join('\n') : `Nenhum resultado para: "${q}"`;
+        res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace; white-space:pre-wrap;">${result}</pre>`);
     } catch (err) {
         res.status(500).send(err.message);
     }
