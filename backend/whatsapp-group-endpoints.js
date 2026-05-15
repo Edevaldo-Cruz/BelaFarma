@@ -188,6 +188,21 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
+  // 10. Ver Logs do Sistema (Docker)
+  app.get('/api/system/logs', async (req, res) => {
+    try {
+        const { exec } = require('child_process');
+        exec('docker logs belafarma-backend-1 --tail 200', (error, stdout, stderr) => {
+            if (error) {
+                return res.status(500).send(`Erro ao ler logs: ${error.message}`);
+            }
+            res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace;">${stdout || stderr || 'Nenhum log encontrado.'}</pre>`);
+        });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 
