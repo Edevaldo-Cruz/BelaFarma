@@ -16,6 +16,23 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// Redirecionar logs para arquivo para facilitar debug via Web
+const logStream = fs.createWriteStream(path.join(__dirname, 'backend.log'), { flags: 'a' });
+const originalLog = console.log;
+const originalError = console.error;
+
+console.log = (...args) => {
+    const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
+    logStream.write(msg);
+    originalLog.apply(console, args);
+};
+
+console.error = (...args) => {
+    const msg = `[${new Date().toISOString()}] ❌ ERROR: ${args.join(' ')}\n`;
+    logStream.write(msg);
+    originalError.apply(console, args);
+};
+
 const safelyParseJSON = (jsonString, fallback = []) => {
   try {
     if (!jsonString) return fallback;
