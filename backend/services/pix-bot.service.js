@@ -81,13 +81,14 @@ class PixBotService {
         - CPF/CNPJ: pode aparecer parcialmente mascarado (ex: ***.785.780-**140 ou 47.378.578/****-**)
         - Chave PIX: pode ser email (belafarmasul@gmail.com), CPF ou CNPJ mascarado
         - Instituição: Mercado Pago ou qualquer banco
+        - DICA VISUAL: O Mercado Pago costuma exibir valores redondos SEM CENTAVOS (ex: "R$ 19") e usa uma fonte limpa e espaçada. Isso NÃO é sinal de falsificação.
 
         CRITÉRIOS DE SEGURANÇA OBRIGATÓRIOS (Recuse se algum falhar):
         1. DESTINATÁRIO (campo "Para" no comprovante): O nome deve corresponder à farmácia conforme dados acima. CPF/CNPJ e chave PIX podem estar parcialmente ocultos — isso é NORMAL nos comprovantes brasileiros. RECUSE apenas se o nome do destinatário for claramente outra pessoa ou empresa.
         2. REMETENTE (campo "De" no comprovante): Pode ser qualquer pessoa física (CPF) ou jurídica (CNPJ), com documento parcial ou totalmente mascarado. NUNCA recuse por causa do remetente.
         3. STATUS CONCLUÍDO: A transferência DEVE ser efetivada (Sucesso, Realizada, Concluída). RECUSE IMEDIATAMENTE se houver as palavras "Agendamento", "Aguardando", "Em processamento" ou "Agendado para".
         4. DATA E HORA: A data da transação NÃO PODE SER ANTIGA. Hoje é: ${todayDateStr}. Valide se o comprovante é de HOJE.
-        5. INTEGRIDADE VISUAL: Busque por indícios de falsificação (fontes misturadas, linhas tortas, valores em fonte diferente).
+        5. INTEGRIDADE VISUAL: Busque por indícios de falsificação grosseira (fontes misturadas, linhas tortas). O design minimalista do Mercado Pago (com logos azuis e layout limpo) é legítimo e deve ser aceito.
 
         Responda EXATAMENTE no formato JSON abaixo (sem \`\`\`json ou texto extra):
         {
