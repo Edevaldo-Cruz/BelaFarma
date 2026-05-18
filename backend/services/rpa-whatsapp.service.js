@@ -46,14 +46,29 @@ class RpaWhatsappService {
       
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
-      // Limpa trava de sessão (SingletonLock) órfã comum em reinicializações do Docker
-      const lockPath = path.join(sessionPath, 'SingletonLock');
-      if (fs.existsSync(lockPath)) {
+      // Mata TODOS os processos Chromium órfãos antes de iniciar
+      if (!isWindows) {
         try {
-          fs.unlinkSync(lockPath);
-          logToFile(`♻️ Trava de sessão SingletonLock encontrada e removida.`);
-        } catch (err) {
-          logToFile(`⚠️ Falha ao remover SingletonLock: ${err.message}`);
+          execSync('pkill -f chromium || true', { timeout: 5000 });
+          logToFile(`🔪 Processos Chromium órfãos encerrados.`);
+          // Aguarda encerramento completo
+          await new Promise(r => setTimeout(r, 2000));
+        } catch (e) {
+          logToFile(`⚠️ pkill chromium: ${e.message}`);
+        }
+      }
+
+      // Limpa TODOS os arquivos de trava do Chromium
+      const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+      for (const lockFile of lockFiles) {
+        const lockFilePath = path.join(sessionPath, lockFile);
+        if (fs.existsSync(lockFilePath)) {
+          try {
+            fs.unlinkSync(lockFilePath);
+            logToFile(`♻️ Trava ${lockFile} encontrada e removida.`);
+          } catch (err) {
+            logToFile(`⚠️ Falha ao remover ${lockFile}: ${err.message}`);
+          }
         }
       }
 
@@ -246,14 +261,29 @@ class RpaWhatsappService {
       
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
-      // Limpa trava de sessão (SingletonLock) órfã comum em reinicializações do Docker
-      const lockPath = path.join(sessionPath, 'SingletonLock');
-      if (fs.existsSync(lockPath)) {
+      // Mata TODOS os processos Chromium órfãos antes de iniciar
+      if (!isWindows) {
         try {
-          fs.unlinkSync(lockPath);
-          logToFile(`♻️ Trava de sessão SingletonLock encontrada e removida.`);
-        } catch (err) {
-          logToFile(`⚠️ Falha ao remover SingletonLock: ${err.message}`);
+          execSync('pkill -f chromium || true', { timeout: 5000 });
+          logToFile(`🔪 Processos Chromium órfãos encerrados.`);
+          // Aguarda encerramento completo
+          await new Promise(r => setTimeout(r, 2000));
+        } catch (e) {
+          logToFile(`⚠️ pkill chromium: ${e.message}`);
+        }
+      }
+
+      // Limpa TODOS os arquivos de trava do Chromium
+      const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+      for (const lockFile of lockFiles) {
+        const lockFilePath = path.join(sessionPath, lockFile);
+        if (fs.existsSync(lockFilePath)) {
+          try {
+            fs.unlinkSync(lockFilePath);
+            logToFile(`♻️ Trava ${lockFile} encontrada e removida.`);
+          } catch (err) {
+            logToFile(`⚠️ Falha ao remover ${lockFile}: ${err.message}`);
+          }
         }
       }
 
