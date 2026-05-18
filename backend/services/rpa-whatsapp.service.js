@@ -58,15 +58,15 @@ class RpaWhatsappService {
         }
       }
 
-      // Limpa TODOS os arquivos de trava do Chromium
+      // Limpa TODOS os arquivos de trava do Chromium (incluindo links simbólicos quebrados comuns no Docker)
       const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
       for (const lockFile of lockFiles) {
         const lockFilePath = path.join(sessionPath, lockFile);
-        if (fs.existsSync(lockFilePath)) {
-          try {
-            fs.unlinkSync(lockFilePath);
-            logToFile(`♻️ Trava ${lockFile} encontrada e removida.`);
-          } catch (err) {
+        try {
+          fs.unlinkSync(lockFilePath);
+          logToFile(`♻️ Trava ${lockFile} removida com sucesso.`);
+        } catch (err) {
+          if (err.code !== 'ENOENT') {
             logToFile(`⚠️ Falha ao remover ${lockFile}: ${err.message}`);
           }
         }
@@ -273,15 +273,15 @@ class RpaWhatsappService {
         }
       }
 
-      // Limpa TODOS os arquivos de trava do Chromium
+      // Limpa TODOS os arquivos de trava do Chromium (incluindo links simbólicos quebrados comuns no Docker)
       const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
       for (const lockFile of lockFiles) {
         const lockFilePath = path.join(sessionPath, lockFile);
-        if (fs.existsSync(lockFilePath)) {
-          try {
-            fs.unlinkSync(lockFilePath);
-            logToFile(`♻️ Trava ${lockFile} encontrada e removida.`);
-          } catch (err) {
+        try {
+          fs.unlinkSync(lockFilePath);
+          logToFile(`♻️ Trava ${lockFile} removida com sucesso.`);
+        } catch (err) {
+          if (err.code !== 'ENOENT') {
             logToFile(`⚠️ Falha ao remover ${lockFile}: ${err.message}`);
           }
         }
