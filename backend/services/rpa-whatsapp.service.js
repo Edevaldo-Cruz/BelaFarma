@@ -13,6 +13,7 @@ function logToFile(msg) {
 }
 
 const os = require('os');
+const config = require('../config');
 
 async function uploadViaInput(page, imagePath) {
   try {
@@ -40,10 +41,8 @@ class RpaWhatsappService {
 
     try {
       const isWindows = process.platform === 'win32';
-      // No Docker, usamos a pasta data que já está mapeada como volume
-      const sessionPath = isWindows 
-        ? path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa')
-        : path.join(__dirname, '..', '..', 'data', 'whatsapp-session-rpa');
+      // Usa a pasta data central configurada pelo sistema (independente de ambiente)
+      const sessionPath = path.join(path.dirname(config.dbPath), 'whatsapp-session-rpa');
       
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
@@ -225,9 +224,8 @@ class RpaWhatsappService {
     let browser = null;
     try {
       const isWindows = process.platform === 'win32';
-      const sessionPath = isWindows 
-        ? path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa')
-        : path.join(__dirname, '..', '..', 'data', 'whatsapp-session-rpa');
+      // Usa a pasta data central configurada pelo sistema (independente de ambiente)
+      const sessionPath = path.join(path.dirname(config.dbPath), 'whatsapp-session-rpa');
       
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
