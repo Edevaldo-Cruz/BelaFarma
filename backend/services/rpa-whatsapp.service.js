@@ -68,15 +68,21 @@ class RpaWhatsappService {
           '--start-maximized',
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage'
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer'
         ]
       };
 
       logToFile(`🌐 Lançando browser (${isWindows ? 'Windows' : 'Linux/Docker'})...`);
       browser = await puppeteer.launch(launchOptions);
+      // Pequeno delay para inicializar o frame principal no Docker
+      await new Promise(r => setTimeout(r, 2000));
 
       logToFile(`🌐 Browser lançado com sucesso. Abrindo nova página...`);
       const page = await browser.newPage();
+      // Pequeno delay para garantir que o frame da página foi criado
+      await new Promise(r => setTimeout(r, 1000));
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       
       logToFile(`🌐 Indo para web.whatsapp.com...`);
@@ -249,12 +255,19 @@ class RpaWhatsappService {
           '--start-maximized',
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage'
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer'
         ]
       };
 
       browser = await puppeteer.launch(launchOptions);
+      // Pequeno delay para inicializar o frame principal no Docker
+      await new Promise(r => setTimeout(r, 2000));
+
       const page = await browser.newPage();
+      // Pequeno delay para garantir que o frame da página foi criado
+      await new Promise(r => setTimeout(r, 1000));
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       
       await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded', timeout: 60000 });
