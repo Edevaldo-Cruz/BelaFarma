@@ -86,7 +86,7 @@ class RpaWhatsappService {
       }
 
       const launchOptions = {
-        headless: isWindows ? false : 'new', // Headless no Linux/Docker
+        headless: isWindows ? false : true, // Headless no Linux/Docker (Puppeteer v22+ usa true para o novo headless)
         executablePath: executablePath,
         userDataDir: sessionPath,
         defaultViewport: null,
@@ -299,7 +299,7 @@ class RpaWhatsappService {
       }
 
       const launchOptions = {
-        headless: isWindows ? false : 'new',
+        headless: isWindows ? false : true,
         executablePath: executablePath,
         userDataDir: sessionPath,
         defaultViewport: null,
