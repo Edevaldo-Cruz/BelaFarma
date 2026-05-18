@@ -29,7 +29,15 @@ const MAX_PER_CYCLE  = 5;     // máximo de mensagens enviadas por scan
 const MSG_DELAY_MS   = 4000;  // 4s entre cada mensagem
 const MSG_MAX_AGE_MS = 24 * 60 * 60 * 1000; // descarta mensagens com mais de 24h
 
+let isScanning = false;
+
 const scanPendingMessages = async () => {
+    if (isScanning) {
+        console.log('[Message Watcher] ⏳ Ciclo de escaneamento anterior ainda em execução. Ignorando este ciclo.');
+        return;
+    }
+    
+    isScanning = true;
     try {
         const files = fs.readdirSync(PENDENTES_DIR);
         
@@ -120,6 +128,8 @@ const scanPendingMessages = async () => {
         }
     } catch (err) {
         console.error('[Message Watcher] Erro ao acessar a pasta de pendentes:', err);
+    } finally {
+        isScanning = false;
     }
 };
 
