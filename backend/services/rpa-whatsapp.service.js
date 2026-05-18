@@ -274,18 +274,12 @@ class RpaWhatsappService {
         }
       }
 
-      // Limpa TODOS os arquivos de trava do Chromium (incluindo links simbólicos quebrados comuns no Docker)
-      const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
-      for (const lockFile of lockFiles) {
-        const lockFilePath = path.join(sessionPath, lockFile);
-        try {
-          fs.unlinkSync(lockFilePath);
-          logToFile(`♻️ Trava ${lockFile} removida com sucesso.`);
-        } catch (err) {
-          if (err.code !== 'ENOENT') {
-            logToFile(`⚠️ Falha ao remover ${lockFile}: ${err.message}`);
-          }
-        }
+      // Limpa TODA a pasta de sessão antiga para garantir que não haja arquivos corrompidos ou travas persistentes
+      try {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+        logToFile(`🧹 Pasta de sessão corrompida/antiga removida com sucesso para nova conexão.`);
+      } catch (err) {
+        logToFile(`⚠️ Falha ao limpar pasta de sessão: ${err.message}`);
       }
 
       let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
