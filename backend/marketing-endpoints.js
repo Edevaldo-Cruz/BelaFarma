@@ -296,6 +296,10 @@ function initializeMarketingEndpoints(app, db) {
       // Emitir evento para SSE se for uma mensagem nova de cliente
       if (payload.event === 'messages.upsert' && !payload.data.key?.fromMe) {
         notificationEmitter.emit('message');
+        
+        // Disparar sinal sonoro de notificação na rádio da farmácia
+        fetch('http://192.168.1.70:5005/api/notificar', { method: 'POST' })
+          .catch(err => console.error('[Webhook] Falha ao notificar rádio Bela Farma:', err.message));
       }
 
       // O evento de mensagem recebida na Evolution v2 é 'messages.upsert'

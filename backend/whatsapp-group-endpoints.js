@@ -43,7 +43,7 @@ function initializeWhatsAppGroupEndpoints(app) {
   // 2. Listar Postagens Agendadas
   app.get('/api/whatsapp/scheduled-posts', async (req, res) => {
     try {
-      const posts = await db.all('SELECT * FROM whatsapp_group_posts ORDER BY scheduledAt ASC');
+      const posts = await db.prepare('SELECT * FROM whatsapp_group_posts ORDER BY scheduledAt ASC').all();
       res.json(posts);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -56,12 +56,20 @@ function initializeWhatsAppGroupEndpoints(app) {
       const { groupId, groupName, content, scheduledAt } = req.body;
       const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
 
-      const result = await db.run(
-        'INSERT INTO whatsapp_group_posts (groupId, groupName, content, mediaPath, scheduledAt, status) VALUES (?, ?, ?, ?, ?, ?)',
-        [groupId, groupName, content, mediaPath, scheduledAt, 'Pendente']
+      const result = await db.prepare(
+        'INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        'post-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+        groupId,
+        groupName,
+        content,
+        mediaPath,
+        scheduledAt,
+        'Pendente',
+        new Date().toISOString()
       );
 
-      res.status(201).json({ id: result.lastID, message: 'Agendamento criado com sucesso!' });
+      res.status(201).json({ id: result.lastInsertRowid, message: 'Agendamento criado com sucesso!' });
     } catch (err) {
       console.error('[WhatsAppGroups] Erro ao agendar:', err);
       res.status(500).json({ error: err.message });
@@ -71,7 +79,7 @@ function initializeWhatsAppGroupEndpoints(app) {
   // 4. Excluir Agendamento
   app.delete('/api/whatsapp/scheduled-posts/:id', async (req, res) => {
     try {
-      await db.run('DELETE FROM whatsapp_group_posts WHERE id = ?', [req.params.id]);
+      await db.prepare('DELETE FROM whatsapp_group_posts WHERE id = ?').run(req.params.id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -82,10 +90,9 @@ function initializeWhatsAppGroupEndpoints(app) {
   app.post('/api/whatsapp/process-pending', async (req, res) => {
     try {
       const now = new Date().toISOString();
-      const pendingPosts = await db.all(
-        'SELECT * FROM whatsapp_group_posts WHERE status = ? AND scheduledAt <= ?',
-        ['Pendente', now]
-      );
+      const pendingPosts = await db.prepare(
+        'SELECT * FROM whatsapp_group_posts WHERE status = ? AND scheduledAt <= ?'
+      ).all('Pendente', now);
 
       console.log(`[WhatsAppGroups] Processando ${pendingPosts.length} postagens pendentes via RPA...`);
       
@@ -97,10 +104,9 @@ function initializeWhatsAppGroupEndpoints(app) {
         const status = result.success ? 'Enviado' : 'Erro';
         const errorMsg = result.success ? null : result.error;
 
-        await db.run(
-          'UPDATE whatsapp_group_posts SET status = ?, errorMessage = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
-          [status, errorMsg, post.id]
-        );
+        await db.prepare(
+          'UPDATE whatsapp_group_posts SET status = ?, errorMessage = ?, sentAt = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(status, errorMsg, post.id);
         
         results.push({ id: post.id, group: target, result });
       }

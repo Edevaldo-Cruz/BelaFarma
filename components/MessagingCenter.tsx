@@ -1076,6 +1076,8 @@ const WhatsAppGroupsTab: React.FC = () => {
   // Form States
   const [showCreate, setShowCreate] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [manualGroupName, setManualGroupName] = useState('');
+  const [isCustomGroup, setIsCustomGroup] = useState(false);
   const [content, setContent] = useState('');
   const [scheduledTime, setScheduledTime] = useState('10:00');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -1087,7 +1089,7 @@ const WhatsAppGroupsTab: React.FC = () => {
       return;
     }
 
-    if (!confirm('Deseja enviar esta mensagem agora mesmo via Navegador?')) return;
+
 
     setSubmitting(true);
     try {
@@ -1111,6 +1113,8 @@ const WhatsAppGroupsTab: React.FC = () => {
         addToast('Mensagem enviada com sucesso via RPA!', 'success');
         setContent('');
         setMediaFile(null);
+        setManualGroupName('');
+        setIsCustomGroup(false);
       } else {
         addToast(data.error || 'Erro ao enviar agora.', 'error');
       }
@@ -1208,6 +1212,8 @@ const WhatsAppGroupsTab: React.FC = () => {
         setShowCreate(false);
         setContent('');
         setMediaFile(null);
+        setManualGroupName('');
+        setIsCustomGroup(false);
         fetchData();
       } else {
         const data = await res.json();
@@ -1291,8 +1297,17 @@ const WhatsAppGroupsTab: React.FC = () => {
                 </div>
                 <div className="relative">
                   <select
-                    value={selectedGroup}
-                    onChange={e => setSelectedGroup(e.target.value)}
+                    value={isCustomGroup ? 'custom' : selectedGroup}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === 'custom') {
+                        setIsCustomGroup(true);
+                        setSelectedGroup('');
+                      } else {
+                        setIsCustomGroup(false);
+                        setSelectedGroup(val);
+                      }
+                    }}
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm appearance-none cursor-pointer"
                   >
                     <option value="">Selecione um grupo...</option>
@@ -1306,22 +1321,16 @@ const WhatsAppGroupsTab: React.FC = () => {
                   <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 </div>
                 
-                {selectedGroup === 'custom' && (
+                {isCustomGroup && (
                   <input
                     type="text"
+                    value={manualGroupName}
+                    onChange={e => {
+                      setManualGroupName(e.target.value);
+                      setSelectedGroup(e.target.value);
+                    }}
                     placeholder="Digite o nome exato do grupo..."
                     className="w-full mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm animate-in fade-in slide-in-from-top-2"
-                    onChange={e => {
-                      // Usamos um truque aqui: mantemos custom no select mas guardamos o valor digitado
-                      // Para simplificar, vamos mudar como lidamos com isso no handleSubmit
-                      (e.target as any)._manualValue = e.target.value;
-                    }}
-                    onBlur={e => {
-                      const val = e.target.value;
-                      if (val) {
-                        setSelectedGroup(val); // Define o valor final como o texto digitado
-                      }
-                    }}
                   />
                 )}
                 <p className="text-[10px] text-green-600 font-bold ml-1">O robô pesquisará pelo nome do grupo selecionado.</p>
