@@ -46,6 +46,17 @@ class RpaWhatsappService {
       
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
 
+      // Limpa trava de sessão (SingletonLock) órfã comum em reinicializações do Docker
+      const lockPath = path.join(sessionPath, 'SingletonLock');
+      if (fs.existsSync(lockPath)) {
+        try {
+          fs.unlinkSync(lockPath);
+          logToFile(`♻️ Trava de sessão SingletonLock encontrada e removida.`);
+        } catch (err) {
+          logToFile(`⚠️ Falha ao remover SingletonLock: ${err.message}`);
+        }
+      }
+
       let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
       
       // Fallback para caminhos comuns no Linux
@@ -234,6 +245,17 @@ class RpaWhatsappService {
       const sessionPath = path.join(path.dirname(config.dbPath), 'whatsapp-session-rpa');
       
       logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
+
+      // Limpa trava de sessão (SingletonLock) órfã comum em reinicializações do Docker
+      const lockPath = path.join(sessionPath, 'SingletonLock');
+      if (fs.existsSync(lockPath)) {
+        try {
+          fs.unlinkSync(lockPath);
+          logToFile(`♻️ Trava de sessão SingletonLock encontrada e removida.`);
+        } catch (err) {
+          logToFile(`⚠️ Falha ao remover SingletonLock: ${err.message}`);
+        }
+      }
 
       let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
       if (!isWindows && !executablePath) {
