@@ -248,6 +248,45 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
+  // 12. Iniciar conexão interativa do RPA para obter o QR Code e autenticar
+  app.get('/api/whatsapp/rpa-connect', async (req, res) => {
+    try {
+        console.log('[WhatsAppGroups] 🤖 Iniciando solicitação de conexão RPA em segundo plano...');
+        
+        // Roda em background para evitar timeout do HTTP na VPS
+        rpaWhatsapp.connectSession().then(result => {
+            console.log('[WhatsAppGroups] 🤖 Resultado da conexão RPA:', result);
+        }).catch(err => {
+            console.error('[WhatsAppGroups] 🤖 Erro na conexão RPA:', err);
+        });
+
+        res.send(`
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 50px auto; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); background: #ffffff; text-align: center; border-top: 5px solid #25d366;">
+                <h2 style="color: #25d366; font-size: 28px; margin-bottom: 10px;">🤖 Conexão do Robô WhatsApp Iniciada!</h2>
+                <div style="background: #e3f2fd; border-left: 5px solid #2196f3; padding: 20px; text-align: left; margin: 25px 0; border-radius: 4px;">
+                    <strong style="color: #0d47a1; font-size: 16px;">Passos Importantes para Escanear:</strong>
+                    <ol style="margin-top: 10px; padding-left: 20px; line-height: 1.8; color: #333; font-size: 15px;">
+                        <li>Abra o link do QR Code em uma nova aba:
+                            <br/>
+                            <a href="/api/whatsapp/rpa-screenshot" target="_blank" style="display: inline-block; margin-top: 5px; padding: 8px 15px; background: #25d366; color: white; font-weight: bold; text-decoration: none; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                                📲 Abrir Tela do QR Code / Screenshot
+                            </a>
+                        </li>
+                        <li>Atualize a página do link acima a cada 3 a 5 segundos até aparecer o QR Code oficial do WhatsApp.</li>
+                        <li>Abra o WhatsApp do seu celular, vá em <strong>Aparelhos Conectados > Conectar Aparelho</strong> e escaneie o código.</li>
+                        <li>Após escanear, atualize o screenshot novamente: quando carregar suas conversas, o robô estará pareado!</li>
+                    </ol>
+                </div>
+                <p style="font-size: 14px; color: #666; margin-bottom: 0;">
+                    ⚠️ A sessão de pareamento ficará aberta por <strong>3 minutos</strong> na VPS. Após esse tempo, o robô fechará automaticamente.
+                </p>
+            </div>
+        `);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 

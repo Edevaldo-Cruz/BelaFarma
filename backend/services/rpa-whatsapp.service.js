@@ -219,6 +219,86 @@ class RpaWhatsappService {
       return { success: false, error: error.message };
     }
   }
+
+  async connectSession() {
+    logToFile(`🤖 Iniciando sessão interativa para conexão do RPA...`);
+    let browser = null;
+    try {
+      const isWindows = process.platform === 'win32';
+      const sessionPath = isWindows 
+        ? path.join(os.homedir(), '.belafarma', 'whatsapp-session-rpa')
+        : path.join(__dirname, '..', '..', 'data', 'whatsapp-session-rpa');
+      
+      logToFile(`📂 Sessão do Chrome configurada em: ${sessionPath}`);
+
+      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+      if (!isWindows && !executablePath) {
+        const commonPaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+        for (const p of commonPaths) {
+            if (fs.existsSync(p)) {
+                executablePath = p;
+                break;
+            }
+        }
+      }
+
+      const launchOptions = {
+        headless: isWindows ? false : 'new',
+        executablePath: executablePath,
+        userDataDir: sessionPath,
+        defaultViewport: null,
+        args: [
+          '--start-maximized',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage'
+        ]
+      };
+
+      browser = await puppeteer.launch(launchOptions);
+      const page = await browser.newPage();
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      
+      await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded', timeout: 60000 });
+      
+      const screenshotPath = path.join(__dirname, '..', 'rpa-screenshot.png');
+      
+      // Loop de 3 minutos para permitir o escaneamento do QR Code
+      const maxSeconds = 180;
+      let connected = false;
+      
+      for (let i = 0; i < maxSeconds; i += 5) {
+        if (!browser || !page) break;
+        
+        // Tira o screenshot atual
+        await page.screenshot({ path: screenshotPath });
+        logToFile(`📸 Screenshot atualizado (${i}s). Verifique em /api/whatsapp/rpa-screenshot`);
+        
+        // Verifica se a tela inicial ou barra de pesquisa está disponível (logado)
+        const loggedIn = await page.evaluate(() => {
+          return !!document.querySelector('span[data-icon="chat"]') || 
+                 !!document.querySelector('span[data-icon="search"]') ||
+                 !!document.querySelector('div[contenteditable="true"]');
+        });
+        
+        if (loggedIn) {
+          logToFile(`✅ RPA Conectado com sucesso! Sessão salva em ${sessionPath}`);
+          connected = true;
+          await page.screenshot({ path: screenshotPath });
+          break;
+        }
+        
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      
+      await browser.close();
+      return { success: connected, error: connected ? null : 'Tempo limite de 3 minutos esgotado' };
+    } catch (error) {
+      logToFile(`🚨 Erro na conexão do RPA: ${error.message}`);
+      if (browser) await browser.close();
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = new RpaWhatsappService();
