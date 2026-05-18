@@ -90,6 +90,7 @@ class RpaWhatsappService {
         executablePath: executablePath,
         userDataDir: sessionPath,
         defaultViewport: null,
+        dumpio: true, // Redireciona a saída do Chromium para os logs gerais do container
         args: [
           '--start-maximized',
           '--no-sandbox',
@@ -303,6 +304,7 @@ class RpaWhatsappService {
         executablePath: executablePath,
         userDataDir: sessionPath,
         defaultViewport: null,
+        dumpio: true, // Redireciona a saída do Chromium para os logs gerais do container
         args: [
           '--start-maximized',
           '--no-sandbox',
