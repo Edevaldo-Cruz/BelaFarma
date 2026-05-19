@@ -70,7 +70,8 @@ async function pairVisual() {
   const page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   
-  await page.goto('https://web.whatsapp.com');
+  // Aguarda carregar o HTML básico de forma rápida, com limite de 90 segundos
+  await page.goto('https://web.whatsapp.com', { waitUntil: 'domcontentloaded', timeout: 90000 });
 
   console.log('\n=============================================');
   console.log('📲 ESCANEIE O QR CODE NO SEU CELULAR!');
