@@ -17,27 +17,8 @@ const config = require('../config');
 
 async function uploadViaInput(page, imagePath) {
   try {
-    logToFile(`📎 Tentando localizar o input de fotos e vídeos diretamente no DOM...`);
-    let fileInput = await page.$('input[accept="image/*,video/mp4,video/3gpp,video/quicktime"]');
-    if (!fileInput) {
-      fileInput = await page.$('input[accept*="video"]');
-    }
-    
-    if (!fileInput) {
-      logToFile(`📎 Input não localizado diretamente. Abrindo menu de anexos (+)...`);
-      const attachBtn = await page.waitForSelector('span[data-icon="plus"], span[data-icon="attach-menu-plus"]', { timeout: 8000 });
-      await attachBtn.click();
-      
-      // Pequeno delay para animação de abertura do menu
-      await new Promise(r => setTimeout(r, 2000));
-      
-      logToFile(`📎 Localizando o input de fotos e vídeos após abrir o menu...`);
-      fileInput = await page.$('input[accept="image/*,video/mp4,video/3gpp,video/quicktime"]');
-      if (!fileInput) {
-        fileInput = await page.waitForSelector('input[accept*="video"]', { timeout: 8000 });
-      }
-    }
-    
+    logToFile(`📎 Localizando o input de fotos e vídeos diretamente no DOM (accept*="video")...`);
+    const fileInput = await page.waitForSelector('input[accept*="video"]', { timeout: 12000 });
     await fileInput.uploadFile(imagePath);
     logToFile(`✅ Upload do arquivo de imagem executado com sucesso!`);
     return true;
