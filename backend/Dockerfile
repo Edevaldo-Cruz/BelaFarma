@@ -1,5 +1,5 @@
-# Use Debian Bullseye (mais estável para Puppeteer)
-FROM node:22-bullseye-slim
+# Use Debian Bookworm/Slim (compatível com a VPS e mais moderno para Puppeteer)
+FROM node:22-slim
 
 # Crie e defina o diretório de trabalho dentro do contêiner
 WORKDIR /usr/src/app
