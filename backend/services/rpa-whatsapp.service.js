@@ -17,15 +17,21 @@ const config = require('../config');
 
 async function uploadViaInput(page, imagePath) {
   try {
-    logToFile(`📎 Clicando no botão de anexo (+) ...`);
-    const attachBtn = await page.waitForSelector('span[data-icon="plus"], span[data-icon="attach-menu-plus"]', { timeout: 5000 });
-    await attachBtn.click();
+    logToFile(`📎 Tentando localizar o input de upload diretamente no DOM...`);
+    let fileInput = await page.$('input[accept*="image"]');
     
-    // Pequeno delay para animação de abertura do menu
-    await new Promise(r => setTimeout(r, 1500));
+    if (!fileInput) {
+      logToFile(`📎 Input não localizado diretamente. Abrindo menu de anexos (+)...`);
+      const attachBtn = await page.waitForSelector('span[data-icon="plus"], span[data-icon="attach-menu-plus"]', { timeout: 8000 });
+      await attachBtn.click();
+      
+      // Pequeno delay para animação de abertura do menu
+      await new Promise(r => setTimeout(r, 2000));
+      
+      logToFile(`📎 Localizando o input de imagem (accept*="image") após abrir o menu...`);
+      fileInput = await page.waitForSelector('input[accept*="image"]', { timeout: 8000 });
+    }
     
-    logToFile(`📎 Localizando o input específico para fotos e vídeos (accept*="image")...`);
-    const fileInput = await page.waitForSelector('input[accept*="image"]', { timeout: 5000 });
     await fileInput.uploadFile(imagePath);
     logToFile(`✅ Upload do arquivo de imagem executado com sucesso!`);
     return true;
@@ -157,7 +163,8 @@ class RpaWhatsappService {
         await page.keyboard.press('Enter');
       }
 
-      await new Promise(r => setTimeout(r, 2000));
+      // Aguarda 5 segundos para o chat do grupo carregar por completo na VPS
+      await new Promise(r => setTimeout(r, 5000));
 
       if (imagePath) {
         logToFile(`📎 Processando resolução do caminho da imagem...`);
