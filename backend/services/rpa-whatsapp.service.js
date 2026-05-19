@@ -17,8 +17,11 @@ const config = require('../config');
 
 async function uploadViaInput(page, imagePath) {
   try {
-    logToFile(`📎 Tentando localizar o input de upload diretamente no DOM...`);
-    let fileInput = await page.$('input[accept*="image"]');
+    logToFile(`📎 Tentando localizar o input de fotos e vídeos diretamente no DOM...`);
+    let fileInput = await page.$('input[accept="image/*,video/mp4,video/3gpp,video/quicktime"]');
+    if (!fileInput) {
+      fileInput = await page.$('input[accept*="video"]');
+    }
     
     if (!fileInput) {
       logToFile(`📎 Input não localizado diretamente. Abrindo menu de anexos (+)...`);
@@ -28,8 +31,11 @@ async function uploadViaInput(page, imagePath) {
       // Pequeno delay para animação de abertura do menu
       await new Promise(r => setTimeout(r, 2000));
       
-      logToFile(`📎 Localizando o input de imagem (accept*="image") após abrir o menu...`);
-      fileInput = await page.waitForSelector('input[accept*="image"]', { timeout: 8000 });
+      logToFile(`📎 Localizando o input de fotos e vídeos após abrir o menu...`);
+      fileInput = await page.$('input[accept="image/*,video/mp4,video/3gpp,video/quicktime"]');
+      if (!fileInput) {
+        fileInput = await page.waitForSelector('input[accept*="video"]', { timeout: 8000 });
+      }
     }
     
     await fileInput.uploadFile(imagePath);
