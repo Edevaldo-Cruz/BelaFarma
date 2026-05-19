@@ -148,26 +148,30 @@ class RpaWhatsappService {
       await page.keyboard.type(groupName, { delay: 150 });
       await new Promise(r => setTimeout(r, 3000));
       
-      logToFile(`👆 Calculando posição do grupo no DOM...`);
-      const chatRect = await page.evaluate((nome) => {
+      logToFile(`👆 Localizando e abrindo o chat do grupo...`);
+      const chatOpened = await page.evaluate((nome) => {
         const spans = Array.from(document.querySelectorAll('span'));
         const chat = spans.find(s => s.title === nome || s.innerText === nome);
         if (chat) {
-          const rect = chat.getBoundingClientRect();
-          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+          // Acha a div clicável mais próxima para simular o clique perfeito
+          const clickTarget = chat.closest('div[role="row"]') || chat.closest('div[role="button"]') || chat;
+          clickTarget.click();
+          return true;
         }
-        return null;
+        return false;
       }, groupName);
 
-      if (chatRect) {
-        logToFile(`👆 Grupo encontrado em X:${chatRect.x}, Y:${chatRect.y}. Clicando...`);
-        await page.mouse.click(chatRect.x, chatRect.y);
+      if (chatOpened) {
+        logToFile(`👆 Grupo aberto com sucesso via clique direto no DOM.`);
       } else {
-        logToFile(`⚠️ Grupo não visível no DOM. Tentando atalho de teclado...`);
+        logToFile(`⚠️ Grupo não localizado diretamente no DOM. Tentando atalho de teclado...`);
         await page.keyboard.press('ArrowDown');
         await new Promise(r => setTimeout(r, 500));
         await page.keyboard.press('Enter');
       }
+
+      // Adicionalmente, pressiona Enter na caixa de pesquisa para garantir a seleção do resultado
+      await page.keyboard.press('Enter');
 
       // Aguarda 5 segundos para o chat do grupo carregar por completo na VPS
       await new Promise(r => setTimeout(r, 5000));
