@@ -146,34 +146,11 @@ class RpaWhatsappService {
       await new Promise(r => setTimeout(r, 1000));
 
       await page.keyboard.type(groupName, { delay: 150 });
-      // Aguarda 4 segundos inteiros para a busca do WhatsApp filtrar e renderizar a lista de chats
-      await new Promise(r => setTimeout(r, 4000));
       
-      logToFile(`👆 Localizando as coordenadas exatas da linha do chat de "${groupName}"...`);
-      const chatRect = await page.evaluate((nome) => {
-        const spans = Array.from(document.querySelectorAll('span'));
-        // Filtra apenas spans que tenham o nome exato e estejam dentro de uma linha de chat ativa (role="row" ou role="button")
-        const chat = spans.find(s => {
-          const isMatch = s.title === nome || s.innerText === nome;
-          return isMatch && (s.closest('div[role="row"]') || s.closest('div[role="button"]'));
-        });
-        if (chat) {
-          const rect = chat.getBoundingClientRect();
-          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-        }
-        return null;
-      }, groupName);
-
-      if (chatRect) {
-        logToFile(`👆 Grupo encontrado em X:${chatRect.x}, Y:${chatRect.y}. Clicando com evento de mouse nativo confiável...`);
-        await page.mouse.click(chatRect.x, chatRect.y);
-      } else {
-        logToFile(`⚠️ Grupo não visível no DOM. Tentando atalho de teclado [ENTER]...`);
-        await page.keyboard.press('Enter');
-      }
-
-      // Adicionalmente, pressiona Enter na caixa de pesquisa para garantir a seleção do resultado
-      await page.keyboard.press('Enter');
+      logToFile(`👆 Aguardando e clicando no grupo "${groupName}" nativamente...`);
+      const chatElement = await page.waitForSelector(`span[title="${groupName}"]`, { timeout: 15000 });
+      await chatElement.click();
+      logToFile(`✅ Grupo selecionado com sucesso.`);
 
       // Aguarda 5 segundos para o chat do grupo carregar por completo na VPS
       await new Promise(r => setTimeout(r, 5000));
