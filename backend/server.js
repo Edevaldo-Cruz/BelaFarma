@@ -1929,26 +1929,6 @@ app.get('/api/customers-inactive', (req, res) => {
     thresholdDate.setDate(thresholdDate.getDate() - days);
     const thresholdStr = thresholdDate.toISOString().split('T')[0]; // YYYY-MM-DD
     
-    // Busca última data de venda por cliente
-    const salesList = db.prepare(`
-      SELECT customer_id, MAX(sale_date) as last_sale 
-      FROM sales 
-      WHERE customer_id IS NOT NULL AND status != 'Cancelada'
-      GROUP BY customer_id
-    `).all();
-    const salesMap = {};
-    salesList.forEach(s => { if (s.customer_id) salesMap[s.customer_id] = s.last_sale; });
-    
-    // Busca último crediário por cliente
-    const debtsList = db.prepare(`
-      SELECT customerId, MAX(purchaseDate) as last_debt 
-      FROM customer_debts 
-      WHERE customerId IS NOT NULL
-      GROUP BY customerId
-    `).all();
-    const debtsMap = {};
-    debtsList.forEach(d => { if (d.customerId) debtsMap[d.customerId] = d.last_debt; });
-    
     // Busca último log de mensagem por cliente
     const msgMap = {};
     try {
@@ -1970,26 +1950,15 @@ app.get('/api/customers-inactive', (req, res) => {
     const customers = db.prepare('SELECT * FROM customers').all();
     
     const inactiveCustomers = customers.map(c => {
-      const lastSale = salesMap[c.id] || null;
-      const lastDebt = debtsMap[c.id] || null;
       const lastMessage = msgMap[c.id] || null;
-      
-      const dates = [lastSale, lastDebt, lastMessage].filter(Boolean);
-      let lastInteraction = null;
-      if (dates.length > 0) {
-        dates.sort();
-        lastInteraction = dates[dates.length - 1];
-      }
       
       return {
         ...c,
-        lastSale,
-        lastDebt,
         lastMessage,
-        lastInteraction
+        lastInteraction: lastMessage // Somente a última mensagem de WhatsApp é considerada
       };
     }).filter(c => {
-      // Se nunca interagiu, usa a data de criação do cadastro como referência
+      // Se nunca enviou mensagem de WhatsApp, usa a data de criação do cadastro
       const refDate = c.lastInteraction || c.createdAt.substring(0, 10) || '1970-01-01';
       return refDate < thresholdStr;
     });
