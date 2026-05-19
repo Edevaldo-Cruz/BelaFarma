@@ -147,9 +147,16 @@ class RpaWhatsappService {
 
       await page.keyboard.type(groupName, { delay: 150 });
       
-      logToFile(`👆 Aguardando e clicando no grupo "${groupName}" nativamente...`);
+      logToFile(`👆 Aguardando e localizando o grupo "${groupName}"...`);
       const chatElement = await page.waitForSelector(`span[title="${groupName}"]`, { timeout: 15000 });
-      await chatElement.click();
+      
+      logToFile(`👆 Obtendo o container clicável da conversa...`);
+      const chatRow = await page.evaluateHandle(el => {
+        return el.closest('div[role="row"]') || el.closest('div[role="button"]') || el;
+      }, chatElement);
+      
+      logToFile(`👆 Clicando no grupo nativamente...`);
+      await chatRow.click();
       logToFile(`✅ Grupo selecionado com sucesso.`);
 
       // Aguarda 5 segundos para o chat do grupo carregar por completo na VPS
