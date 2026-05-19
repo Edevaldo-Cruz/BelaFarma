@@ -17,14 +17,20 @@ const config = require('../config');
 
 async function uploadViaInput(page, imagePath) {
   try {
+    logToFile(`📎 Clicando no botão de anexo (+) ...`);
     const attachBtn = await page.waitForSelector('span[data-icon="plus"], span[data-icon="attach-menu-plus"]', { timeout: 5000 });
     await attachBtn.click();
     
-    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 5000 });
+    // Pequeno delay para animação de abertura do menu
+    await new Promise(r => setTimeout(r, 1500));
+    
+    logToFile(`📎 Localizando o input específico para fotos e vídeos (accept*="image")...`);
+    const fileInput = await page.waitForSelector('input[accept*="image"]', { timeout: 5000 });
     await fileInput.uploadFile(imagePath);
+    logToFile(`✅ Upload do arquivo de imagem executado com sucesso!`);
     return true;
   } catch (e) {
-    console.error('Erro ao fazer upload via input:', e.message);
+    logToFile(`🚨 Erro ao fazer upload via input: ${e.message}`);
     return false;
   }
 }
@@ -199,7 +205,10 @@ class RpaWhatsappService {
           await page.keyboard.up('Control');
         } else {
           logToFile(`📎 Sistema Linux/Docker detectado. Usando upload via input de arquivo...`);
-          await uploadViaInput(page, absoluteImagePath);
+          const uploadSuccess = await uploadViaInput(page, absoluteImagePath);
+          if (!uploadSuccess) {
+            throw new Error(`Falha crítica ao anexar a imagem no WhatsApp Web! Verifique se o formato do arquivo é suportado.`);
+          }
         }
 
         logToFile(`⏳ Aguardando pré-visualização carregar...`);
