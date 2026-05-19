@@ -1490,13 +1490,25 @@ const WhatsAppGroupsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
-          <Calendar className="w-6 h-6 text-green-600" />
-          Calendário de Disparos
-        </h3>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <Calendar className="w-6 h-6 text-green-600" />
+            Calendário de Disparos
+          </h3>
+          
+          <a
+            href="/uploads/belafarma-agent.zip"
+            download="belafarma-agent.zip"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer"
+            title="Baixar Robô de Disparos do WhatsApp para Windows"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+            Baixar Robô Windows 🤖
+          </a>
+        </div>
         
-        <div className="flex items-center bg-white dark:bg-slate-800 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center bg-white dark:bg-slate-800 rounded-xl p-1 shadow-sm border border-slate-200 dark:border-slate-700 self-end sm:self-auto">
           <button onClick={prevMonth} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-600">
             <ChevronLeft className="w-4 h-4" />
           </button>
