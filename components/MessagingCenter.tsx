@@ -13,13 +13,14 @@ import { MessageTemplate, MessageLog, MessageCampaign, MessageSchedule, Customer
 // ============================================================================
 // TABS
 // ============================================================================
-type Tab = 'templates' | 'schedules' | 'send' | 'campaigns' | 'log' | 'stats' | 'whatsapp-groups';
+type Tab = 'templates' | 'schedules' | 'send' | 'campaigns' | 'crm-inactive' | 'log' | 'stats' | 'whatsapp-groups';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'templates', label: 'Templates', icon: Edit3 },
   { id: 'schedules', label: 'Agendamentos', icon: Clock },
   { id: 'send', label: 'Enviar', icon: Send },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
+  { id: 'crm-inactive', label: 'Reativar Clientes', icon: RefreshCw },
   { id: 'log', label: 'Histórico', icon: History },
   { id: 'stats', label: 'Estatísticas', icon: BarChart3 },
   { id: 'whatsapp-groups', label: 'Grupos WA', icon: Users },
@@ -89,6 +90,7 @@ export const MessagingCenter: React.FC = () => {
       {activeTab === 'schedules' && <SchedulesTab />}
       {activeTab === 'send' && <SendTab />}
       {activeTab === 'campaigns' && <CampaignsTab />}
+      {activeTab === 'crm-inactive' && <CRMInactiveTab />}
       {activeTab === 'log' && <LogTab />}
       {activeTab === 'stats' && <StatsTab />}
       {activeTab === 'whatsapp-groups' && <WhatsAppGroupsTab />}
@@ -1603,6 +1605,383 @@ const WhatsAppGroupsTab: React.FC = () => {
     </div>
   );
 };
+
+// ============================================================================
+// CRM INACTIVE CUSTOMERS TAB
+// ============================================================================
+const CRMInactiveTab: React.FC = () => {
+  const [inactiveCustomers, setInactiveCustomers] = useState<any[]>([]);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
+  const [inactivityDays, setInactivityDays] = useState<number>(30);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  
+  // Form para disparo
+  const [campaignName, setCampaignName] = useState('');
+  const [messageText, setMessageText] = useState('');
+  const { addToast } = useToast();
+
+  // Busca dados de clientes inativos e templates
+  const fetchInactiveData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [custRes, tempRes] = await Promise.all([
+        fetch(`/api/customers-inactive?days=${inactivityDays}`),
+        fetch('/api/messages/templates')
+      ]);
+      if (custRes.ok && tempRes.ok) {
+        setInactiveCustomers(await custRes.json());
+        setTemplates(await tempRes.json());
+      } else {
+        addToast('Erro ao carregar dados dos clientes inativos.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro de rede ao buscar dados.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [inactivityDays, addToast]);
+
+  useEffect(() => {
+    fetchInactiveData();
+  }, [fetchInactiveData]);
+
+  // Preencher nome da campanha sugerido
+  useEffect(() => {
+    const today = new Date().toLocaleDateString('pt-BR');
+    setCampaignName(`Reativação CRM - ${inactivityDays} dias (${today})`);
+  }, [inactivityDays]);
+
+  // Ao selecionar um template, preenche a mensagem
+  const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const templateId = e.target.value;
+    setSelectedTemplateId(templateId);
+    const selected = templates.find(t => t.id === templateId);
+    if (selected) {
+      setMessageText(selected.content);
+    } else {
+      setMessageText('');
+    }
+  };
+
+  // Seleções individuais
+  const toggleCustomer = (id: string) => {
+    setSelectedCustomerIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  // Selecionar todos filtrados
+  const selectAll = () => {
+    const ids = inactiveCustomers.filter(c => c.phone).map(c => c.id);
+    setSelectedCustomerIds(ids);
+  };
+
+  const deselectAll = () => setSelectedCustomerIds([]);
+
+  // Disparar campanha
+  const handleDispatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedCustomerIds.length === 0) {
+      addToast('Selecione pelo menos um cliente para entrar em contato.', 'warning');
+      return;
+    }
+    if (!campaignName || !messageText) {
+      addToast('Preencha o nome da campanha e o texto da mensagem.', 'warning');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // 1. Criar a campanha com os IDs dos clientes inativos selecionados
+      const campaignRes = await fetch('/api/messages/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: campaignName,
+          description: `Disparo automático para clientes inativos há mais de ${inactivityDays} dias.`,
+          messageContent: messageText,
+          targetCustomerIds: selectedCustomerIds,
+        }),
+      });
+
+      if (!campaignRes.ok) {
+        throw new Error('Falha ao registrar campanha no banco de dados.');
+      }
+
+      const campaignData = await campaignRes.json();
+      const campaignId = campaignData.id;
+
+      // 2. Executar a campanha para disparar as mensagens via Evolution API
+      const executeRes = await fetch(`/api/messages/campaigns/${campaignId}/execute`, {
+        method: 'POST'
+      });
+
+      if (!executeRes.ok) {
+        throw new Error('Falha ao agendar os envios das mensagens.');
+      }
+
+      const executeData = await executeRes.json();
+      
+      addToast(`Campanha disparada com sucesso! ${executeData.sent} mensagens colocadas na fila de envio.`, 'success');
+      
+      // Limpa seleções
+      setSelectedCustomerIds([]);
+      setMessageText('');
+      setSelectedTemplateId('');
+      
+      // Recarrega a lista
+      fetchInactiveData();
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao processar disparo.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+      {/* Top Info Banner */}
+      <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-emerald-950/20 dark:to-green-950/20 border border-green-100 dark:border-green-900/30 rounded-3xl p-6 shadow-sm flex items-start gap-4">
+        <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-green-200/50 dark:border-green-800/30 shrink-0">
+          <RefreshCw className="w-6 h-6 text-green-600 animate-spin" style={{ animationDuration: '6s' }} />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-lg font-black text-slate-800 dark:text-slate-100 tracking-tight">
+            Campanha de Retenção e Reengajamento CRM
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-3xl">
+            Esta tela analisa de forma inteligente todo o seu banco de dados local da farmácia (fechamentos de caixa, crediários, vendas PDV e histórico do WhatsApp) para identificar clientes que estão sumidos. Use esta oportunidade para selecionar clientes inativos e enviar cupons de desconto ou mensagens personalizadas de "sentimos sua falta"!
+          </p>
+        </div>
+      </div>
+
+      {/* Control Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex items-center gap-3 flex-1">
+          <label className="text-xs font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">
+            Tempo de Inatividade:
+          </label>
+          <select
+            value={inactivityDays}
+            onChange={e => setInactivityDays(Number(e.target.value))}
+            className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-green-500 outline-none transition-all shadow-sm max-w-xs"
+          >
+            <option value="15">Mais de 15 dias sem contato</option>
+            <option value="30">Mais de 30 dias (1 mês)</option>
+            <option value="45">Mais de 45 dias</option>
+            <option value="60">Mais de 60 dias (2 meses)</option>
+            <option value="90">Mais de 90 dias (3 meses)</option>
+            <option value="120">Mais de 120 dias (4 meses)</option>
+            <option value="180">Mais de 180 dias (Semestre)</option>
+            <option value="365">Mais de 365 dias (1 ano)</option>
+          </select>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={selectAll}
+            className="px-4 py-2 text-xs font-black bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl transition-all shadow-sm"
+          >
+            Selecionar Todos ({inactiveCustomers.length})
+          </button>
+          <button
+            onClick={deselectAll}
+            className="px-4 py-2 text-xs font-black border border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 rounded-xl transition-all shadow-sm"
+          >
+            Limpar Seleção
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <LoadingState />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* List Section */}
+          <div className="lg:col-span-7 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-150 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                Relatório de Clientes Inativos ({inactiveCustomers.length})
+              </h3>
+              <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 rounded-full uppercase tracking-wider animate-pulse">
+                {selectedCustomerIds.length} Selecionados
+              </span>
+            </div>
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-700 max-h-[550px] overflow-y-auto">
+              {inactiveCustomers.map(customer => {
+                const isSelected = selectedCustomerIds.includes(customer.id);
+                
+                // Formata data de última interação
+                let helperText = 'Nunca interagiu';
+                let timeDiffText = '';
+                if (customer.lastInteraction) {
+                  const lastDate = new Date(customer.lastInteraction + 'T12:00:00');
+                  helperText = `Último contato em ${lastDate.toLocaleDateString('pt-BR')}`;
+                  
+                  const diffTime = Math.abs(new Date().getTime() - lastDate.getTime());
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  timeDiffText = `Sumido há ${diffDays} dias`;
+                } else if (customer.createdAt) {
+                  const createDate = new Date(customer.createdAt.substring(0,10) + 'T12:00:00');
+                  helperText = `Cadastro criado em ${createDate.toLocaleDateString('pt-BR')}`;
+                }
+
+                return (
+                  <div
+                    key={customer.id}
+                    onClick={() => toggleCustomer(customer.id)}
+                    className={`flex items-center gap-4 px-6 py-4 hover:bg-slate-50/50 dark:hover:bg-slate-700/20 cursor-pointer transition-all ${
+                      isSelected ? 'bg-green-50/20 dark:bg-green-950/10' : ''
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}} // Handle no-op since onClick on parent handles it
+                      className="w-4.5 h-4.5 rounded border-slate-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                    />
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+                          {customer.name}
+                        </span>
+                        {customer.nickname && (
+                          <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded uppercase">
+                            {customer.nickname}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 font-medium">
+                        <span>📱 {customer.phone || 'Sem telefone'}</span>
+                        <span>•</span>
+                        <span>{helperText}</span>
+                      </div>
+                    </div>
+
+                    {timeDiffText && (
+                      <span className="shrink-0 text-[10px] font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                        {timeDiffText}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+
+              {inactiveCustomers.length === 0 && (
+                <div className="text-center py-16 text-slate-400 dark:text-slate-500">
+                  <SmileIcon className="w-12 h-12 mx-auto mb-3 opacity-30 text-green-500" />
+                  <p className="font-bold">Parabéns! Nenhum cliente inativo encontrado.</p>
+                  <p className="text-xs">Todos os clientes foram contactados ou compraram no período!</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Dispatch Section */}
+          <div className="lg:col-span-5 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 space-y-5">
+            <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b border-slate-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-green-600" />
+              Configurar Mensagem de Promoção
+            </h3>
+
+            <form onSubmit={handleDispatch} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Nome da Campanha CRM:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={campaignName}
+                  onChange={e => setCampaignName(e.target.value)}
+                  placeholder="Ex: Reativação CRM de Maio"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 transition-all shadow-sm text-slate-800 dark:text-slate-200"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Importar de um Template (Opcional):
+                </label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={handleTemplateChange}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-green-500 outline-none transition-all shadow-sm"
+                >
+                  <option value="">Selecione um template para preencher...</option>
+                  {templates.filter(t => t.isActive).map(temp => (
+                    <option key={temp.id} value={temp.id}>
+                      {temp.name} ({temp.type === 'cobranca' ? '💰' : temp.type === 'promocao' ? '🏷️' : '📩'} {temp.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Conteúdo da Mensagem (Promoção):
+                </label>
+                <textarea
+                  required
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value)}
+                  rows={6}
+                  placeholder="Escreva a oferta ou mensagem de reengajamento..."
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none shadow-sm text-slate-800 dark:text-slate-200"
+                />
+                <span className="text-[10px] font-bold text-slate-400 leading-normal block">
+                  Dica: A mensagem será enviada individualmente para cada cliente selecionado via robô.
+                </span>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting || selectedCustomerIds.length === 0}
+                className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-2xl font-black text-sm shadow-xl shadow-green-500/25 dark:shadow-green-950/40 transition-all disabled:opacity-50 flex items-center justify-center gap-2 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Enviando para Fila...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5" />
+                    Disparar Promoção ({selectedCustomerIds.length} Clientes) 🚀
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Lucide replacement for missing Smile icon in import
+const SmileIcon: React.FC<any> = (props) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+    <line x1="9" x2="9.01" y1="9" y2="9" />
+    <line x1="15" x2="15.01" y1="9" y2="9" />
+  </svg>
+);
 
 // ============================================================================
 // HELPER COMPONENTS

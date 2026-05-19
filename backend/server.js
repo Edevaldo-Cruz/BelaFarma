@@ -1919,6 +1919,95 @@ app.get('/api/customers', (req, res) => {
   }
 });
 
+// GET inactive customers for CRM retention
+app.get('/api/customers-inactive', (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    
+    // Calcula a data limite (há X dias atrás)
+    const thresholdDate = new Date();
+    thresholdDate.setDate(thresholdDate.getDate() - days);
+    const thresholdStr = thresholdDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // Busca última data de venda por cliente
+    const salesList = db.prepare(`
+      SELECT customer_id, MAX(sale_date) as last_sale 
+      FROM sales 
+      WHERE customer_id IS NOT NULL AND status != 'Cancelada'
+      GROUP BY customer_id
+    `).all();
+    const salesMap = {};
+    salesList.forEach(s => { if (s.customer_id) salesMap[s.customer_id] = s.last_sale; });
+    
+    // Busca último crediário por cliente
+    const debtsList = db.prepare(`
+      SELECT customerId, MAX(purchaseDate) as last_debt 
+      FROM customer_debts 
+      WHERE customerId IS NOT NULL
+      GROUP BY customerId
+    `).all();
+    const debtsMap = {};
+    debtsList.forEach(d => { if (d.customerId) debtsMap[d.customerId] = d.last_debt; });
+    
+    // Busca último log de mensagem por cliente
+    const msgMap = {};
+    try {
+      const msgList = db.prepare(`
+        SELECT customerId, MAX(sentAt) as last_message 
+        FROM message_log 
+        WHERE customerId IS NOT NULL AND customerId != ''
+        GROUP BY customerId
+      `).all();
+      msgList.forEach(m => { 
+        if (m.customerId) {
+          msgMap[m.customerId] = m.last_message.substring(0, 10); 
+        }
+      });
+    } catch (e) {
+      console.warn('Tabela message_log não possui dados ou coluna inválida:', e.message);
+    }
+
+    const customers = db.prepare('SELECT * FROM customers').all();
+    
+    const inactiveCustomers = customers.map(c => {
+      const lastSale = salesMap[c.id] || null;
+      const lastDebt = debtsMap[c.id] || null;
+      const lastMessage = msgMap[c.id] || null;
+      
+      const dates = [lastSale, lastDebt, lastMessage].filter(Boolean);
+      let lastInteraction = null;
+      if (dates.length > 0) {
+        dates.sort();
+        lastInteraction = dates[dates.length - 1];
+      }
+      
+      return {
+        ...c,
+        lastSale,
+        lastDebt,
+        lastMessage,
+        lastInteraction
+      };
+    }).filter(c => {
+      // Se nunca interagiu, usa a data de criação do cadastro como referência
+      const refDate = c.lastInteraction || c.createdAt.substring(0, 10) || '1970-01-01';
+      return refDate < thresholdStr;
+    });
+    
+    // Ordena por maior tempo sem contato (mais inativo primeiro)
+    inactiveCustomers.sort((a, b) => {
+      const dateA = a.lastInteraction || '1970-01-01';
+      const dateB = b.lastInteraction || '1970-01-01';
+      return dateA.localeCompare(dateB);
+    });
+    
+    res.json(inactiveCustomers);
+  } catch (err) {
+    console.error('Error fetching inactive customers:', err);
+    res.status(500).json({ error: 'Failed to fetch inactive customers.' });
+  }
+});
+
 // GET single customer by ID
 app.get('/api/customers/:id', (req, res) => {
   try {
