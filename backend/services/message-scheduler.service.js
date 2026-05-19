@@ -280,6 +280,9 @@ let rpaRunning = false;
  * Executa o job de postagens agendadas em grupos
  */
 async function runScheduledGroupPostsJob(db) {
+  // DESABILITADO NO SERVIDOR DEBIAN: O Windows RPA Agent local do usuário agora consulta e dispara esses posts!
+  return;
+
   // Se o RPA ainda estiver rodando do minuto anterior, pula esta execução
   if (rpaRunning) {
     console.log('[MessageScheduler] ⏳ RPA ainda em execução, aguardando próximo ciclo...');

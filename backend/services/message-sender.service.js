@@ -173,16 +173,27 @@ async function sendMediaMessage(target, caption, mediaPath) {
     
     // Se for um caminho de arquivo local, converte para Base64
     let mediaData = mediaPath;
+    let extension = 'jpeg'; // Extensão padrão
+    
     if (fs.existsSync(mediaPath)) {
       const fileBuffer = fs.readFileSync(mediaPath);
-      const extension = path.extname(mediaPath).replace('.', '');
+      extension = path.extname(mediaPath).replace('.', '').toLowerCase();
+      if (extension === 'jpg') extension = 'jpeg';
       mediaData = `data:image/${extension};base64,${fileBuffer.toString('base64')}`;
+    } else {
+      // Se for uma URL de imagem, tenta extrair a extensão do link
+      const match = mediaPath.match(/\.([a-zA-Z0-9]+)(?:[\?#]|$)/);
+      if (match) {
+        extension = match[1].toLowerCase();
+        if (extension === 'jpg') extension = 'jpeg';
+      }
     }
 
     // Se for um grupo (@g.us), não formata o destino
     const isGroup = typeof target === 'string' && target.includes('@g.us');
     const dest = isGroup ? target : formatPhone(target);
 
+    // Evolution API v1.8.2 exige uma estrutura flat no body (e não aninhada em mediaMessage)
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -191,11 +202,11 @@ async function sendMediaMessage(target, caption, mediaPath) {
       },
       body: JSON.stringify({
         number: dest,
-        mediaMessage: {
-          mediatype: "image",
-          caption: caption || "",
-          media: mediaData
-        },
+        mediatype: "image",
+        mimetype: `image/${extension}`,
+        media: mediaData,
+        fileName: `imagem.${extension}`,
+        caption: caption || "",
         options: {
           delay: 1500,
           presence: "composing"

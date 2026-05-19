@@ -1,0 +1,6 @@
+{
+  "serverUrl": "http://localhost:3001",
+  "token": "BelafarmaSul2026",
+  "pollingIntervalSeconds": 15,
+  "chromeSessionDir": "../whatsapp-session-rpa"
+}

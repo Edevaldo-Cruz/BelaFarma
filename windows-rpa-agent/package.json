@@ -1,0 +1,13 @@
+{
+  "name": "belafarma-windows-rpa-agent",
+  "version": "1.0.0",
+  "description": "Agente Windows local para disparar mensagens do WhatsApp via Puppeteer a partir dos dados do servidor Debian.",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.43.1"
+  },
+  "private": true
+}

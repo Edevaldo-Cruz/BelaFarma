@@ -118,28 +118,37 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 6. Enviar Agora (Disparo Imediato via RPA)
+  // 6. Enviar Agora (Disparo Imediato via Fila do Windows Agent)
   app.post('/api/whatsapp/send-immediate', upload.single('media'), async (req, res) => {
     const { groupId, groupName, content } = req.body;
-    let mediaPath = null;
+    const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
 
-    if (req.file) {
-        mediaPath = req.file.path;
-    }
-
-    console.log(`[WhatsAppGroups] 🚀 Iniciando envio imediato para: ${groupName || groupId}`);
+    console.log(`[WhatsAppGroups] 🚀 Enfileirando envio imediato para o Windows Agent. Grupo: ${groupName || groupId}`);
 
     try {
-        const result = await rpaWhatsapp.sendGroupMessage(groupName || groupId, content, mediaPath);
-        
-        if (result.success) {
-            res.json({ success: true, message: 'Mensagem enviada com sucesso!' });
-        } else {
-            res.status(500).json({ success: false, error: result.error || 'Falha no envio via RPA' });
-        }
+      const id = 'post-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+      
+      await db.prepare(
+        'INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        id,
+        groupId || groupName,
+        groupName || groupId,
+        content,
+        mediaPath,
+        new Date().toISOString(), // scheduledAt = agora, para envio imediato!
+        'Pendente',
+        new Date().toISOString()
+      );
+
+      res.json({ 
+        success: true, 
+        message: 'Mensagem colocada na fila de disparo do Windows Agent!', 
+        postId: id 
+      });
     } catch (error) {
-        console.error('[WhatsAppGroups] 💥 Erro no envio imediato:', error);
-        res.status(500).json({ success: false, error: error.message });
+      console.error('[WhatsAppGroups] 💥 Erro ao enfileirar envio imediato:', error);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 
@@ -284,6 +293,78 @@ function initializeWhatsAppGroupEndpoints(app) {
         `);
     } catch (err) {
         res.status(500).send(err.message);
+    }
+  });
+
+  // 13. GET /api/whatsapp/agent/pending - Retorna o post pendente mais antigo para o Windows Agent disparar
+  app.get('/api/whatsapp/agent/pending', async (req, res) => {
+    const { token } = req.query;
+    const agentToken = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+    
+    if (token !== agentToken) {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+
+    try {
+      const now = new Date().toISOString();
+      const oldestPending = await db.prepare(
+        'SELECT * FROM whatsapp_group_posts WHERE status = ? AND scheduledAt <= ? ORDER BY scheduledAt ASC LIMIT 1'
+      ).get('Pendente', now);
+
+      if (!oldestPending) {
+        return res.json({ hasPending: false });
+      }
+
+      // Constrói a URL completa para a mídia (se houver)
+      let mediaUrl = null;
+      if (oldestPending.mediaPath) {
+        const protocol = req.protocol;
+        const host = req.get('host');
+        mediaUrl = `${protocol}://${host}${oldestPending.mediaPath}`;
+      }
+
+      res.json({
+        hasPending: true,
+        post: {
+          id: oldestPending.id,
+          groupId: oldestPending.groupId,
+          groupName: oldestPending.groupName,
+          content: oldestPending.content,
+          mediaUrl,
+          hasMedia: !!mediaUrl,
+          scheduledAt: oldestPending.scheduledAt
+        }
+      });
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro ao buscar pendente para o agente:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 14. POST /api/whatsapp/agent/report - Relata o sucesso ou falha do disparo executado pelo Windows Agent
+  app.post('/api/whatsapp/agent/report', express.json(), async (req, res) => {
+    const { token } = req.query;
+    const agentToken = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+    
+    if (token !== agentToken) {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+
+    const { id, status, errorMessage } = req.body;
+    if (!id || !status) {
+      return res.status(400).json({ error: 'Parâmetros inválidos. Informe id e status.' });
+    }
+
+    try {
+      await db.prepare(
+        'UPDATE whatsapp_group_posts SET status = ?, errorMessage = ?, sentAt = CURRENT_TIMESTAMP WHERE id = ?'
+      ).run(status, errorMessage || null, id);
+
+      console.log(`[WhatsAppGroups] [WindowsAgent] Post ${id} atualizado com status "${status}".`);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro ao atualizar status do post via agente:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 

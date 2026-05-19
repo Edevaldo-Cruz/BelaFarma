@@ -1110,7 +1110,7 @@ const WhatsAppGroupsTab: React.FC = () => {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast('Mensagem enviada com sucesso via RPA!', 'success');
+        addToast('Mensagem colocada na fila de envio do Windows Agent!', 'success');
         setContent('');
         setMediaFile(null);
         setManualGroupName('');

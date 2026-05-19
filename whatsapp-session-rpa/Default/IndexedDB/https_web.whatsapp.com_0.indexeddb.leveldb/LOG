@@ -1,52 +1,26 @@
-2026/05/13-16:27:31.568 6a00 Reusing MANIFEST F:\Documentos\Desenvolvimento\BelaFarma\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/05/13-16:27:31.569 6a00 Recovering log #748
-2026/05/13-16:27:31.616 6a00 Reusing old log F:\Documentos\Desenvolvimento\BelaFarma\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000748.log 
-2026/05/13-16:27:40.905 1364 Level-0 table #781: started
-2026/05/13-16:27:41.450 43ec Current memtable full; waiting...
-2026/05/13-16:27:42.827 1364 Level-0 table #781: 1259953 bytes OK
-2026/05/13-16:27:43.428 1364 Delete type=0 #748
-2026/05/13-16:27:44.865 605c Level-0 table #783: started
-2026/05/13-16:27:44.957 43ec Current memtable full; waiting...
-2026/05/13-16:27:46.892 605c Level-0 table #783: 1645212 bytes OK
-2026/05/13-16:27:47.052 605c Delete type=0 #780
-2026/05/13-16:27:48.949 605c Level-0 table #785: started
-2026/05/13-16:27:49.101 1364 Current memtable full; waiting...
-2026/05/13-16:27:49.281 605c Level-0 table #785: 1515490 bytes OK
-2026/05/13-16:27:49.535 605c Delete type=0 #782
-2026/05/13-16:27:49.540 605c Level-0 table #787: started
-2026/05/13-16:27:51.035 605c Level-0 table #787: 1315495 bytes OK
-2026/05/13-16:27:51.315 605c Delete type=0 #784
-2026/05/13-16:27:52.419 605c Level-0 table #789: started
-2026/05/13-16:27:53.409 1364 Current memtable full; waiting...
-2026/05/13-16:27:54.743 605c Level-0 table #789: 1485231 bytes OK
-2026/05/13-16:27:54.869 605c Delete type=0 #786
-2026/05/13-16:27:55.119 605c Level-0 table #791: started
-2026/05/13-16:27:55.862 43ec Current memtable full; waiting...
-2026/05/13-16:27:56.827 605c Level-0 table #791: 1063402 bytes OK
-2026/05/13-16:27:57.071 605c Delete type=0 #788
-2026/05/13-16:27:57.073 605c Compacting 6@0 + 0@1 files
-2026/05/13-16:27:58.700 605c Level-0 table #794: started
-2026/05/13-16:28:00.208 1364 Current memtable full; waiting...
-2026/05/13-16:28:00.304 605c Level-0 table #794: 1461288 bytes OK
-2026/05/13-16:28:00.423 605c Delete type=0 #790
-2026/05/13-16:28:00.430 605c Level-0 table #796: started
-2026/05/13-16:28:01.820 1364 Current memtable full; waiting...
-2026/05/13-16:28:01.954 605c Level-0 table #796: 1194231 bytes OK
-2026/05/13-16:28:02.364 605c Delete type=0 #792
-2026/05/13-16:28:04.929 43ec Current memtable full; waiting...
-2026/05/13-16:28:06.395 605c Generated table #793@0: 200855 keys, 2389558 bytes
-2026/05/13-16:28:06.395 605c Level-0 table #798: started
-2026/05/13-16:28:07.678 605c Level-0 table #798: 1184290 bytes OK
-2026/05/13-16:28:07.835 605c Delete type=0 #795
-2026/05/13-16:28:07.846 605c Level-0 table #801: started
-2026/05/13-16:28:08.625 1364 Current memtable full; waiting...
-2026/05/13-16:28:09.834 605c Level-0 table #801: 1426055 bytes OK
-2026/05/13-16:28:10.059 605c Delete type=0 #797
-2026/05/13-16:28:13.280 6a00 Current memtable full; waiting...
-2026/05/13-16:28:15.190 605c Generated table #799@0: 40106 keys, 1530310 bytes
-2026/05/13-16:28:15.191 605c Level-0 table #804: started
-2026/05/13-16:28:16.377 605c Level-0 table #804: 1284093 bytes OK
-2026/05/13-16:28:16.507 605c Delete type=0 #800
-2026/05/13-16:28:16.512 605c Level-0 table #806: started
-2026/05/13-16:28:16.932 605c Level-0 table #806: 1570151 bytes OK
-2026/05/13-16:28:16.932 605c compacted to: files[ 11 0 24 0 0 0 0 ]
+2026/05/19-16:25:15.575 370c Reusing MANIFEST F:\Documentos\Desenvolvimento\BelaFarma\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/05/19-16:25:15.916 370c Recovering log #802
+2026/05/19-16:25:17.581 370c Level-0 table #806: started
+2026/05/19-16:25:21.590 370c Level-0 table #806: 1570151 bytes OK
+2026/05/19-16:25:21.892 370c Recovering log #805
+2026/05/19-16:25:22.639 370c Reusing old log F:\Documentos\Desenvolvimento\BelaFarma\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000805.log 
+2026/05/19-16:25:22.987 370c Delete type=2 #793
+2026/05/19-16:25:22.987 370c Delete type=2 #799
+2026/05/19-16:25:22.987 370c Delete type=0 #802
+2026/05/19-16:25:22.987 370c Delete type=2 #803
+2026/05/19-16:25:22.991 3184 Compacting 12@0 + 0@1 files
+2026/05/19-16:25:37.353 3184 Generated table #807@0: 200870 keys, 2389913 bytes
+2026/05/19-16:25:42.219 3184 Generated table #808@0: 53916 keys, 2238702 bytes
+2026/05/19-16:25:42.514 3184 Generated table #809@0: 379 keys, 21088 bytes
+2026/05/19-16:25:47.258 3184 Generated table #810@0: 41257 keys, 2250198 bytes
+2026/05/19-16:25:48.348 3184 Generated table #811@0: 166768 keys, 2340023 bytes
+2026/05/19-16:25:48.723 370c Too many L0 files; waiting...
+2026/05/19-16:25:49.230 3184 Generated table #812@0: 162558 keys, 2329887 bytes
+2026/05/19-16:25:49.893 3184 Generated table #813@0: 97014 keys, 1448720 bytes
+2026/05/19-16:25:49.893 3184 Compacted 12@0 + 0@1 files => 13018531 bytes
+2026/05/19-16:25:50.033 3184 compacted to: files[ 0 7 24 0 0 0 0 ]
+2026/05/19-16:25:50.035 3184 Compacting 1@1 + 3@2 files
+2026/05/19-16:25:50.075 3184 Level-0 table #815: started
+2026/05/19-16:25:50.364 3184 Level-0 table #815: 1306968 bytes OK
+2026/05/19-16:25:50.496 3184 Delete type=0 #805
+2026/05/19-16:25:50.879 3184 compacted to: files[ 1 7 24 0 0 0 0 ]
