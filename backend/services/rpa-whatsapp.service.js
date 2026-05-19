@@ -146,27 +146,29 @@ class RpaWhatsappService {
       await new Promise(r => setTimeout(r, 1000));
 
       await page.keyboard.type(groupName, { delay: 150 });
-      await new Promise(r => setTimeout(r, 3000));
+      // Aguarda 4 segundos inteiros para a busca do WhatsApp filtrar e renderizar a lista de chats
+      await new Promise(r => setTimeout(r, 4000));
       
-      logToFile(`👆 Localizando e abrindo o chat do grupo...`);
-      const chatOpened = await page.evaluate((nome) => {
+      logToFile(`👆 Localizando as coordenadas exatas da linha do chat de "${groupName}"...`);
+      const chatRect = await page.evaluate((nome) => {
         const spans = Array.from(document.querySelectorAll('span'));
-        const chat = spans.find(s => s.title === nome || s.innerText === nome);
+        // Filtra apenas spans que tenham o nome exato e estejam dentro de uma linha de chat ativa (role="row" ou role="button")
+        const chat = spans.find(s => {
+          const isMatch = s.title === nome || s.innerText === nome;
+          return isMatch && (s.closest('div[role="row"]') || s.closest('div[role="button"]'));
+        });
         if (chat) {
-          // Acha a div clicável mais próxima para simular o clique perfeito
-          const clickTarget = chat.closest('div[role="row"]') || chat.closest('div[role="button"]') || chat;
-          clickTarget.click();
-          return true;
+          const rect = chat.getBoundingClientRect();
+          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
         }
-        return false;
+        return null;
       }, groupName);
 
-      if (chatOpened) {
-        logToFile(`👆 Grupo aberto com sucesso via clique direto no DOM.`);
+      if (chatRect) {
+        logToFile(`👆 Grupo encontrado em X:${chatRect.x}, Y:${chatRect.y}. Clicando com evento de mouse nativo confiável...`);
+        await page.mouse.click(chatRect.x, chatRect.y);
       } else {
-        logToFile(`⚠️ Grupo não localizado diretamente no DOM. Tentando atalho de teclado...`);
-        await page.keyboard.press('ArrowDown');
-        await new Promise(r => setTimeout(r, 500));
+        logToFile(`⚠️ Grupo não visível no DOM. Tentando atalho de teclado [ENTER]...`);
         await page.keyboard.press('Enter');
       }
 
