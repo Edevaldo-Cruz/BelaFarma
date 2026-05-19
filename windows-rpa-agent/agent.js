@@ -125,8 +125,8 @@ async function startAgent() {
   console.log('🎉 Login efetuado com sucesso no WhatsApp Web!');
   console.log('🚀 O Windows RPA Agent está ONLINE e ativo. Aguardando mensagens pendentes...\n');
 
-  // Loop de Polling
-  setInterval(async () => {
+  // Loop de Polling Sequencial (impede concorrência e sobreposição)
+  async function checkQueue() {
     try {
       const pendingUrl = `${serverUrl}/api/whatsapp/agent/pending?token=${token}`;
       const res = await fetch(pendingUrl);
@@ -195,7 +195,6 @@ async function startAgent() {
         console.log('👆 Localizando o elemento do grupo e clicando...');
         const chatRect = await page.evaluate((nome) => {
           const spans = Array.from(document.querySelectorAll('span'));
-          // Encontra span com título idêntico ou texto do grupo
           const chat = spans.find(s => s.title === nome || s.innerText === nome);
           if (chat) {
             const rect = chat.getBoundingClientRect();
@@ -238,7 +237,6 @@ async function startAgent() {
 
           console.log('🚀 Enviando!');
           try {
-            // Espera e clica no botão físico de enviar (aviãozinho) para robustez total
             await page.waitForSelector('span[data-icon="send"]', { timeout: 3000 });
             await page.click('span[data-icon="send"]');
             console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
@@ -283,7 +281,15 @@ async function startAgent() {
     } catch (err) {
       console.error('🚨 Erro crítico no loop de polling do agente:', err.message);
     }
-  }, POLLING_INTERVAL_MS);
+  }
+
+  // Loop recursivo seguro: espera o ciclo anterior terminar para agendar o próximo!
+  async function runLoop() {
+    await checkQueue();
+    setTimeout(runLoop, POLLING_INTERVAL_MS);
+  }
+  
+  runLoop();
 
 }
 
