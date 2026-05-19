@@ -111,7 +111,9 @@ async function startAgent() {
       isLoggedIn = await page.evaluate(() => {
         return !!document.querySelector('span[data-icon="chat"]') || 
                !!document.querySelector('span[data-icon="search"]') ||
-               !!document.querySelector('div[contenteditable="true"]');
+               !!document.querySelector('div[contenteditable="true"]') ||
+               !!document.querySelector('div#pane-side') ||
+               !!document.querySelector('div[role="textbox"]');
       });
       if (isLoggedIn) {
         break;
