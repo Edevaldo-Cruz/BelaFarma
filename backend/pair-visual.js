@@ -21,24 +21,50 @@ async function pairVisual() {
     } catch (e) {}
   }
 
+  const isWindows = process.platform === 'win32';
+  let executablePath = undefined;
+  if (!isWindows) {
+    const commonPaths = [
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable'
+    ];
+    for (const p of commonPaths) {
+      if (fs.existsSync(p)) {
+        executablePath = p;
+        break;
+      }
+    }
+  }
+
   console.log('🌐 Abrindo Chromium visível na tela...');
   console.log('⏳ Por favor, escaneie o QR Code na janela do navegador que se abriu.');
   
   let browser;
   try {
-    browser = await puppeteer.launch({
+    const launchOptions = {
       headless: false,
       userDataDir: sessionPath,
       defaultViewport: null,
       args: ['--start-maximized', '--no-sandbox']
-    });
+    };
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+      console.log(`🎯 Usando executável nativo do Chromium: ${executablePath}`);
+    }
+    browser = await puppeteer.launch(launchOptions);
   } catch (err) {
     console.error('❌ Erro ao lançar o browser:', err.message);
     console.log('Tentando lançar sem flags extras...');
-    browser = await puppeteer.launch({
+    const launchOptionsFallback = {
       headless: false,
       userDataDir: sessionPath
-    });
+    };
+    if (executablePath) {
+      launchOptionsFallback.executablePath = executablePath;
+    }
+    browser = await puppeteer.launch(launchOptionsFallback);
   }
 
   const page = await browser.newPage();
