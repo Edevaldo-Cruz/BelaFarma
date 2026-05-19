@@ -237,7 +237,15 @@ async function startAgent() {
           await new Promise(r => setTimeout(r, 1000));
 
           console.log('🚀 Enviando!');
-          await page.keyboard.press('Enter');
+          try {
+            // Espera e clica no botão físico de enviar (aviãozinho) para robustez total
+            await page.waitForSelector('span[data-icon="send"]', { timeout: 3000 });
+            await page.click('span[data-icon="send"]');
+            console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
+          } catch (clickErr) {
+            console.log('⚠️ Botão enviar não localizado por clique, tentando método clássico com Enter...');
+            await page.keyboard.press('Enter');
+          }
         } else {
           // ENVIO SÓ TEXTO
           console.log('✍️ Escrevendo mensagem de texto...');
