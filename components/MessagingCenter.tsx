@@ -13,7 +13,7 @@ import { MessageTemplate, MessageLog, MessageCampaign, MessageSchedule, Customer
 // ============================================================================
 // TABS
 // ============================================================================
-type Tab = 'templates' | 'schedules' | 'send' | 'campaigns' | 'crm-inactive' | 'log' | 'stats' | 'whatsapp-groups';
+type Tab = 'templates' | 'schedules' | 'send' | 'campaigns' | 'crm-inactive' | 'post-sales' | 'log' | 'stats' | 'whatsapp-groups';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'templates', label: 'Templates', icon: Edit3 },
@@ -21,6 +21,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'send', label: 'Enviar', icon: Send },
   { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
   { id: 'crm-inactive', label: 'Reativar Clientes', icon: RefreshCw },
+  { id: 'post-sales', label: 'Pós-Venda', icon: CheckCircle },
   { id: 'log', label: 'Histórico', icon: History },
   { id: 'stats', label: 'Estatísticas', icon: BarChart3 },
   { id: 'whatsapp-groups', label: 'Grupos WA', icon: Users },
@@ -91,6 +92,7 @@ export const MessagingCenter: React.FC = () => {
       {activeTab === 'send' && <SendTab />}
       {activeTab === 'campaigns' && <CampaignsTab />}
       {activeTab === 'crm-inactive' && <CRMInactiveTab />}
+      {activeTab === 'post-sales' && <PostSalesTab />}
       {activeTab === 'log' && <LogTab />}
       {activeTab === 'stats' && <StatsTab />}
       {activeTab === 'whatsapp-groups' && <WhatsAppGroupsTab />}
@@ -1605,6 +1607,381 @@ const WhatsAppGroupsTab: React.FC = () => {
     </div>
   );
 };
+// ============================================================================
+// POST-SALES (PÓS-VENDA) TAB
+// ============================================================================
+const PostSalesTab: React.FC = () => {
+  const [newCustomers, setNewCustomers] = useState<any[]>([]);
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [daysPeriod, setDaysPeriod] = useState<number>(15);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [messageText, setMessageText] = useState(
+    'Olá, {nome}! Tudo bem? Passando para agradecer a preferência na sua compra na BelaFarma. Deu tudo certo com o seu atendimento e a entrega? Esperamos que tenha tido uma ótima experiência! Qualquer dúvida estou à disposição. 💚'
+  );
+  const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
+  const { addToast } = useToast();
+
+  const fetchNewCustomers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/marketing/new-customers?days=${daysPeriod}`);
+      if (res.ok) {
+        const data = await res.json();
+        setNewCustomers(data.newCustomers || []);
+      } else {
+        addToast('Erro ao carregar novos clientes.', 'error');
+      }
+    } catch {
+      addToast('Erro de rede ao buscar novos clientes.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [daysPeriod, addToast]);
+
+  useEffect(() => {
+    fetchNewCustomers();
+  }, [fetchNewCustomers]);
+
+  const selectAll = () => {
+    setSelectedClientIds(newCustomers.map(c => c.id || c.phone));
+  };
+
+  const deselectAll = () => {
+    setSelectedClientIds([]);
+  };
+
+  const toggleClient = (id: string) => {
+    setSelectedClientIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSendPostSales = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedClientIds.length === 0) {
+      addToast('Por favor, selecione pelo menos um cliente para receber a mensagem.', 'warning');
+      return;
+    }
+    if (!messageText.trim()) {
+      addToast('A mensagem não pode estar em branco.', 'warning');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const selectedClients = newCustomers.filter(c => 
+        selectedClientIds.includes(c.id || c.phone)
+      );
+
+      const res = await fetch('/api/marketing/post-sales/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clients: selectedClients.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
+          messageText
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        addToast(`Pós-venda enviado com sucesso! ${data.sent} mensagens enviadas e ${data.failed} erros.`, 'success');
+        deselectAll();
+        fetchNewCustomers();
+      } else {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Erro no disparo.');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao processar envios.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+      {/* Top Info Banner */}
+      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-indigo-950/20 dark:to-blue-950/20 border border-blue-100 dark:border-indigo-900/30 rounded-3xl p-6 shadow-sm flex items-start gap-4">
+        <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-blue-200/50 dark:border-indigo-800/30 shrink-0">
+          <CheckCircle className="w-6 h-6 text-blue-600 animate-pulse" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-lg font-black text-slate-800 dark:text-slate-100 tracking-tight">
+            Programa de Pós-Venda & Sucesso do Cliente
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-3xl">
+            Acompanhe os clientes novos conquistados nos últimos dias, verifique o que eles compraram e envie uma mensagem de agradecimento ou pesquisa de satisfação de forma automatizada pelo WhatsApp principal. Fidelize sua clientela desde o primeiro contato!
+          </p>
+        </div>
+      </div>
+
+      {/* Control Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black text-slate-500 dark:text-slate-455 uppercase tracking-widest">Período de conquista:</span>
+          <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
+            {[7, 15, 30, 45].map(d => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDaysPeriod(d)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  daysPeriod === d
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-750 dark:text-slate-400'
+                }`}
+              >
+                Últimos {d} dias
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={selectAll}
+            className="px-4 py-2 text-xs font-black bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl transition-all shadow-sm cursor-pointer"
+          >
+            Selecionar Todos ({newCustomers.length})
+          </button>
+          <button
+            onClick={deselectAll}
+            className="px-4 py-2 text-xs font-black border border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-350 rounded-xl transition-all shadow-sm cursor-pointer"
+          >
+            Limpar Seleção
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+          <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+          <p className="text-sm font-bold text-slate-500 dark:text-slate-450">Buscando novos clientes conquistados...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Table Column */}
+          <div className="lg:col-span-8 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden animate-in fade-in duration-300">
+            <div className="px-6 py-4 border-b border-slate-150 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                Novos Clientes Cadastrados ({newCustomers.length})
+              </h3>
+              <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                {selectedClientIds.length} Selecionados
+              </span>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[700px]">
+                <thead>
+                  <tr className="border-b border-slate-150 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-850/50 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                    <th className="py-4 px-5 text-center w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedClientIds.length === newCustomers.length && newCustomers.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) selectAll();
+                          else deselectAll();
+                        }}
+                        className="w-4.5 h-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-4 px-4">Cliente</th>
+                    <th className="py-4 px-4 text-center">Cadastro</th>
+                    <th className="py-4 px-4">Última Compra</th>
+                    <th className="py-4 px-4 text-center">Status Pós-Venda</th>
+                    <th className="py-4 px-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-150 dark:divide-slate-700">
+                  {newCustomers.map(client => {
+                    const key = client.id || client.phone;
+                    const isSelected = selectedClientIds.includes(key);
+                    const isExpanded = expandedClientId === key;
+                    
+                    const registerDate = client.createdAt ? new Date(client.createdAt).toLocaleDateString('pt-BR') : 'Sem data';
+                    const lastSaleDate = client.lastSaleDate ? new Date(client.lastSaleDate).toLocaleDateString('pt-BR') : 'Nenhuma';
+                    const valueFormatted = client.lastSaleValue ? `R$ ${client.lastSaleValue.toFixed(2)}` : 'R$ 0,00';
+                    const purchasesCount = client.purchasedProducts?.length || 0;
+
+                    return (
+                      <React.Fragment key={key}>
+                        <tr
+                          onClick={() => toggleClient(key)}
+                          className={`hover:bg-slate-50/50 dark:hover:bg-slate-750/15 cursor-pointer transition-all ${
+                            isSelected ? 'bg-blue-50/10 dark:bg-blue-950/5' : ''
+                          }`}
+                        >
+                          <td className="py-4 px-5 text-center" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleClient(key)}
+                              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </td>
+
+                          <td className="py-4 px-4 min-w-[180px]">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                                {client.name}
+                              </span>
+                              <span className="text-xs text-slate-400 mt-0.5">📱 {client.phone}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-330">
+                              {registerDate}
+                            </span>
+                          </td>
+
+                          <td className="py-4 px-4">
+                            {client.lastSaleDate ? (
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  {lastSaleDate} — {valueFormatted}
+                                </span>
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-black uppercase tracking-wider mt-0.5">
+                                  🛍️ {purchasesCount} produtos comprados
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">Sem vendas registradas</span>
+                            )}
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                              client.postSalesStatus === 'Enviado'
+                                ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 border border-green-200/30'
+                                : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200/30'
+                            }`}>
+                              {client.postSalesStatus === 'Enviado' ? '✉️ Enviado' : '⏳ Pendente'}
+                            </span>
+                            {client.sentAt && (
+                              <span className="block text-[9px] text-slate-400 mt-1">
+                                em {new Date(client.sentAt).toLocaleDateString('pt-BR')}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => setExpandedClientId(isExpanded ? null : key)}
+                              className={`p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 transition-all`}
+                              title="Ver Produtos Comprados"
+                            >
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {isExpanded && (
+                          <tr className="bg-slate-50/50 dark:bg-slate-900/10">
+                            <td colSpan={6} className="px-6 py-4 border-t border-slate-100 dark:border-slate-700/50">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
+                                <div className="space-y-2 pr-4 border-r border-transparent md:border-slate-150 dark:md:border-slate-800">
+                                  <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    🛍️ Produtos da Última Compra
+                                  </h4>
+                                  {purchasesCount > 0 ? (
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      {client.purchasedProducts.map((p: any, idx: number) => (
+                                        <span
+                                          key={idx}
+                                          className="text-xs font-bold text-blue-700 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-3 py-1.5 rounded-xl border border-blue-200/30 flex items-center gap-1"
+                                        >
+                                          📦 {p.productName} (x{p.quantity})
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-slate-400 italic py-1">Nenhum produto cadastrado nesta compra.</p>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2">
+                                  <h4 className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    📍 Informações do Cliente (CRM)
+                                  </h4>
+                                  <div className="text-xs space-y-1 text-slate-500 dark:text-slate-400 font-medium">
+                                    <p><strong className="text-slate-600 font-bold">Endereço:</strong> {client.address}</p>
+                                    <p><strong className="text-slate-600 font-bold">Notas/Observações:</strong> {client.notes || 'Sem anotações registradas'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {newCustomers.length === 0 && (
+              <div className="text-center py-20 text-slate-400 dark:text-slate-500">
+                <SmileIcon className="w-14 h-14 mx-auto mb-3 opacity-30 text-blue-500 animate-bounce" />
+                <p className="font-bold text-slate-600 dark:text-slate-350">Nenhum cliente cadastrado neste período.</p>
+                <p className="text-xs max-w-sm mx-auto mt-1">Experimente ampliar o filtro de dias acima para buscar novos contatos.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Dispatch Column */}
+          <div className="lg:col-span-4 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 space-y-5">
+            <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b border-slate-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-blue-600" />
+              Configurar Pós-Venda
+            </h3>
+
+            <form onSubmit={handleSendPostSales} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Mensagem de Agradecimento & Sucesso:
+                </label>
+                <textarea
+                  required
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value)}
+                  rows={6}
+                  placeholder="Olá, {nome}! Obrigado pela compra..."
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm text-slate-800 dark:text-slate-200 font-medium"
+                />
+                <span className="block text-[10px] text-slate-400 font-medium">
+                  Use a tag <code className="text-blue-600 font-bold">{'{nome}'}</code> para que a IA/sistema insira o nome do cliente de forma dinâmica!
+                </span>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={submitting || selectedClientIds.length === 0}
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-800 dark:disabled:to-slate-700 text-white font-black py-4 rounded-xl text-xs uppercase tracking-wider shadow-md hover:scale-[1.01] active:scale-[0.99] disabled:scale-100 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Disparando Mensagens...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      Enviar Pós-Venda ({selectedClientIds.length})
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================================================
 // CRM INACTIVE CUSTOMERS TAB
@@ -1617,6 +1994,7 @@ const CRMInactiveTab: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
   
   // Form para disparo
   const [campaignName, setCampaignName] = useState('');
@@ -1628,11 +2006,13 @@ const CRMInactiveTab: React.FC = () => {
     setLoading(true);
     try {
       const [custRes, tempRes] = await Promise.all([
-        fetch(`/api/customers-inactive?days=${inactivityDays}`),
+        fetch(`/api/marketing/inactive-customers?days=${inactivityDays}`),
         fetch('/api/messages/templates')
       ]);
       if (custRes.ok && tempRes.ok) {
-        setInactiveCustomers(await custRes.json());
+        const custData = await custRes.json();
+        const list = Array.isArray(custData) ? custData : (custData.inactiveCustomers || []);
+        setInactiveCustomers(list);
         setTemplates(await tempRes.json());
       } else {
         addToast('Erro ao carregar dados dos clientes inativos.', 'error');
@@ -1651,7 +2031,7 @@ const CRMInactiveTab: React.FC = () => {
   // Preencher nome da campanha sugerido
   useEffect(() => {
     const today = new Date().toLocaleDateString('pt-BR');
-    setCampaignName(`Reativação CRM - ${inactivityDays} dias (${today})`);
+    setCampaignName(`Reativação CRM - Sem contato há ${inactivityDays} dias (${today})`);
   }, [inactivityDays]);
 
   // Ao selecionar um template, preenche a mensagem
@@ -1666,6 +2046,32 @@ const CRMInactiveTab: React.FC = () => {
     }
   };
 
+  // Sugere mensagem inteligente personalizada para o cliente individual
+  const handleSmartMessage = (customer: any) => {
+    let customMsg = `Olá, ${customer.systemName || customer.whatsappName || 'tudo bem'}! ✨\n\nPassando para saber se está precisando de alguma coisa. `;
+    
+    if (customer.purchasedProducts && customer.purchasedProducts.length > 0) {
+      const lastProduct = customer.purchasedProducts[0].productName;
+      customMsg += `Notei que faz um tempinho que você levou o seu *${lastProduct}*. Precisa de reposição ou de mais algum medicamento? 💊`;
+    } else if (customer.searchedProducts && customer.searchedProducts.length > 0) {
+      const lastSearched = customer.searchedProducts[0].productName;
+      customMsg += `Lembrei que você havia nos consultado sobre o *${lastSearched}* anteriormente. O produto já está disponível ou precisa de ajuda com alguma outra fórmula? 🧪`;
+    } else {
+      customMsg += `Fazia um tempinho que não nos falávamos por aqui! Se precisar de qualquer medicamento, dermocosmético ou dica de saúde, é só me chamar.`;
+    }
+    
+    customMsg += `\n\nQualquer coisa, estamos aqui no WhatsApp da BelaFarma! 🚀`;
+    setMessageText(customMsg);
+    
+    // Auto-seleciona apenas este cliente para facilitar o reengajamento rápido individual!
+    const key = customer.customerId || customer.phone;
+    if (!selectedCustomerIds.includes(key)) {
+      setSelectedCustomerIds([key]);
+    }
+    
+    addToast(`Mensagem personalizada gerada para ${customer.systemName || customer.whatsappName}!`, 'success');
+  };
+
   // Seleções individuais
   const toggleCustomer = (id: string) => {
     setSelectedCustomerIds(prev =>
@@ -1675,7 +2081,7 @@ const CRMInactiveTab: React.FC = () => {
 
   // Selecionar todos filtrados
   const selectAll = () => {
-    const ids = inactiveCustomers.filter(c => c.phone).map(c => c.id);
+    const ids = inactiveCustomers.filter(c => c.phone).map(c => c.customerId || c.phone);
     setSelectedCustomerIds(ids);
   };
 
@@ -1695,7 +2101,52 @@ const CRMInactiveTab: React.FC = () => {
 
     setSubmitting(true);
     try {
-      // 1. Criar a campanha com os IDs dos clientes inativos selecionados
+      // 1. Identifica os contatos selecionados
+      const selectedContacts = inactiveCustomers.filter(c => 
+        selectedCustomerIds.includes(c.customerId || c.phone)
+      );
+
+      const finalCustomerIds: string[] = [];
+
+      // 2. Cadastra no CRM (de forma transparente em lote) quem veio apenas do WhatsApp sem cadastro
+      const registrationPromises = selectedContacts.map(async (contact) => {
+        if (contact.isRegistered && contact.customerId) {
+          finalCustomerIds.push(contact.customerId);
+        } else {
+          // Cadastra automaticamente na tabela customers
+          const newCustomerId = `cust-wa-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+          const registerRes = await fetch('/api/customers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: newCustomerId,
+              name: contact.systemName || contact.whatsappName || `Cliente WA ${contact.phone.slice(-4)}`,
+              nickname: contact.whatsappName || '',
+              phone: contact.phone,
+              notes: 'Cadastrado automaticamente via Reengajamento CRM de Clientes Inativos'
+            })
+          });
+
+          if (registerRes.ok) {
+            finalCustomerIds.push(newCustomerId);
+            // Atualiza dados locais
+            contact.customerId = newCustomerId;
+            contact.isRegistered = true;
+          } else {
+            console.error(`Falha ao registrar cliente ${contact.phone} no CRM.`);
+          }
+        }
+      });
+
+      if (registrationPromises.length > 0) {
+        await Promise.all(registrationPromises);
+      }
+
+      if (finalCustomerIds.length === 0) {
+        throw new Error('Nenhum cliente válido pôde ser registrado ou enviado para a campanha.');
+      }
+
+      // 3. Criar a campanha com os IDs dos clientes cadastrados
       const campaignRes = await fetch('/api/messages/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1703,7 +2154,7 @@ const CRMInactiveTab: React.FC = () => {
           name: campaignName,
           description: `Disparo automático para clientes inativos há mais de ${inactivityDays} dias.`,
           messageContent: messageText,
-          targetCustomerIds: selectedCustomerIds,
+          targetCustomerIds: finalCustomerIds,
         }),
       });
 
@@ -1714,7 +2165,7 @@ const CRMInactiveTab: React.FC = () => {
       const campaignData = await campaignRes.json();
       const campaignId = campaignData.id;
 
-      // 2. Executar a campanha para disparar as mensagens via Evolution API
+      // 4. Executar a campanha para disparar as mensagens via Evolution API
       const executeRes = await fetch(`/api/messages/campaigns/${campaignId}/execute`, {
         method: 'POST'
       });
@@ -1732,7 +2183,7 @@ const CRMInactiveTab: React.FC = () => {
       setMessageText('');
       setSelectedTemplateId('');
       
-      // Recarrega a lista
+      // Recarrega a lista para atualizar interações
       fetchInactiveData();
     } catch (err: any) {
       addToast(err.message || 'Erro ao processar disparo.', 'error');
@@ -1753,7 +2204,7 @@ const CRMInactiveTab: React.FC = () => {
             Campanha de Retenção e Reengajamento CRM
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-3xl">
-            Esta tela analisa de forma inteligente todo o seu banco de dados local da farmácia (fechamentos de caixa, crediários, vendas PDV e histórico do WhatsApp) para identificar clientes que estão sumidos. Use esta oportunidade para selecionar clientes inativos e enviar cupons de desconto ou mensagens personalizadas de "sentimos sua falta"!
+            Esta tela analisa de forma inteligente todo o seu banco de dados local da farmácia (fechamentos de caixa, crediários, vendas PDV e histórico do WhatsApp principal) para identificar clientes que estão sumidos. Veja abaixo o histórico de produtos que eles compraram ou procuraram e use as mensagens inteligentes para reengajar!
           </p>
         </div>
       </div>
@@ -1769,6 +2220,7 @@ const CRMInactiveTab: React.FC = () => {
             onChange={e => setInactivityDays(Number(e.target.value))}
             className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-green-500 outline-none transition-all shadow-sm max-w-xs"
           >
+            <option value="7">Mais de 7 dias sem contato</option>
             <option value="15">Mais de 15 dias sem contato</option>
             <option value="30">Mais de 30 dias (1 mês)</option>
             <option value="45">Mais de 45 dias</option>
@@ -1776,7 +2228,6 @@ const CRMInactiveTab: React.FC = () => {
             <option value="90">Mais de 90 dias (3 meses)</option>
             <option value="120">Mais de 120 dias (4 meses)</option>
             <option value="180">Mais de 180 dias (Semestre)</option>
-            <option value="365">Mais de 365 dias (1 ano)</option>
           </select>
         </div>
 
@@ -1800,86 +2251,301 @@ const CRMInactiveTab: React.FC = () => {
         <LoadingState />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* List Section */}
-          <div className="lg:col-span-7 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+          <div className="lg:col-span-8 bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden animate-in fade-in duration-300">
             <div className="px-6 py-4 border-b border-slate-150 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
               <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                Relatório de Clientes Inativos ({inactiveCustomers.length})
+                Auditoria de Conversas e Clientes Inativos ({inactiveCustomers.length})
               </h3>
-              <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 rounded-full uppercase tracking-wider animate-pulse">
+              <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 rounded-full uppercase tracking-wider">
                 {selectedCustomerIds.length} Selecionados
               </span>
             </div>
 
-            <div className="divide-y divide-slate-100 dark:divide-slate-700 max-h-[550px] overflow-y-auto">
-              {inactiveCustomers.map(customer => {
-                const isSelected = selectedCustomerIds.includes(customer.id);
-                
-                // Formata data de última interação
-                let helperText = 'Nunca interagiu';
-                let timeDiffText = '';
-                if (customer.lastInteraction) {
-                  const lastDate = new Date(customer.lastInteraction + 'T12:00:00');
-                  helperText = `Último contato em ${lastDate.toLocaleDateString('pt-BR')}`;
-                  
-                  const diffTime = Math.abs(new Date().getTime() - lastDate.getTime());
-                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                  timeDiffText = `Sumido há ${diffDays} dias`;
-                } else if (customer.createdAt) {
-                  const createDate = new Date(customer.createdAt.substring(0,10) + 'T12:00:00');
-                  helperText = `Cadastro criado em ${createDate.toLocaleDateString('pt-BR')}`;
-                }
-
-                return (
-                  <div
-                    key={customer.id}
-                    onClick={() => toggleCustomer(customer.id)}
-                    className={`flex items-center gap-4 px-6 py-4 hover:bg-slate-50/50 dark:hover:bg-slate-700/20 cursor-pointer transition-all ${
-                      isSelected ? 'bg-green-50/20 dark:bg-green-950/10' : ''
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // Handle no-op since onClick on parent handles it
-                      className="w-4.5 h-4.5 rounded border-slate-300 text-green-600 focus:ring-green-500 cursor-pointer"
-                    />
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[750px]">
+                <thead>
+                  <tr className="border-b border-slate-150 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-850/50 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                    <th className="py-4 px-5 text-center w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedCustomerIds.length === inactiveCustomers.length && inactiveCustomers.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) selectAll();
+                          else deselectAll();
+                        }}
+                        className="w-4.5 h-4.5 rounded border-slate-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-4 px-4">Cliente / Telefone</th>
+                    <th className="py-4 px-4 text-center">Inativo</th>
+                    <th className="py-4 px-4 text-center">Atendido</th>
+                    <th className="py-4 px-4">Desfecho Comercial</th>
+                    <th className="py-4 px-4">Endereço Extraído</th>
+                    <th className="py-4 px-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-150 dark:divide-slate-700">
+                  {inactiveCustomers.map(customer => {
+                    const key = customer.customerId || customer.phone;
+                    const isSelected = selectedCustomerIds.includes(key);
+                    const isExpanded = expandedCustomerId === key;
                     
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
-                          {customer.name}
-                        </span>
-                        {customer.nickname && (
-                          <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded uppercase">
-                            {customer.nickname}
-                          </span>
+                    let helperText = 'Nunca interagiu';
+                    if (customer.lastInteraction) {
+                      const lastDate = new Date(customer.lastInteraction);
+                      helperText = `Último contato em ${lastDate.toLocaleDateString('pt-BR')}`;
+                    }
+
+                    // Modalidade Badge styling
+                    let modalBadgeClass = "bg-slate-100 text-slate-700 dark:bg-slate-750 dark:text-slate-350";
+                    let modalText = "❓ Outro";
+                    
+                    if (customer.modalidade === 'entrega') {
+                      modalBadgeClass = "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-450 border border-green-200/40";
+                      modalText = "🛵 Entrega";
+                    } else if (customer.modalidade === 'retirada') {
+                      modalBadgeClass = "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-450 border border-blue-200/40";
+                      modalText = "🏪 Retirada";
+                    } else if (customer.modalidade === 'abandonou_apos_preco') {
+                      modalBadgeClass = "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-450 border border-amber-200/40";
+                      modalText = "💸 Abandono (Preço)";
+                    } else if (customer.modalidade === 'nao_atendido') {
+                      modalBadgeClass = "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-450 border border-red-200/40";
+                      modalText = "⚠️ Não Atendido";
+                    }
+
+                    const purchasesCount = customer.purchasedProducts?.length || 0;
+                    const shortagesCount = customer.searchedProducts?.length || 0;
+
+                    const handleCopyAddress = (e: React.MouseEvent, address: string) => {
+                      e.stopPropagation();
+                      if (address && address !== 'Não informado na conversa') {
+                        navigator.clipboard.writeText(address);
+                        addToast('Endereço copiado para a área de transferência! 📋', 'success');
+                      }
+                    };
+
+                    return (
+                      <React.Fragment key={key}>
+                        {/* Main Info Row */}
+                        <tr 
+                          onClick={() => toggleCustomer(key)}
+                          className={`hover:bg-slate-50/50 dark:hover:bg-slate-750/15 cursor-pointer transition-all ${
+                            isSelected ? 'bg-green-50/10 dark:bg-green-950/5' : ''
+                          }`}
+                        >
+                          <td className="py-4 px-5 text-center" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleCustomer(key)}
+                              className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                            />
+                          </td>
+                          
+                          <td className="py-4 px-4 min-w-[200px]">
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                                  {customer.systemName || customer.name}
+                                </span>
+                                {customer.whatsappName && customer.whatsappName !== customer.systemName && (
+                                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                    ({customer.whatsappName})
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs text-slate-400 mt-0.5">📱 {customer.phone}</span>
+                              
+                              <div className="flex gap-1.5 mt-1">
+                                {customer.isRegistered ? (
+                                  <span className="text-[8px] font-black text-green-650 bg-green-50 dark:bg-green-950/30 px-1 py-0.5 rounded border border-green-200/30 uppercase tracking-widest">
+                                    ✓ CRM
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] font-black text-slate-450 bg-slate-100 dark:bg-slate-700/50 px-1 py-0.5 rounded border border-slate-200/30 uppercase tracking-widest">
+                                    Sem Cadastro
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            <div className="flex flex-col items-center">
+                              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                                customer.inactivityDays >= 45 
+                                  ? 'bg-red-50 text-red-650 dark:bg-red-950/30 dark:text-red-400' 
+                                  : 'bg-amber-50 text-amber-650 dark:bg-amber-950/30 dark:text-amber-400'
+                              }`}>
+                                {customer.inactivityDays} dias
+                              </span>
+                              <span className="text-[9px] text-slate-400 mt-0.5 whitespace-nowrap">{helperText}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              customer.atendido 
+                                ? 'bg-emerald-50 text-emerald-655 dark:bg-emerald-950/30 dark:text-emerald-450 border border-emerald-100 dark:border-emerald-900/30' 
+                                : 'bg-rose-50 text-rose-655 dark:bg-rose-950/30 dark:text-rose-455 border border-rose-100 dark:border-rose-900/30'
+                            }`}>
+                              {customer.atendido ? '✔️ Sim' : '❌ Não'}
+                            </span>
+                          </td>
+
+                          <td className="py-4 px-4 min-w-[160px]">
+                            <div className="flex flex-col">
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider w-max ${modalBadgeClass}`}>
+                                {modalText}
+                              </span>
+                              <span className="text-[10px] text-slate-400 mt-1 leading-normal">
+                                {customer.modalidadeDescricao}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 max-w-xs">
+                            <div 
+                              onClick={(e) => handleCopyAddress(e, customer.endereco)}
+                              className={`group text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2 rounded-xl border border-slate-150 dark:border-slate-750 flex items-center justify-between gap-2 hover:border-green-300 dark:hover:border-green-800 transition-all ${
+                                customer.endereco && customer.endereco !== 'Não informado na conversa' ? 'cursor-pointer active:scale-98' : ''
+                              }`}
+                              title={customer.endereco && customer.endereco !== 'Não informado na conversa' ? "Clique para Copiar Endereço" : ""}
+                            >
+                              <span className="truncate max-w-[160px]" style={{ direction: 'ltr' }}>
+                                {customer.endereco}
+                              </span>
+                              {customer.endereco && customer.endereco !== 'Não informado na conversa' && (
+                                <span className="text-[10px] opacity-0 group-hover:opacity-100 text-green-600 font-bold shrink-0 transition-opacity">
+                                  📋 Copiar
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-4 px-4 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => handleSmartMessage(customer)}
+                                className="p-2 bg-gradient-to-br from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 dark:from-slate-700 dark:hover:from-slate-600 dark:to-slate-750 rounded-xl text-green-600 dark:text-green-400 hover:scale-105 active:scale-95 transition-all border border-green-200/50 dark:border-slate-600"
+                                title="Gerar Mensagem Inteligente baseada no Histórico"
+                              >
+                                <Zap className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => setExpandedCustomerId(isExpanded ? null : key)}
+                                className={`p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-all`}
+                                title="Ver Detalhes do Histórico"
+                              >
+                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expandible Drawer Row */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/50 dark:bg-slate-900/10">
+                            <td colSpan={7} className="px-6 py-4 border-t border-slate-100 dark:border-slate-700/50">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-300">
+                                {/* Identified Products */}
+                                <div className="space-y-2 border-r border-transparent md:border-slate-150 dark:md:border-slate-800 pr-4">
+                                  <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    🛍️ Produtos Identificados pela IA (Conversa WA)
+                                  </h4>
+                                  
+                                  {purchasesCount > 0 ? (
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      {customer.purchasedProducts.map((p: any, idx: number) => (
+                                        <span 
+                                          key={idx} 
+                                          className="text-xs font-bold text-blue-700 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-3 py-1.5 rounded-xl border border-blue-200/30 flex items-center gap-1.5"
+                                        >
+                                          📦 {p.productName}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-slate-400 italic py-1">
+                                      Nenhum produto com compra fechada detectado na conversa recente.
+                                    </p>
+                                  )}
+
+                                  {shortagesCount > 0 && (
+                                    <div className="space-y-2 pt-2">
+                                      <h5 className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest">
+                                        📋 Desejos / Faltas Consultadas
+                                      </h5>
+                                      <div className="flex flex-wrap gap-2">
+                                        {customer.searchedProducts.map((s: any, idx: number) => (
+                                          <span 
+                                            key={idx} 
+                                            className="text-xs font-bold text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-450 px-3 py-1.5 rounded-xl border border-purple-200/30 flex items-center gap-1.5"
+                                          >
+                                            ⚠️ {s.productName}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* CRM and Context Notes */}
+                                <div className="space-y-2">
+                                  <h4 className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    📝 Ficha e Anotações Internas (CRM)
+                                  </h4>
+                                  
+                                  <div className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-150 dark:border-slate-700 space-y-2 shadow-xs">
+                                    <div className="text-xs space-y-1">
+                                      <p className="text-slate-400"><strong className="text-slate-500 font-black">Última Mensagem:</strong> "{customer.lastMessage || 'Sem conteúdo de texto'}"</p>
+                                      {customer.customerNotes && (
+                                        <p className="text-slate-400"><strong className="text-slate-500 font-black">Anotação CRM:</strong> {customer.customerNotes}</p>
+                                      )}
+                                      <p className="text-slate-405"><strong className="text-slate-550 font-black">Fidelização:</strong> {customer.isRegistered ? 'Cliente cadastrado no banco CRM' : 'Contato não cadastrado (registro automático pendente)'}</p>
+                                    </div>
+                                    
+                                    {customer.ideiaReativacao && (
+                                      <div className="mt-3 p-3.5 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-150 dark:border-amber-900/35 rounded-xl space-y-1">
+                                        <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest flex items-center gap-1">
+                                          💡 Ideia de Reativação da Isa (IA)
+                                        </span>
+                                        <p className="text-xs font-bold text-slate-700 dark:text-slate-200 italic leading-relaxed">
+                                          "{customer.ideiaReativacao}"
+                                        </p>
+                                      </div>
+                                    )}
+                                    
+                                    <div className="pt-2 flex gap-2">
+                                      <button 
+                                        onClick={() => handleSmartMessage(customer)}
+                                        className="text-[10px] font-black bg-slate-100 hover:bg-slate-200 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer"
+                                      >
+                                        ✨ Usar Reengajamento Personalizado
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 font-medium">
-                        <span>📱 {customer.phone || 'Sem telefone'}</span>
-                        <span>•</span>
-                        <span>{helperText}</span>
-                      </div>
-                    </div>
-
-                    {timeDiffText && (
-                      <span className="shrink-0 text-[10px] font-black text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                        {timeDiffText}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-
-              {inactiveCustomers.length === 0 && (
-                <div className="text-center py-16 text-slate-400 dark:text-slate-500">
-                  <SmileIcon className="w-12 h-12 mx-auto mb-3 opacity-30 text-green-500" />
-                  <p className="font-bold">Parabéns! Nenhum cliente inativo encontrado.</p>
-                  <p className="text-xs">Todos os clientes foram contactados ou compraram no período!</p>
-                </div>
-              )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+
+            {inactiveCustomers.length === 0 && (
+              <div className="text-center py-20 text-slate-400 dark:text-slate-500">
+                <SmileIcon className="w-14 h-14 mx-auto mb-3 opacity-30 text-green-500 animate-bounce" />
+                <p className="font-bold text-slate-600 dark:text-slate-350">Sensacional! Nenhum cliente inativo encontrado.</p>
+                <p className="text-xs max-w-sm mx-auto mt-1">Todos os clientes foram contactados ou compraram no WhatsApp/Balcão nos últimos {inactivityDays} dias!</p>
+              </div>
+            )}
           </div>
 
           {/* Dispatch Section */}
@@ -1911,7 +2577,7 @@ const CRMInactiveTab: React.FC = () => {
                 <select
                   value={selectedTemplateId}
                   onChange={handleTemplateChange}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-green-500 outline-none transition-all shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-750 dark:text-slate-300 focus:ring-2 focus:ring-green-500 outline-none transition-all shadow-sm"
                 >
                   <option value="">Selecione um template para preencher...</option>
                   {templates.filter(t => t.isActive).map(temp => (
@@ -1935,7 +2601,10 @@ const CRMInactiveTab: React.FC = () => {
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none shadow-sm text-slate-800 dark:text-slate-200"
                 />
                 <span className="text-[10px] font-bold text-slate-400 leading-normal block">
-                  Dica: A mensagem será enviada individualmente para cada cliente selecionado via robô.
+                  💡 Variáveis disponíveis: {'{nome}'}, {'{apelido}'}
+                </span>
+                <span className="text-[10px] font-bold text-slate-400 leading-normal block mt-1">
+                  Nota: Se o cliente não possuir cadastro no CRM, ele será inscrito automaticamente durante o envio!
                 </span>
               </div>
 

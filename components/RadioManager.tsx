@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Radio, Plus, Trash2, Edit3, Save, X, Volume2,
   Clock, Zap, RefreshCw, Wifi, WifiOff, Music2, Megaphone,
-  Music, Disc3, Play, Pause, SkipBack, SkipForward
+  Music, Disc3, Play, Pause, SkipBack, SkipForward, Settings
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -130,6 +130,12 @@ export const RadioManager: React.FC = () => {
   const [novaPlaylist, setNovaPlaylist] = useState('');
   const [trocandoPlaylist, setTrocandoPlaylist] = useState(false);
   
+  // Configurações da Rádio (Textos Fixos)
+  const [textoConexao, setTextoConexao] = useState('');
+  const [templateServico, setTemplateServico] = useState('');
+  const [salvandoConfigs, setSalvandoConfigs] = useState(false);
+  const [loadingConfigs, setLoadingConfigs] = useState(true);
+  
   const [form, setForm] = useState({
     titulo: '',
     mensagem: '',
@@ -149,6 +155,51 @@ export const RadioManager: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  const carregarConfigs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/radio/configs');
+      if (res.ok) {
+        const data = await res.json();
+        const conexao = data.find((c: any) => c.chave === 'texto_conexao')?.valor || '';
+        const servico = data.find((c: any) => c.chave === 'template_servico')?.valor || '';
+        setTextoConexao(conexao);
+        setTemplateServico(servico);
+      }
+    } catch (e) {
+      console.error('Erro ao carregar configurações da rádio:', e);
+    } finally {
+      setLoadingConfigs(false);
+    }
+  }, []);
+
+  const salvarConfigs = async () => {
+    setSalvandoConfigs(true);
+    try {
+      const resConexao = await fetch('/api/radio/configs/texto_conexao', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valor: textoConexao }),
+      });
+      
+      const resServico = await fetch('/api/radio/configs/template_servico', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valor: templateServico }),
+      });
+
+      if (!resConexao.ok || !resServico.ok) {
+        throw new Error('Falha ao salvar uma ou mais configurações.');
+      }
+
+      addToast('Configurações da rádio salvas com sucesso!', 'success');
+    } catch (e: any) {
+      console.error('Erro ao salvar configurações da rádio:', e);
+      addToast(e.message || 'Erro ao salvar configurações.', 'error');
+    } finally {
+      setSalvandoConfigs(false);
+    }
+  };
 
   const verificarStatus = useCallback(async () => {
     try {
@@ -182,10 +233,11 @@ export const RadioManager: React.FC = () => {
 
   useEffect(() => {
     carregarAnuncios();
+    carregarConfigs();
     verificarStatus();
     const interval = setInterval(verificarStatus, 15000); // Atualiza a cada 15s
     return () => clearInterval(interval);
-  }, [carregarAnuncios, verificarStatus]);
+  }, [carregarAnuncios, carregarConfigs, verificarStatus]);
 
   const salvarAnuncio = async () => {
     if (!form.titulo.trim() || !form.mensagem.trim()) return;
@@ -475,6 +527,75 @@ export const RadioManager: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Configurações da Rádio */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <Settings className="w-5 h-5 text-purple-500 animate-pulse" />
+          <h2 className="font-black text-slate-900 dark:text-slate-100 text-base">Configurações de Textos da Rádio</h2>
+        </div>
+
+        {loadingConfigs ? (
+          <div className="py-4 text-center text-slate-400 text-sm">Carregando configurações...</div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">
+                Texto de Boas-vindas (Ao ligar a rádio)
+              </label>
+              <textarea
+                value={textoConexao}
+                onChange={e => setTextoConexao(e.target.value)}
+                placeholder="Ex: Rádio Bela Farma Sul conectada com sucesso ao Spotify..."
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none h-20"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">Este texto é anunciado logo após a rádio se conectar ao Spotify.</p>
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                  Template do Anúncio de Serviço (Hora, Data e Clima)
+                </label>
+              </div>
+              <textarea
+                value={templateServico}
+                onChange={e => setTemplateServico(e.target.value)}
+                placeholder="Ex: Agora são {hora}. Hoje é dia {data}. {clima} Drogaria Bela Farma."
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none h-20"
+              />
+              <div className="mt-1">
+                <p className="text-[10px] text-slate-500">
+                  Use as tags <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono font-bold text-purple-600 dark:text-purple-400">{`{hora}`}</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono font-bold text-purple-600 dark:text-purple-400">{`{data}`}</code> e <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono font-bold text-purple-600 dark:text-purple-400">{`{clima}`}</code> para que o sistema insira os valores automáticos.
+                </p>
+              </div>
+            </div>
+
+            {/* Preview do Serviço */}
+            <div className="p-3 bg-purple-50/50 dark:bg-purple-900/5 rounded-xl border border-purple-100/50 dark:border-purple-900/10 text-xs">
+              <span className="font-bold text-purple-800 dark:text-purple-300 block mb-1">Visualização do Anúncio de Serviço:</span>
+              <p className="italic text-slate-600 dark:text-slate-300 font-medium">
+                "{templateServico
+                  .replace('{hora}', new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+                  .replace('{data}', new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }))
+                  .replace('{clima}', 'Tempo nublado com 23 graus.')
+                }"
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={salvarConfigs}
+                disabled={salvandoConfigs || !textoConexao.trim() || !templateServico.trim()}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-all shadow-sm"
+              >
+                <Save className="w-4 h-4" />
+                {salvandoConfigs ? 'Salvando...' : 'Salvar Configurações'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Formulário de criação/edição */}

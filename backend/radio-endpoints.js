@@ -16,6 +16,33 @@ module.exports = (app, db) => {
     )
   `);
 
+  // Cria tabela de configurações da rádio se não existir
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS radio_configs (
+      chave TEXT PRIMARY KEY,
+      valor TEXT NOT NULL,
+      descricao TEXT
+    )
+  `);
+
+  // Preenche configurações iniciais se a tabela estiver vazia
+  try {
+    const configCount = db.prepare('SELECT COUNT(*) as count FROM radio_configs').get();
+    if (configCount.count === 0) {
+      const configsIniciais = [
+        { chave: "texto_conexao", valor: "Rádio Bela Farma Sul conectada com sucesso ao Spotify. Iniciando transmissão na rede local!", descricao: "Texto falado ao conectar a rádio" },
+        { chave: "template_servico", valor: "Agora são {hora}. Hoje é dia {data}. {clima} Drogaria Bela Farma.", descricao: "Template do anúncio de serviço de hora/data/clima" }
+      ];
+      const insertConfig = db.prepare('INSERT INTO radio_configs (chave, valor, descricao) VALUES (?, ?, ?)');
+      const insertManyConfigs = db.transaction((configs) => {
+        for (const config of configs) insertConfig.run(config.chave, config.valor, config.descricao);
+      });
+      insertManyConfigs(configsIniciais);
+    }
+  } catch (err) {
+    console.error('Erro ao inicializar configurações da rádio:', err.message);
+  }
+
   // Se a tabela antiga existir sem a coluna validade_ate, adiciona:
   try {
     db.exec(`ALTER TABLE radio_anuncios ADD COLUMN validade_ate TEXT`);
@@ -118,6 +145,42 @@ module.exports = (app, db) => {
     try {
       db.prepare('DELETE FROM radio_anuncios WHERE id=?').run(id);
       res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ erro: err.message });
+    }
+  });
+
+  // GET /api/radio/configs - Lista todas as configurações da rádio
+  app.get('/api/radio/configs', (req, res) => {
+    try {
+      const configs = db.prepare('SELECT * FROM radio_configs').all();
+      res.json(configs);
+    } catch (err) {
+      res.status(500).json({ erro: err.message });
+    }
+  });
+
+  // PUT /api/radio/configs/:chave - Atualiza uma configuração da rádio
+  app.put('/api/radio/configs/:chave', (req, res) => {
+    const { chave } = req.params;
+    const { valor } = req.body;
+    
+    if (valor === undefined || valor === null) {
+      return res.status(400).json({ erro: 'O valor da configuração é obrigatório.' });
+    }
+    
+    try {
+      const stmt = db.prepare(`
+        UPDATE radio_configs 
+        SET valor = ? 
+        WHERE chave = ?
+      `);
+      const result = stmt.run(valor, chave);
+      
+      if (result.changes === 0) {
+        return res.status(404).json({ erro: 'Configuração não encontrada.' });
+      }
+      res.json({ ok: true, chave, valor });
     } catch (err) {
       res.status(500).json({ erro: err.message });
     }

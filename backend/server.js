@@ -3008,6 +3008,11 @@ initializeMarketingEndpoints(app, db);
 const { initializeWhatsAppGroupEndpoints } = require('./whatsapp-group-endpoints.js');
 initializeWhatsAppGroupEndpoints(app, db);
 
+// Módulo CRM WhatsApp (Importação de Clientes e Histórico de Produtos)
+const { initializeWhatsAppCRMEndpoints } = require('./whatsapp-crm-endpoints.js');
+initializeWhatsAppCRMEndpoints(app, db);
+
+
 // Inicia o scheduler de marketing (relatório toda segunda-feira às 08:00)
 marketingScheduler.iniciarScheduler(db);
 console.log('🤖 Agente de Marketing IA inicializado.');

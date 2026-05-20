@@ -933,6 +933,78 @@ try {
 
     console.log('✅ Agente de Marketing: Tabelas de histórico e aprovações criadas!');
 
+    // ========================================================================
+    // CRM WHATSAPP — Histórico de Produtos por Cliente
+    // ========================================================================
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS whatsapp_product_history (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        customer_id TEXT,
+        product_name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('comprado', 'pesquisado', 'nao_encontrado', 'cancelado')),
+        interaction_date TEXT,
+        source TEXT DEFAULT 'WhatsApp',
+        notes TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_wph_phone ON whatsapp_product_history(phone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_wph_status ON whatsapp_product_history(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_wph_product ON whatsapp_product_history(product_name)');
+    } catch (e) { /* índices já existem */ }
+    console.log('✅ CRM WhatsApp: Tabela whatsapp_product_history criada!');
+
+    // Cache de auditorias de clientes inativos (usado no módulo de marketing)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS crm_inactive_audits (
+        phone TEXT PRIMARY KEY,
+        whatsappName TEXT,
+        systemName TEXT,
+        jid TEXT,
+        inactivityDays INTEGER,
+        lastMessage TEXT,
+        lastInteractionTime INTEGER,
+        atendido INTEGER DEFAULT 0,
+        fechouVenda INTEGER DEFAULT 0,
+        modalidade TEXT,
+        modalidadeDescricao TEXT,
+        endereco TEXT,
+        ideiaReativacao TEXT,
+        productsJson TEXT DEFAULT '[]',
+        auditedAt TEXT
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cia_phone ON crm_inactive_audits(phone)');
+    } catch (e) { /* índice já existe */ }
+    console.log('✅ CRM WhatsApp: Tabela crm_inactive_audits criada!');
+
+    // Migration: adicionar coluna source em customers (usada no webhook)
+    try {
+      db.prepare('SELECT source FROM customers LIMIT 1').get();
+    } catch (e) {
+      db.exec("ALTER TABLE customers ADD COLUMN source TEXT DEFAULT 'Manual'");
+      console.log('✅ Migration: coluna source adicionada em customers.');
+    }
+
+    // Migration: adicionar coluna source em shortages (para identificar origem WhatsApp)
+    try {
+      db.prepare('SELECT source FROM shortages LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE shortages ADD COLUMN source TEXT');
+      console.log('✅ Migration: coluna source adicionada em shortages.');
+    }
+
+    // Migration: adicionar coluna whatsapp_name em customers
+    try {
+      db.prepare('SELECT whatsapp_name FROM customers LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE customers ADD COLUMN whatsapp_name TEXT');
+      console.log('✅ Migration: coluna whatsapp_name adicionada em customers.');
+    }
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

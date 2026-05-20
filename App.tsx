@@ -30,6 +30,7 @@ import { MessagingCenter } from "./components/MessagingCenter";
 import AIPortal from "./components/AIPortal";
 import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
 import { RadioManager } from "./components/RadioManager";
+import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import {
   Order,
   View,
@@ -772,6 +773,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'radio-manager' && user.role === UserRole.ADM && (
                 <RadioManager />
+              )}
+              {currentView === 'whatsapp-crm' && user.role === UserRole.ADM && (
+                <WhatsAppCRM />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

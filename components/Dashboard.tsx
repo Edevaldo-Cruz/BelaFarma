@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   TrendingUp, 
@@ -22,7 +21,9 @@ import {
   Smartphone,
   CreditCard,
   User as UserIcon,
-  Receipt
+  Receipt,
+  Send,
+  Loader2
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -58,6 +59,85 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
+
+  // Estados para o Widget de Pós-Venda no Dashboard
+  const [newCustomers, setNewCustomers] = React.useState<any[]>([]);
+  const [selectedClientIds, setSelectedClientIds] = React.useState<string[]>([]);
+  const [loadingPostSales, setLoadingPostSales] = React.useState(true);
+  const [sendingPostSales, setSendingPostSales] = React.useState(false);
+  const [postSalesMessage, setPostSalesMessage] = React.useState(
+    'Olá, {nome}! Tudo bem? Passando para agradecer a preferência na sua compra na BelaFarma. Deu tudo certo com o seu atendimento e a entrega? Esperamos que tenha tido uma ótima experiência! Qualquer dúvida estou à disposição. 💚'
+  );
+
+  const fetchNewCustomers = React.useCallback(async () => {
+    setLoadingPostSales(true);
+    try {
+      const res = await fetch('/api/marketing/new-customers?days=7');
+      if (res.ok) {
+        const data = await res.json();
+        setNewCustomers(data.newCustomers || []);
+      }
+    } catch (e) {
+      console.error('Erro ao buscar novos clientes para pós-venda:', e);
+    } finally {
+      setLoadingPostSales(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchNewCustomers();
+  }, [fetchNewCustomers]);
+
+  const selectAll = () => {
+    setSelectedClientIds(newCustomers.map(c => c.id || c.phone));
+  };
+
+  const deselectAll = () => {
+    setSelectedClientIds([]);
+  };
+
+  const toggleClient = (id: string) => {
+    setSelectedClientIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSendPostSales = async () => {
+    if (selectedClientIds.length === 0) {
+      addToast('Por favor, selecione pelo menos um cliente.', 'warning');
+      return;
+    }
+
+    setSendingPostSales(true);
+    try {
+      const selectedClients = newCustomers.filter(c => 
+        selectedClientIds.includes(c.id || c.phone)
+      );
+
+      const res = await fetch('/api/marketing/post-sales/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clients: selectedClients.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
+          messageText: postSalesMessage
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        addToast(`Pós-venda enviado com sucesso! ${data.sent} mensagens enviadas.`, 'success');
+        deselectAll();
+        fetchNewCustomers();
+      } else {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Erro no envio.');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao processar pós-venda.', 'error');
+    } finally {
+      setSendingPostSales(false);
+    }
+  };
 
   React.useEffect(() => {
     const fetchLastBackup = async () => {
@@ -442,6 +522,160 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           </div>
         </div>
       </div>
+
+      {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-md shrink-0">
+              <CheckCircle2 className="w-5 h-5 text-white animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-850 dark:text-slate-250 uppercase tracking-tight">
+                🎯 Pós-Venda: Novos Clientes Conquistados (Últimos 7 dias)
+              </h2>
+              <p className="text-xs text-slate-450 font-medium">
+                Lista de clientes recém-cadastrados para contato de pós-venda e agradecimento.
+              </p>
+            </div>
+          </div>
+
+          {newCustomers.length > 0 && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={selectAll}
+                className="px-3 py-1.5 text-[10px] font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-250 hover:bg-slate-200 rounded-xl transition-all cursor-pointer"
+              >
+                Selecionar Todos ({newCustomers.length})
+              </button>
+              <button
+                type="button"
+                onClick={deselectAll}
+                className="px-3 py-1.5 text-[10px] font-black border border-slate-200 dark:border-slate-700 text-slate-500 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                Limpar Seleção
+              </button>
+            </div>
+          )}
+        </div>
+
+        {loadingPostSales ? (
+          <div className="flex flex-col items-center justify-center py-10 space-y-3">
+            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+            <p className="text-xs font-bold text-slate-400">Verificando novos clientes cadastrados...</p>
+          </div>
+        ) : newCustomers.length === 0 ? (
+          <div className="text-center py-10 bg-slate-50/50 dark:bg-slate-850/20 rounded-2xl border border-slate-150/40 p-6">
+            <span className="text-3xl mb-2 block">🎉</span>
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-350">Tudo em dia com o pós-venda!</h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Nenhum cliente cadastrado nos últimos 7 dias necessita de pós-venda no momento. Bom trabalho de fidelização!
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
+            {/* Lista com Checkbox */}
+            <div className="lg:col-span-2 space-y-3 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
+              {newCustomers.map(client => {
+                const key = client.id || client.phone;
+                const isSelected = selectedClientIds.includes(key);
+                const registerDate = client.createdAt ? new Date(client.createdAt).toLocaleDateString('pt-BR') : 'Hoje';
+                
+                return (
+                  <div
+                    key={key}
+                    onClick={() => toggleClient(key)}
+                    className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50/25 border-blue-200 dark:bg-blue-950/10 dark:border-blue-900/50 shadow-xs'
+                        : 'bg-white dark:bg-slate-900 border-slate-150 dark:border-slate-800 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleClient(key)}
+                        onClick={e => e.stopPropagation()}
+                        className="w-4.5 h-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-850 dark:text-slate-100 flex items-center gap-2">
+                          {client.name}
+                          {client.postSalesStatus === 'Enviado' && (
+                            <span className="text-[8px] font-black text-green-650 bg-green-50 dark:bg-green-950/30 px-1.5 py-0.5 rounded border border-green-200/20 uppercase tracking-widest">
+                              ✓ Enviado
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-xs text-slate-400 mt-0.5 font-medium">
+                          📱 {client.phone} • Conquistado em {registerDate}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      {client.lastSaleValue ? (
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                            R$ {client.lastSaleValue.toFixed(2)}
+                          </span>
+                          <span className="text-[9px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider mt-0.5">
+                            📦 {client.purchasedProducts?.length || 0} itens
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic">Sem vendas registradas</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Painel de Texto do Pós-Venda */}
+            <div className="bg-slate-50 dark:bg-slate-850/50 p-4.5 rounded-2xl border border-slate-200/60 dark:border-slate-800 flex flex-col justify-between space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-455 uppercase tracking-widest flex items-center gap-1.5">
+                  <Megaphone className="w-3.5 h-3.5 text-blue-600" />
+                  Mensagem de Pós-Venda:
+                </label>
+                <textarea
+                  required
+                  value={postSalesMessage}
+                  onChange={e => setPostSalesMessage(e.target.value)}
+                  rows={4}
+                  placeholder="Mensagem para enviar..."
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-750 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500 text-slate-850 dark:text-slate-100 font-medium"
+                />
+                <span className="block text-[9px] text-slate-400 leading-normal font-medium">
+                  Use <code className="text-blue-600 font-black">{'{nome}'}</code> para saudar o cliente pelo nome.
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSendPostSales}
+                disabled={sendingPostSales || selectedClientIds.length === 0}
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-800 dark:disabled:to-slate-700 text-white font-black py-3 rounded-xl text-xs uppercase tracking-wider shadow-sm hover:scale-[1.01] active:scale-[0.99] disabled:scale-100 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {sendingPostSales ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    Disparar Pós-Venda ({selectedClientIds.length})
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 };

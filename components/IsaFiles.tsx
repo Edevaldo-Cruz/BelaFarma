@@ -53,7 +53,7 @@ export default function IsaFiles() {
     const formData = new FormData();
     
     // Adiciona todos os arquivos ao FormData
-    Array.from(selectedFiles).forEach(file => {
+    Array.from<File>(selectedFiles).forEach(file => {
       formData.append('relatorio', file);
     });
 
