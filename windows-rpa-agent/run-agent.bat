@@ -79,15 +79,34 @@ if not exist node_modules (
         pause
         exit /b
     )
+    echo.
+    echo [INFO] Baixando navegador Chromium oficial para o Puppeteer...
+    if exist "node-bin\npx.cmd" (
+        call node-bin\npx.cmd puppeteer browsers install chrome
+    ) else (
+        call npx puppeteer browsers install chrome
+    )
     color 0A
     echo.
-    echo [SUCESSO] Dependencias instaladas com sucesso!
+    echo [SUCESSO] Dependencias e navegador instalados com sucesso!
     echo.
 )
 
 :: 4. Roda o agente
 echo [INFO] Iniciando Agente...
 %NODE_EXE% agent.js
+if %errorlevel% neq 0 (
+    color 0E
+    echo.
+    echo --------------------------------------------------------
+    echo [DICA] O agente falhou ao iniciar. 
+    echo Se o erro for de "Could not find Chrome", certifique-se de que:
+    echo 1. O Google Chrome oficial esta instalado no seu Windows.
+    echo 2. Ou force a instalacao do Chromium do Puppeteer rodando o comando:
+    echo    npx puppeteer browsers install chrome
+    echo --------------------------------------------------------
+    echo.
+)
 
 echo.
 echo ========================================================

@@ -2,5 +2,6 @@
   "serverUrl": "https://app.drogariabelafarma.com.br",
   "token": "BelafarmaSul2026",
   "pollingIntervalSeconds": 15,
-  "chromeSessionDir": "../whatsapp-session-rpa"
+  "chromeSessionDir": "../whatsapp-session-rpa",
+  "executablePath": ""
 }

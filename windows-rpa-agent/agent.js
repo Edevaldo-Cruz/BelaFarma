@@ -9,7 +9,8 @@ let config = {
   serverUrl: 'http://localhost:3001',
   token: 'BelafarmaSul2026',
   pollingIntervalSeconds: 15,
-  chromeSessionDir: './whatsapp-session-rpa'
+  chromeSessionDir: './whatsapp-session-rpa',
+  executablePath: ''
 };
 
 if (fs.existsSync(CONFIG_PATH)) {
@@ -85,12 +86,53 @@ async function reportStatus(postId, status, errorMessage = null) {
 async function startAgent() {
   console.log('🌐 Iniciando navegador Chromium (modo visível)...');
   
-  const browser = await puppeteer.launch({
+  let launchOptions = {
     headless: false,
     userDataDir: chromeSessionDir,
     defaultViewport: null,
     args: ['--start-maximized']
-  });
+  };
+
+  // Se houver executablePath customizado no config.json, usa ele
+  if (config.executablePath) {
+    if (fs.existsSync(config.executablePath)) {
+      console.log(`🚀 Usando navegador configurado em: ${config.executablePath}`);
+      launchOptions.executablePath = config.executablePath;
+    } else {
+      console.warn(`⚠️ Executável configurado em "${config.executablePath}" não foi encontrado. Tentando detecção automática...`);
+    }
+  }
+
+  // Tenta autodetectar o Google Chrome oficial no Windows se nenhum caminho válido for definido
+  if (!launchOptions.executablePath) {
+    const paths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe')
+    ];
+
+    for (const p of paths) {
+      if (p && fs.existsSync(p)) {
+        console.log(`🚀 Google Chrome detectado automaticamente em: ${p}`);
+        launchOptions.executablePath = p;
+        break;
+      }
+    }
+  }
+
+  let browser;
+  try {
+    browser = await puppeteer.launch(launchOptions);
+  } catch (launchErr) {
+    console.error('\n💥 [Falha Crítica] Não foi possível inicializar o navegador!');
+    console.error('Este erro ocorre quando o Puppeteer não encontra um navegador instalado no cache ou no sistema.');
+    console.error('\n💡 Como resolver facilmente:');
+    console.error('1. Certifique-se de que o Google Chrome oficial está instalado na sua máquina.');
+    console.error('2. Ou abra o terminal do Windows na pasta "windows-rpa-agent" e execute o seguinte comando para baixar o Chromium dedicado:');
+    console.error('   npx puppeteer browsers install chrome');
+    console.error('\nDetalhes técnicos do erro original:', launchErr.message);
+    throw launchErr;
+  }
 
   const page = await browser.newPage();
   
