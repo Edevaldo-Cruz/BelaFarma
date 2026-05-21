@@ -40,6 +40,7 @@ interface UnifiedPayment {
   originalFixed?: FixedAccountPayment;
   invoice_number?: string;
   paidAt?: string;
+  provisionDetails?: string;
 }
 
 export const ContasAPagar: React.FC<ContasAPagarProps> = ({ 
@@ -207,25 +208,39 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       
       cashClosings.forEach(c => {
         if (!c.date) return;
-        const [y, m, dStr] = c.date.split('-');
-        if (parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth) {
+        
+        const closingDate = new Date(c.date + 'T00:00:00');
+        const minDate = new Date('2026-06-01T00:00:00');
+        if (closingDate < minDate) return;
+
+        const dueD = new Date(closingDate);
+        dueD.setDate(dueD.getDate() + 1);
+        const yDue = dueD.getFullYear();
+        const mDue = dueD.getMonth();
+        const dDue = String(dueD.getDate()).padStart(2, '0');
+        const dueDateStr = `${yDue}-${String(mDue + 1).padStart(2, '0')}-${dDue}`;
+
+        if (yDue === selectedYear && mDue === selectedMonth) {
           if (c.totalSales >= dailyGoal) {
             let provisionValue = 50;
             const surplus = c.totalSales - dailyGoal;
+            let bonusValue = 0;
             if (surplus > 0) {
-              provisionValue += Math.floor(surplus / 100) * 10;
+              bonusValue = Math.floor(surplus / 100) * 10;
+              provisionValue += bonusValue;
             }
             
-            // A provisão gerada num dia deve ser listada para separar no mesmo dia ou no próximo
+            // Salvamos a data original do caixa (c.date) para identificar nos paidProvisionsDates
             const isPaid = paidProvisionsDates.includes(c.date);
             
             list.push({
               id: `provision-${c.date}`,
               type: 'provision',
-              supplierName: 'Provisão Prolabore (Atrasados)',
-              dueDate: c.date,
+              supplierName: `Provisão Prolabore (Fechamento: ${c.date.split('-').reverse().join('/')})`,
+              dueDate: dueDateStr,
               value: provisionValue,
-              status: isPaid ? 'Pago' : 'Pendente'
+              status: isPaid ? 'Pago' : 'Pendente',
+              provisionDetails: `Cálculo: R$ 50,00 (Meta) + R$ ${bonusValue.toFixed(2)} (Excedente)`
             });
           }
         }
@@ -342,7 +357,8 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       }
     }
     else if (item.type === 'provision') {
-      const dateStr = item.dueDate; // Usamos a dueDate como chave para provisão
+      // O ID da provisão é `provision-${c.date}`, extraímos a data original do caixa
+      const dateStr = item.id.replace('provision-', ''); 
       let newDates = [...paidProvisionsDates];
       if (item.status === 'Pago') {
          newDates = newDates.filter(d => d !== dateStr);
@@ -491,6 +507,9 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                           )}
                           {item.type === 'provision' && (
                             <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-tighter">Reserva de Lucro</span>
+                          )}
+                          {item.provisionDetails && (
+                            <span className="text-[10px] text-emerald-700/70 font-bold tracking-tighter mt-0.5">{item.provisionDetails}</span>
                           )}
                         </div>
                       </div>
