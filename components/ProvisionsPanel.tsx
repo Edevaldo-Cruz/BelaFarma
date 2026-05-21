@@ -12,23 +12,31 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   
   const [salesGoal, setSalesGoal] = useState<number>(40000);
-  const [prolaboreGoal, setProlaboreGoal] = useState<number>(3000);
-  const [vacationGoal, setVacationGoal] = useState<number>(1750);
+  const [prolaboreGoal, setProlaboreGoal] = useState<number>(10000);
+  const [vacationGoal, setVacationGoal] = useState<number>(2000);
   
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   const [tempProlabore, setTempProlabore] = useState('');
   const [tempVacation, setTempVacation] = useState('');
   const [tempSales, setTempSales] = useState('');
+  
+  const [initialDebt, setInitialDebt] = useState<number>(0);
+  const [tempDebt, setTempDebt] = useState('');
+  
+  const [paidProvisionsDates, setPaidProvisionsDates] = useState<string[]>([]);
+  const [showFixedDetails, setShowFixedDetails] = useState(false);
 
   const now = new Date();
 
   useEffect(() => {
     const fetchGoals = async () => {
       try {
-        const [resSales, resProlabore, resVacation] = await Promise.all([
+        const [resSales, resProlabore, resVacation, resDebt, resPaid] = await Promise.all([
           fetch('/api/settings/monthly_sales_goal'),
           fetch('/api/settings/prolabore_monthly'),
-          fetch('/api/settings/vacation_monthly')
+          fetch('/api/settings/vacation_monthly'),
+          fetch('/api/settings/initial_prolabore_debt'),
+          fetch('/api/settings/paid_provisions_dates')
         ]);
 
         if (resSales.ok) {
@@ -43,6 +51,16 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
           const d = await resVacation.json();
           if (d && d.value) setVacationGoal(Number(d.value));
         }
+        if (resDebt.ok) {
+          const d = await resDebt.json();
+          if (d && d.value) setInitialDebt(Number(d.value));
+        }
+        if (resPaid.ok) {
+          const d = await resPaid.json();
+          if (d && d.value) {
+            try { setPaidProvisionsDates(JSON.parse(d.value)); } catch(e) {}
+          }
+        }
       } catch (err) {
         console.error('Erro ao buscar configurações de metas', err);
       }
@@ -54,10 +72,12 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
     const numSales = Number(tempSales.replace(/[^0-9.]/g, ''));
     const numProlabore = Number(tempProlabore.replace(/[^0-9.]/g, ''));
     const numVacation = Number(tempVacation.replace(/[^0-9.]/g, ''));
+    const numDebt = Number(tempDebt.replace(/[^0-9.]/g, ''));
 
     if (numSales > 0) setSalesGoal(numSales);
     if (numProlabore >= 0) setProlaboreGoal(numProlabore);
     if (numVacation >= 0) setVacationGoal(numVacation);
+    if (numDebt >= 0) setInitialDebt(numDebt);
 
     try {
       await Promise.all([
@@ -75,6 +95,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: numVacation >= 0 ? String(numVacation) : String(vacationGoal) })
+        }),
+        fetch('/api/settings/initial_prolabore_debt', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: numDebt >= 0 ? String(numDebt) : String(initialDebt) })
         })
       ]);
     } catch (e) {
@@ -88,6 +113,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
     setTempSales(salesGoal.toString());
     setTempProlabore(prolaboreGoal.toString());
     setTempVacation(vacationGoal.toString());
+    setTempDebt(initialDebt.toString());
     setIsEditingSettings(true);
   };
 
@@ -114,6 +140,34 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
   
   const provisionedAmount = totalProvisionsTarget * salesProgressPercent;
   const missingSalesAmount = Math.max(0, salesGoal - currentMonthSales);
+
+  // Cálculos do Saldo Devedor
+  const totalPaidProvisions = useMemo(() => {
+    let sum = 0;
+    cashClosings.forEach(c => {
+      if (c.date && paidProvisionsDates.includes(c.date)) {
+        // Reconstituir o valor pago
+        const [y, m] = c.date.split('-');
+        const daysInMonth = new Date(parseInt(y), parseInt(m), 0).getDate();
+        const dailyGoal = salesGoal / daysInMonth; // Aproximação baseada na meta atual
+        
+        let provisionValue = 50;
+        const surplus = c.totalSales - dailyGoal;
+        if (surplus > 0) {
+          provisionValue += Math.floor(surplus / 100) * 10;
+        }
+        sum += provisionValue;
+      }
+    });
+    return sum;
+  }, [cashClosings, paidProvisionsDates, salesGoal]);
+
+  const currentDebt = Math.max(0, initialDebt - totalPaidProvisions);
+
+  // Cálculos do Fechamento Societário
+  // Se for o dia 1 (ou qualquer dia) e estivermos olhando para um mês anterior:
+  const isPastMonth = selectedYear < now.getFullYear() || (selectedYear === now.getFullYear() && selectedMonth < now.getMonth());
+  const partnerShare = (prolaboreGoal * salesProgressPercent) / 2;
 
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(selectedYear, i, 1);
@@ -161,6 +215,61 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
           </div>
         </div>
       </header>
+
+      {/* PAINEL SALDO DEVEDOR */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="col-span-1 md:col-span-2 bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col justify-center">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+               Saldo Devedor de Prolabore (Atrasados)
+            </h3>
+          </div>
+          <div className="flex flex-col md:flex-row md:items-end gap-6 mt-2">
+             <div>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Dívida Base</p>
+               <p className="text-xl font-bold text-slate-700">{formatBRL(initialDebt)}</p>
+             </div>
+             <div className="hidden md:block text-slate-300 font-light text-2xl">-</div>
+             <div>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Provisões Pagas</p>
+               <p className="text-xl font-bold text-emerald-600">{formatBRL(totalPaidProvisions)}</p>
+             </div>
+             <div className="hidden md:block text-slate-300 font-light text-2xl">=</div>
+             <div>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Saldo Atual</p>
+               <p className="text-3xl font-black text-red-600 tracking-tighter">{formatBRL(currentDebt)}</p>
+             </div>
+          </div>
+        </div>
+        
+        {/* FECHAMENTO MENSAL SOCIETÁRIO */}
+        <div className={`col-span-1 rounded-[2rem] p-6 border ${isPastMonth ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200 opacity-60'} flex flex-col justify-center`}>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+               Acerto de Sócios
+            </h3>
+            {isPastMonth && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-[9px] font-bold uppercase rounded-lg">Fechado</span>}
+          </div>
+          
+          {isPastMonth ? (
+             <div className="space-y-3">
+               <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-indigo-100/50">
+                 <span className="text-xs font-bold text-slate-600 uppercase">Edevaldo</span>
+                 <span className="text-sm font-black text-indigo-700">{formatBRL(partnerShare)}</span>
+               </div>
+               <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-indigo-100/50">
+                 <span className="text-xs font-bold text-slate-600 uppercase">Sócia</span>
+                 <span className="text-sm font-black text-indigo-700">{formatBRL(partnerShare)}</span>
+               </div>
+             </div>
+          ) : (
+             <div className="text-center text-slate-400 p-4">
+               <p className="text-xs font-bold uppercase">Mês em andamento</p>
+               <p className="text-[10px] mt-1">O acerto será liberado no dia 1º do próximo mês.</p>
+             </div>
+          )}
+        </div>
+      </div>
 
       {/* PAINEL CENTRAL (BURACO) */}
       <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[3rem] p-8 md:p-12 text-white shadow-2xl relative overflow-hidden">
@@ -248,6 +357,10 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Férias e 13º Mensal</label>
             <input type="number" value={tempVacation} onChange={e => setTempVacation(e.target.value)} className="mt-1 w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 font-bold" />
           </div>
+          <div>
+            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Dívida Inicial Prolabores</label>
+            <input type="number" value={tempDebt} onChange={e => setTempDebt(e.target.value)} className="mt-1 w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 font-bold text-red-600" />
+          </div>
         </div>
       )}
 
@@ -255,7 +368,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Pote 1: Contas Fixas */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform">
               <CalendarIcon className="w-6 h-6" />
@@ -263,9 +376,18 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
             <span className="text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Pote 1</span>
           </div>
           <p className="font-black text-slate-900 uppercase tracking-tighter text-lg">Contas Fixas</p>
-          <p className="text-xs text-slate-500 font-medium mb-6">Custos inegociáveis para o negócio girar.</p>
           
-          <div className="space-y-2">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-xs text-slate-500 font-medium">Custos inegociáveis para o negócio girar.</p>
+            <button 
+              onClick={() => setShowFixedDetails(!showFixedDetails)}
+              className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap ml-2"
+            >
+              {showFixedDetails ? 'Ocultar' : 'Detalhar'}
+            </button>
+          </div>
+          
+          <div className="space-y-2 mt-auto">
             <div className="flex justify-between text-sm font-bold">
               <span className="text-blue-600">{formatBRL(fixedAccountsTotal * salesProgressPercent)}</span>
               <span className="text-slate-400">/ {formatBRL(fixedAccountsTotal)}</span>
@@ -274,10 +396,26 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
               <div className={`h-full rounded-full transition-all duration-1000 ${getProgressColor(salesProgressPercent)}`} style={{ width: `${salesProgressPercent * 100}%` }}></div>
             </div>
           </div>
+
+          {showFixedDetails && (
+            <div className="mt-6 pt-6 border-t border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2">
+              {fixedAccounts.filter(fa => fa.isActive).map(fa => (
+                <div key={fa.id} className="space-y-1">
+                  <div className="flex justify-between text-[10px] font-bold">
+                    <span className="text-slate-600 truncate max-w-[140px]" title={fa.name}>{fa.name.toUpperCase()}</span>
+                    <span className="text-slate-400 text-right">{formatBRL(fa.value * salesProgressPercent)}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5">
+                    <div className={`h-full rounded-full transition-all duration-1000 ${getProgressColor(salesProgressPercent)}`} style={{ width: `${salesProgressPercent * 100}%` }}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Pote 2: Prolabore */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:scale-110 transition-transform">
               <Wallet className="w-6 h-6" />
@@ -287,7 +425,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
           <p className="font-black text-slate-900 uppercase tracking-tighter text-lg">Prolabore do Mês</p>
           <p className="text-xs text-slate-500 font-medium mb-6">Remuneração dos sócios garantida.</p>
           
-          <div className="space-y-2">
+          <div className="space-y-2 mt-auto">
             <div className="flex justify-between text-sm font-bold">
               <span className="text-indigo-600">{formatBRL(prolaboreGoal * salesProgressPercent)}</span>
               <span className="text-slate-400">/ {formatBRL(prolaboreGoal)}</span>
@@ -299,7 +437,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
         </div>
 
         {/* Pote 3: Férias e 13º */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:scale-110 transition-transform">
               <DollarSign className="w-6 h-6" />
@@ -309,7 +447,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
           <p className="font-black text-slate-900 uppercase tracking-tighter text-lg">Férias e 13º</p>
           <p className="text-xs text-slate-500 font-medium mb-6">Reserva de lucro para o futuro.</p>
           
-          <div className="space-y-2">
+          <div className="space-y-2 mt-auto">
             <div className="flex justify-between text-sm font-bold">
               <span className="text-emerald-600">{formatBRL(vacationGoal * salesProgressPercent)}</span>
               <span className="text-slate-400">/ {formatBRL(vacationGoal)}</span>
