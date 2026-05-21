@@ -60,6 +60,120 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  // --- Gestão de Saldo Devedor do Prolabore ---
+  const [initialDebt, setInitialDebt] = useState<number>(0);
+  const [isEditingDebt, setIsEditingDebt] = useState(false);
+  const [debtInput, setDebtInput] = useState('0,00');
+  const [budgetStatus, setBudgetStatus] = useState<'ok' | 'busted'>('ok');
+  const [monthlySalesGoal, setMonthlySalesGoal] = useState<number>(40000);
+
+  React.useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [resDebt, resGoal, resLimits] = await Promise.all([
+          fetch('/api/settings/delayed_prolabore_balance'),
+          fetch('/api/settings/monthly_sales_goal'),
+          fetch('/api/settings') // Fetch limits differently if not available, but let's fetch from all-data
+        ]);
+        
+        if (resDebt.ok) {
+          const data = await resDebt.json();
+          if (data && data.value) {
+             const val = Number(data.value);
+             setInitialDebt(val);
+             setDebtInput(new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2 }).format(val));
+          }
+        }
+        if (resGoal.ok) {
+          const data = await resGoal.json();
+          if (data && data.value) setMonthlySalesGoal(Number(data.value));
+        }
+
+        // Budget check
+        const resAll = await fetch('/api/all-data');
+        if (resAll.ok) {
+          const allData = await resAll.json();
+          const limits = allData.monthlyLimits?.documents || [];
+          const now = new Date();
+          const currentMonthName = now.toLocaleString('pt-BR', { month: 'long' });
+          const currentLimit = limits.find((l: any) => l.month === now.getMonth() + 1 && l.year === now.getFullYear());
+          
+          if (currentLimit) {
+            const totalSpentThisMonth = orders.reduce((acc: number, curr: any) => {
+              if (curr.installments && curr.installments.length > 0) {
+                return acc + curr.installments
+                  .filter((inst: any) => {
+                    const d = new Date(inst.dueDate);
+                    return d.toLocaleString('pt-BR', { month: 'long' }).toLowerCase() === currentMonthName.toLowerCase();
+                  })
+                  .reduce((sum: number, inst: any) => sum + inst.value, 0);
+              } else {
+                return acc + (curr.paymentMonth.toLowerCase() === currentMonthName.toLowerCase() ? curr.totalValue : 0);
+              }
+            }, 0);
+
+            if (totalSpentThisMonth > currentLimit.limit) {
+              setBudgetStatus('busted');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching prolabore debt settings:', err);
+      }
+    };
+    fetchData();
+  }, [orders]);
+
+  const handleSaveDebt = async () => {
+    const numericValue = parseFloat(debtInput.replace(/\./g, '').replace(',', '.'));
+    if (!isNaN(numericValue)) {
+      setInitialDebt(numericValue);
+      setIsEditingDebt(false);
+      try {
+        await fetch('/api/settings/delayed_prolabore_balance', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: numericValue })
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const provisionedThisMonth = useMemo(() => {
+    if (budgetStatus === 'busted') return 0; // Trava de Segurança
+    
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const dailyGoal = monthlySalesGoal / daysInMonth;
+
+    const monthClosings = (cashClosings || []).filter(c => {
+        if (!c.date) return false;
+        const [yearStr, monthStr] = c.date.split('-'); 
+        return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
+    });
+
+    let totalProvisioned = 0;
+    monthClosings.forEach(c => {
+      if (c.totalSales >= dailyGoal) {
+        let provision = 50; // Bateu a meta
+        const surplus = c.totalSales - dailyGoal;
+        if (surplus > 0) {
+          provision += Math.floor(surplus / 100) * 10; // +10 para cada 100 acima da meta
+        }
+        totalProvisioned += provision;
+      }
+    });
+
+    return totalProvisioned;
+  }, [cashClosings, budgetStatus, monthlySalesGoal]);
+
+  const currentDebt = initialDebt - provisionedThisMonth;
+  // --- Fim da Gestão de Saldo Devedor ---
+
   // Fetch fixed account payments whenever the calendar month changes
   React.useEffect(() => {
     const fetchFixedPayments = async () => {
@@ -287,7 +401,8 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
           supplierName: `[FIXA] ${fp.fixedAccountName}`,
           value: fp.value,
           due_date: fp.dueDate,
-          status: 'Pendente' as any
+          status: 'Pendente' as any,
+          isFixed: true
         }));
       
       const items = [...matchedBoletos, ...matchedFixedPayments];
@@ -365,20 +480,76 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* CALENDAR SECTION */}
-        <section className="space-y-4">
-          <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Calendário de Pagamentos</h2>
-          <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl transition-all duration-300 hover:shadow-2xl">
-            <Calendar
-              onClickDay={toggleDate}
-              onActiveStartDateChange={handleMonthChange}
-              value={null}
-              tileClassName={getTileClassName}
-              className="w-full"
-            />
-            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-4 text-center tracking-widest opacity-60">
-              Dica: Segure CTRL para selecionar múltiplos dias
-            </p>
+        {/* CALENDAR E PAINEL DE DÍVIDA SECTION */}
+        <section className="space-y-6">
+          <div className="space-y-4">
+            <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Calendário de Pagamentos</h2>
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl transition-all duration-300 hover:shadow-2xl">
+              <Calendar
+                onClickDay={toggleDate}
+                onActiveStartDateChange={handleMonthChange}
+                value={null}
+                tileClassName={getTileClassName}
+                className="w-full"
+              />
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-4 text-center tracking-widest opacity-60">
+                Dica: Segure CTRL para selecionar múltiplos dias
+              </p>
+            </div>
+          </div>
+
+          {/* PAINEL DE SALDO DEVEDOR PROLABORE */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border-2 border-indigo-100 dark:border-indigo-900/30 shadow-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                <Wallet className="w-4 h-4" /> Saldo Devedor: Prolabore
+              </h2>
+              {budgetStatus === 'busted' && (
+                <span className="text-[9px] font-bold bg-red-100 text-red-700 px-2 py-1 rounded uppercase tracking-wider animate-pulse">
+                  Orçamento Estourado
+                </span>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Dívida Inicial</p>
+                {isEditingDebt ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-400">R$</span>
+                    <input
+                      type="text"
+                      value={debtInput}
+                      onChange={(e) => setDebtInput(e.target.value.replace(/[^0-9.,]/g, ''))}
+                      className="w-24 bg-transparent border-b-2 border-indigo-500 outline-none text-lg font-black text-slate-800 dark:text-slate-100 focus:ring-0 px-0 py-1"
+                      autoFocus
+                    />
+                    <button onClick={handleSaveDebt} className="text-xs font-bold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full hover:bg-indigo-200">Salvar</button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setIsEditingDebt(true)}>
+                    <p className="text-lg font-black text-slate-800 dark:text-slate-100">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(initialDebt)}
+                    </p>
+                    <span className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-indigo-500 transition-opacity">Editar</span>
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl border border-emerald-100 dark:border-emerald-800/50">
+                <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-500 uppercase tracking-widest mb-1">Amortizado no Mês</p>
+                <p className="text-lg font-black text-emerald-700 dark:text-emerald-400">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(provisionedThisMonth)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Dívida Atual</span>
+              <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentDebt)}
+              </span>
+            </div>
           </div>
         </section>
 
@@ -463,26 +634,41 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
                         <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
                      </div>
                      
-                     {items.map((boleto: any) => (
-                      <div key={boleto.id} className="group bg-white dark:bg-slate-900/50 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md">
-                        <div className="flex items-center gap-4">
-                          <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform">
-                            <Receipt className="w-5 h-5" />
+                     {items.map((boleto: any) => {
+                       const isFixed = boleto.isFixed;
+                       const rowClasses = isFixed 
+                         ? "group bg-blue-50/40 dark:bg-blue-900/10 p-6 rounded-[2rem] border border-blue-200 dark:border-blue-800 flex justify-between items-center transition-all hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md"
+                         : "group bg-white dark:bg-slate-900/50 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md";
+                       
+                       const iconClasses = isFixed
+                         ? "p-3 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform"
+                         : "p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform";
+
+                       const valueClasses = isFixed
+                         ? "font-black text-xl text-blue-700 dark:text-blue-400"
+                         : "font-black text-xl text-red-600 dark:text-red-400";
+
+                       return (
+                        <div key={boleto.id} className={rowClasses}>
+                          <div className="flex items-center gap-4">
+                            <div className={iconClasses}>
+                              <Receipt className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
+                                Vencimento em {formattedDate}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
-                            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
-                              Vencimento em {formattedDate}
-                            </p>
+                          <div className="text-right">
+                            <span className={valueClasses}>
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
+                            </span>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="font-black text-xl text-red-600 dark:text-red-400">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
-                          </span>
-                        </div>
-                      </div>
-                     ))}
+                       );
+                     })}
                    </div>
                  );
                })

@@ -6,6 +6,7 @@ import { FinancialArchive } from './FinancialArchive';
 import { ContasAPagar } from './ContasAPagar';
 import { FixedAccountsPage } from './FixedAccountsPage';
 import { DaysInDebt } from './DaysInDebt';
+import { ProvisionsPanel } from './ProvisionsPanel';
 
 interface FinancialProps {
   user: User;
@@ -44,7 +45,7 @@ export const Financial: React.FC<FinancialProps> = ({
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
   const [showArchive, setShowArchive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions'>('overview');
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -225,6 +226,12 @@ export const Financial: React.FC<FinancialProps> = ({
         >
           Dias Comprometidos
         </button>
+        <button 
+          onClick={() => setActiveTab('provisions')}
+          className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'provisions' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-indigo-600'}`}
+        >
+          Progresso de Provisões
+        </button>
       </nav>
 
       {activeTab === 'overview' && (
@@ -378,6 +385,7 @@ export const Financial: React.FC<FinancialProps> = ({
             onUpdateBoleto={onUpdateBoleto}
             onDeleteBoleto={onDeleteBoleto}
             monthlyLimits={monthlyLimits}
+            cashClosings={cashClosings}
           />
         </div>
       )}
@@ -398,6 +406,15 @@ export const Financial: React.FC<FinancialProps> = ({
             orders={orders}
             fixedAccounts={fixedAccounts}
             cashClosings={cashClosings}
+          />
+        </div>
+      )}
+
+      {activeTab === 'provisions' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <ProvisionsPanel 
+            cashClosings={cashClosings}
+            fixedAccounts={fixedAccounts}
           />
         </div>
       )}

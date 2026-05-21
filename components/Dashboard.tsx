@@ -39,6 +39,7 @@ import {
 import SalesChart from './SalesChart';
 import ExpensesChart from './ExpensesChart';
 import PaymentMethodsChart from './PaymentMethodsChart';
+import { GoalPopup } from './GoalPopup';
 import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount } from '../types';
 
 interface DashboardProps {
@@ -59,6 +60,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
+  
+  const [showGoalPopup, setShowGoalPopup] = React.useState(() => {
+    return !sessionStorage.getItem('hasSeenGoalPopup');
+  });
+
+  const handleCloseGoalPopup = () => {
+    sessionStorage.setItem('hasSeenGoalPopup', 'true');
+    setShowGoalPopup(false);
+  };
 
   // Estados para o Widget de Pós-Venda no Dashboard
   const [newCustomers, setNewCustomers] = React.useState<any[]>([]);
@@ -260,6 +270,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {showGoalPopup && (
+        <GoalPopup 
+          cashClosings={cashClosings} 
+          onClose={handleCloseGoalPopup} 
+        />
+      )}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <img 
