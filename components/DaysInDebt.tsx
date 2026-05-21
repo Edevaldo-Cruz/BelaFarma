@@ -324,8 +324,26 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     return totalSalesSum / dayOfMonth;
   }, [cashClosings]);
 
+  // 1. Calcular a dedução total de provisão considerando a transição de meses e Férias/13º
+  const totalProvisionDiscount = useMemo(() => {
+    return selectedDateStrings.reduce((total, dateStr) => {
+      const date = new Date(dateStr + 'T00:00:00');
+      const juneStart = new Date('2026-06-01T00:00:00');
+      const julyStart = new Date('2026-07-01T00:00:00');
+      
+      if (date >= julyStart) {
+        // A partir de Julho/2026: 100% das contas fixas (R$ 691,44) + Férias/13º (R$ 58,33) = R$ 749,77/dia
+        return total + 749.77; 
+      } else if (date >= juneStart) {
+        // Junho/2026: 100% Prolabore + 50% Outras Fixas (R$ 495,72) + Férias/13º (R$ 58,33) = R$ 554,05/dia
+        return total + 554.05; 
+      }
+      return total; // Sem provisão antes de Junho/2026
+    }, 0);
+  }, [selectedDateStrings]);
+
   const salesForecast = averageDailySales * selectedDateStrings.length;
-  const forecastBalance = currentCash + salesForecast - selectedTotal;
+  const forecastBalance = currentCash + salesForecast - selectedTotal - totalProvisionDiscount;
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
@@ -414,6 +432,11 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
                   <span className="text-lg font-black">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(forecastBalance)}
                   </span>
+                  {totalProvisionDiscount > 0 && (
+                    <span className="text-[7.5px] font-bold mt-1 text-center leading-tight opacity-80">
+                      (Deduzido R$ {new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2 }).format(totalProvisionDiscount)} de provisão)
+                    </span>
+                  )}
                 </div>
               </div>
             )}
