@@ -84,6 +84,10 @@ async function executarVarreduraWhatsApp(db, options = {}) {
     if (options.initialScan30Days) {
       // Histórico dos últimos 30 dias
       timeLimit = agora - (30 * 24 * 60 * 60 * 1000);
+    } else if (options.isManual) {
+      // Força a varredura dos últimos 15 dias para cliques manuais
+      timeLimit = agora - (15 * 24 * 60 * 60 * 1000);
+      console.log(`[WhatsAppShortage] 🛠️ Varredura forçada manualmente. Analisando os últimos 15 dias.`);
     } else {
       // Periódico (últimas 12 horas ou desde a última verificação)
       const dozeHorasMs = 12 * 60 * 60 * 1000;
@@ -96,41 +100,176 @@ async function executarVarreduraWhatsApp(db, options = {}) {
       } catch (dbErr) { /* fallback para 12h */ }
     }
 
-    // 2. Buscar contatos ativos no SQLite local que tiveram conversas no período
-    let activePhones = [];
-    try {
-      activePhones = db.prepare(`
-        SELECT phone, MAX(timestamp) as lastInteractionTime
-        FROM whatsapp_messages
-        WHERE timestamp > ?
-        GROUP BY phone
-        ORDER BY lastInteractionTime DESC
-        LIMIT ?
-      `).all(timeLimit, maxContactsToAnalyze);
-    } catch (sqlErr) {
-      console.error('[WhatsAppShortage] ❌ Erro ao buscar telefones ativos no SQLite local:', sqlErr.message);
-      return { success: false, error: sqlErr.message, stats };
+    // 2. Buscar contatos ativos tanto no SQLite local quanto na Evolution API (Abordagem Híbrida)
+    let sortedContacts = [];
+
+    if (options.phone) {
+      const cleanPhoneNum = options.phone.replace(/\D/g, '');
+      if (cleanPhoneNum) {
+        // Garantir DDI se tiver apenas DDD + Número (Brasil: 55)
+        let finalPhone = cleanPhoneNum;
+        if (cleanPhoneNum.length === 10 || cleanPhoneNum.length === 11) {
+          finalPhone = '55' + cleanPhoneNum;
+        }
+        sortedContacts = [{
+          rawPhone: finalPhone,
+          lastInteractionTime: Date.now(),
+          name: 'Contato WhatsApp Específico'
+        }];
+        console.log(`[WhatsAppShortage] 🎯 Executando varredura forçada para contato específico: ${finalPhone}`);
+      }
     }
 
-    stats.totalChats = activePhones.length;
-    console.log(`[WhatsAppShortage] 🔢 Total de contatos locais a processar: ${stats.totalChats}`);
+    if (sortedContacts.length === 0) {
+      const activePhonesMap = new Map(); // chave: rawPhone, valor: { rawPhone, lastInteractionTime, name }
+
+      // 2a. Carregar contatos ativos locais
+      try {
+        const localActive = db.prepare(`
+          SELECT phone, MAX(timestamp) as lastInteractionTime
+          FROM whatsapp_messages
+          WHERE timestamp > ?
+          GROUP BY phone
+        `).all(timeLimit);
+        
+        for (const row of localActive) {
+          if (row.phone) {
+            const clean = row.phone.replace(/\D/g, '');
+            if (clean) {
+              activePhonesMap.set(clean, {
+                rawPhone: clean,
+                lastInteractionTime: row.lastInteractionTime,
+                name: 'Contato WhatsApp'
+              });
+            }
+          }
+        }
+        console.log(`[WhatsAppShortage] 📊 Encontrados ${activePhonesMap.size} contatos com mensagens recentes no SQLite local.`);
+      } catch (sqlErr) {
+        console.error('[WhatsAppShortage] ❌ Erro ao buscar telefones ativos no SQLite local:', sqlErr.message);
+      }
+
+      // 2b. Carregar contatos ativos remotos da Evolution API para enriquecer
+      try {
+        console.log(`[WhatsAppShortage] 📥 Buscando chats ativos recentes na Evolution API...`);
+        const chatsRes = await evolutionFetch(`/chat/findChats/${EVOLUTION_MAIN_INSTANCE}`);
+        if (chatsRes.ok) {
+          const data = await chatsRes.json();
+          const chatsList = Array.isArray(data) ? data : (data.chats || data.data || []);
+          console.log(`[WhatsAppShortage] 📥 Encontrados ${chatsList.length} chats na Evolution API.`);
+          
+          for (const chat of chatsList) {
+            const jid = chat.id || chat.remoteJid || '';
+            if (!jid || jid.includes('@g.us') || jid.includes('@broadcast')) continue;
+            
+            const clean = jid.split('@')[0].replace(/\D/g, '');
+            if (!clean) continue;
+
+            const updatedAt = chat.updatedAt || chat.messageTimestamp;
+            // Se updatedAt/messageTimestamp estiver em segundos, converte para ms
+            const apiTime = updatedAt 
+              ? new Date(updatedAt * 1000 > 1000000000000 ? updatedAt : updatedAt * 1000).getTime()
+              : agora;
+
+            if (apiTime > timeLimit) {
+              const existing = activePhonesMap.get(clean);
+              const chatName = chat.name || chat.pushName || 'Contato WhatsApp';
+              if (!existing || apiTime > existing.lastInteractionTime) {
+                activePhonesMap.set(clean, {
+                  rawPhone: clean,
+                  lastInteractionTime: apiTime,
+                  name: chatName
+                });
+              }
+            }
+          }
+        } else {
+          console.warn(`[WhatsAppShortage] ⚠️ Evolution API /findChats retornou status ${chatsRes.status}`);
+        }
+      } catch (apiErr) {
+        console.warn('[WhatsAppShortage] ⚠️ Falha ao buscar chats na Evolution API:', apiErr.message);
+      }
+
+      // 2c. Unificar, ordenar e limitar
+      sortedContacts = Array.from(activePhonesMap.values())
+        .sort((a, b) => b.lastInteractionTime - a.lastInteractionTime)
+        .slice(0, maxContactsToAnalyze);
+    }
+
+    stats.totalChats = sortedContacts.length;
+    console.log(`[WhatsAppShortage] 🔢 Total de contatos unificados a processar (limite: ${maxContactsToAnalyze}): ${stats.totalChats}`);
 
     // 3. Processar cada conversa com a IA
-    for (const contact of activePhones) {
-      const rawPhone = contact.phone;
+    for (const contact of sortedContacts) {
+      const rawPhone = contact.rawPhone;
       const phone = formatToUserPhone(rawPhone) || rawPhone;
       if (!phone) continue;
 
-      // Buscar nome do cliente na tabela customers local
-      let customerName = 'Contato WhatsApp';
+      // Buscar nome do cliente na tabela customers local ou usar o retornado pela API
+      let customerName = contact.name && !isGenericName(contact.name) ? contact.name : 'Contato WhatsApp';
       try {
-        const cust = db.prepare('SELECT name FROM customers WHERE phone = ?').get(rawPhone);
-        if (cust && cust.name) {
+        const cust = db.prepare('SELECT name FROM customers WHERE phone = ? OR phone LIKE ?').get(rawPhone, `%${rawPhone.slice(-8)}%`);
+        if (cust && cust.name && !isGenericName(cust.name)) {
           customerName = cust.name;
         }
       } catch (custErr) { /* ignora */ }
 
-      // Carregar as últimas 25 mensagens do SQLite local
+      // 3a. Sincronizar mensagens mais recentes da API para o SQLite para cobrir possíveis falhas do webhook
+      try {
+        const jid = `${rawPhone}@s.whatsapp.net`;
+        console.log(`[WhatsAppShortage] 🔄 Sincronizando mensagens remotas para ${customerName} (${rawPhone})...`);
+        const msgsRes = await evolutionFetch(`/chat/findMessages/${EVOLUTION_MAIN_INSTANCE}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            where: { key: { remoteJid: jid } },
+            limit: 30
+          })
+        });
+
+        if (msgsRes.ok) {
+          const msgsData = await msgsRes.json();
+          const messagesList = Array.isArray(msgsData) ? msgsData : (msgsData.records || []);
+          let insertedCount = 0;
+
+          for (const m of messagesList) {
+            const msgId = m.key?.id;
+            if (!msgId) continue;
+            
+            const fromMe = m.key?.fromMe ? 1 : 0;
+            const timestamp = m.messageTimestamp ? (m.messageTimestamp * 1000) : Date.now();
+            let messageContent = '';
+            const msg = m.message;
+            
+            if (msg) {
+              messageContent = msg.conversation 
+                || msg.extendedTextMessage?.text 
+                || msg.imageMessage?.caption 
+                || '';
+              
+              if (!messageContent && msg.imageMessage) messageContent = '[Imagem]';
+              if (!messageContent && msg.audioMessage) messageContent = '[Áudio]';
+            }
+
+            if (messageContent) {
+              const runResult = db.prepare(`
+                INSERT OR IGNORE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(msgId, rawPhone, fromMe, messageContent, timestamp);
+              
+              if (runResult.changes > 0) {
+                insertedCount++;
+              }
+            }
+          }
+          if (insertedCount > 0) {
+            console.log(`[WhatsAppShortage] 📥 Sincronizadas ${insertedCount} novas mensagens da API para o SQLite local para o contato ${rawPhone}.`);
+          }
+        }
+      } catch (apiErr) {
+        console.warn(`[WhatsAppShortage] ⚠️ Falha na sincronização de mensagens remotas para ${rawPhone}:`, apiErr.message);
+      }
+
+      // Carregar as últimas 25 mensagens do SQLite local (agora atualizado)
       let dialog = '';
       try {
         const localMsgs = db.prepare(`
@@ -161,7 +300,8 @@ async function executarVarreduraWhatsApp(db, options = {}) {
       // Chamar IA para extrair faltas de produtos
       try {
         const systemPrompt = `Você é o auditor de IA do CRM da Drogaria Bela Farma Sul.
-Analise a conversa de WhatsApp e responda estritamente com um array JSON válido (sem blocos de código markdown como \`\`\`json) no seguinte formato:
+Sua missão é analisar o diálogo de WhatsApp e identificar produtos que estão em falta (shortages).
+Responda estritamente com um array JSON válido (sem blocos de código markdown como \`\`\`json) no seguinte formato:
 [
   {
     "nome": "Nome do Produto",
@@ -169,10 +309,18 @@ Analise a conversa de WhatsApp e responda estritamente com um array JSON válido
     "tipo": "Genérico" | "Similar" | "Perfumaria" | "Marca (Referência)"
   }
 ]
-Regras de status:
-- "nao_encontrado": Use se o cliente solicitou ou perguntou pelo produto e o atendente informou/confirmou que a farmácia não o tem em estoque hoje ou que está em falta.
-- "outro": Use para qualquer outro caso (se tinha o produto, se era apenas dúvida de receita, se comprou, etc).
-Retorne apenas produtos com status "nao_encontrado". Se não houver produtos em falta, retorne um array vazio: []`;
+
+Regras importantes para definir o status "nao_encontrado" (indica produto em falta):
+1. FLUXO DE CLIENTE (Passivo): O 'Cliente' pergunta ou pede um produto e o 'Atendente/Bela' informa ou confirma que não tem em estoque hoje, que está em falta, que acabou ou que não trabalha mais com ele.
+2. FLUXO DE COTAÇÃO / PROCURA ATIVA (Ativo): O 'Atendente/Bela' pergunta a um contato (que pode ser um fornecedor, parceiro ou outra farmácia, ex: "Nayane", "Distribuidora") se ele tem algum produto (ex: "você tem dipirona em pó a granel?", "você tem X?"), o que indica que a farmácia está ativamente procurando o produto porque ele está em falta no estoque físico da farmácia, E o contato responde negativamente (ex: "não tenho", "não", "está em falta", "está zerado").
+
+Regras de tipo de produto:
+- "Genérico": Medicamentos genéricos (geralmente identificados pelo princípio ativo em letras maiúsculas).
+- "Similar": Medicamentos similares.
+- "Perfumaria": Produtos de higiene, cosméticos, fraldas, leite em pó, suplementos alimentares, etc.
+- "Marca (Referência)": Medicamentos de marca/referência.
+
+Retorne apenas produtos com status "nao_encontrado". Se não houver produtos em falta ou se o produto foi encontrado/comprado com sucesso na conversa, retorne um array vazio: []`;
 
         const aiResponse = await callAI(
           `Analise a conversa:\n---\n${dialog}\n---`,

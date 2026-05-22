@@ -40,18 +40,26 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const { addToast } = useToast();
   const [isScanning, setIsScanning] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [targetPhone, setTargetPhone] = useState('');
 
-  const handleWhatsAppScan = async (deepScan: boolean) => {
+  const handleWhatsAppScan = async (deepScan: boolean, phone?: string) => {
     setIsScanModalOpen(false);
     setIsScanning(true);
-    addToast("🔍 Iniciando varredura no WhatsApp principal...", "info");
+    if (phone) {
+      addToast(`🔍 Iniciando varredura no WhatsApp para o contato ${phone}...`, "info");
+    } else {
+      addToast("🔍 Iniciando varredura no WhatsApp principal...", "info");
+    }
     try {
       const response = await fetch('/api/whatsapp/force-shortage-scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ initialScan30Days: deepScan })
+        body: JSON.stringify({ 
+          initialScan30Days: deepScan,
+          phone: phone || null
+        })
       });
       
       const data = await response.json();
@@ -74,6 +82,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       addToast(`❌ Erro de conexão ao varrer WhatsApp: ${err.message}`, "error");
     } finally {
       setIsScanning(false);
+      setTargetPhone(''); // limpa o input após varrer
     }
   };
 
@@ -571,6 +580,30 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   </span>
                   <span className="block text-xs font-medium text-slate-400 mt-1">Faz um mapeamento profundo das conversas de até 30 dias atrás (limitado aos 100 contatos mais ativos). Pode demorar mais tempo.</span>
                 </button>
+
+                {/* Opção 3: Varredura de Contato Específico */}
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Varrer conversa específica por número</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-medium focus:ring-2 focus:ring-emerald-500 text-sm"
+                      placeholder="DDD + Telefone (ex: 32988634711)"
+                      value={targetPhone}
+                      onChange={e => setTargetPhone(e.target.value)}
+                    />
+                    <button
+                      onClick={() => {
+                        if (!targetPhone) return;
+                        handleWhatsAppScan(false, targetPhone);
+                      }}
+                      disabled={!targetPhone}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-2xl font-black transition-all text-xs uppercase tracking-widest whitespace-nowrap active:scale-95 shadow-md shadow-emerald-100"
+                    >
+                      Varrer Número
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end">

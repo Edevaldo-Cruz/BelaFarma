@@ -799,7 +799,9 @@ app.post('/api/whatsapp/force-shortage-scan', async (req, res) => {
   try {
     const { executarVarreduraWhatsApp } = require('./services/whatsapp-shortage.service.js');
     const options = {
-      initialScan30Days: req.body.initialScan30Days === true
+      initialScan30Days: req.body.initialScan30Days === true,
+      phone: req.body.phone || null,
+      isManual: true
     };
     
     console.log(`[WhatsAppShortage] 🤖 Varredura forçada via API pelo usuário. Opções:`, options);
