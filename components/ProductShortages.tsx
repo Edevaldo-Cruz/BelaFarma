@@ -8,6 +8,7 @@ import {
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
 import { QuotationComparator } from './QuotationComparator';
+import { useToast } from './ToastContext';
 
 interface ProductShortagesProps {
   user: User;
@@ -15,9 +16,10 @@ interface ProductShortagesProps {
   onAdd: (shortage: ProductShortage) => void;
   onDelete: (id: string) => void;
   onUpdate: (id: string, purchased: boolean, ordered: boolean) => void;
+  onRefresh?: () => Promise<void>;
 }
 
-export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete, onUpdate }) => {
+export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete, onUpdate, onRefresh }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showComparator, setShowComparator] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -34,6 +36,46 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
   const [lastSelected, setLastSelected] = useState('');
+
+  const { addToast } = useToast();
+  const [isScanning, setIsScanning] = useState(false);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+
+  const handleWhatsAppScan = async (deepScan: boolean) => {
+    setIsScanModalOpen(false);
+    setIsScanning(true);
+    addToast("🔍 Iniciando varredura no WhatsApp principal...", "info");
+    try {
+      const response = await fetch('/api/whatsapp/force-shortage-scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ initialScan30Days: deepScan })
+      });
+      
+      const data = await response.json();
+      if (response.ok && data.success) {
+        const added = data.stats?.shortagesAdded || 0;
+        if (added > 0) {
+          addToast(`✅ Varredura concluída! ${added} novo(s) produto(s) em falta identificado(s) e cadastrado(s).`, "success");
+        } else {
+          addToast("ℹ️ Varredura concluída! Nenhuma nova falta detectada nas conversas.", "info");
+        }
+        
+        if (onRefresh) {
+          await onRefresh();
+        }
+      } else {
+        addToast(`❌ Erro na varredura: ${data.error || 'Erro interno'}`, "error");
+      }
+    } catch (err: any) {
+      console.error("Erro ao varrer WhatsApp:", err);
+      addToast(`❌ Erro de conexão ao varrer WhatsApp: ${err.message}`, "error");
+    } finally {
+      setIsScanning(false);
+    }
+  };
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -181,6 +223,18 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           >
             <BarChart3 className="w-5 h-5" /> Comparar Cotações
           </button>
+          <button
+            onClick={() => setIsScanModalOpen(true)}
+            disabled={isScanning}
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800/60 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap"
+          >
+            {isScanning ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <MessageCircle className="w-5 h-5 fill-white/20 text-white" />
+            )}
+            {isScanning ? "Varrendo WhatsApp..." : "Varrer WhatsApp"}
+          </button>
           <button 
             onClick={() => {
               setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
@@ -284,6 +338,12 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                         {s.ordered && !s.purchased && (
                           <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 animate-pulse">
                             Pedido
+                          </span>
+                        )}
+                        {s.source === 'WhatsApp' && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                            <MessageCircle className="w-2.5 h-2.5 fill-emerald-600/30 text-emerald-600" />
+                            WhatsApp
                           </span>
                         )}
                       </div>
@@ -470,6 +530,59 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                 </button>
               </div>
             </form>
+        </div>
+      )}
+
+      {isScanModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100">
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-emerald-50/50">
+              <h2 className="text-xl font-black text-emerald-800 tracking-tight uppercase flex items-center gap-2">
+                <MessageCircle className="w-6 h-6 fill-emerald-800/20 text-emerald-800" />
+                Varredura de WhatsApp
+              </h2>
+              <button onClick={() => setIsScanModalOpen(false)} className="p-2 text-slate-400 hover:text-emerald-800 transition-all">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-6">
+              <p className="text-sm font-medium text-slate-600 leading-relaxed">
+                Escolha o tipo de varredura que deseja realizar nas conversas do WhatsApp principal. A IA analisará as mensagens para detectar produtos solicitados que estavam em falta.
+              </p>
+
+              <div className="space-y-4">
+                {/* Opção 1: Varredura de Rotina */}
+                <button
+                  onClick={() => handleWhatsAppScan(false)}
+                  className="w-full p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-emerald-50/20 hover:border-emerald-200 text-left transition-all active:scale-[0.98] group"
+                >
+                  <span className="block font-black text-sm text-slate-800 group-hover:text-emerald-700 uppercase">Varredura de Rotina (Recomendado)</span>
+                  <span className="block text-xs font-medium text-slate-400 mt-1">Busca conversas ativas recentemente. Rápido e ideal para o dia a dia.</span>
+                </button>
+
+                {/* Opção 2: Varredura Histórica */}
+                <button
+                  onClick={() => handleWhatsAppScan(true)}
+                  className="w-full p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-amber-50/20 hover:border-amber-200 text-left transition-all active:scale-[0.98] group"
+                >
+                  <span className="block font-black text-sm text-amber-700 uppercase flex items-center gap-1.5">
+                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" /> Varredura Histórica (30 Dias)
+                  </span>
+                  <span className="block text-xs font-medium text-slate-400 mt-1">Faz um mapeamento profundo das conversas de até 30 dias atrás (limitado aos 100 contatos mais ativos). Pode demorar mais tempo.</span>
+                </button>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsScanModalOpen(false)}
+                  className="px-6 py-2.5 border border-slate-200 text-slate-500 font-bold rounded-xl hover:bg-slate-50 transition-all active:scale-95 uppercase tracking-wider text-xs"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

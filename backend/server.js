@@ -794,6 +794,29 @@ app.delete('/api/shortages/:id', (req, res) => {
   }
 });
 
+// FORÇAR VARREDURA DE FALTAS WHATSAPP
+app.post('/api/whatsapp/force-shortage-scan', async (req, res) => {
+  try {
+    const { executarVarreduraWhatsApp } = require('./services/whatsapp-shortage.service.js');
+    const options = {
+      initialScan30Days: req.body.initialScan30Days === true
+    };
+    
+    console.log(`[WhatsAppShortage] 🤖 Varredura forçada via API pelo usuário. Opções:`, options);
+    
+    const result = await executarVarreduraWhatsApp(db, options);
+    
+    if (result.success) {
+      res.status(200).json({ success: true, stats: result.stats });
+    } else {
+      res.status(500).json({ success: false, error: result.error, stats: result.stats });
+    }
+  } catch (err) {
+    console.error('[WhatsAppShortage] Erro ao forçar varredura:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- Users CUD ---
 // CREATE User
 app.post('/api/users', (req, res) => {

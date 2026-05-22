@@ -695,6 +695,7 @@ const App: React.FC = () => {
                   onAdd={addShortage}
                   onDelete={deleteShortage}
                   onUpdate={updateShortage}
+                  onRefresh={fetchData}
                 />
               )}
               {currentView === "medication-search" && <MedicationSearch />}

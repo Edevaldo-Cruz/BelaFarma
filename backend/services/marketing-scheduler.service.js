@@ -7,6 +7,7 @@
 
 const marketingAgent = require('./marketing-agent.service');
 const sender = require('./message-sender.service');
+const whatsappShortage = require('./whatsapp-shortage.service');
 
 // Números para receber os relatórios
 // Usando lazy loading para process.env para refletir mudanças se necessário
@@ -178,6 +179,19 @@ function iniciarScheduler(db) {
   console.log(`[MarketingScheduler] 📅 Envio estratégico: a cada ${INTERVALO_ESTRATEGICO_DIAS} dias, às 08:00 (Brasília)`);
   console.log(`[MarketingScheduler] 📱 Destinatário: Rosana — ${getRosanaPhone()}`);
 
+  // Disparar varredura histórica do WhatsApp em background caso não tenha sido feita ainda
+  try {
+    const scanInicialFeito = db.prepare("SELECT value FROM system_settings WHERE key = 'whatsapp_shortage_initial_scan_done'").get();
+    if (!scanInicialFeito || scanInicialFeito.value !== '1') {
+      console.log('[MarketingScheduler] 🚀 Disparando varredura histórica inicial do WhatsApp (30 dias) em background...');
+      whatsappShortage.executarVarreduraWhatsApp(db, { initialScan30Days: true }).catch(err => {
+        console.error('[MarketingScheduler] ❌ Falha na varredura histórica do WhatsApp:', err.message);
+      });
+    }
+  } catch (initialScanErr) {
+    console.error('[MarketingScheduler] ⚠️ Falha ao verificar status da varredura inicial do WhatsApp:', initialScanErr.message);
+  }
+
   // Registra que o scheduler foi iniciado
   try {
     const existente = db.prepare("SELECT key FROM system_settings WHERE key = 'marketing_scheduler_started'").get();
@@ -210,6 +224,7 @@ function iniciarScheduler(db) {
     const parts = formatter.formatToParts(agora);
     const hora = parseInt(parts.find(p => p.type === 'hour').value);
     const minuto = parseInt(parts.find(p => p.type === 'minute').value);
+    const hoje = agora.toISOString().split('T')[0];
 
     // Janela de execução: a partir das 08h00. 
     // Se ainda não executou hoje e já passou das 08h00, executa na primeira oportunidade.
@@ -224,6 +239,29 @@ function iniciarScheduler(db) {
       // ou podemos flexibilizar também se preferir.
       if (hora === 8 && minuto < 15 && deveExecutarEstrategico(db)) {
         await executarJobMarketing(db);
+      }
+    }
+
+    // 3. Verificação de Faltas no WhatsApp (3 vezes ao dia: 09h, 14h e 19h)
+    const horariosScan = [9, 14, 19];
+    if (horariosScan.includes(hora)) {
+      const chaveScan = `whatsapp_shortage_scan_${hora}_executado`;
+      try {
+        const jaExecutouScan = db.prepare("SELECT key FROM system_settings WHERE key = ? AND value = ?").get(chaveScan, hoje);
+        if (!jaExecutouScan) {
+          console.log(`[MarketingScheduler] ⏰ Horário de varredura do WhatsApp atingido (${hora}h). Iniciando scan periódico...`);
+          
+          // Registrar que já executou para evitar loops
+          db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)")
+            .run(chaveScan, hoje, agora.toISOString());
+            
+          // Executar varredura em background
+          whatsappShortage.executarVarreduraWhatsApp(db, { periodHours: 12 }).catch(scanErr => {
+            console.error(`[MarketingScheduler] ❌ Erro no scan periódico do WhatsApp (${hora}h):`, scanErr.message);
+          });
+        }
+      } catch (scanDbErr) {
+        console.error('[MarketingScheduler] Erro ao gerenciar agendamento do WhatsApp:', scanDbErr.message);
       }
     }
   }, 5 * 60 * 1000); // 5 minutos

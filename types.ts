@@ -60,6 +60,7 @@ export interface ProductShortage {
   userName: string;
   purchased?: boolean;
   ordered?: boolean;
+  source?: string;
 }
 
 export interface CashClosingRecord {
