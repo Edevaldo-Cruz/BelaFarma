@@ -15,6 +15,42 @@ function cleanPhone(phone) {
   return phone.replace(/\D/g, '');
 }
 
+// Helper: formatar telefone no formato do usuário: 03288634755
+function formatToUserPhone(phone) {
+  if (!phone) return '';
+  let clean = phone.replace(/\D/g, '');
+  
+  // Ignorar LIDs e números inválidos
+  // O WhatsApp pode retornar LIDs de sincronização gigantes (ex: 157853084065991)
+  // Celulares brasileiros normais têm entre 10 e 11 dígitos (sem DDI) ou 12 e 13 (com DDI 55).
+  // Se após limpar, o comprimento for maior que 13 ou menor que 10, descartamos.
+  if (clean.length > 13 || clean.length < 10) return '';
+  
+  // Remover o DDI brasileiro (55) se estiver presente
+  if (clean.startsWith('55') && (clean.length === 12 || clean.length === 13)) {
+    clean = clean.slice(2);
+  }
+  
+  // Garantir que comece com '0' se tiver 10 ou 11 dígitos
+  if (clean.length === 10 || clean.length === 11) {
+    if (!clean.startsWith('0')) {
+      clean = '0' + clean;
+    }
+  } else {
+    // Se sobrou algum tamanho estranho, descartamos
+    return '';
+  }
+  
+  return clean;
+}
+
+// Helper: identificar nomes genéricos
+function isGenericName(name) {
+  if (!name) return true;
+  const lower = name.toLowerCase().trim();
+  return lower === 'contato whatsapp' || lower === 'cliente whatsapp' || lower === 'whatsapp' || lower === 'contato' || lower === 'contato whatsapp crm';
+}
+
 // Helper: verificar se dois telefones são o mesmo (últimos 8 dígitos)
 function isSamePhone(a, b) {
   const ca = cleanPhone(a);
@@ -64,6 +100,25 @@ function initializeWhatsAppCRMEndpoints(app, db) {
     try {
       console.log('[WhatsAppCRM] 🚀 Iniciando importação de clientes do WhatsApp...');
 
+      // 0. Limpeza automática de registros de poluição anteriores (LIDs gigantes cadastrados por engano)
+      try {
+        const deleteHistory = db.prepare(`
+          DELETE FROM whatsapp_product_history 
+          WHERE phone IN (SELECT phone FROM customers WHERE source = 'WhatsApp' AND (length(phone) > 13 OR phone LIKE '%@lid'))
+        `).run();
+        
+        const deleteCustomers = db.prepare(`
+          DELETE FROM customers 
+          WHERE source = 'WhatsApp' AND (length(phone) > 13 OR phone LIKE '%@lid')
+        `).run();
+        
+        if (deleteCustomers.changes > 0) {
+          console.log(`[WhatsAppCRM] 🧼 Limpeza de poluição: ${deleteCustomers.changes} contatos LID inválidos e seu histórico foram removidos.`);
+        }
+      } catch (cleanErr) {
+        console.warn('[WhatsAppCRM] ⚠️ Falha na limpeza de poluição inicial:', cleanErr.message);
+      }
+
       // 1. Buscar todos os chats
       let chats = [];
       try {
@@ -98,16 +153,18 @@ function initializeWhatsAppCRMEndpoints(app, db) {
       }
 
       // 3. Montar mapa unificado de contatos (chats têm prioridade sobre agenda)
-      const contactMap = new Map(); // chave: telefone limpo
+      const contactMap = new Map(); // chave: telefone formatado (ex: 03288634755)
 
       // Adicionar da agenda primeiro (base)
       for (const c of contacts) {
         const jid = c.id || c.remoteJid || '';
         if (!jid || jid.includes('@g.us') || jid.includes('@broadcast')) continue;
         const phone = jid.split('@')[0];
-        if (!phone || phone.length < 8) continue;
-        contactMap.set(phone, {
-          phone,
+        const formattedPhone = formatToUserPhone(phone);
+        if (!formattedPhone) continue; // Ignora LIDs gigantes e números inválidos
+
+        contactMap.set(formattedPhone, {
+          phone: formattedPhone,
           name: c.pushName || c.name || 'Contato WhatsApp',
           jid,
           hasChat: false,
@@ -120,15 +177,16 @@ function initializeWhatsAppCRMEndpoints(app, db) {
         const jid = c.id || c.remoteJid || '';
         if (!jid || jid.includes('@g.us') || jid.includes('@broadcast')) continue;
         const phone = jid.split('@')[0];
-        if (!phone || phone.length < 8) continue;
+        const formattedPhone = formatToUserPhone(phone);
+        if (!formattedPhone) continue; // Ignora LIDs gigantes e números inválidos
 
-        const existing = contactMap.get(phone) || {};
+        const existing = contactMap.get(formattedPhone) || {};
         const lastTimestamp = c.updatedAt || c.messageTimestamp
           ? new Date(c.updatedAt || c.messageTimestamp * 1000).toISOString()
           : null;
 
-        contactMap.set(phone, {
-          phone,
+        contactMap.set(formattedPhone, {
+          phone: formattedPhone,
           name: c.name || c.pushName || existing.name || 'Contato WhatsApp',
           jid,
           hasChat: true,
@@ -150,37 +208,64 @@ function initializeWhatsAppCRMEndpoints(app, db) {
           let customerId = existing?.id || null;
           const now = new Date().toISOString();
 
+          // Tratar o nome para evitar nomes genéricos se tivermos um nome real
+          const finalName = isGenericName(contact.name) && existing?.name && !isGenericName(existing.name)
+            ? existing.name
+            : contact.name;
+
           if (!existing) {
             // Criar novo cliente
             customerId = genId('cust');
             db.prepare(`
               INSERT INTO customers (id, name, phone, whatsapp_name, source, createdAt, updatedAt)
               VALUES (?, ?, ?, ?, 'WhatsApp', ?, ?)
-            `).run(customerId, contact.name, phone, contact.name, now, now);
+            `).run(customerId, finalName, phone, finalName, now, now);
             stats.imported++;
-            console.log(`[WhatsAppCRM] ➕ Novo cliente: ${contact.name} (${phone})`);
+            console.log(`[WhatsAppCRM] ➕ Novo cliente: ${finalName} (${phone})`);
           } else {
-            // Atualizar apenas campos em branco
+            // Atualizar apenas campos em branco ou desatualizados
             const updates = [];
             const params = [];
 
-            if (!existing.name || existing.name === 'Cliente WhatsApp') {
+            // Se o nome atual do banco for genérico (ou nulo) e o da API for melhor/real
+            if ((!existing.name || isGenericName(existing.name)) && !isGenericName(contact.name)) {
               updates.push('name = ?');
               params.push(contact.name);
             }
-            if (!existing.whatsapp_name) {
+            
+            // Atualizar nome do whatsapp se for vazio ou genérico
+            if (!existing.whatsapp_name || (isGenericName(existing.whatsapp_name) && !isGenericName(contact.name))) {
               updates.push('whatsapp_name = ?');
               params.push(contact.name);
             }
+
+            // Atualizar formato de telefone para o padrão do usuário (03288634755) se estiver diferente
+            if (existing.phone !== phone) {
+              updates.push('phone = ?');
+              params.push(phone);
+              // Sincronizar também o telefone nas tabelas de histórico
+              try {
+                db.prepare('UPDATE whatsapp_product_history SET phone = ? WHERE phone = ? OR phone = ?')
+                  .run(phone, existing.phone, existing.phone.replace(/\D/g, ''));
+                console.log(`[WhatsAppCRM] 🔄 Telefone atualizado em whatsapp_product_history de ${existing.phone} para ${phone}`);
+              } catch (historyErr) {
+                console.warn(`[WhatsAppCRM] ⚠️ Erro ao atualizar histórico de produtos:`, historyErr.message);
+              }
+            }
+
             if (!existing.source) {
               updates.push("source = 'WhatsApp'");
             }
 
             if (updates.length > 0) {
               updates.push('updatedAt = ?');
-              params.push(now, existing.id);
+              params.push(now);
+              
+              // Executar a query de atualização
+              params.push(existing.id);
               db.prepare(`UPDATE customers SET ${updates.join(', ')} WHERE id = ?`).run(...params);
               stats.updated++;
+              console.log(`[WhatsAppCRM] 📝 Cliente atualizado: ${existing.name || finalName} (Telefone: ${existing.phone} -> ${phone})`);
             } else {
               stats.skipped++;
             }
