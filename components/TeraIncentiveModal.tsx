@@ -25,12 +25,22 @@ interface Curiosidade {
   icon: React.ReactNode;
 }
 
-const IMAGES = [
+// Pool 1: Fotos locais geradas com IA em alta resolução (Primeiro Dia)
+const IMAGES_LOCAL = [
   "/images/tera/tera-1.png",
   "/images/tera/tera-2.png",
   "/images/tera/tera-3.png",
   "/images/tera/tera-4.png",
   "/images/tera/tera-5.png",
+];
+
+// Pool 2: Fotos reais do VW Tera na internet (A partir do Segundo Dia)
+const IMAGES_INTERNET = [
+  "https://cdn.motor1.com/images/mgl/RqKqZw/s1/volkswagen-tera-ao-vivo-no-sambodromo-15.jpg",
+  "https://fotos.jornaldocarro.estadao.com.br/wp-content/uploads/2024/11/05111956/volkswagen-tera.jpg",
+  "https://images.noticiasautomotivas.com.br/img/c/volkswagen-tera-visual.jpg",
+  "https://cdn.motor1.com/images/mgl/y2X8xO/s1/volkswagen-tera-painel-interior.jpg",
+  "https://images.noticiasautomotivas.com.br/img/c/volkswagen-tera-traseira.jpg",
 ];
 
 const CURIOSIDADES: Curiosidade[] = [
@@ -80,6 +90,8 @@ const CURIOSIDADES: Curiosidade[] = [
 
 export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, onClose }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [imagesList, setImagesList] = useState<string[]>(IMAGES_LOCAL);
+  const [isUsingInternetImages, setIsUsingInternetImages] = useState(false);
   const [tasksChecked, setTasksChecked] = useState<{ task1: boolean; task2: boolean }>({
     task1: false,
     task2: false,
@@ -89,10 +101,20 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
 
   useEffect(() => {
     if (isOpen) {
-      // Atualiza o dia da semana sempre que abre o modal para garantir a curiosidade certa
       setDiaSemana(new Date().getDay());
-      // Inicia o carrossel na primeira foto ou rotacionado
-      setCurrentImageIndex(new Date().getDay() % IMAGES.length);
+      
+      // Lógica de Primeiro Dia Local (Pool 1), Depois Internet (Pool 2)
+      const hasSeenFirstDay = localStorage.getItem("tera_has_seen_first_day") === "true";
+      if (hasSeenFirstDay) {
+        setImagesList(IMAGES_INTERNET);
+        setIsUsingInternetImages(true);
+      } else {
+        setImagesList(IMAGES_LOCAL);
+        setIsUsingInternetImages(false);
+      }
+      
+      // Inicia o carrossel em uma foto rotativa correspondente
+      setCurrentImageIndex(new Date().getDay() % IMAGES_LOCAL.length);
     }
   }, [isOpen]);
 
@@ -101,11 +123,11 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
   const curiosidadeDoDia = CURIOSIDADES[diaSemana];
 
   const handleNextImage = () => {
-    setCurrentImageIndex((prev) => (prev + 1) % IMAGES.length);
+    setCurrentImageIndex((prev) => (prev + 1) % imagesList.length);
   };
 
   const handlePrevImage = () => {
-    setCurrentImageIndex((prev) => (prev - 1 + IMAGES.length) % IMAGES.length);
+    setCurrentImageIndex((prev) => (prev - 1 + imagesList.length) % imagesList.length);
   };
 
   const toggleTask = (taskKey: 'task1' | 'task2') => {
@@ -113,6 +135,23 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
       ...prev,
       [taskKey]: !prev[taskKey]
     }));
+  };
+
+  // Lógica de fallback para erros de carregamento na imagem da internet
+  const handleImageError = () => {
+    console.warn(`Erro ao carregar imagem no índice ${currentImageIndex}. Aplicando fallback local.`);
+    setImagesList((prevList) => {
+      const newList = [...prevList];
+      // Substitui o link quebrado pela imagem local equivalente
+      newList[currentImageIndex] = IMAGES_LOCAL[currentImageIndex % IMAGES_LOCAL.length];
+      return newList;
+    });
+  };
+
+  const handleClose = () => {
+    // Grava que o primeiro dia local já foi visto ao fechar o modal
+    localStorage.setItem("tera_has_seen_first_day", "true");
+    onClose();
   };
 
   return (
@@ -124,13 +163,13 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
         
         {/* Close Button */}
         <button 
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 z-10 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-95"
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* Content Container (Scrollable internally if screen is tiny) */}
+        {/* Content Container (Scrollable internally) */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 custom-scrollbar">
           
           {/* Header */}
@@ -149,8 +188,9 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
           {/* Carrossel de Imagens */}
           <div className="relative group w-full h-[220px] md:h-[280px] bg-slate-100 dark:bg-slate-950 rounded-2xl overflow-hidden shadow-inner border border-slate-100 dark:border-slate-800">
             <img 
-              src={IMAGES[currentImageIndex]} 
+              src={imagesList[currentImageIndex]} 
               alt="Volkswagen Tera"
+              onError={handleImageError}
               className="w-full h-full object-cover transition-all duration-700 ease-in-out transform hover:scale-105"
             />
             
@@ -173,7 +213,7 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
 
             {/* Indicadores Bolinhas */}
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
-              {IMAGES.map((_, index) => (
+              {imagesList.map((_, index) => (
                 <button
                   key={index}
                   onClick={() => setCurrentImageIndex(index)}
@@ -182,9 +222,14 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
               ))}
             </div>
 
+            {/* Image Source Badge */}
+            <div className="absolute top-3 left-3 text-[9px] font-black uppercase tracking-wider text-white bg-slate-900/50 px-2 py-0.5 rounded-full backdrop-blur-sm">
+              {isUsingInternetImages ? "Real da Internet 🌐" : "Premium IA 🎨"}
+            </div>
+
             {/* Image caption */}
             <div className="absolute bottom-3 right-4 text-[10px] md:text-xs font-bold text-white/90 bg-slate-900/40 px-2 py-0.5 rounded-full backdrop-blur-sm">
-              Foto {currentImageIndex + 1} de {IMAGES.length}
+              Foto {currentImageIndex + 1} de {imagesList.length}
             </div>
           </div>
 
@@ -267,7 +312,7 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
             <span className="text-[10px] font-black uppercase tracking-wider">A conquista de amanhã depende do esforço de hoje!</span>
           </div>
           <button 
-            onClick={onClose}
+            onClick={handleClose}
             className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-red-600 via-orange-500 to-amber-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-orange-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all hover:shadow-orange-500/35 cursor-pointer"
           >
             Bora conquistar o dia! 💪
