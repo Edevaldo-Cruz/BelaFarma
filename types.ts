@@ -58,6 +58,8 @@ export interface ProductShortage {
   notes?: string;
   createdAt: string;
   userName: string;
+  purchased?: boolean;
+  ordered?: boolean;
 }
 
 export interface CashClosingRecord {

@@ -31,6 +31,7 @@ import AIPortal from "./components/AIPortal";
 import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
 import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
+import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import {
   Order,
   View,
@@ -73,6 +74,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const { addToast } = useToast();
 
   const logoutTimerRef = useRef<number | null>(null);
@@ -107,6 +109,16 @@ const App: React.FC = () => {
       const reset = () => resetLogoutTimer();
       events.forEach((event) => window.addEventListener(event, reset));
       resetLogoutTimer();
+
+      // --- Lógica de Auto-exibição Diária do VW Tera para a Nayane ---
+      if (user.name.toLowerCase().includes("nayane")) {
+        const hoje = new Date().toISOString().slice(0, 10); // Formato YYYY-MM-DD
+        const ultimaDataExibida = localStorage.getItem("tera_popup_last_date");
+        if (ultimaDataExibida !== hoje) {
+          setIsTeraModalOpen(true);
+          localStorage.setItem("tera_popup_last_date", hoje);
+        }
+      }
 
       return () => {
         events.forEach((event) => window.removeEventListener(event, reset));
@@ -443,6 +455,39 @@ const App: React.FC = () => {
     }
   };
 
+  const updateShortage = async (id: string, purchased: boolean, ordered: boolean) => {
+    const sToUpdate = shortages.find((s) => s.id === id);
+    if (!sToUpdate) return;
+
+    // Optimistic UI Update
+    const updated = shortages.map((s) => 
+      s.id === id ? { ...s, purchased, ordered } : s
+    );
+    setShortages(updated);
+
+    createLog(
+      "Faltas",
+      "Atualizou Status",
+      `Produto: ${sToUpdate.productName} | Pedido: ${ordered ? "Sim" : "Não"} | Comprado: ${purchased ? "Sim" : "Não"}`
+    );
+
+    try {
+      const response = await fetch(`/api/shortages/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purchased, ordered }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update shortage status on server.");
+      }
+    } catch (e) {
+      console.error("Failed to update shortage status:", e);
+      addToast("❌ Erro ao atualizar status da falta. Sincronizando...", "error");
+      fetchData(); // Rollback to server state
+    }
+  };
+
   const addUser = async (newUser: User) => {
     // Optimistic UI update
     const updated = [...users, newUser];
@@ -620,6 +665,7 @@ const App: React.FC = () => {
         setIsOpen={setIsSidebarOpen}
         tasks={tasks}
         boletos={boletos}
+        onOpenTeraModal={() => setIsTeraModalOpen(true)}
       />
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="max-w-7xl mx-auto pb-10">
@@ -648,6 +694,7 @@ const App: React.FC = () => {
                   shortages={shortages}
                   onAdd={addShortage}
                   onDelete={deleteShortage}
+                  onUpdate={updateShortage}
                 />
               )}
               {currentView === "medication-search" && <MedicationSearch />}
@@ -785,6 +832,9 @@ const App: React.FC = () => {
           <p>Versão Beta - Desenvolvido por Edevaldo Cruz</p>
         </footer>
       </main>
+
+      {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
+      <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />
     </div>
   );
 };

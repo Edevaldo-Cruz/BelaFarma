@@ -257,6 +257,8 @@ app.get('/api/all-data', (req, res) => {
     const shortages = shortagesRaw.map(shortage => ({
       ...shortage,
       clientInquiry: !!shortage.clientInquiry, // Convert 0/1 back to false/true
+      purchased: !!shortage.purchased,
+      ordered: !!shortage.ordered,
     }));
     
     const cashClosings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
@@ -733,17 +735,45 @@ app.post('/api/shortages', (req, res) => {
   try {
     const shortage = req.body;
     const stmt = db.prepare(`
-      INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName)
-      VALUES (@id, @productName, @type, @clientInquiry, @notes, @createdAt, @userName)
+      INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, purchased, ordered)
+      VALUES (@id, @productName, @type, @clientInquiry, @notes, @createdAt, @userName, @purchased, @ordered)
     `);
     const result = stmt.run({
       ...shortage,
       clientInquiry: shortage.clientInquiry ? 1 : 0, // Convert boolean to integer
+      purchased: shortage.purchased ? 1 : 0,
+      ordered: shortage.ordered ? 1 : 0,
     });
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
     console.error('Error creating shortage:', err);
     res.status(500).json({ error: 'Failed to create shortage.' });
+  }
+});
+
+// UPDATE Shortage
+app.put('/api/shortages/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { purchased, ordered } = req.body;
+    const stmt = db.prepare(`
+      UPDATE shortages 
+      SET purchased = ?, ordered = ?
+      WHERE id = ?
+    `);
+    const result = stmt.run(
+      purchased ? 1 : 0,
+      ordered ? 1 : 0,
+      id
+    );
+    if (result.changes > 0) {
+      res.status(200).json({ message: 'Shortage status updated successfully.' });
+    } else {
+      res.status(404).json({ error: 'Shortage not found.' });
+    }
+  } catch (err) {
+    console.error('Error updating shortage:', err);
+    res.status(500).json({ error: 'Failed to update shortage.' });
   }
 });
 

@@ -36,6 +36,7 @@ import {
   HeartPulse, // Added for Saude Financeira
   Radio, // Added for Rádio Bela Farma
   ContactRound, // Added for CRM WhatsApp
+  Sparkles, // Added for Tera Incentive
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -51,6 +52,7 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
   tasks?: Task[];
   boletos?: Boleto[]; // ADDED
+  onOpenTeraModal?: () => void; // ADDED
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -63,7 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen, 
   setIsOpen,
   tasks = [],
-  boletos = [] // ADDED
+  boletos = [], // ADDED
+  onOpenTeraModal
 }) => {
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
@@ -296,6 +299,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </div>
             </button>
+
+            {/* Botão de Incentivo VW Tera exclusivo para Nayane */}
+            {user.name.toLowerCase().includes('nayane') && onOpenTeraModal && (
+              <button 
+                onClick={onOpenTeraModal}
+                className="flex items-center justify-between p-3 bg-gradient-to-r from-red-500/10 to-orange-500/10 hover:from-red-500/20 hover:to-orange-500/20 rounded-2xl border border-red-200/40 dark:border-orange-950/30 group transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              >
+                <span className="text-[10px] font-black text-red-700 dark:text-orange-400 uppercase tracking-widest ml-1">Meu Sonho: VW Tera 🚗</span>
+                <div className="p-1.5 bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-red-100 dark:border-slate-800 text-red-600">
+                  <Sparkles size={16} className="animate-pulse" />
+                </div>
+              </button>
+            )}
           </div>
 
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar">

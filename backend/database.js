@@ -52,7 +52,9 @@ try {
         clientInquiry INTEGER NOT NULL, -- 0 for false, 1 for true
         notes TEXT,
         createdAt TEXT NOT NULL,
-        userName TEXT NOT NULL
+        userName TEXT NOT NULL,
+        purchased INTEGER DEFAULT 0,
+        ordered INTEGER DEFAULT 0
       );
     `;
 
@@ -995,6 +997,22 @@ try {
     } catch (e) {
       db.exec('ALTER TABLE shortages ADD COLUMN source TEXT');
       console.log('✅ Migration: coluna source adicionada em shortages.');
+    }
+
+    // Migration: adicionar coluna purchased em shortages
+    try {
+      db.prepare('SELECT purchased FROM shortages LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE shortages ADD COLUMN purchased INTEGER DEFAULT 0');
+      console.log('✅ Migration: coluna purchased adicionada em shortages.');
+    }
+
+    // Migration: adicionar coluna ordered em shortages
+    try {
+      db.prepare('SELECT ordered FROM shortages LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE shortages ADD COLUMN ordered INTEGER DEFAULT 0');
+      console.log('✅ Migration: coluna ordered adicionada em shortages.');
     }
 
     // Migration: adicionar coluna whatsapp_name em customers

@@ -7,7 +7,7 @@ const { callAI } = require('./services/ai.service');
 
 const EVOLUTION_MAIN_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belaFarma';
 const API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const API_KEY = process.env.EVOLUTION_SENDER_API_KEY || process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+const API_KEY = process.env.EVOLUTION_API_KEY || process.env.EVOLUTION_SENDER_API_KEY || 'BelafarmaSul2026';
 
 // Helper: limpar e normalizar telefone
 function cleanPhone(phone) {
@@ -82,7 +82,7 @@ function initializeWhatsAppCRMEndpoints(app, db) {
       // 2. Buscar todos os contatos da agenda
       let contacts = [];
       try {
-        const contactsRes = await evolutionFetch(`/contact/findContacts/${EVOLUTION_MAIN_INSTANCE}`, {
+        const contactsRes = await evolutionFetch(`/chat/findContacts/${EVOLUTION_MAIN_INSTANCE}`, {
           method: 'POST',
           body: JSON.stringify({ where: {} }),
         });

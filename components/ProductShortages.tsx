@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, Filter, Trash2, ClipboardList, 
   MessageCircle, Star, X, Save, User as UserIcon,
-  Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3
+  Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3,
+  Truck, Check, Eye, EyeOff
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
@@ -13,12 +14,14 @@ interface ProductShortagesProps {
   shortages: ProductShortage[];
   onAdd: (shortage: ProductShortage) => void;
   onDelete: (id: string) => void;
+  onUpdate: (id: string, purchased: boolean, ordered: boolean) => void;
 }
 
-export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete }) => {
+export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete, onUpdate }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showComparator, setShowComparator] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [hidePurchased, setHidePurchased] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [formData, setFormData] = useState({
     productName: '',
@@ -67,7 +70,8 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const filteredShortages = shortages.filter(s => {
     const matchesSearch = s.productName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = typeFilter === 'all' || s.type === typeFilter;
-    return matchesSearch && matchesType;
+    const matchesHidePurchased = !hidePurchased || !s.purchased;
+    return matchesSearch && matchesType && matchesHidePurchased;
   });
 
   const exportToTxt = () => {
@@ -77,25 +81,30 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     const filterLabel = typeFilter === 'all' ? 'Todos os tipos' : typeFilter;
     const searchLabel = searchTerm ? `Busca: "${searchTerm}"` : 'Sem filtro de busca';
 
+    // Para a cotação de fato, filtramos os itens já comprados
+    const exportableShortages = filteredShortages.filter(s => !s.purchased);
+
     const lines: string[] = [
       '================================================',
       `  LISTA DE FALTAS - COTAÇÃO`,
       `  Gerado em: ${dateStr} às ${timeStr}`,
       `  Filtros: ${filterLabel} | ${searchLabel}`,
-      `  Total de itens: ${filteredShortages.length}`,
+      `  Total de itens pendentes: ${exportableShortages.length}`,
       '================================================',
       '',
     ];
 
     // Urgentes primeiro
-    const urgent = filteredShortages.filter(s => s.clientInquiry);
-    const normal = filteredShortages.filter(s => !s.clientInquiry);
+    const urgent = exportableShortages.filter(s => s.clientInquiry);
+    const normal = exportableShortages.filter(s => !s.clientInquiry);
 
     if (urgent.length > 0) {
       lines.push('⚠  URGENTE (Cliente Aguardando):');
       lines.push('------------------------------------------------');
       urgent.forEach((s, i) => {
-        lines.push(`  ${i + 1}. ${s.productName.toUpperCase()} [${s.type}]`);
+        let itemLine = `  ${i + 1}. ${s.productName.toUpperCase()} [${s.type}]`;
+        if (s.ordered) itemLine += ' [⚠️ JÁ PEDIDO]';
+        lines.push(itemLine);
         if (s.notes) lines.push(`     Obs: ${s.notes}`);
       });
       lines.push('');
@@ -105,7 +114,9 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       lines.push('   ITENS PARA COTAÇÃO:');
       lines.push('------------------------------------------------');
       normal.forEach((s, i) => {
-        lines.push(`  ${urgent.length + i + 1}. ${s.productName.toUpperCase()} [${s.type}]`);
+        let itemLine = `  ${urgent.length + i + 1}. ${s.productName.toUpperCase()} [${s.type}]`;
+        if (s.ordered) itemLine += ' [JÁ PEDIDO]';
+        lines.push(itemLine);
         if (s.notes) lines.push(`     Obs: ${s.notes}`);
       });
       lines.push('');
@@ -132,7 +143,9 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       id: Math.random().toString(36).substr(2, 9),
       ...formData,
       createdAt: new Date().toISOString(),
-      userName: user.name
+      userName: user.name,
+      purchased: false,
+      ordered: false
     });
 
     setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
@@ -206,6 +219,18 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           </select>
         </div>
         <button
+          onClick={() => setHidePurchased(!hidePurchased)}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all shadow active:scale-95 whitespace-nowrap ${
+            hidePurchased 
+              ? 'bg-slate-700 text-white hover:bg-slate-800' 
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+          }`}
+          title={hidePurchased ? "Mostrar itens já comprados" : "Ocular itens já comprados"}
+        >
+          {hidePurchased ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          {hidePurchased ? "Mostrar Comprados" : "Ocultar Comprados"}
+        </button>
+        <button
           onClick={exportToTxt}
           disabled={filteredShortages.length === 0}
           title={`Exportar ${filteredShortages.length} item(s) para TXT`}
@@ -224,16 +249,44 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produto / Item</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Procura de Cliente</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status de Aquisição</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Registrado por</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredShortages.map((s) => (
-                <tr key={s.id} className="hover:bg-red-50/20 transition-colors group">
+                <tr 
+                  key={s.id} 
+                  className={`transition-all duration-300 group ${
+                    s.purchased 
+                      ? 'bg-slate-100/50 hover:bg-slate-150 opacity-60' 
+                      : s.ordered 
+                        ? 'bg-blue-50/20 hover:bg-blue-50/40 border-l-4 border-l-blue-500' 
+                        : 'hover:bg-red-50/20'
+                  }`}
+                >
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
-                      <span className="font-black text-slate-900 uppercase tracking-tighter">{s.productName}</span>
+                      <div className="flex items-center">
+                        <span className={`font-black uppercase tracking-tighter transition-all ${
+                          s.purchased 
+                            ? 'text-slate-400 line-through decoration-slate-400 decoration-2' 
+                            : 'text-slate-900'
+                        }`}>
+                          {s.productName}
+                        </span>
+                        {s.purchased && (
+                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 animate-fade-in">
+                            Comprado
+                          </span>
+                        )}
+                        {s.ordered && !s.purchased && (
+                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 animate-pulse">
+                            Pedido
+                          </span>
+                        )}
+                      </div>
                       {s.notes && (
                         <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 mt-0.5">
                           <MessageCircle className="w-3 h-3" /> {s.notes}
@@ -249,13 +302,44 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   <td className="px-6 py-4">
                     <div className="flex justify-center">
                       {s.clientInquiry ? (
-                        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-600 rounded-full border border-amber-100 animate-pulse">
-                          <Star className="w-3 h-3 fill-amber-600" />
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-600 rounded-full border border-amber-100">
+                          <Star className="w-3 h-3 fill-amber-600 animate-pulse" />
                           <span className="text-[10px] font-black uppercase">Sim, Urgente</span>
                         </div>
                       ) : (
                         <span className="text-[10px] font-black text-slate-300 uppercase">Não</span>
                       )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center justify-center gap-2">
+                      {/* Botão Pedido */}
+                      <button
+                        onClick={() => onUpdate(s.id, !!s.purchased, !s.ordered)}
+                        title={s.ordered ? "Remover marcação de Pedido" : "Marcar como Pedido"}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 ${
+                          s.ordered
+                            ? 'bg-blue-100 text-blue-700 border-blue-200 shadow-sm'
+                            : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                        }`}
+                      >
+                        <Truck className={`w-3.5 h-3.5 ${s.ordered ? 'animate-bounce' : ''}`} />
+                        Pedido
+                      </button>
+
+                      {/* Botão Comprado */}
+                      <button
+                        onClick={() => onUpdate(s.id, !s.purchased, !!s.ordered)}
+                        title={s.purchased ? "Remover marcação de Comprado" : "Marcar como Comprado"}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 ${
+                          s.purchased
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm'
+                            : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                        }`}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Comprado
+                      </button>
                     </div>
                   </td>
                   <td className="px-6 py-4">

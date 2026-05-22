@@ -82,7 +82,10 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   // Vendas de ontem
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const yyyy = yesterday.getFullYear();
+  const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
+  const dd = String(yesterday.getDate()).padStart(2, '0');
+  const yesterdayStr = `${yyyy}-${mm}-${dd}`;
   const yesterdayClosing = monthClosings.find(c => c.date === yesterdayStr);
   const yesterdaySales = yesterdayClosing ? (yesterdayClosing.totalSales || 0) : 0;
   
