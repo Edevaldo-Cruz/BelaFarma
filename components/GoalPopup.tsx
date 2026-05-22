@@ -72,7 +72,8 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   // Filtra fechamentos do mês atual
   const monthClosings = cashClosings.filter(c => {
     if (!c.date) return false;
-    const [yearStr, monthStr] = c.date.split('-');
+    const datePart = c.date.split('T')[0];
+    const [yearStr, monthStr] = datePart.split('-');
     return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
   });
 
@@ -86,7 +87,7 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
   const dd = String(yesterday.getDate()).padStart(2, '0');
   const yesterdayStr = `${yyyy}-${mm}-${dd}`;
-  const yesterdayClosing = monthClosings.find(c => c.date === yesterdayStr);
+  const yesterdayClosing = cashClosings.find(c => c.date && c.date.split('T')[0] === yesterdayStr);
   const yesterdaySales = yesterdayClosing ? (yesterdayClosing.totalSales || 0) : 0;
   
   const hitGoalYesterday = yesterdaySales >= dailyGoal;

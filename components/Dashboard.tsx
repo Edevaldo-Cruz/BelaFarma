@@ -487,10 +487,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {user.role !== UserRole.OPERADOR && (
           <div className="lg:col-span-2 space-y-8">
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[350px]">
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px]">
               <SalesChart cashClosings={cashClosings} />
             </div>
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[350px]">
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[450px]">
               <PaymentMethodsChart cashClosings={cashClosings} />
             </div>
           </div>
