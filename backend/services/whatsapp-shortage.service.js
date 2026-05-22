@@ -90,7 +90,13 @@ async function executarVarreduraWhatsApp(db, options = {}) {
       }
     } catch (chatErr) {
       console.error('[WhatsAppShortage] ❌ Erro ao buscar chats na Evolution:', chatErr.message);
-      return { success: false, error: chatErr.message, stats };
+      let errorMsg = chatErr.message;
+      if (errorMsg.includes('ENOTFOUND') && API_URL.includes('evolution-api')) {
+        errorMsg = `Não foi possível resolver o endereço '${API_URL}'. Como você está rodando localmente (fora do Docker), altere EVOLUTION_API_URL para 'http://localhost:8080' no seu arquivo .env.`;
+      } else if (errorMsg.includes('ECONNREFUSED')) {
+        errorMsg = `Conexão recusada em '${API_URL}'. Verifique se a Evolution API está rodando e acessível em '${API_URL}'.`;
+      }
+      return { success: false, error: errorMsg, stats };
     }
 
     // 2. Filtrar e ordenar chats relevantes

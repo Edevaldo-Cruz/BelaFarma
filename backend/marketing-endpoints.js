@@ -946,7 +946,7 @@ Você deve responder estritamente com um objeto JSON válido (sem tags markdown 
 
       for (const customer of newCustomers) {
         const lastSale = db.prepare(`
-          SELECT id, sale_date as saleDate, totalValue
+          SELECT id, sale_date as saleDate, total_value as totalValue
           FROM sales
           WHERE customer_id = ? AND status = 'Finalizada'
           ORDER BY sale_date DESC
