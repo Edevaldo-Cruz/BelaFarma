@@ -523,13 +523,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
               <div className="pt-2">
                 <button 
                   type="submit"
-                  className="w-full flex items-center justify-center gap-2 py-4 bg-red-600 text-white rounded-2xl font-black shadow-xl shadow-red-100 hover:bg-red-700 transition-all active:scale-[0.98] uppercase tracking-widest"
+                  className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest rounded-2xl shadow-lg shadow-red-200 transition-all active:scale-95"
                 >
-                  <Save className="w-5 h-5" />
-                  Salvar na Lista
+                  Confirmar Registro
                 </button>
               </div>
             </form>
+          </div>
         </div>
       )}
 
