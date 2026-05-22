@@ -3195,7 +3195,9 @@ const dispararNoticiasAutomatico = async () => {
     const { gerarCuradoriaNoticas } = require('./services/marketing-agent.service');
     const noticias = await gerarCuradoriaNoticas();
     
-    const response = await fetch('http://192.168.1.70:5005/api/anunciar', {
+    const radioUrl = process.env.RADIO_API_URL || 'http://192.168.1.70:5005';
+    console.log(`[CRON] 📡 Enviando notícias para a rádio em: ${radioUrl}`);
+    const response = await fetch(`${radioUrl}/api/anunciar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mensagem: noticias, voz: 'pt-BR-FranciscaNeural' })
@@ -3204,7 +3206,7 @@ const dispararNoticiasAutomatico = async () => {
     if (response.ok) {
       console.log('[CRON] Notícias IA disparadas com sucesso na rádio.');
     } else {
-      console.error('[CRON] Rádio não respondeu ao disparo de notícias.');
+      console.error(`[CRON] Rádio respondeu com erro (${response.status}) ao disparo de notícias.`);
     }
   } catch (err) {
     console.error('[CRON] Erro ao disparar notícias automáticas:', err.message);

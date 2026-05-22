@@ -324,9 +324,24 @@ function initializeMarketingEndpoints(app, db) {
       if (payload.event === 'messages.upsert' && !payload.data.key?.fromMe) {
         notificationEmitter.emit('message');
         
-        // Disparar sinal sonoro de notificação na rádio da farmácia
-        fetch('http://192.168.1.70:5005/api/notificar', { method: 'POST' })
-          .catch(err => console.error('[Webhook] Falha ao notificar rádio Bela Farma:', err.message));
+        // Disparar sinal sonoro de notificação na rádio da farmácia de forma dinâmica e resiliente
+        const radioUrl = process.env.RADIO_API_URL || 'http://192.168.1.70:5005';
+        console.log(`[Webhook] 🔔 Nova mensagem recebida. Disparando sinal sonoro na rádio em: ${radioUrl}...`);
+        
+        fetch(`${radioUrl}/api/notificar`, { 
+          method: 'POST',
+          signal: AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined
+        })
+        .then(async res => {
+          if (res.ok) {
+            console.log('[Webhook] 🔔 Sinal sonoro (chime) disparado na rádio com sucesso!');
+          } else {
+            console.error(`[Webhook] ⚠️ Rádio respondeu com status ${res.status} ao disparar chime.`);
+          }
+        })
+        .catch(err => {
+          console.error('[Webhook] ❌ Falha ao notificar rádio Bela Farma:', err.message);
+        });
       }
 
       // O evento de mensagem recebida na Evolution v2 é 'messages.upsert'
