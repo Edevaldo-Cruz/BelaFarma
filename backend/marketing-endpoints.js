@@ -350,12 +350,40 @@ function initializeMarketingEndpoints(app, db) {
       }
 
       const data = payload.data;
-      if (!data || !data.key || data.key.fromMe) {
+      if (!data || !data.key) {
         return res.status(200).send('OK');
       }
 
       const remoteJid = data.key.remoteJid || '';
       const phone = remoteJid.split('@')[0];
+
+      // ─── SALVAR MENSAGEM NO HISTÓRICO LOCAL (SQLite) ───────────────────
+      const messageContent = data.message?.conversation 
+        || data.message?.extendedTextMessage?.text 
+        || data.message?.imageMessage?.caption 
+        || (data.message?.imageMessage ? '[Imagem]' : '')
+        || (data.message?.audioMessage ? '[Áudio]' : '')
+        || '';
+
+      if (remoteJid && !remoteJid.includes('@g.us') && !remoteJid.includes('@broadcast') && messageContent) {
+        const msgId = data.key.id;
+        const fromMe = data.key.fromMe ? 1 : 0;
+        const timestamp = data.messageTimestamp ? (data.messageTimestamp * 1000) : Date.now();
+        
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(msgId, phone, fromMe, messageContent, timestamp);
+        } catch (dbErr) {
+          console.error('[IsaMarketing] ❌ Erro ao salvar mensagem no histórico local:', dbErr.message);
+        }
+      }
+
+      // Se a mensagem for enviada pelo atendente (nós mesmos), encerramos a execução do webhook aqui
+      if (data.key.fromMe) {
+        return res.status(200).send('OK');
+      }
 
       // ─── CADASTRO AUTOMÁTICO DE CLIENTE DO WHATSAPP ───────────────────
       try {
@@ -364,8 +392,8 @@ function initializeMarketingEndpoints(app, db) {
         if (!existingCustomer) {
           const customerId = 'cust_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
           db.prepare(`
-            INSERT INTO customers (id, name, phone, createdAt, source)
-            VALUES (?, ?, ?, datetime('now'), 'WhatsApp')
+            INSERT INTO customers (id, name, phone, createdAt, updatedAt, source)
+            VALUES (?, ?, ?, datetime('now'), datetime('now'), 'WhatsApp')
           `).run(customerId, pushName, phone);
           console.log(`[IsaMarketing] 👤 Novo cliente cadastrado automaticamente via WhatsApp: ${pushName} (${phone})`);
         }
@@ -373,10 +401,6 @@ function initializeMarketingEndpoints(app, db) {
         console.error('[IsaMarketing] ❌ Erro ao cadastrar cliente automático via webhook:', custErr.message);
       }
 
-      const messageContent = data.message?.conversation 
-        || data.message?.extendedTextMessage?.text 
-        || '';
-      
       const text = messageContent.toLowerCase().trim();
       const EDEVALDO_PHONE_CLEAN = (process.env.EDEVALDO_WHATSAPP || '').replace(/\D/g, '');
 

@@ -77,113 +77,79 @@ async function executarVarreduraWhatsApp(db, options = {}) {
   try {
     console.log(`[WhatsAppShortage] 🔍 Iniciando varredura de faltas (Modo: ${options.initialScan30Days ? 'Histórico 30 Dias' : 'Periódico'})...`);
 
-    // 1. Buscar todos os chats ativos
-    let chats = [];
-    try {
-      const chatsRes = await evolutionFetch(`/chat/findChats/${EVOLUTION_MAIN_INSTANCE}`);
-      if (chatsRes.ok) {
-        const data = await chatsRes.json();
-        chats = Array.isArray(data) ? data : (data.chats || data.data || []);
-      } else {
-        console.warn(`[WhatsAppShortage] ⚠️ Falha ao buscar chats da API Evolution (Status: ${chatsRes.status})`);
-        return { success: false, error: `API status ${chatsRes.status}`, stats };
-      }
-    } catch (chatErr) {
-      console.error('[WhatsAppShortage] ❌ Erro ao buscar chats na Evolution:', chatErr.message);
-      let errorMsg = chatErr.message;
-      if (errorMsg.includes('ENOTFOUND') && API_URL.includes('evolution-api')) {
-        errorMsg = `Não foi possível resolver o endereço '${API_URL}'. Como você está rodando localmente (fora do Docker), altere EVOLUTION_API_URL para 'http://localhost:8080' no seu arquivo .env.`;
-      } else if (errorMsg.includes('ECONNREFUSED')) {
-        errorMsg = `Conexão recusada em '${API_URL}'. Verifique se a Evolution API está rodando e acessível em '${API_URL}'.`;
-      }
-      return { success: false, error: errorMsg, stats };
-    }
-
-    // 2. Filtrar e ordenar chats relevantes
-    // Apenas contatos individuais (sem grupos) e ativos recentemente
+    // 1. Determinar o limite de tempo para a varredura
     const agora = Date.now();
-    const trintaDiasMs = 30 * 24 * 60 * 60 * 1000;
-    const dozeHorasMs = 12 * 60 * 60 * 1000;
-
-    let filteredChats = chats
-      .filter(c => {
-        const jid = c.id || c.remoteJid || '';
-        return jid && !jid.includes('@g.us') && !jid.includes('@broadcast');
-      })
-      .map(c => {
-        let lastInteractionTime = 0;
-        if (c.updatedAt) {
-          lastInteractionTime = new Date(c.updatedAt).getTime();
-        } else if (c.messageTimestamp) {
-          lastInteractionTime = new Date(c.messageTimestamp * 1000).getTime();
-        }
-        return { ...c, lastInteractionTime };
-      });
+    let timeLimit = 0;
 
     if (options.initialScan30Days) {
       // Histórico dos últimos 30 dias
-      filteredChats = filteredChats
-        .filter(c => c.lastInteractionTime > agora - trintaDiasMs)
-        .sort((a, b) => b.lastInteractionTime - a.lastInteractionTime)
-        .slice(0, maxContactsToAnalyze);
+      timeLimit = agora - (30 * 24 * 60 * 60 * 1000);
     } else {
       // Periódico (últimas 12 horas ou desde a última verificação)
-      let timeLimit = agora - dozeHorasMs;
+      const dozeHorasMs = 12 * 60 * 60 * 1000;
+      timeLimit = agora - dozeHorasMs;
       try {
         const lastScanSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'whatsapp_shortage_last_scan'").get();
         if (lastScanSetting && lastScanSetting.value) {
           timeLimit = Math.max(new Date(lastScanSetting.value).getTime(), agora - (24 * 60 * 60 * 1000)); // no máximo 24 horas atrás
         }
       } catch (dbErr) { /* fallback para 12h */ }
-
-      filteredChats = filteredChats
-        .filter(c => c.lastInteractionTime > timeLimit)
-        .sort((a, b) => b.lastInteractionTime - a.lastInteractionTime)
-        .slice(0, maxContactsToAnalyze);
     }
 
-    stats.totalChats = filteredChats.length;
-    console.log(`[WhatsAppShortage] 🔢 Total de chats a processar: ${stats.totalChats}`);
+    // 2. Buscar contatos ativos no SQLite local que tiveram conversas no período
+    let activePhones = [];
+    try {
+      activePhones = db.prepare(`
+        SELECT phone, MAX(timestamp) as lastInteractionTime
+        FROM whatsapp_messages
+        WHERE timestamp > ?
+        GROUP BY phone
+        ORDER BY lastInteractionTime DESC
+        LIMIT ?
+      `).all(timeLimit, maxContactsToAnalyze);
+    } catch (sqlErr) {
+      console.error('[WhatsAppShortage] ❌ Erro ao buscar telefones ativos no SQLite local:', sqlErr.message);
+      return { success: false, error: sqlErr.message, stats };
+    }
+
+    stats.totalChats = activePhones.length;
+    console.log(`[WhatsAppShortage] 🔢 Total de contatos locais a processar: ${stats.totalChats}`);
 
     // 3. Processar cada conversa com a IA
-    for (const chat of filteredChats) {
-      const jid = chat.id || chat.remoteJid || '';
-      const rawPhone = jid.split('@')[0];
-      const phone = formatToUserPhone(rawPhone);
+    for (const contact of activePhones) {
+      const rawPhone = contact.phone;
+      const phone = formatToUserPhone(rawPhone) || rawPhone;
       if (!phone) continue;
 
-      const customerName = chat.name || chat.pushName || 'Contato WhatsApp';
+      // Buscar nome do cliente na tabela customers local
+      let customerName = 'Contato WhatsApp';
+      try {
+        const cust = db.prepare('SELECT name FROM customers WHERE phone = ?').get(rawPhone);
+        if (cust && cust.name) {
+          customerName = cust.name;
+        }
+      } catch (custErr) { /* ignora */ }
 
-      // Carregar as últimas 25 mensagens
+      // Carregar as últimas 25 mensagens do SQLite local
       let dialog = '';
       try {
-        const msgsRes = await evolutionFetch(`/chat/findMessages/${EVOLUTION_MAIN_INSTANCE}`, {
-          method: 'POST',
-          body: JSON.stringify({
-            where: { key: { remoteJid: jid } },
-            limit: 25,
-          }),
-        });
+        const localMsgs = db.prepare(`
+          SELECT fromMe, messageText
+          FROM whatsapp_messages
+          WHERE phone = ?
+          ORDER BY timestamp DESC
+          LIMIT 25
+        `).all(rawPhone);
 
-        if (msgsRes.ok) {
-          const msgsData = await msgsRes.json();
-          const messagesList = Array.isArray(msgsData) ? msgsData : (msgsData.records || []);
-          const sorted = [...messagesList].reverse();
-
+        if (localMsgs && localMsgs.length > 0) {
+          const sorted = [...localMsgs].reverse();
           dialog = sorted.map(m => {
-            const sender = m.key?.fromMe ? 'Atendente/Bela' : 'Cliente';
-            const msg = m.message;
-            let text = '';
-            if (msg) {
-              text = msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || '';
-              if (!text && msg.imageMessage) text = '[Imagem]';
-              if (!text && msg.audioMessage) text = '[Áudio]';
-            }
-            return text ? `${sender}: ${text}` : null;
+            const sender = m.fromMe === 1 ? 'Atendente/Bela' : 'Cliente';
+            return m.messageText ? `${sender}: ${m.messageText}` : null;
           }).filter(Boolean).join('\n');
         }
-      } catch (e) {
-        console.warn(`[WhatsAppShortage] ⚠️ Falha ao buscar histórico do contato ${customerName} (${phone})`, e.message);
+      } catch (msgErr) {
+        console.warn(`[WhatsAppShortage] ⚠️ Falha ao buscar histórico do contato local ${customerName} (${rawPhone}):`, msgErr.message);
         continue;
       }
 

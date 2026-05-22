@@ -983,6 +983,22 @@ try {
     } catch (e) { /* índice já existe */ }
     console.log('✅ CRM WhatsApp: Tabela crm_inactive_audits criada!');
 
+    // Tabela para armazenar o histórico local das mensagens de WhatsApp para análise de faltas resiliente
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        fromMe INTEGER NOT NULL,
+        messageText TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_wm_phone ON whatsapp_messages(phone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_wm_timestamp ON whatsapp_messages(timestamp)');
+    } catch (e) { /* índices já existem */ }
+    console.log('✅ CRM WhatsApp: Tabela whatsapp_messages criada!');
+
     // Migration: adicionar coluna source em customers (usada no webhook)
     try {
       db.prepare('SELECT source FROM customers LIMIT 1').get();
