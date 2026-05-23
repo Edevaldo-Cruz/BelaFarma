@@ -886,6 +886,20 @@ try {
     `);
     console.log('WhatsApp group posts table verified/created.');
 
+    // Tabela: whatsapp_offers_bank (Banco de imagens/textos de ofertas)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS whatsapp_offers_bank (
+        id TEXT PRIMARY KEY,
+        productName TEXT NOT NULL,
+        price REAL NOT NULL,
+        category TEXT NOT NULL,
+        mediaPath TEXT,
+        aiCaption TEXT,
+        createdAt TEXT NOT NULL
+      )
+    `);
+    console.log('WhatsApp offers bank table verified/created.');
+
     console.log('✅ Sistema de Mensagens: Tabelas criadas com sucesso!');
 
     // ========================================================================

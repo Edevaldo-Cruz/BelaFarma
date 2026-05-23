@@ -6,8 +6,9 @@ import PurchasingAgent from './PurchasingAgent';
 import { MedicationSearch } from './MedicationSearch';
 import IsaFiles from './IsaFiles';
 import { FinancialHealthAdvisor } from './FinancialHealthAdvisor';
+import OffersAgent from './OffersAgent';
 
-type ActiveAgent = 'portal' | 'marketing' | 'financeiro' | 'compras' | 'medicamentos' | 'arquivos' | 'saude-financeira';
+type ActiveAgent = 'portal' | 'marketing' | 'financeiro' | 'compras' | 'medicamentos' | 'arquivos' | 'saude-financeira' | 'ofertas';
 
 interface AIAgent {
   id: ActiveAgent;
@@ -77,6 +78,16 @@ const agents: AIAgent[] = [
     emoji: '📂',
     gradient: 'from-blue-500 via-indigo-500 to-cyan-500',
     accentColor: 'blue',
+    available: true,
+  },
+  {
+    id: 'ofertas',
+    name: 'Robô de Ofertas',
+    role: 'Orquestrador de Vendas',
+    description: 'Banco de imagens e textos promocionais. A IA cria a legenda de vendas, categoriza os produtos e monta a escala de postagens de hora em hora (:10) baseada no clima de JF.',
+    emoji: '🤖',
+    gradient: 'from-blue-600 via-indigo-600 to-violet-500',
+    accentColor: 'indigo',
     available: true,
   },
 ];
@@ -174,6 +185,22 @@ export default function AIPortal() {
           Voltar à Central de IAs
         </button>
         <IsaFiles />
+      </div>
+    );
+  }
+
+  // Handle active session for Offers Agent (Robô de Ofertas)
+  if (activeAgent === 'ofertas') {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setActiveAgent('portal')}
+          className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-indigo-600 transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Voltar à Central de IAs
+        </button>
+        <OffersAgent />
       </div>
     );
   }

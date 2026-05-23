@@ -3,5 +3,6 @@
   "token": "BelafarmaSul2026",
   "pollingIntervalSeconds": 15,
   "chromeSessionDir": "../whatsapp-session-rpa",
-  "executablePath": ""
+  "executablePath": "",
+  "headless": true
 }

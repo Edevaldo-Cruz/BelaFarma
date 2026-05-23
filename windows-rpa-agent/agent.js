@@ -10,7 +10,8 @@ let config = {
   token: 'BelafarmaSul2026',
   pollingIntervalSeconds: 15,
   chromeSessionDir: './whatsapp-session-rpa',
-  executablePath: ''
+  executablePath: '',
+  headless: true
 };
 
 if (fs.existsSync(CONFIG_PATH)) {
@@ -22,7 +23,7 @@ if (fs.existsSync(CONFIG_PATH)) {
   }
 }
 
-const { serverUrl, token, pollingIntervalSeconds, chromeSessionDir } = config;
+const { serverUrl, token, pollingIntervalSeconds, chromeSessionDir, headless } = config;
 const POLLING_INTERVAL_MS = pollingIntervalSeconds * 1000;
 
 console.log('========================================================');
@@ -82,15 +83,39 @@ async function reportStatus(postId, status, errorMessage = null) {
     console.error(`🚨 [Servidor] Erro de rede ao reportar status do post ${postId}:`, err.message);
   }
 }
+function isSessionPresent() {
+  try {
+    const sessionPath = path.resolve(__dirname, chromeSessionDir);
+    if (!fs.existsSync(sessionPath)) return false;
+    
+    const defaultFolder = path.join(sessionPath, 'Default');
+    if (!fs.existsSync(defaultFolder)) return false;
+    
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
 async function startAgent() {
-  console.log('🌐 Iniciando navegador Chromium (modo visível)...');
+  const sessionPresent = isSessionPresent();
+  const shouldRunHeadless = headless && sessionPresent;
+  
+  if (shouldRunHeadless) {
+    console.log('🌐 Iniciando navegador Chromium em modo invisível (segundo plano)...');
+  } else {
+    if (!sessionPresent) {
+      console.log('⚠️ Primeira execução detectada! Iniciando navegador visível para leitura do QR Code...');
+    } else {
+      console.log('🌐 Iniciando navegador Chromium em modo visível (conforme config)...');
+    }
+  }
   
   let launchOptions = {
-    headless: false,
+    headless: shouldRunHeadless ? 'shell' : false,
     userDataDir: chromeSessionDir,
-    defaultViewport: null,
-    args: ['--start-maximized']
+    defaultViewport: shouldRunHeadless ? { width: 1280, height: 800 } : null,
+    args: shouldRunHeadless ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'] : ['--start-maximized']
   };
 
   // Se houver executablePath customizado no config.json, usa ele
