@@ -749,7 +749,7 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
   app.get('/api/system/open-agent-folder', (req, res) => {
     try {
       const { exec } = require('child_process');
-      const folderPath = path.join(__dirname, '..', 'windows-rpa-agent');
+      const folderPath = path.join(__dirname, 'windows-rpa-agent');
       console.log(`[System] Abrindo pasta do agente local: ${folderPath}`);
       exec(`explorer "${folderPath}"`);
       res.json({ success: true, message: 'Pasta do Robô aberta no Windows Explorer!' });
@@ -765,7 +765,7 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
       const AdmZip = require('adm-zip');
       const zip = new AdmZip();
       
-      const agentDir = path.join(__dirname, '..', 'windows-rpa-agent');
+      const agentDir = path.join(__dirname, 'windows-rpa-agent');
       console.log(`[System] Gerando ZIP do agente a partir de: ${agentDir}`);
 
       if (!fs.existsSync(agentDir)) {
