@@ -130,6 +130,11 @@ export default function OffersAgent() {
     }
   };
 
+  const handleDownloadAgentZip = () => {
+    window.open(`${API_BASE}/api/system/download-agent`, '_blank');
+    addToast('📥 Preparando download do robô... Verifique sua barra de downloads!', 'info');
+  };
+
   // 1. Fetch Offers from Server
   const fetchOffers = useCallback(async () => {
     try {
@@ -417,14 +422,25 @@ export default function OffersAgent() {
               Execute o robô localmente em sua máquina para processar os envios inteligentes automáticos e agendados no WhatsApp.
             </p>
 
-            <button
-              onClick={handleOpenAgentFolder}
-              disabled={openingFolder}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-75 cursor-pointer text-sm"
-            >
-              {openingFolder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
-              Abrir Pasta do Robô 📂
-            </button>
+            <div className="grid grid-cols-1 gap-3">
+              <button
+                onClick={handleDownloadAgentZip}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer text-sm"
+              >
+                <Download className="w-4.5 h-4.5" />
+                Baixar Instalador do Robô (.ZIP) 📥
+              </button>
+
+              <button
+                onClick={handleOpenAgentFolder}
+                disabled={openingFolder}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl border border-slate-200 dark:border-slate-700/60 transition-all disabled:opacity-75 cursor-pointer text-xs"
+                title="Funciona apenas se o painel estiver rodando no mesmo computador"
+              >
+                {openingFolder ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                Abrir Pasta Local do Robô 📂
+              </button>
+            </div>
 
             <div className="mt-6 border-t border-slate-100 dark:border-slate-800 pt-5 space-y-4">
               <h4 className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.5">

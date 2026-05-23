@@ -759,6 +759,46 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
     }
   });
 
+  // 16. Baixar Instalador do Robô RPA compactado em ZIP (excluindo node_modules)
+  app.get('/api/system/download-agent', (req, res) => {
+    try {
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      
+      const agentDir = path.join(__dirname, '..', 'windows-rpa-agent');
+      console.log(`[System] Gerando ZIP do agente a partir de: ${agentDir}`);
+
+      if (!fs.existsSync(agentDir)) {
+        return res.status(404).json({ error: 'Diretório do agente não encontrado no servidor.' });
+      }
+
+      // Lê a pasta e adiciona cada item individualmente, ignorando node_modules
+      const files = fs.readdirSync(agentDir);
+      for (const file of files) {
+        if (file === 'node_modules') continue; // Ignora node_modules
+        
+        const filePath = path.join(agentDir, file);
+        const stat = fs.statSync(filePath);
+        
+        if (stat.isDirectory()) {
+          zip.addLocalFolder(filePath, file);
+        } else {
+          zip.addLocalFile(filePath);
+        }
+      }
+
+      const zipBuffer = zip.toBuffer();
+      
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename=windows-rpa-agent.zip');
+      res.send(zipBuffer);
+      console.log('[System] Download do ZIP do agente enviado com sucesso!');
+    } catch (err) {
+      console.error('[System] Erro ao gerar ZIP do agente para download:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
 }
 

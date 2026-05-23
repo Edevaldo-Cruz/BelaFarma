@@ -8,6 +8,7 @@
     "dev": "nodemon --exec \"node --dns-result-order=ipv4first\" server.js"
   },
   "dependencies": {
+    "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
