@@ -31,13 +31,70 @@ const upload = multer({ storage: storage });
  */
 function initializeWhatsAppGroupEndpoints(app) {
   
-  // 1. Listar Grupos (Consome a Evolution API para preencher o select no frontend)
+  // 1. Listar Grupos (Consome a Evolution API + Grupos locais salvos no banco SQLite)
   app.get('/api/whatsapp/groups', async (req, res) => {
     try {
-      const groups = await messageSender.fetchGroups();
-      res.json(groups);
+      let apiGroups = [];
+      try {
+        apiGroups = await messageSender.fetchGroups();
+      } catch (fetchErr) {
+        console.warn('[WhatsAppGroups] Evolution API indisponível, usando apenas grupos locais:', fetchErr.message);
+      }
+
+      // Busca os grupos customizados salvos no banco local
+      const customGroups = await db.prepare('SELECT id, name FROM whatsapp_custom_groups').all();
+      
+      // Converte os grupos customizados no mesmo formato que a API retorna (subject e id)
+      const formattedCustomGroups = customGroups.map(cg => ({
+        id: cg.id,
+        subject: cg.name,
+        name: cg.name,
+        isCustom: true
+      }));
+
+      // Mescla as listas garantindo que não haja IDs duplicados
+      const mergedGroups = [...formattedCustomGroups];
+      
+      // Adiciona da API os que não estiverem na lista de customizados
+      for (const group of apiGroups) {
+        if (!mergedGroups.some(g => g.id === group.id)) {
+          mergedGroups.push(group);
+        }
+      }
+
+      res.json(mergedGroups);
     } catch (err) {
       console.error('[WhatsAppGroups] Erro ao buscar grupos:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 1b. Salvar novo grupo customizado manualmente no banco local
+  app.post('/api/whatsapp/custom-groups', express.json(), async (req, res) => {
+    try {
+      const { id, name } = req.body;
+      if (!id || !name) {
+        return res.status(400).json({ error: 'ID e Nome do grupo são obrigatórios.' });
+      }
+
+      await db.prepare(
+        'INSERT INTO whatsapp_custom_groups (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = ?'
+      ).run(id, name, name);
+
+      res.status(201).json({ success: true, message: 'Grupo customizado salvo com sucesso!', group: { id, name } });
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro ao salvar grupo customizado:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 1c. Deletar grupo customizado local do banco
+  app.delete('/api/whatsapp/custom-groups/:id', async (req, res) => {
+    try {
+      await db.prepare('DELETE FROM whatsapp_custom_groups WHERE id = ?').run(req.params.id);
+      res.json({ success: true, message: 'Grupo customizado removido com sucesso!' });
+    } catch (err) {
+      console.error('[WhatsAppGroups] Erro ao deletar grupo customizado:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -554,19 +611,25 @@ Responda apenas com o JSON.`;
 
       console.log(`[RoboOfertas] ${offers.length} ofertas prontas. Acionando cérebro de marketing...`);
 
+      const dataAtual = new Date();
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      const dataFormatada = dataAtual.toLocaleDateString('pt-BR', options);
+
       const systemPrompt = `Você é o Orquestrador Inteligente de Campanhas da drogaria Bela Farma Sul em Juiz de Fora, MG. 
 Sua missão é distribuir e agendar as ofertas do banco ao longo dos slots de postagem de forma estratégica.
+A data de hoje para referência de planejamento é: ${dataFormatada} (Ano de 2026).
 
 REGRAS DOS SLOTS DE POSTAGEM:
 - Dias permitidos: Segunda a Sexta (das 08:00 até as 20:00) e Sábado (das 08:00 até as 19:00).
 - Horários exatos: Sempre na hora cheia e dez minutos (ex: 08:10, 09:10, 10:10, ..., 19:10, 20:10).
 
-CRITÉRIOS DE INTELIGÊNCIA:
+CRITÉRIOS DE INTELIGÊNCIA COMERCIAL:
 1. Categoria "vitamina": Preferir segundas ou terças pela manhã (estímulo a começar a semana com saúde).
 2. Categoria "beleza": Preferir sextas-feiras à tarde ou sábados de manhã (preparação de beleza e autocuidado para o final de semana).
 3. Categoria "dor/gripe/sintomas": Se o clima atual em JF estiver frio, chuvoso ou seco (Clima hoje: ${climaHumano}), dê maior visibilidade a esses remédios de alívio rápido e coloque-os em horários estratégicos de pico.
 4. Categoria "geral/higiene/infantil": Distribuir uniformemente nos slots intermediários.
-5. Rodapé obrigatório: No final do texto "content" de cada agendamento, anexe obrigatoriamente a frase:
+5. DATAS COMEMORATIVAS DO COMÉRCIO: Identifique no calendário se há datas comemorativas comerciais importantes próximas da data atual (${dataFormatada}), tais como Dia das Mães (Maio), Dia dos Namorados (Junho), Dia dos Pais (Agosto), Dia do Cliente (Setembro), Dia das Crianças (Outubro), Black Friday (Novembro), Natal (Dezembro), etc. Caso existam datas relevantes próximas ou no próprio mês atual, elabore uma estratégia promocional ligada a esse tema, adaptando as legendas se necessário ou priorizando produtos de autocuidado, presentes ou kits especiais, justificando no campo 'motivoEstrategico' (ex: 'Proximidade com o Dia dos Namorados!').
+6. Rodapé obrigatório: No final do texto "content" de cada agendamento, anexe obrigatoriamente a frase:
 "\n\nFique atento! A cada hora traremos uma oferta imperdível para você! 🔔"
 
 Você deve responder estritamente com um array JSON válido (sem tags markdown de código como \`\`\`json) contendo a alocação de slots. Cada objeto do array deve ter este formato:
@@ -577,7 +640,7 @@ Você deve responder estritamente com um array JSON válido (sem tags markdown d
   "productName": "Nome do produto",
   "mediaPath": "Caminho da imagem",
   "content": "Legenda da oferta (aiCaption original) com o rodapé obrigatório adicionado",
-  "motivoEstrategico": "Explicar brevemente em português por que este slot foi escolhido baseando-se no clima ou dia (ex: 'Sexta à tarde é o melhor momento para beleza!', 'Dia frio combina com reforço de vitamina C!')"
+  "motivoEstrategico": "Explicar brevemente em português por que este slot foi escolhido baseando-se no clima, dia ou datas comemorativas do comércio próximas (ex: 'Sexta à tarde é o melhor momento para beleza!', 'Aproveitando o clima frio de JF!', 'Campanha especial de aquecimento para o Dia dos Namorados!')"
 }
 
 Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Responda apenas com o JSON.`;

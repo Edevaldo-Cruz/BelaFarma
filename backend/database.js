@@ -900,6 +900,15 @@ try {
     `);
     console.log('WhatsApp offers bank table verified/created.');
 
+    // Tabela: whatsapp_custom_groups (Grupos de WhatsApp customizados salvos pelo usuário)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS whatsapp_custom_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+      )
+    `);
+    console.log('WhatsApp custom groups table verified/created.');
+
     console.log('✅ Sistema de Mensagens: Tabelas criadas com sucesso!');
 
     // ========================================================================

@@ -23,6 +23,7 @@ interface Group {
   id: string;
   name?: string;
   subject?: string;
+  isCustom?: boolean;
 }
 
 interface ScheduledSlot {
@@ -48,6 +49,12 @@ export default function OffersAgent() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState('');
   
+  // Custom Manual Group States
+  const [isManualGroup, setIsManualGroup] = useState(false);
+  const [manualGroupName, setManualGroupName] = useState('');
+  const [manualGroupId, setManualGroupId] = useState('');
+  const [savingCustomGroup, setSavingCustomGroup] = useState(false);
+  
   // Loading States
   const [loadingOffers, setLoadingOffers] = useState(true);
   const [loadingGroups, setLoadingGroups] = useState(true);
@@ -56,6 +63,56 @@ export default function OffersAgent() {
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const [currentWeather, setCurrentWeather] = useState('Consultando clima do Ipiranga...');
   const [openingFolder, setOpeningFolder] = useState(false);
+
+  const handleSaveCustomGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualGroupName || !manualGroupId) {
+      addToast('Nome do grupo e ID do grupo são obrigatórios.', 'warning');
+      return;
+    }
+
+    setSavingCustomGroup(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/custom-groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: manualGroupId, name: manualGroupName })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        addToast('💾 Grupo customizado cadastrado com sucesso!', 'success');
+        await fetchGroups();
+        setSelectedGroup(manualGroupId);
+        setIsManualGroup(false);
+        setManualGroupName('');
+        setManualGroupId('');
+      } else {
+        addToast(data.error || 'Erro ao cadastrar grupo.', 'error');
+      }
+    } catch {
+      addToast('Erro ao se conectar com o servidor.', 'error');
+    } finally {
+      setSavingCustomGroup(false);
+    }
+  };
+
+  const handleDeleteCustomGroup = async (id: string) => {
+    if (!confirm('Deseja realmente remover este grupo customizado?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/custom-groups/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        addToast('Grupo customizado removido da lista!', 'success');
+        setSelectedGroup('');
+        fetchGroups();
+      } else {
+        addToast('Erro ao remover grupo customizado.', 'error');
+      }
+    } catch {
+      addToast('Erro de rede ao remover.', 'error');
+    }
+  };
 
   const handleOpenAgentFolder = async () => {
     setOpeningFolder(true);
@@ -528,30 +585,115 @@ export default function OffersAgent() {
           </div>
 
           {/* Setup Delivery Group */}
-          <div className="md:col-span-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-indigo-500" />
-                Grupo Alvo do WhatsApp
-              </label>
-              <p className="text-xs text-slate-500 font-medium">Selecione o grupo onde o robô irá realizar os anúncios de hora em hora.</p>
+          <div className="md:col-span-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 flex flex-col gap-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-indigo-500" />
+                  Grupo Alvo do WhatsApp
+                </label>
+                <p className="text-xs text-slate-500 font-medium">Selecione o grupo onde o robô irá realizar os anúncios de hora em hora.</p>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <div className="relative flex-1 md:w-80">
+                  <select
+                    value={isManualGroup ? 'manual' : selectedGroup}
+                    onChange={e => {
+                      if (e.target.value === 'manual') {
+                        setIsManualGroup(true);
+                      } else {
+                        setIsManualGroup(false);
+                        setSelectedGroup(e.target.value);
+                      }
+                    }}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm appearance-none cursor-pointer pr-10"
+                  >
+                    <option value="">Selecione o grupo de ofertas...</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id}>
+                        {g.isCustom ? `⭐ [Salvo] ${g.subject || g.name}` : g.subject || g.name || g.id}
+                      </option>
+                    ))}
+                    <option value="manual">✍️ Digitar Grupo Manualmente...</option>
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+
+                {/* Botão de excluir grupo customizado */}
+                {selectedGroup && groups.find(g => g.id === selectedGroup)?.isCustom && (
+                  <button
+                    onClick={() => handleDeleteCustomGroup(selectedGroup)}
+                    className="p-3 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl border border-red-200 transition-colors cursor-pointer"
+                    title="Excluir grupo salvo"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="relative w-full md:w-80">
-              <select
-                value={selectedGroup}
-                onChange={e => setSelectedGroup(e.target.value)}
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm appearance-none cursor-pointer"
-              >
-                <option value="">Selecione o grupo de ofertas...</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>
-                    {g.subject || g.name || g.id}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-            </div>
+            {/* Formulário expansível para digitação manual */}
+            {isManualGroup && (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4 animate-in slide-in-from-top-4 duration-300">
+                <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200">✍️ Cadastrar Novo Grupo Customizado</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nome Amigável do Grupo</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Grupo de Ofertas Bela Farma"
+                      value={manualGroupName}
+                      onChange={e => setManualGroupName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID do Grupo (JID do WhatsApp)</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 120363294829348@g.us"
+                      value={manualGroupId}
+                      onChange={e => setManualGroupId(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-[10px] text-slate-400 leading-relaxed max-w-md">
+                    💡 <strong>Como achar o ID?</strong> O ID geralmente termina com <strong>@g.us</strong> para grupos e pode ser consultado nos logs de disparos ou copiando o link do grupo.
+                  </span>
+                  
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManualGroup(false);
+                        setManualGroupName('');
+                        setManualGroupId('');
+                      }}
+                      className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={handleSaveCustomGroup}
+                      disabled={savingCustomGroup}
+                      className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all disabled:opacity-70 flex items-center gap-1.5"
+                    >
+                      {savingCustomGroup ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Salvar Grupo 💾'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
