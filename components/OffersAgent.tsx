@@ -52,7 +52,6 @@ export default function OffersAgent() {
   // Custom Manual Group States
   const [isManualGroup, setIsManualGroup] = useState(false);
   const [manualGroupName, setManualGroupName] = useState('');
-  const [manualGroupId, setManualGroupId] = useState('');
   const [savingCustomGroup, setSavingCustomGroup] = useState(false);
   const [sendingImmediateId, setSendingImmediateId] = useState<string | null>(null);
   
@@ -106,8 +105,8 @@ export default function OffersAgent() {
 
   const handleSaveCustomGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualGroupName || !manualGroupId) {
-      addToast('Nome do grupo e ID do grupo são obrigatórios.', 'warning');
+    if (!manualGroupName) {
+      addToast('Digite o nome exato do grupo do WhatsApp.', 'warning');
       return;
     }
 
@@ -116,16 +115,15 @@ export default function OffersAgent() {
       const res = await fetch(`${API_BASE}/api/whatsapp/custom-groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: manualGroupId, name: manualGroupName })
+        body: JSON.stringify({ id: manualGroupName, name: manualGroupName })
       });
       const data = await res.json();
       if (res.ok) {
         addToast('💾 Grupo customizado cadastrado com sucesso!', 'success');
         await fetchGroups();
-        setSelectedGroup(manualGroupId);
+        setSelectedGroup(manualGroupName);
         setIsManualGroup(false);
         setManualGroupName('');
-        setManualGroupId('');
       } else {
         addToast(data.error || 'Erro ao cadastrar grupo.', 'error');
       }
@@ -706,33 +704,20 @@ export default function OffersAgent() {
                   <span className="text-sm font-bold text-slate-800 dark:text-slate-200">✍️ Cadastrar Novo Grupo Customizado</span>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nome Amigável do Grupo</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Grupo de Ofertas Bela Farma"
-                      value={manualGroupName}
-                      onChange={e => setManualGroupName(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID do Grupo (JID do WhatsApp)</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: 120363294829348@g.us"
-                      value={manualGroupId}
-                      onChange={e => setManualGroupId(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nome do Grupo do WhatsApp (Exatamente como escrito no seu celular)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Grupo de Ofertas Bela Farma"
+                    value={manualGroupName}
+                    onChange={e => setManualGroupName(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
+                  />
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
                   <span className="text-[10px] text-slate-400 leading-relaxed max-w-md">
-                    💡 <strong>Como achar o ID?</strong> O ID geralmente termina com <strong>@g.us</strong> para grupos e pode ser consultado nos logs de disparos ou copiando o link do grupo.
+                    💡 <strong>Como funciona?</strong> O robô local pesquisará na barra de busca do WhatsApp exatamente pelo nome que você salvou. Não há necessidade de obter IDs complicados!
                   </span>
                   
                   <div className="flex gap-3">
@@ -741,7 +726,6 @@ export default function OffersAgent() {
                       onClick={() => {
                         setIsManualGroup(false);
                         setManualGroupName('');
-                        setManualGroupId('');
                       }}
                       className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                     >
