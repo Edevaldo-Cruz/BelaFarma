@@ -54,6 +54,7 @@ export default function OffersAgent() {
   const [manualGroupName, setManualGroupName] = useState('');
   const [manualGroupId, setManualGroupId] = useState('');
   const [savingCustomGroup, setSavingCustomGroup] = useState(false);
+  const [sendingImmediateId, setSendingImmediateId] = useState<string | null>(null);
   
   // Loading States
   const [loadingOffers, setLoadingOffers] = useState(true);
@@ -63,6 +64,45 @@ export default function OffersAgent() {
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const [currentWeather, setCurrentWeather] = useState('Consultando clima do Ipiranga...');
   const [openingFolder, setOpeningFolder] = useState(false);
+
+  const handleSendImmediate = async (offer: Offer) => {
+    if (!selectedGroup) {
+      addToast('Selecione o Grupo Alvo do WhatsApp no final da página antes de disparar.', 'warning');
+      return;
+    }
+
+    const groupObj = groups.find(g => g.id === selectedGroup || g.subject === selectedGroup);
+    const groupLabel = groupObj ? (groupObj.subject || groupObj.name) : selectedGroup;
+
+    if (!confirm(`Deseja disparar imediatamente a oferta "${offer.productName}" para o grupo "${groupLabel}"? O robô no seu Windows fará o envio em até 15 segundos!`)) {
+      return;
+    }
+
+    setSendingImmediateId(offer.id);
+    addToast('🚀 Enfileirando disparo imediato no robô...', 'info');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/send-immediate-bank`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offerId: offer.id,
+          groupId: selectedGroup,
+          groupName: groupLabel
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('🎉 Sucesso! Oferta enviada para a fila de disparo imediato do robô!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao agendar disparo imediato.', 'error');
+      }
+    } catch {
+      addToast('Erro ao se conectar com o servidor.', 'error');
+    } finally {
+      setSendingImmediateId(null);
+    }
+  };
 
   const handleSaveCustomGroup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -539,6 +579,16 @@ export default function OffersAgent() {
                           {offer.aiCaption}
                         </p>
                       </div>
+
+                      {/* Botão de Envio Imediato para teste */}
+                      <button
+                        onClick={() => handleSendImmediate(offer)}
+                        disabled={sendingImmediateId === offer.id}
+                        className="w-full mt-3 flex items-center justify-center gap-1.5 py-2 bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white font-bold rounded-xl text-xs shadow-sm hover:shadow transition-all disabled:opacity-70 cursor-pointer"
+                      >
+                        {sendingImmediateId === offer.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        Disparar Imediato 🚀
+                      </button>
                     </div>
 
                     <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">

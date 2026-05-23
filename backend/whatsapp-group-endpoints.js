@@ -211,6 +211,53 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
+  // 6b. Disparar Oferta do Banco de Ofertas Imediatamente (Enfileira com data atual)
+  app.post('/api/whatsapp/send-immediate-bank', express.json(), async (req, res) => {
+    const { offerId, groupId, groupName } = req.body;
+
+    if (!offerId || !groupId) {
+      return res.status(400).json({ error: 'ID da oferta e ID do grupo são obrigatórios.' });
+    }
+
+    try {
+      // Busca a oferta no banco de ofertas
+      const offer = await db.prepare('SELECT * FROM whatsapp_offers_bank WHERE id = ?').get(offerId);
+      if (!offer) {
+        return res.status(404).json({ error: 'Oferta não encontrada no banco de imagens.' });
+      }
+
+      console.log(`[RoboOfertas] 🚀 Enfileirando disparo imediato do banco para a oferta "${offer.productName}"`);
+
+      const id = 'post-immediate-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+      
+      // Concatena a legenda com o rodapé obrigatório
+      const finalContent = `${offer.aiCaption}\n\nFique atento! A cada hora traremos uma oferta imperdível para você! 🔔`;
+
+      await db.prepare(`
+        INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        groupId,
+        groupName || groupId,
+        finalContent,
+        offer.mediaPath || null,
+        new Date().toISOString(), // scheduledAt = agora para envio imediato!
+        'Pendente',
+        new Date().toISOString()
+      );
+
+      res.json({
+        success: true,
+        message: 'Oferta colocada na fila de disparo imediato do Robô Windows!',
+        postId: id
+      });
+    } catch (err) {
+      console.error('[RoboOfertas] Erro ao enfileirar disparo imediato do banco:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 7. Ver Logs do RPA (Debug)
   app.get('/api/whatsapp/rpa-logs', (req, res) => {
     try {
