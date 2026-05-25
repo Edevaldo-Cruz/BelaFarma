@@ -45,8 +45,8 @@ export default function OffersAgent() {
   const [proposedSchedule, setProposedSchedule] = useState<ScheduledSlot[]>([]);
   
   // Form States
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [selectedGroup, setSelectedGroup] = useState('');
   
   // Custom Manual Group States
@@ -228,53 +228,68 @@ export default function OffersAgent() {
 
   // Handle Image Select
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setMediaFile(file);
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files);
+      setMediaFiles(filesArray);
+      
+      const previews: string[] = [];
+      filesArray.forEach((file) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          previews.push(reader.result as string);
+          if (previews.length === filesArray.length) {
+            setImagePreviews(previews);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
     } else {
-      setImagePreview(null);
+      setMediaFiles([]);
+      setImagePreviews([]);
     }
   };
 
   // Submit Offer (100% IA Visual)
   const handleAddOffer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mediaFile) {
-      addToast('Selecione uma imagem promocional primeiro.', 'warning');
+    if (mediaFiles.length === 0) {
+      addToast('Selecione pelo menos uma imagem promocional primeiro.', 'warning');
       return;
     }
 
     setSubmittingOffer(true);
-    addToast('🧠 A IA está analisando a imagem, extraindo o produto, preço e criando a legenda...', 'info');
+    addToast(`🤖 Processando ${mediaFiles.length} imagem(ns)... Isso pode levar alguns segundos por imagem.`, 'info');
     
-    try {
-      const formData = new FormData();
-      formData.append('media', mediaFile);
+    let successCount = 0;
+    
+    for (const file of mediaFiles) {
+      try {
+        const formData = new FormData();
+        formData.append('media', file);
 
-      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
-        method: 'POST',
-        body: formData
-      });
+        const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+          method: 'POST',
+          body: formData
+        });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast(`✨ Cadastrado por IA: "${data.offer.productName}" (R$ ${data.offer.price.toFixed(2)})!`, 'success');
-        setMediaFile(null);
-        setImagePreview(null);
-        fetchOffers();
-      } else {
-        addToast(data.error || 'Erro ao processar imagem.', 'error');
+        const data = await res.json();
+        if (res.ok && data.success) {
+          addToast(`✨ Cadastrado por IA: "${data.offer.productName}" (R$ ${data.offer.price.toFixed(2)})!`, 'success');
+          successCount++;
+        } else {
+          addToast(`Erro na imagem ${file.name}: ` + (data.error || 'Falha ao processar.'), 'error');
+        }
+      } catch {
+        addToast(`Erro ao conectar ao servidor para a imagem ${file.name}.`, 'error');
       }
-    } catch {
-      addToast('Erro ao conectar ao servidor.', 'error');
-    } finally {
-      setSubmittingOffer(false);
     }
+    
+    if (successCount > 0) {
+      setMediaFiles([]);
+      setImagePreviews([]);
+      fetchOffers();
+    }
+    setSubmittingOffer(false);
   };
 
   // Delete Offer
@@ -427,20 +442,23 @@ export default function OffersAgent() {
               {/* Image Uploader Card */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Imagem do Produto</label>
-                <div className="relative group flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl cursor-pointer hover:border-indigo-500 transition-colors">
+                <div className="relative group flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl cursor-pointer hover:border-indigo-500 transition-colors min-h-[160px]">
                   <input
                     type="file"
+                    multiple
                     accept="image/*"
                     onChange={handleImageChange}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
                   
-                  {imagePreview ? (
-                    <div className="relative w-full h-40 rounded-xl overflow-hidden shadow-inner">
-                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Upload className="w-8 h-8 text-white animate-bounce" />
-                      </div>
+                  {imagePreviews.length > 0 ? (
+                    <div className="flex flex-wrap gap-3 justify-center">
+                      {imagePreviews.map((preview, i) => (
+                        <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm">
+                          <img src={preview} alt={`Preview ${i}`} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/20" />
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <div className="text-center space-y-2">
