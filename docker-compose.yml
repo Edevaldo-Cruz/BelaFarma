@@ -26,6 +26,9 @@ services:
       - ./data:/usr/src/app/data
       # Monta o diretório de mensagens para escaneamento de arquivos
       - ./mensagens:/usr/src/app/mensagens
+      # Sessão do Baileys (persistente entre restarts e deploys)
+      - ./data/baileys-session:/usr/src/app/data/baileys-session
+
     depends_on:
       - evolution-api
     restart: unless-stopped

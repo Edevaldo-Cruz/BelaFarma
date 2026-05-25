@@ -3319,5 +3319,60 @@ ${supplierBlocks}`;
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// 🤖 BAILEYS WHATSAPP SERVICE — Inicialização e Endpoints
+// ══════════════════════════════════════════════════════════════════════
+let baileys = null;
+try {
+  baileys = require('./baileys-service.js');
+  console.log('[Baileys] 🚀 Iniciando conexão WhatsApp em background...');
+  baileys.connect().catch(err => {
+    console.error('[Baileys] ⚠️ Falha na inicialização (continuando sem Baileys):', err.message);
+  });
+} catch (e) {
+  console.warn('[Baileys] ⚠️ Serviço indisponível (arquivo não encontrado):', e.message);
+}
+
+// GET /api/whatsapp/baileys/status — Status da conexão
+app.get('/api/whatsapp/baileys/status', (req, res) => {
+  if (!baileys) return res.json({ connected: false, error: 'Serviço Baileys não carregado.' });
+  res.json(baileys.getStatus());
+});
+
+// GET /api/whatsapp/baileys/qrcode — Retorna o QR Code atual (base64)
+app.get('/api/whatsapp/baileys/qrcode', (req, res) => {
+  if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });
+  const status = baileys.getStatus();
+  if (!status.hasQR) {
+    return res.json({ hasQR: false, message: status.connected ? 'Já conectado!' : 'Aguardando QR Code...' });
+  }
+  res.json({ hasQR: true, qrCode: status.qrCode });
+});
+
+// POST /api/whatsapp/baileys/reconnect — Força reconexão/novo QR
+app.post('/api/whatsapp/baileys/reconnect', async (req, res) => {
+  if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });
+  try {
+    await baileys.disconnect();
+    await new Promise(r => setTimeout(r, 1000));
+    baileys.connect().catch(e => console.error('[Baileys] Erro ao reconectar:', e.message));
+    res.json({ success: true, message: 'Reconexão iniciada! Aguarde o QR Code.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/whatsapp/baileys/groups — Lista grupos que o número participa
+app.get('/api/whatsapp/baileys/groups', async (req, res) => {
+  if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });
+  try {
+    const groups = await baileys.listGroups();
+    res.json(groups);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Nodemon trigger restart
- 
+

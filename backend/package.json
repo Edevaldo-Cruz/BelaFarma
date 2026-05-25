@@ -8,6 +8,7 @@
     "dev": "nodemon --exec \"node --dns-result-order=ipv4first\" server.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",
@@ -19,7 +20,8 @@
     "node-fetch": "^2.7.0",
     "openai": "^4.33.0",
     "pdf-parse": "^2.4.5",
-    "puppeteer": "^24.43.1"
+    "puppeteer": "^24.43.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/multer": "^2.0.0",

@@ -188,41 +188,72 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 6. Enviar Agora (Disparo Imediato via Fila do Windows Agent)
+  // 6. Enviar Agora — tenta Baileys primeiro, fallback para fila do Windows Agent
   app.post('/api/whatsapp/send-immediate', upload.single('media'), async (req, res) => {
     const { groupId, groupName, content } = req.body;
     const mediaPath = req.file ? `/uploads/${req.file.filename}` : null;
-
-    console.log(`[WhatsAppGroups] 🚀 Enfileirando envio imediato para o Windows Agent. Grupo: ${groupName || groupId}`);
+    const targetGroup = groupName || groupId;
 
     try {
+      // ── Tenta enviar via Baileys (método principal — sem browser, no servidor) ──
+      let baileys = null;
+      try { baileys = require('./baileys-service.js'); } catch(e) {}
+
+      const baileysStatus = baileys ? baileys.getStatus() : null;
+
+      if (baileys && baileysStatus && baileysStatus.connected) {
+        console.log(`[WhatsAppGroups] 🤖 Enviando via Baileys para: "${targetGroup}"`);
+        try {
+          if (mediaPath) {
+            // Envio com imagem via Baileys
+            const absoluteMediaPath = path.join(uploadDir, path.basename(mediaPath));
+            await baileys.sendImageToGroup(targetGroup, absoluteMediaPath, content);
+          } else {
+            // Envio só texto via Baileys
+            await baileys.sendTextToGroup(targetGroup, content);
+          }
+
+          // Registra como já enviado no banco
+          const id = 'post-baileys-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+          await db.prepare(
+            'INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, sentAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).run(
+            id, groupId || groupName, targetGroup, content, mediaPath,
+            new Date().toISOString(), 'Enviado', new Date().toISOString(), new Date().toISOString()
+          );
+
+          console.log(`[WhatsAppGroups] ✅ Enviado via Baileys para "${targetGroup}"!`);
+          return res.json({ success: true, message: 'Mensagem enviada via Baileys (instantâneo)!', method: 'baileys', postId: id });
+        } catch (baileysErr) {
+          console.warn(`[WhatsAppGroups] ⚠️ Baileys falhou (${baileysErr.message}). Usando fallback: Fila Windows Agent...`);
+        }
+      } else {
+        console.log(`[WhatsAppGroups] ⚠️ Baileys não conectado. Usando fila do Windows Agent como fallback.`);
+      }
+
+      // ── Fallback: Fila do Windows Agent (Robô via Puppeteer) ──
       const id = 'post-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
-      
       await db.prepare(
         'INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
-        id,
-        groupId || groupName,
-        groupName || groupId,
-        content,
-        mediaPath,
-        new Date().toISOString(), // scheduledAt = agora, para envio imediato!
-        'Pendente',
-        new Date().toISOString()
+        id, groupId || groupName, targetGroup, content, mediaPath,
+        new Date().toISOString(), 'Pendente', new Date().toISOString()
       );
 
-      res.json({ 
-        success: true, 
-        message: 'Mensagem colocada na fila de disparo do Windows Agent!', 
-        postId: id 
+      res.json({
+        success: true,
+        message: 'Mensagem colocada na fila do Robô Windows (Baileys indisponível).',
+        method: 'windows-agent',
+        postId: id
       });
     } catch (error) {
-      console.error('[WhatsAppGroups] 💥 Erro ao enfileirar envio imediato:', error);
+      console.error('[WhatsAppGroups] 💥 Erro no envio imediato:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // 6b. Disparar Oferta do Banco de Ofertas Imediatamente (Enfileira com data atual)
+
+  // 6b. Disparar Oferta do Banco de Ofertas Imediatamente — tenta Baileys, fallback fila Windows
   app.post('/api/whatsapp/send-immediate-bank', express.json(), async (req, res) => {
     const { offerId, groupId, groupName } = req.body;
 
@@ -231,43 +262,64 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
 
     try {
-      // Busca a oferta no banco de ofertas
       const offer = await db.prepare('SELECT * FROM whatsapp_offers_bank WHERE id = ?').get(offerId);
-      if (!offer) {
-        return res.status(404).json({ error: 'Oferta não encontrada no banco de imagens.' });
-      }
+      if (!offer) return res.status(404).json({ error: 'Oferta não encontrada no banco de imagens.' });
 
-      console.log(`[RoboOfertas] 🚀 Enfileirando disparo imediato do banco para a oferta "${offer.productName}"`);
-
-      const id = 'post-immediate-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
-      
-      // Concatena a legenda com o rodapé obrigatório
+      const targetGroup = groupName || groupId;
       const finalContent = `${offer.aiCaption}\n\nFique atento! A cada hora traremos uma oferta imperdível para você! 🔔`;
 
-      await db.prepare(`
-        INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        groupId,
-        groupName || groupId,
-        finalContent,
-        offer.mediaPath || null,
-        new Date().toISOString(), // scheduledAt = agora para envio imediato!
-        'Pendente',
-        new Date().toISOString()
+      console.log(`[RoboOfertas] 🚀 Disparando oferta "${offer.productName}" para "${targetGroup}"`);
+
+      // ── Tenta Baileys primeiro ──
+      let baileys = null;
+      try { baileys = require('./baileys-service.js'); } catch(e) {}
+      const baileysStatus = baileys ? baileys.getStatus() : null;
+
+      if (baileys && baileysStatus && baileysStatus.connected) {
+        try {
+          if (offer.mediaPath) {
+            const absoluteMediaPath = path.join(uploadDir, path.basename(offer.mediaPath));
+            await baileys.sendImageToGroup(targetGroup, absoluteMediaPath, finalContent);
+          } else {
+            await baileys.sendTextToGroup(targetGroup, finalContent);
+          }
+
+          const id = 'post-baileys-bank-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+          await db.prepare(
+            'INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, sentAt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).run(
+            id, groupId, targetGroup, finalContent, offer.mediaPath || null,
+            new Date().toISOString(), 'Enviado', new Date().toISOString(), new Date().toISOString()
+          );
+
+          console.log(`[RoboOfertas] ✅ Oferta enviada via Baileys!`);
+          return res.json({ success: true, message: 'Oferta enviada via Baileys (instantâneo)!', method: 'baileys', postId: id });
+        } catch (baileysErr) {
+          console.warn(`[RoboOfertas] ⚠️ Baileys falhou (${baileysErr.message}). Fallback: fila Windows...`);
+        }
+      }
+
+      // ── Fallback: Fila Windows Agent ──
+      const id = 'post-immediate-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+      await db.prepare(
+        'INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        id, groupId, targetGroup, finalContent, offer.mediaPath || null,
+        new Date().toISOString(), 'Pendente', new Date().toISOString()
       );
 
       res.json({
         success: true,
-        message: 'Oferta colocada na fila de disparo imediato do Robô Windows!',
+        message: 'Oferta na fila do Robô Windows (Baileys indisponível).',
+        method: 'windows-agent',
         postId: id
       });
     } catch (err) {
-      console.error('[RoboOfertas] Erro ao enfileirar disparo imediato do banco:', err);
+      console.error('[RoboOfertas] Erro ao disparar oferta imediata:', err);
       res.status(500).json({ error: err.message });
     }
   });
+
 
   // 7. Ver Logs do RPA (Debug)
   app.get('/api/whatsapp/rpa-logs', (req, res) => {
