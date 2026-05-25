@@ -285,26 +285,64 @@ async function startAgent() {
 
         // 4. Envia o conteúdo
         if (tempFilePath) {
-          // ENVIO COM IMAGEM (Clipboard + Colar + Legenda)
-          console.log('📋 Copiando imagem para a Área de Transferência do Windows...');
-          copyImageToClipboard(tempFilePath);
-          await new Promise(r => setTimeout(r, 1000));
+          // ENVIO COM IMAGEM (Nativo via uploadFile - 100% robusto em background)
+          console.log('📤 Fazendo upload nativo da imagem no WhatsApp Web (simulando arrastar)...');
+          
+          try {
+            // Tenta abrir o menu de anexo clicando no botão de "+" se o input não estiver disponível imediatamente
+            const plusButton = await page.$('span[data-icon="plus"]');
+            if (plusButton) {
+              await plusButton.click();
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          } catch (e) {
+            // Ignora se o botão de anexo não for necessário
+          }
 
-          console.log('📋 Colando imagem no WhatsApp (Ctrl + V)...');
-          await page.keyboard.down('Control');
-          await page.keyboard.press('V');
-          await page.keyboard.up('Control');
+          // Seletor geral de input de arquivo do WhatsApp Web
+          const inputUploadSelector = 'input[type="file"]';
+          await page.waitForSelector(inputUploadSelector, { timeout: 8000 });
+          const fileInputs = await page.$$(inputUploadSelector);
+          
+          let uploaded = false;
+          // Itera pelos inputs de arquivo disponíveis (geralmente o primeiro ou segundo trata imagens)
+          for (const fileInput of fileInputs) {
+            try {
+              await fileInput.uploadFile(tempFilePath);
+              uploaded = true;
+              break;
+            } catch (err) {
+              // Tenta o próximo input se falhar
+            }
+          }
 
-          console.log('⏳ Aguardando abertura do editor de legenda...');
+          if (!uploaded) {
+            throw new Error('Não foi possível fazer o upload da imagem no input do WhatsApp Web.');
+          }
+
+          console.log('⏳ Aguardando abertura do editor de legenda do WhatsApp Web...');
+          // O editor de legenda é focado automaticamente após o upload do arquivo
           await new Promise(r => setTimeout(r, 4000));
 
           console.log('✍️ Escrevendo legenda...');
-          await page.keyboard.type(post.content, { delay: 40 });
+          // Encontra o seletor da caixa de legenda no WhatsApp Web (div contenteditable) para garantir foco
+          const captionSelector = 'div[contenteditable="true"]';
+          const captionBoxes = await page.$$(captionSelector);
+          
+          // No editor de mídia, o último de vários contenteditable costuma ser a legenda da imagem
+          if (captionBoxes.length > 0) {
+            const lastCaptionBox = captionBoxes[captionBoxes.length - 1];
+            await lastCaptionBox.focus();
+            await lastCaptionBox.type(post.content, { delay: 40 });
+          } else {
+            // Fallback para digitação via teclado caso não ache o seletor específico
+            await page.keyboard.type(post.content, { delay: 40 });
+          }
           await new Promise(r => setTimeout(r, 1000));
 
-          console.log('🚀 Enviando!');
+          console.log('🚀 Enviando anúncio com imagem!');
           try {
-            await page.waitForSelector('span[data-icon="send"]', { timeout: 3000 });
+            await page.waitForSelector('span[data-icon="send"]', { timeout: 4000 });
             await page.click('span[data-icon="send"]');
             console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
           } catch (clickErr) {
