@@ -341,13 +341,41 @@ async function startAgent() {
           await new Promise(r => setTimeout(r, 1000));
 
           console.log('🚀 Enviando anúncio com imagem!');
+          let sent = false;
           try {
-            await page.waitForSelector('span[data-icon="send"]', { timeout: 4000 });
-            await page.click('span[data-icon="send"]');
-            console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
+            // Tenta localizar o botão de enviar verde clássico (que tem o ícone 'send' ou papel de botão com o ícone)
+            const sendButtonSelector = 'span[data-icon="send"], div[role="button"] span[data-icon="send"], div[aria-label="Enviar"]';
+            await page.waitForSelector(sendButtonSelector, { timeout: 4000 });
+            const sendButton = await page.$(sendButtonSelector);
+            if (sendButton) {
+              await sendButton.click();
+              console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
+              sent = true;
+            }
           } catch (clickErr) {
-            console.log('⚠️ Botão enviar não localizado por clique, tentando método clássico com Enter...');
-            await page.keyboard.press('Enter');
+            console.log('⚠️ Botão enviar não localizado por clique. Tentando atalho universal Ctrl + Enter...');
+          }
+
+          if (!sent) {
+            try {
+              // Garante o foco novamente no editor de legenda antes de enviar o atalho
+              if (captionBoxes.length > 0) {
+                const lastCaptionBox = captionBoxes[captionBoxes.length - 1];
+                await lastCaptionBox.focus();
+              }
+              await new Promise(r => setTimeout(r, 500));
+              
+              // Executa o atalho universal do WhatsApp Web para enviar mídia (Ctrl + Enter)
+              await page.keyboard.down('Control');
+              await page.keyboard.press('Enter');
+              await page.keyboard.up('Control');
+              console.log('🎯 Atalho Ctrl + Enter enviado com sucesso!');
+              sent = true;
+            } catch (keyboardErr) {
+              console.error('🚨 Falha crítica ao tentar enviar via teclado:', keyboardErr.message);
+              // Fallback extremo com Enter simples
+              await page.keyboard.press('Enter');
+            }
           }
         } else {
           // ENVIO SÓ TEXTO
