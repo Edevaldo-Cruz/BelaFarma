@@ -4,5 +4,5 @@
   "pollingIntervalSeconds": 15,
   "chromeSessionDir": "../whatsapp-session-rpa",
   "executablePath": "",
-  "headless": true
+  "headless": false
 }
