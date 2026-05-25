@@ -507,7 +507,7 @@ function initializeWhatsAppGroupEndpoints(app) {
       }
 
       const mediaPath = `/uploads/${req.file.filename}`;
-      const absoluteImagePath = path.join(__dirname, 'public', mediaPath);
+      const absoluteImagePath = path.join(uploadDir, req.file.filename);
 
       console.log(`[RoboOfertas] 🖼️ Imagem recebida em: ${absoluteImagePath}. Lendo imagem...`);
       
