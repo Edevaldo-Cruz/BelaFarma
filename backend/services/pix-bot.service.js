@@ -71,7 +71,12 @@ class PixBotService {
         return;
       }
 
-      const todayDateStr = new Date().toLocaleDateString('pt-BR');
+      const todayDateStr = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).format(new Date());
       const prompt = `
         Você é um Auditor Financeiro Antifraude rigoroso da farmácia "Bela Farma Sul Ltda".
         Analise esta imagem e verifique se é um comprovante PIX 100% VÁLIDO E SEGURO.
@@ -227,7 +232,10 @@ class PixBotService {
    */
   async confirmPix(pixData, phone, messageId) {
     const now = new Date().toISOString();
-    const today = now.split('T')[0];
+    const today = new Intl.DateTimeFormat('fr-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
     const id = `pix_${Date.now()}`;
 
     try {
