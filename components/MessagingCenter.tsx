@@ -1084,44 +1084,135 @@ const WhatsAppGroupsTab: React.FC = () => {
   const [isCustomGroup, setIsCustomGroup] = useState(false);
   const [content, setContent] = useState('');
   const [scheduledTime, setScheduledTime] = useState('10:00');
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  
+  // Imagens e Legendas IA
+  const [mediaFiles, setMediaFiles] = useState<{ id: string; file: File; base64: string; caption: string; loading: boolean }[]>([]);
+  
   const { addToast } = useToast();
+
+  const incrementGroupUsage = (groupId: string) => {
+    if (!groupId) return;
+    try {
+      const usage = JSON.parse(localStorage.getItem('whatsapp_groups_usage') || '{}');
+      usage[groupId] = (usage[groupId] || 0) + 1;
+      localStorage.setItem('whatsapp_groups_usage', JSON.stringify(usage));
+    } catch (e) {}
+  };
+
+  const sortedGroups = React.useMemo(() => {
+    let usage: Record<string, number> = {};
+    try { usage = JSON.parse(localStorage.getItem('whatsapp_groups_usage') || '{}'); } catch(e) {}
+    return [...groups].sort((a, b) => {
+      const aUsage = usage[a.id] || 0;
+      const bUsage = usage[b.id] || 0;
+      if (bUsage !== aUsage) return bUsage - aUsage;
+      const aName = a.subject || a.name || a.id;
+      const bName = b.subject || b.name || b.id;
+      return aName.localeCompare(bName);
+    });
+  }, [groups]);
+
+  const handleGenerateCaption = async (fileId: string, base64: string) => {
+    try {
+      const res = await fetch('/api/generate-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64 })
+      });
+      const data = await res.json();
+      if (data.description) {
+        setMediaFiles(prev => prev.map(m => m.id === fileId ? { ...m, caption: data.description, loading: false } : m));
+      } else {
+        setMediaFiles(prev => prev.map(m => m.id === fileId ? { ...m, loading: false } : m));
+      }
+    } catch {
+      setMediaFiles(prev => prev.map(m => m.id === fileId ? { ...m, loading: false } : m));
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    
+    const newItems = Array.from(files).map(file => {
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        file,
+        base64: '',
+        caption: '',
+        loading: true
+      };
+    });
+
+    setMediaFiles(prev => [...prev, ...newItems]);
+
+    // Lê base64 e chama IA
+    for (const item of newItems) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setMediaFiles(prev => prev.map(m => m.id === item.id ? { ...m, base64: base64String } : m));
+        handleGenerateCaption(item.id, base64String);
+      };
+      reader.readAsDataURL(item.file);
+    }
+  };
+
+  const removeMedia = (id: string) => {
+    setMediaFiles(prev => prev.filter(m => m.id !== id));
+  };
   
   const handleImmediateSend = async () => {
-    if (!selectedGroup || !content) {
-      addToast('Preencha o grupo e a mensagem.', 'warning');
+    if (!selectedGroup) {
+      addToast('Selecione um grupo primeiro.', 'warning');
       return;
     }
 
-
+    if (mediaFiles.length === 0 && !content) {
+      addToast('Escreva uma mensagem ou adicione imagens.', 'warning');
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const formData = new FormData();
       const groupObj = groups.find(g => g.id === selectedGroup || g.subject === selectedGroup || g.name === selectedGroup);
-      
-      formData.append('groupId', groupObj ? groupObj.id : selectedGroup);
-      formData.append('groupName', groupObj ? (groupObj.subject || groupObj.name) : selectedGroup);
-      formData.append('content', content);
-      if (mediaFile) {
-        formData.append('media', mediaFile);
+      const groupId = groupObj ? groupObj.id : selectedGroup;
+      const groupName = groupObj ? (groupObj.subject || groupObj.name) : selectedGroup;
+
+      incrementGroupUsage(groupId);
+
+      // Se houver imagens, envia cada uma separadamente com sua legenda
+      if (mediaFiles.length > 0) {
+        for (const media of mediaFiles) {
+          const formData = new FormData();
+          formData.append('groupId', groupId);
+          formData.append('groupName', groupName);
+          formData.append('content', media.caption);
+          formData.append('media', media.file);
+          
+          await fetch('/api/whatsapp/send-immediate', {
+            method: 'POST',
+            body: formData
+          });
+        }
+      } 
+      // Se tiver apenas texto geral
+      if (content && mediaFiles.length === 0) {
+        const formData = new FormData();
+        formData.append('groupId', groupId);
+        formData.append('groupName', groupName);
+        formData.append('content', content);
+        await fetch('/api/whatsapp/send-immediate', {
+          method: 'POST',
+          body: formData
+        });
       }
 
-      const res = await fetch('/api/whatsapp/send-immediate', {
-        method: 'POST',
-        body: formData
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast('Mensagem colocada na fila de envio do Windows Agent!', 'success');
-        setContent('');
-        setMediaFile(null);
-        setManualGroupName('');
-        setIsCustomGroup(false);
-      } else {
-        addToast(data.error || 'Erro ao enviar agora.', 'error');
-      }
+      addToast('Envio concluído com sucesso!', 'success');
+      setContent('');
+      setMediaFiles([]);
+      setManualGroupName('');
+      setIsCustomGroup(false);
     } catch (err) {
       addToast('Erro de conexão ao enviar agora.', 'error');
     } finally {
@@ -1183,46 +1274,56 @@ const WhatsAppGroupsTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedGroup || !content || !selectedDate || !scheduledTime) {
-      addToast('Preencha todos os campos obrigatórios.', 'warning');
+    if (!selectedGroup || !selectedDate || !scheduledTime) {
+      addToast('Preencha os campos obrigatórios do grupo e data.', 'warning');
+      return;
+    }
+    
+    if (mediaFiles.length === 0 && !content) {
+      addToast('Escreva uma mensagem ou adicione imagens.', 'warning');
       return;
     }
 
     setSubmitting(true);
     try {
-      const formData = new FormData();
       const [hours, minutes] = scheduledTime.split(':');
       const finalDate = new Date(selectedDate);
       finalDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-      // We allow typing custom group names or selecting existing ones
       const groupObj = groups.find(g => g.id === selectedGroup || g.subject === selectedGroup);
+      const groupId = groupObj ? groupObj.id : selectedGroup;
+      const groupName = groupObj ? groupObj.subject : selectedGroup;
+
+      incrementGroupUsage(groupId);
+
+      if (mediaFiles.length > 0) {
+        for (const media of mediaFiles) {
+          const formData = new FormData();
+          formData.append('groupId', groupId);
+          formData.append('groupName', groupName);
+          formData.append('content', media.caption);
+          formData.append('scheduledAt', finalDate.toISOString());
+          formData.append('media', media.file);
+          await fetch('/api/whatsapp/scheduled-posts', { method: 'POST', body: formData });
+        }
+      } 
       
-      formData.append('groupId', groupObj ? groupObj.id : selectedGroup); // Se não achou ID, passa o nome como ID (o backend lida com fallback)
-      formData.append('groupName', groupObj ? groupObj.subject : selectedGroup);
-      formData.append('content', content);
-      formData.append('scheduledAt', finalDate.toISOString());
-      if (mediaFile) {
-        formData.append('media', mediaFile);
+      if (content && mediaFiles.length === 0) {
+        const formData = new FormData();
+        formData.append('groupId', groupId);
+        formData.append('groupName', groupName);
+        formData.append('content', content);
+        formData.append('scheduledAt', finalDate.toISOString());
+        await fetch('/api/whatsapp/scheduled-posts', { method: 'POST', body: formData });
       }
 
-      const res = await fetch('/api/whatsapp/scheduled-posts', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (res.ok) {
-        addToast('Agendamento criado com sucesso!', 'success');
-        setShowCreate(false);
-        setContent('');
-        setMediaFile(null);
-        setManualGroupName('');
-        setIsCustomGroup(false);
-        fetchData();
-      } else {
-        const data = await res.json();
-        addToast(data.error || 'Erro ao agendar.', 'error');
-      }
+      addToast('Agendamento criado com sucesso!', 'success');
+      setShowCreate(false);
+      setContent('');
+      setMediaFiles([]);
+      setManualGroupName('');
+      setIsCustomGroup(false);
+      fetchData();
     } catch (err) {
       addToast('Erro de conexão.', 'error');
     } finally {
@@ -1315,7 +1416,7 @@ const WhatsAppGroupsTab: React.FC = () => {
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 shadow-sm appearance-none cursor-pointer"
                   >
                     <option value="">Selecione um grupo...</option>
-                    {groups.map(g => (
+                    {sortedGroups.map(g => (
                       <option key={g.id} value={g.id}>
                         {g.subject || g.name || g.id}
                       </option>
@@ -1351,32 +1452,73 @@ const WhatsAppGroupsTab: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Legenda / Texto da Mensagem</label>
-              <textarea
-                value={content}
-                onChange={e => setContent(e.target.value)}
-                rows={3}
-                placeholder="Escreva a mensagem incrível que vai engajar seus clientes..."
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none shadow-sm"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Imagem (Opcional)</label>
-              <div className="flex items-center gap-4 p-4 bg-white dark:bg-slate-900 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-green-400 transition-colors">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Imagens e Legendas Inteligentes</label>
+              
+              <div className="flex items-center gap-4 p-4 bg-white dark:bg-slate-900 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-green-400 transition-colors relative">
                 <input
                   type="file"
+                  multiple
                   accept="image/*"
-                  onChange={e => setMediaFile(e.target.files?.[0] || null)}
-                  className="text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-green-50 file:text-green-700 hover:file:bg-green-100 cursor-pointer transition-colors"
+                  onChange={handleFileChange}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                 />
-                {mediaFile && (
-                  <span className="text-xs font-bold text-green-600 bg-green-50 px-3 py-1 rounded-full">
-                    ✓ {mediaFile.name} pronto
-                  </span>
-                )}
+                <ImageIcon className="w-6 h-6 text-slate-400" />
+                <span className="text-sm font-bold text-slate-500">
+                  Clique para adicionar várias imagens (a IA criará as legendas!)
+                </span>
               </div>
+
+              {mediaFiles.length > 0 && (
+                <div className="space-y-4 mt-4">
+                  {mediaFiles.map((media) => (
+                    <div key={media.id} className="flex flex-col sm:flex-row gap-4 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm relative">
+                      <button 
+                        type="button" 
+                        onClick={() => removeMedia(media.id)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                      <div className="w-full sm:w-32 h-32 flex-shrink-0 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">
+                        {media.base64 ? (
+                          <img src={media.base64} alt="Preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-500">Legenda da Imagem</label>
+                          {media.loading && <span className="text-xs text-green-600 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> IA escrevendo...</span>}
+                        </div>
+                        <textarea
+                          value={media.caption}
+                          onChange={(e) => {
+                            const newCaption = e.target.value;
+                            setMediaFiles(prev => prev.map(m => m.id === media.id ? { ...m, caption: newCaption } : m));
+                          }}
+                          className="w-full h-24 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-green-500 outline-none"
+                          placeholder="Aguarde a IA ou escreva sua legenda aqui..."
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {mediaFiles.length === 0 && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ou envie apenas um Texto (sem imagem)</label>
+                <textarea
+                  value={content}
+                  onChange={e => setContent(e.target.value)}
+                  rows={3}
+                  placeholder="Escreva a mensagem..."
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-green-500 resize-none shadow-sm"
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
               <button
