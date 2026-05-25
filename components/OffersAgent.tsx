@@ -106,7 +106,7 @@ export default function OffersAgent() {
   const handleSaveCustomGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualGroupName) {
-      addToast('Digite o nome exato do grupo do WhatsApp.', 'warning');
+      addToast('O nome do grupo é obrigatório.', 'warning');
       return;
     }
 
@@ -149,6 +149,26 @@ export default function OffersAgent() {
       }
     } catch {
       addToast('Erro de rede ao remover.', 'error');
+    }
+  };
+
+  const handleDownloadImage = async (mediaPath: string, productName: string) => {
+    try {
+      const response = await fetch(`${API_BASE}${mediaPath}`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const extension = mediaPath.split('.').pop() || 'png';
+      const cleanName = productName.replace(/[^a-zA-Z0-9]/g, '_');
+      a.download = `${cleanName}.${extension}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      addToast('📥 Imagem baixada com sucesso!', 'success');
+    } catch {
+      addToast('Erro ao baixar imagem.', 'error');
     }
   };
 
@@ -593,13 +613,24 @@ export default function OffersAgent() {
                       <span className="text-[9px] text-slate-400 font-bold">
                         Cadastrado em {new Date(offer.createdAt).toLocaleDateString('pt-BR')}
                       </span>
-                      <button
-                        onClick={() => handleDeleteOffer(offer.id)}
-                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors cursor-pointer"
-                        title="Deletar oferta"
-                      >
-                        <Trash2 className="w-4.5 h-4.5" />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        {offer.mediaPath && (
+                          <button
+                            onClick={() => handleDownloadImage(offer.mediaPath!, offer.productName)}
+                            className="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors cursor-pointer"
+                            title="Baixar imagem para o PC"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteOffer(offer.id)}
+                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors cursor-pointer"
+                          title="Deletar oferta"
+                        >
+                          <Trash2 className="w-4.5 h-4.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -704,20 +735,22 @@ export default function OffersAgent() {
                   <span className="text-sm font-bold text-slate-800 dark:text-slate-200">✍️ Cadastrar Novo Grupo Customizado</span>
                 </div>
                 
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nome do Grupo do WhatsApp (Exatamente como escrito no seu celular)</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Grupo de Ofertas Bela Farma"
-                    value={manualGroupName}
-                    onChange={e => setManualGroupName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
-                  />
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nome do Grupo do WhatsApp</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Grupo de Ofertas Bela Farma"
+                      value={manualGroupName}
+                      onChange={e => setManualGroupName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 shadow-sm"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
                   <span className="text-[10px] text-slate-400 leading-relaxed max-w-md">
-                    💡 <strong>Como funciona?</strong> O robô local pesquisará na barra de busca do WhatsApp exatamente pelo nome que você salvou. Não há necessidade de obter IDs complicados!
+                    💡 O robô local usará o nome exato digitado acima para localizar e abrir o chat no WhatsApp Web.
                   </span>
                   
                   <div className="flex gap-3">

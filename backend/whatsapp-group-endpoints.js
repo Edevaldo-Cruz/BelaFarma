@@ -8,13 +8,18 @@ const db = require('./database-factory');
 const { callAI } = require('./services/ai.service');
 const { buscarClimaReal } = require('./services/marketing-agent.service');
 
+// Configuração do diretório de uploads persistente (Windows = public/uploads, Linux/Docker = ../data/uploads)
+const uploadDir = process.platform === 'win32'
+  ? path.join(__dirname, 'public', 'uploads')
+  : path.join(__dirname, '..', 'data', 'uploads');
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 // Configuração do Multer para upload de imagens
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, 'public', 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
@@ -30,6 +35,9 @@ const upload = multer({ storage: storage });
  * @param {express.Application} app 
  */
 function initializeWhatsAppGroupEndpoints(app) {
+  
+  // Expõe a pasta de uploads de forma estática e persistente na URL /uploads
+  app.use('/uploads', express.static(uploadDir));
   
   // 1. Listar Grupos (Consome a Evolution API + Grupos locais salvos no banco SQLite)
   app.get('/api/whatsapp/groups', async (req, res) => {
@@ -72,9 +80,12 @@ function initializeWhatsAppGroupEndpoints(app) {
   // 1b. Salvar novo grupo customizado manualmente no banco local
   app.post('/api/whatsapp/custom-groups', express.json(), async (req, res) => {
     try {
-      const { id, name } = req.body;
-      if (!id || !name) {
-        return res.status(400).json({ error: 'ID e Nome do grupo são obrigatórios.' });
+      let { id, name } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: 'O nome do grupo é obrigatório.' });
+      }
+      if (!id) {
+        id = name;
       }
 
       await db.prepare(
