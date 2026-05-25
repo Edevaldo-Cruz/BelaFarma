@@ -146,7 +146,82 @@ class PixBotService {
   }
 
   /**
+   * (NOVO) Processa uma imagem vinda diretamente do Baileys nativo.
+   * Não precisa de webhook ou da Evolution API.
+   */
+  async processBaileysImage(base64Image, mimeType, phone, messageId) {
+    try {
+      console.log(`[PixBot] 📸 Imagem interceptada do Baileys para o número ${phone}. Iniciando auditoria...`);
+      
+      const todayDateStr = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric'
+      }).format(new Date());
+
+      const prompt = `
+        Você é um Auditor Financeiro Antifraude rigoroso da farmácia "Bela Farma Sul Ltda".
+        Analise esta imagem e verifique se é um comprovante PIX 100% VÁLIDO E SEGURO.
+        
+        DADOS OFICIAIS DA FARMÁCIA (destinatário esperado):
+        - Nome: "BELA FARMA SUL LTDA" ou "Bela Farma Sul Ltda" ou "Bela Farma"
+        - CPF/CNPJ: pode aparecer parcialmente mascarado (ex: ***.785.780-**140 ou 47.378.578/****-**)
+        - Chave PIX: pode ser email (belafarmasul@gmail.com), CPF ou CNPJ mascarado
+        - Instituição: Mercado Pago ou qualquer banco
+        - DICA VISUAL: O Mercado Pago costuma exibir valores redondos SEM CENTAVOS (ex: "R$ 19") e usa uma fonte limpa e espaçada. Isso NÃO é sinal de falsificação.
+
+        CRITÉRIOS DE SEGURANÇA OBRIGATÓRIOS (Recuse se algum falhar):
+        1. DESTINATÁRIO (campo "Para" no comprovante): O nome deve corresponder à farmácia conforme dados acima. CPF/CNPJ e chave PIX podem estar parcialmente ocultos — isso é NORMAL nos comprovantes brasileiros. RECUSE apenas se o nome do destinatário for claramente outra pessoa ou empresa.
+        2. REMETENTE (campo "De" no comprovante): Pode ser qualquer pessoa física (CPF) ou jurídica (CNPJ), com documento parcial ou totalmente mascarado. NUNCA recuse por causa do remetente.
+        3. STATUS CONCLUÍDO: A transferência DEVE ser efetivada (Sucesso, Realizada, Concluída). RECUSE IMEDIATAMENTE se houver as palavras "Agendamento", "Aguardando", "Em processamento" ou "Agendado para".
+        4. DATA E HORA: A data da transação NÃO PODE SER ANTIGA. Hoje é: ${todayDateStr}. Valide se o comprovante é de HOJE.
+        5. INTEGRIDADE VISUAL: Busque por indícios de falsificação grosseira (fontes misturadas, linhas tortas). O design minimalista do Mercado Pago (com logos azuis e layout limpo) é legítimo e deve ser aceito.
+
+        Responda EXATAMENTE no formato JSON abaixo (sem \`\`\`json ou texto extra):
+        {
+          "isPix": boolean,
+          "isBelaFarma": boolean,
+          "isValidStatus": boolean,
+          "isTodayDate": boolean,
+          "value": number (use ponto para decimais),
+          "senderName": string,
+          "date": string (data extraída da imagem),
+          "confidence": number (0 a 1),
+          "reason": "Se aprovado, escreva APENAS 'OK'. Se recusado, explique o motivo em NO MÁXIMO 10 palavras."
+        }
+      `;
+
+      const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
+        imageData: base64Image,
+        mimeType: mimeType || 'image/jpeg',
+        temperature: 0.0
+      });
+
+      const cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      const result = JSON.parse(cleanJson);
+
+      console.log(`[PixBot-Baileys] 🤖 Auditoria IA para ${phone}:`, result);
+
+      if (!result.isPix) {
+        console.log(`[PixBot-Baileys] ℹ️ Imagem de ${phone} não é um comprovante PIX. Ignorando.`);
+        return;
+      }
+
+      const aprovado = result.isBelaFarma && result.isValidStatus && result.isTodayDate && result.confidence > 0.85;
+
+      if (aprovado) {
+        await this.confirmPix(result, phone, messageId);
+      } else {
+        console.log(`[PixBot-Baileys] 🚫 PIX RECUSADO PELA SEGURANÇA: ${result.reason}`);
+        await this.logRejectedPix(result, phone);
+      }
+    } catch (err) {
+      console.error('[PixBot-Baileys] 💥 Erro ao processar imagem:', err.message);
+    }
+  }
+
+  /**
    * Cria uma tarefa de alerta quando um PIX for recusado por fraude ou inconsistência
+
    */
   async logRejectedPix(result, phone) {
     const now = new Date().toISOString();

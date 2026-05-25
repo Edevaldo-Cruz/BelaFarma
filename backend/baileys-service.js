@@ -25,7 +25,7 @@ let reconnectTimer = null;  // Timer de reconexão
 // Inicialização lazy: carrega o Baileys somente quando
 // o módulo já foi instalado (evita crash se faltou npm install)
 // ──────────────────────────────────────────────────────────
-let makeWASocket, useMultiFileAuthState, DisconnectReason, Boom;
+let makeWASocket, useMultiFileAuthState, DisconnectReason, Boom, downloadMediaMessage;
 
 function loadBaileys() {
   try {
@@ -33,6 +33,7 @@ function loadBaileys() {
     makeWASocket       = baileys.default || baileys.makeWASocket || baileys;
     useMultiFileAuthState = baileys.useMultiFileAuthState;
     DisconnectReason   = baileys.DisconnectReason;
+    downloadMediaMessage = baileys.downloadMediaMessage;
     Boom               = require('@hapi/boom');
     return true;
   } catch (e) {
@@ -45,7 +46,7 @@ function loadBaileys() {
 // ──────────────────────────────────────────────────────────
 // CONNECT — inicia ou reconecta a sessão
 // ──────────────────────────────────────────────────────────
-async function connect() {
+async function connect(db) {
   if (isConnecting) return;
   if (!loadBaileys()) return;
 
@@ -124,7 +125,57 @@ async function connect() {
         lastError = `Desconectado: ${reason}`;
         reconnectTimer = setTimeout(connect, 8000);
       }
+      }
     });
+
+    // ── Mensagens (Integração PixBot) ──────────────────────
+    if (db) {
+      const PixBotService = require('./services/pix-bot.service.js');
+      const pixBot = new PixBotService(db);
+
+      sock.ev.on('messages.upsert', async (m) => {
+        try {
+          if (m.type !== 'notify') return;
+          const msg = m.messages[0];
+          if (!msg.message || msg.key.fromMe) return;
+
+          const remoteJid = msg.key.remoteJid;
+          if (remoteJid.endsWith('@g.us')) return; // Ignora mensagens de grupos
+
+          const phone = remoteJid.split('@')[0];
+          const messageType = Object.keys(msg.message)[0];
+          
+          // Verifica se é imagem ou documento com imagem
+          const isImage = messageType === 'imageMessage' || 
+                         (messageType === 'documentMessage' && msg.message.documentMessage.mimetype.startsWith('image/')) ||
+                         (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.mimetype?.startsWith('image/'));
+
+          if (isImage) {
+            console.log(`[Baileys] 📸 Imagem recebida de ${phone}. Repassando ao PixBot...`);
+            
+            // Baixa a mídia usando o método nativo do Baileys
+            const buffer = await downloadMediaMessage(
+              msg,
+              'buffer',
+              { },
+              { 
+                logger: sock.logger,
+                reuploadRequest: sock.updateMediaMessage
+              }
+            );
+
+            const base64Image = buffer.toString('base64');
+            const mimeType = msg.message?.imageMessage?.mimetype || 
+                            msg.message?.documentMessage?.mimetype || 
+                            'image/jpeg';
+            
+            await pixBot.processBaileysImage(base64Image, mimeType, phone, msg.key.id);
+          }
+        } catch (err) {
+          console.error('[Baileys] Erro ao processar mensagem recebida:', err.message);
+        }
+      });
+    }
 
   } catch (err) {
     isConnecting = false;
