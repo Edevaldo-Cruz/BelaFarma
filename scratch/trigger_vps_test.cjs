@@ -1,25 +1,61 @@
-const serverUrl = 'https://app.drogariabelafarma.com.br';
-const triggerUrl = `${serverUrl}/api/whatsapp/send-immediate`;
+// Script para consultar as ofertas da VPS e disparar uma de teste com imagem
+async function triggerVpsTest() {
+  const offersUrl = 'https://app.drogariabelafarma.com.br/api/whatsapp/offers-bank';
+  const triggerUrl = 'https://app.drogariabelafarma.com.br/api/whatsapp/send-immediate-bank';
 
-async function triggerTest() {
-  console.log(`Enfileirando disparo de teste via FormData na VPS: ${triggerUrl}`);
+  console.log(`🌐 Consultando ofertas disponíveis em produção...`);
   try {
-    const formData = new FormData();
-    formData.append('groupId', 'Marketing');
-    formData.append('groupName', 'Marketing');
-    formData.append('content', '🤖 Teste do Robô Bela Farma: Conexão ativa e integrada com sucesso!');
+    const res = await fetch(offersUrl);
+    if (!res.ok) {
+      console.error(`❌ Falha ao buscar ofertas: HTTP ${res.status}`);
+      return;
+    }
+    const offers = await res.json();
+    console.log(`📊 Encontradas ${offers.length} ofertas no banco.`);
 
-    const res = await fetch(triggerUrl, {
+    if (offers.length === 0) {
+      console.error('❌ Nenhuma oferta cadastrada no banco da VPS. Cadastre uma oferta primeiro!');
+      return;
+    }
+
+    // Pega a oferta mais recente
+    const targetOffer = offers[0];
+    console.log(`🎯 Oferta selecionada para o teste:`);
+    console.log(`   - ID: ${targetOffer.id}`);
+    console.log(`   - Produto: ${targetOffer.productName}`);
+    console.log(`   - Categoria: ${targetOffer.category}`);
+    console.log(`   - Imagem: ${targetOffer.mediaPath}`);
+
+    // Dispara a oferta para o grupo "Marketing"
+    const payload = {
+      offerId: targetOffer.id,
+      groupId: 'Marketing',
+      groupName: 'Marketing'
+    };
+
+    console.log(`\n🚀 Enviando requisição de disparo imediato para o grupo "Marketing"...`);
+    const triggerRes = await fetch(triggerUrl, {
       method: 'POST',
-      body: formData
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
     });
-    
-    console.log(`HTTP Status: ${res.status} ${res.statusText}`);
-    const data = await res.json();
-    console.log('Resposta da VPS:', JSON.stringify(data, null, 2));
+
+    if (!triggerRes.ok) {
+      console.error(`❌ Falha ao solicitar disparo: HTTP ${triggerRes.status}`);
+      const errTxt = await triggerRes.text();
+      console.error(`Detalhes: ${errTxt}`);
+      return;
+    }
+
+    const triggerResult = await triggerRes.json();
+    console.log(`🎉 Sucesso! Oferta enfileirada.`);
+    console.log(`   - Post ID gerado: ${triggerResult.postId}`);
+    console.log(`   - Mensagem: "${triggerResult.message}"`);
   } catch (err) {
-    console.error('Erro ao chamar a VPS:', err.message);
+    console.error(`🚨 Erro durante o teste:`, err.message);
   }
 }
 
-triggerTest();
+triggerVpsTest();

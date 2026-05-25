@@ -172,31 +172,68 @@ async function startAgent() {
   console.log('Se necessário, escaneie o código QR exibido na tela.');
   console.log('--------------------------------------------------------\n');
 
+  // Seletores de login — múltiplas opções para cobrir diferentes versões do WhatsApp Web
+  const LOGIN_SELECTORS = [
+    'div#pane-side',                             // painel lateral de conversas
+    'div[data-testid="chat-list"]',              // lista de chats (versão atual)
+    'div[data-testid="default-user"]',           // avatar do usuário logado
+    'span[data-testid="search"]',                // ícone de busca na sidebar
+    'div[aria-label="Lista de conversas"]',      // acessibilidade PT-BR
+    'div[aria-label="Chat list"]',               // acessibilidade EN
+    'div[contenteditable="true"]',               // qualquer campo editável
+    'div[role="textbox"]',                       // campo de mensagem
+  ];
+
   let isLoggedIn = false;
+  let loginCheckCount = 0;
   while (!isLoggedIn) {
     try {
-      isLoggedIn = await page.evaluate(() => {
-        return !!document.querySelector('span[data-icon="chat"]') || 
-               !!document.querySelector('span[data-icon="search"]') ||
-               !!document.querySelector('div[contenteditable="true"]') ||
-               !!document.querySelector('div#pane-side') ||
-               !!document.querySelector('div[role="textbox"]');
-      });
+      isLoggedIn = await page.evaluate((selectors) => {
+        return selectors.some(sel => !!document.querySelector(sel));
+      }, LOGIN_SELECTORS);
+
       if (isLoggedIn) {
         break;
       }
     } catch (e) {}
+
+    loginCheckCount++;
+    if (loginCheckCount % 10 === 0) {
+      console.log(`⏳ Aguardando login... (${loginCheckCount * 2}s). Se necessário, escaneie o QR Code.`);
+    }
     await new Promise(r => setTimeout(r, 2000));
   }
 
   console.log('🎉 Login efetuado com sucesso no WhatsApp Web!');
   console.log('🚀 O Windows RPA Agent está ONLINE e ativo. Aguardando mensagens pendentes...\n');
 
+  // Fetch com timeout e retry automático (resistente a quedas momentâneas de rede)
+  async function fetchComRetry(url, tentativas = 3, timeoutMs = 15000) {
+    for (let i = 1; i <= tentativas; i++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        return res;
+      } catch (err) {
+        const motivo = err.name === 'AbortError' ? `timeout após ${timeoutMs/1000}s` : err.message;
+        if (i < tentativas) {
+          console.warn(`⚠️ [Rede] Tentativa ${i}/${tentativas} falhou (${motivo}). Tentando novamente em 3s...`);
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          console.error(`❌ [Rede] Todas as ${tentativas} tentativas falharam. Aguardando próximo ciclo. (${motivo})`);
+          throw err;
+        }
+      }
+    }
+  }
+
   // Loop de Polling Sequencial (impede concorrência e sobreposição)
   async function checkQueue() {
     try {
       const pendingUrl = `${serverUrl}/api/whatsapp/agent/pending?token=${token}`;
-      const res = await fetch(pendingUrl);
+      const res = await fetchComRetry(pendingUrl);
       if (!res.ok) {
         console.error(`❌ [Conexão] Falha ao consultar o servidor: HTTP ${res.status}`);
         return;
@@ -237,47 +274,117 @@ async function startAgent() {
         // Garante foco na página
         await page.bringToFront();
 
-        // 1. Abre a busca de chats
-        console.log(`🔍 Focando na pesquisa do WhatsApp (Ctrl + Alt + /)...`);
-        await page.keyboard.down('Control');
-        await page.keyboard.down('Alt');
-        await page.keyboard.press('/');
-        await page.keyboard.up('Alt');
-        await page.keyboard.up('Control');
-        await new Promise(r => setTimeout(r, 1000));
+        // 1. Abre o campo de busca — múltiplos seletores de fallback
+        // O atalho Ctrl+Alt+/ foi descontinuado em versões recentes do WhatsApp Web.
+        // Agora clicamos diretamente no campo de busca pelo DOM.
+        console.log(`🔍 Localizando e clicando no campo de busca do WhatsApp...`);
+        const SEARCH_SELECTORS = [
+          'div[data-testid="chat-list-search"]',           // seletor principal atual
+          'div[contenteditable="true"][data-tab="3"]',     // campo de busca por data-tab
+          'div[role="textbox"][title="Pesquisar ou começar uma nova conversa"]',
+          'div[role="textbox"][title="Search or start new chat"]',
+          'div[aria-label="Pesquisar ou começar uma nova conversa"]',
+          'div[aria-label="Search or start new chat"]',
+          '#side div[contenteditable="true"]',             // fallback genérico na sidebar
+        ];
 
-        // Limpa busca anterior caso exista
+        let searchClicked = false;
+        for (const sel of SEARCH_SELECTORS) {
+          try {
+            const el = await page.$(sel);
+            if (el) {
+              await el.click();
+              console.log(`  ✅ Campo de busca encontrado e clicado: ${sel}`);
+              searchClicked = true;
+              break;
+            }
+          } catch (e) {}
+        }
+
+        if (!searchClicked) {
+          // Último fallback: tenta clicar no ícone de lupa da sidebar
+          // IMPORTANTE: NÃO usar Ctrl+F — abre a busca do NAVEGADOR, não do WhatsApp!
+          console.log('  ⚠️ Campo de busca não encontrado por seletor. Tentando clicar no ícone de lupa...');
+          try {
+            const lupaSelectors = [
+              'span[data-icon="search"]',
+              'div[data-testid="search"]',
+              'button[aria-label="Pesquisar"]',
+              'button[aria-label="Search"]',
+            ];
+            for (const lupaSel of lupaSelectors) {
+              const lupaEl = await page.$(lupaSel);
+              if (lupaEl) {
+                await lupaEl.click();
+                console.log(`  ✅ Ícone de lupa clicado: ${lupaSel}`);
+                searchClicked = true;
+                break;
+              }
+            }
+          } catch (e) {}
+          if (!searchClicked) {
+            console.log('  ❌ Nenhum seletor de busca funcionou. Verifique se o WhatsApp Web carregou corretamente.');
+          }
+        }
+
+        await new Promise(r => setTimeout(r, 800));
+
+        // Limpa qualquer texto anterior no campo de busca
         await page.keyboard.down('Control');
-        await page.keyboard.press('A');
+        await page.keyboard.press('a');
         await page.keyboard.up('Control');
         await page.keyboard.press('Backspace');
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 400));
 
         // 2. Digita o nome do grupo
         console.log(`⌨️ Digitando nome do grupo: "${post.groupName}"...`);
-        await page.keyboard.type(post.groupName, { delay: 100 });
-        await new Promise(r => setTimeout(r, 3000));
+        await page.keyboard.type(post.groupName, { delay: 120 });
+        
+        // Aguarda os resultados aparecerem na lista (aumentado para 4s)
+        console.log(`⏳ Aguardando resultados da busca...`);
+        await new Promise(r => setTimeout(r, 4000));
 
         // 3. Clica no grupo correspondente na lista
         console.log('👆 Localizando o elemento do grupo e clicando...');
+
+        // Estratégia multi-tentativa para encontrar o chat na lista
         const chatRect = await page.evaluate((nome) => {
-          const spans = Array.from(document.querySelectorAll('span'));
-          const chat = spans.find(s => s.title === nome || s.innerText === nome);
-          if (chat) {
-            const rect = chat.getBoundingClientRect();
-            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+          // Tenta primeiro pela propriedade title (mais preciso)
+          const byTitle = document.querySelector(`span[title="${nome}"]`);
+          if (byTitle) {
+            const rect = byTitle.getBoundingClientRect();
+            if (rect.width > 0) return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, method: 'title' };
           }
+
+          // Busca por innerText exato em spans da lista de resultados
+          const spans = Array.from(document.querySelectorAll('#pane-side span, div[aria-label] span'));
+          const byText = spans.find(s => s.innerText?.trim() === nome || s.textContent?.trim() === nome);
+          if (byText) {
+            const rect = byText.getBoundingClientRect();
+            if (rect.width > 0) return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, method: 'innerText' };
+          }
+
+          // Busca parcial como último recurso
+          const byPartial = spans.find(s => s.innerText?.includes(nome) || s.title?.includes(nome));
+          if (byPartial) {
+            const rect = byPartial.getBoundingClientRect();
+            if (rect.width > 0) return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, method: 'partial' };
+          }
+
           return null;
         }, post.groupName);
 
         if (chatRect) {
+          console.log(`  ✅ Grupo encontrado (método: ${chatRect.method}). Clicando...`);
           await page.mouse.click(chatRect.x, chatRect.y);
           console.log(`🎯 Clique físico realizado com sucesso no grupo.`);
         } else {
-          console.log('⚠️ Grupo não apareceu visualmente. Tentando atalho manual com Enter...');
+          // Fallback: pressiona seta para baixo + Enter para selecionar o primeiro resultado
+          console.log('⚠️ Grupo não encontrado visualmente na lista. Tentando seta+Enter...');
           await page.keyboard.press('ArrowDown');
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, 600));
           await page.keyboard.press('Enter');
+          console.log('  ↩️ Enter pressionado no primeiro resultado.');
         }
 
         // Aguarda transição da tela do chat
@@ -285,104 +392,179 @@ async function startAgent() {
 
         // 4. Envia o conteúdo
         if (tempFilePath) {
-          // ENVIO COM IMAGEM (Nativo via uploadFile - 100% robusto em background)
-          console.log('📤 Fazendo upload nativo da imagem no WhatsApp Web (simulando arrastar)...');
-          
-          try {
-            // Tenta abrir o menu de anexo clicando no botão de "+" se o input não estiver disponível imediatamente
-            const plusButton = await page.$('span[data-icon="plus"]');
-            if (plusButton) {
-              await plusButton.click();
-              await new Promise(r => setTimeout(r, 1000));
-            }
-          } catch (e) {
-            // Ignora se o botão de anexo não for necessário
-          }
+          // ================================================================
+          // ENVIO COM IMAGEM — Drag & Drop (confirmado funcionar manualmente)
+          // Fluxo: arrastar imagem → editor de legenda abre → digitar texto → enviar
+          // ================================================================
+          console.log('📤 Iniciando envio por Drag & Drop...');
 
-          // Seletor geral de input de arquivo do WhatsApp Web
-          const inputUploadSelector = 'input[type="file"]';
-          await page.waitForSelector(inputUploadSelector, { timeout: 8000 });
-          const fileInputs = await page.$$(inputUploadSelector);
-          
-          let uploaded = false;
-          // Itera pelos inputs de arquivo disponíveis (geralmente o primeiro ou segundo trata imagens)
-          for (const fileInput of fileInputs) {
+          // Detecta o tipo MIME com base na extensão do arquivo
+          const ext = path.extname(tempFilePath).toLowerCase();
+          const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+          const mimeType = mimeMap[ext] || 'image/jpeg';
+          const fileName = path.basename(tempFilePath);
+
+          // Lê o arquivo e converte para Base64 para injetar na página
+          console.log(`📁 Lendo arquivo "${fileName}" (${mimeType}) para injeção...`);
+          const fileBuffer = fs.readFileSync(tempFilePath);
+          const base64Data = fileBuffer.toString('base64');
+          console.log(`✅ Arquivo lido (${Math.round(fileBuffer.length / 1024)} KB). Simulando arrasto no WhatsApp Web...`);
+
+          // Simula o drag & drop da imagem diretamente na área do chat
+          // (igual ao que o usuário faz arrastando o arquivo para a janela do browser)
+          const dropSuccess = await page.evaluate(async (b64, mime, fname) => {
             try {
-              await fileInput.uploadFile(tempFilePath);
-              uploaded = true;
-              break;
-            } catch (err) {
-              // Tenta o próximo input se falhar
-            }
-          }
-
-          if (!uploaded) {
-            throw new Error('Não foi possível fazer o upload da imagem no input do WhatsApp Web.');
-          }
-
-          console.log('⏳ Aguardando abertura do editor de legenda do WhatsApp Web...');
-          // O editor de legenda é focado automaticamente após o upload do arquivo
-          await new Promise(r => setTimeout(r, 4000));
-
-          console.log('✍️ Escrevendo legenda...');
-          // Encontra o seletor da caixa de legenda no WhatsApp Web (div contenteditable) para garantir foco
-          const captionSelector = 'div[contenteditable="true"]';
-          const captionBoxes = await page.$$(captionSelector);
-          
-          // No editor de mídia, o último de vários contenteditable costuma ser a legenda da imagem
-          if (captionBoxes.length > 0) {
-            const lastCaptionBox = captionBoxes[captionBoxes.length - 1];
-            await lastCaptionBox.focus();
-            await lastCaptionBox.type(post.content, { delay: 40 });
-          } else {
-            // Fallback para digitação via teclado caso não ache o seletor específico
-            await page.keyboard.type(post.content, { delay: 40 });
-          }
-          await new Promise(r => setTimeout(r, 1000));
-
-          console.log('🚀 Enviando anúncio com imagem!');
-          let sent = false;
-          try {
-            // Tenta localizar o botão de enviar verde clássico (que tem o ícone 'send' ou papel de botão com o ícone)
-            const sendButtonSelector = 'span[data-icon="send"], div[role="button"] span[data-icon="send"], div[aria-label="Enviar"]';
-            await page.waitForSelector(sendButtonSelector, { timeout: 4000 });
-            const sendButton = await page.$(sendButtonSelector);
-            if (sendButton) {
-              await sendButton.click();
-              console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
-              sent = true;
-            }
-          } catch (clickErr) {
-            console.log('⚠️ Botão enviar não localizado por clique. Tentando atalho universal Ctrl + Enter...');
-          }
-
-          if (!sent) {
-            try {
-              // Garante o foco novamente no editor de legenda antes de enviar o atalho
-              if (captionBoxes.length > 0) {
-                const lastCaptionBox = captionBoxes[captionBoxes.length - 1];
-                await lastCaptionBox.focus();
+              // Converte base64 → Uint8Array → Blob → File
+              const byteChars = atob(b64);
+              const bytes = new Uint8Array(byteChars.length);
+              for (let i = 0; i < byteChars.length; i++) {
+                bytes[i] = byteChars.charCodeAt(i);
               }
-              await new Promise(r => setTimeout(r, 500));
-              
-              // Executa o atalho universal do WhatsApp Web para enviar mídia (Ctrl + Enter)
-              await page.keyboard.down('Control');
-              await page.keyboard.press('Enter');
-              await page.keyboard.up('Control');
-              console.log('🎯 Atalho Ctrl + Enter enviado com sucesso!');
-              sent = true;
-            } catch (keyboardErr) {
-              console.error('🚨 Falha crítica ao tentar enviar via teclado:', keyboardErr.message);
-              // Fallback extremo com Enter simples
-              await page.keyboard.press('Enter');
+              const blob = new Blob([bytes], { type: mime });
+              const file = new File([blob], fname, { type: mime });
+
+              // Cria o DataTransfer com o arquivo
+              const dt = new DataTransfer();
+              dt.items.add(file);
+
+              // Encontra a área de mensagens do chat (onde o usuário arrastaria)
+              const dropTarget =
+                document.querySelector('#main footer') ||
+                document.querySelector('div[data-testid="conversation-panel-messages"]') ||
+                document.querySelector('div[role="application"]') ||
+                document.querySelector('#main');
+
+              if (!dropTarget) return { ok: false, reason: 'Área de chat não encontrada no DOM.' };
+
+              // Dispara os eventos de drag exatamente como um drag real de arquivo
+              dropTarget.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
+              await new Promise(r => setTimeout(r, 150));
+              dropTarget.dispatchEvent(new DragEvent('dragover',  { bubbles: true, cancelable: true, dataTransfer: dt }));
+              await new Promise(r => setTimeout(r, 150));
+              dropTarget.dispatchEvent(new DragEvent('drop',      { bubbles: true, cancelable: true, dataTransfer: dt }));
+              return { ok: true };
+            } catch (e) {
+              return { ok: false, reason: e.message };
             }
+          }, base64Data, mimeType, fileName);
+
+          if (!dropSuccess.ok) {
+            throw new Error(`Falha no drag & drop da imagem: ${dropSuccess.reason}`);
+          }
+          console.log('✅ Drag & Drop realizado. Aguardando editor de legenda abrir...');
+
+          // Aguarda o editor de mídia/legenda aparecer (confirma que o drop foi aceito)
+          try {
+            await page.waitForSelector(
+              'div[data-testid="media-editor-send-button"], div[data-testid="media-caption-input-container"], span[data-icon="send"]',
+              { timeout: 12000 }
+            );
+            console.log('✅ Editor de legenda detectado com sucesso!');
+          } catch (e) {
+            console.warn('⚠️ Timeout aguardando editor de legenda. Continuando mesmo assim...');
+          }
+          await new Promise(r => setTimeout(r, 2000)); // Aguarda a animação de transição completar
+
+          // PASSO 2: Digitar o texto na caixa de legenda da imagem
+          console.log('✍️ Localizando caixa de legenda...');
+          const captionSelectors = [
+            'div[data-testid="media-caption-input-container"] div[contenteditable="true"]',
+            'div[data-tab="10"][contenteditable="true"]',
+            'div[role="textbox"][data-tab="10"]',
+            'footer div[contenteditable="true"]',
+          ];
+
+          let captionTyped = false;
+          for (const sel of captionSelectors) {
+            try {
+              const captionBox = await page.$(sel);
+              if (captionBox) {
+                console.log(`  ✅ Legenda encontrada com seletor: ${sel}`);
+                await captionBox.click();
+                await new Promise(r => setTimeout(r, 400));
+                await captionBox.type(post.content, { delay: 40 });
+                captionTyped = true;
+                break;
+              }
+            } catch (e) {}
+          }
+
+          if (!captionTyped) {
+            // Fallback: pega o último contenteditable (WhatsApp Web coloca a legenda como último)
+            const allEditable = await page.$$('div[contenteditable="true"]');
+            console.log(`  ⚠️ Seletores específicos falharam. Encontrados ${allEditable.length} contenteditable(s). Usando o último...`);
+            if (allEditable.length > 0) {
+              const lastBox = allEditable[allEditable.length - 1];
+              await lastBox.click();
+              await new Promise(r => setTimeout(r, 400));
+              await lastBox.type(post.content, { delay: 40 });
+              captionTyped = true;
+              console.log('  ✅ Legenda digitada no último contenteditable (fallback).');
+            }
+          }
+
+          if (!captionTyped) {
+            console.warn('⚠️ Não foi possível digitar a legenda. Enviando imagem sem legenda...');
+          }
+          await new Promise(r => setTimeout(r, 800));
+
+          // PASSO 3: Clicar no botão de enviar do editor de mídia
+          console.log('🚀 Enviando imagem com legenda...');
+          let sent = false;
+          const sendBtnSelectors = [
+            'div[data-testid="media-editor-send-button"]',
+            'span[data-icon="send"]',
+            'div[role="button"][aria-label="Enviar"]',
+            'div[aria-label="Enviar"]',
+          ];
+          for (const btnSel of sendBtnSelectors) {
+            try {
+              const btn = await page.$(btnSel);
+              if (btn) {
+                console.log(`  🎯 Clicando em: ${btnSel}`);
+                await btn.click();
+                sent = true;
+                console.log('  ✅ Imagem enviada com sucesso!');
+                break;
+              }
+            } catch (e) {}
+          }
+          if (!sent) {
+            console.log('⚠️ Botão de enviar não encontrado. Usando Enter como fallback...');
+            await page.keyboard.press('Enter');
+            sent = true;
+            console.log('🎯 Enter pressionado.');
           }
         } else {
           // ENVIO SÓ TEXTO
-          console.log('✍️ Escrevendo mensagem de texto...');
-          const inputSelector = 'div[contenteditable="true"]';
-          await page.waitForSelector(inputSelector, { timeout: 5000 });
-          await page.focus(inputSelector);
+          console.log('✍️ Localizando campo de mensagem do chat...');
+
+          // Múltiplos seletores para o campo de mensagem (o WhatsApp Web muda frequentemente)
+          const MSG_INPUT_SELECTORS = [
+            'div[data-testid="conversation-compose-box-input"]',  // seletor atual principal
+            'div[contenteditable="true"][data-tab="10"]',         // por data-tab
+            'footer div[contenteditable="true"]',                 // genérico no rodapé
+            '#main div[contenteditable="true"]',                  // genérico na área principal
+          ];
+
+          let inputEl = null;
+          // Tenta cada seletor com timeout mais generoso (12s no total)
+          for (const sel of MSG_INPUT_SELECTORS) {
+            try {
+              inputEl = await page.waitForSelector(sel, { timeout: 12000 });
+              if (inputEl) {
+                console.log(`  ✅ Campo de mensagem encontrado: ${sel}`);
+                break;
+              }
+            } catch (e) {}
+          }
+
+          if (!inputEl) {
+            throw new Error('Campo de mensagem não encontrado após 12s. O chat não abriu corretamente.');
+          }
+
+          await inputEl.click();
+          await new Promise(r => setTimeout(r, 400));
           await page.keyboard.type(post.content, { delay: 40 });
           await new Promise(r => setTimeout(r, 1000));
 
