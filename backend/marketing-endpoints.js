@@ -299,13 +299,38 @@ function initializeMarketingEndpoints(app, db) {
   // ─── GET /api/webhook/stream ──────────────────────────────────────────────
   app.get('/api/webhook/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Desativa proxy buffering do Nginx
     res.flushHeaders();
 
-    const onMessage = () => res.write(`data: message\n\n`);
+    // Envia instrução de reconexão automática e o primeiro keepalive
+    res.write('retry: 10000\n');
+    res.write(': keepalive\n\n');
+
+    const onMessage = () => {
+      try {
+        res.write(`data: message\n\n`);
+      } catch (err) {
+        console.error('[MKT Stream] Erro ao enviar mensagem por streaming:', err.message);
+      }
+    };
+
     notificationEmitter.on('message', onMessage);
-    req.on('close', () => notificationEmitter.off('message', onMessage));
+
+    // Heartbeat periódico de 30s para manter conexão aberta e evitar erro 520/524 no Cloudflare/Nginx
+    const heartbeatInterval = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch (err) {
+        // Conexão provavelmente fechada
+      }
+    }, 30000);
+
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      notificationEmitter.off('message', onMessage);
+    });
   });
 
   // ─── POST /api/webhook/evolution ──────────────────────────────────────────
