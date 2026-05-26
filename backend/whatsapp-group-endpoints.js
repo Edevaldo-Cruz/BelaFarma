@@ -913,7 +913,15 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
   app.get('/api/whatsapp/offers-bank/settings/target-group', (req, res) => {
     try {
       const targetGroupSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'auto_offer_group_id'").get();
-      res.json({ groupId: targetGroupSetting ? targetGroupSetting.value : '' });
+      let targetGroups = [];
+      if (targetGroupSetting && targetGroupSetting.value) {
+        try {
+          targetGroups = JSON.parse(targetGroupSetting.value);
+        } catch {
+          targetGroups = [{ id: targetGroupSetting.value, name: targetGroupSetting.value }];
+        }
+      }
+      res.json({ targetGroups });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -922,11 +930,11 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
   // 16. Salvar configuração do Grupo Alvo Automático
   app.post('/api/whatsapp/offers-bank/settings/target-group', express.json(), (req, res) => {
     try {
-      const { groupId } = req.body;
+      const { targetGroups } = req.body;
       db.prepare(`
         INSERT INTO system_settings (key, value) VALUES ('auto_offer_group_id', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(groupId || '');
+      `).run(JSON.stringify(targetGroups || []));
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -955,16 +963,19 @@ async function escolherEPostarOfertaInteligente() {
 
     // 1. Verificar se existe um grupo alvo configurado
     const targetGroupSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'auto_offer_group_id'").get();
-    if (!targetGroupSetting || !targetGroupSetting.value) {
+    let targetGroups = [];
+    if (targetGroupSetting && targetGroupSetting.value) {
+      try {
+        targetGroups = JSON.parse(targetGroupSetting.value);
+      } catch {
+        targetGroups = [{ id: targetGroupSetting.value, name: targetGroupSetting.value }];
+      }
+    }
+
+    if (targetGroups.length === 0) {
       console.log('[RoboOfertas JIT] Nenhum grupo alvo configurado. Abortando.');
       return;
     }
-    const groupId = targetGroupSetting.value;
-
-    // Buscar nome do grupo
-    let groupName = groupId;
-    const customGroup = db.prepare("SELECT name FROM whatsapp_custom_groups WHERE id = ?").get(groupId);
-    if (customGroup) groupName = customGroup.name;
 
     // 2. Buscar todas as ofertas disponíveis
     const availableOffers = db.prepare('SELECT * FROM whatsapp_offers_bank').all();
@@ -1038,22 +1049,25 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
 
     // 6. Criar postagem "Pendente" para o RPA pegar
     const nowISO = new Date().toISOString();
-    const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
     
-    db.prepare(`
-      INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      groupId,
-      groupName,
-      chosenOffer.aiCaption,
-      chosenOffer.mediaPath,
-      nowISO,
-      'Pendente',
-      nowISO
-    );
-    console.log(`[RoboOfertas JIT] ✅ Oferta agendada com sucesso para RPA buscar (Grupo: ${groupName}).`);
+    for (const group of targetGroups) {
+      const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+      
+      db.prepare(`
+        INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        group.id,
+        group.name || group.id,
+        chosenOffer.aiCaption,
+        chosenOffer.mediaPath,
+        nowISO,
+        'Pendente',
+        nowISO
+      );
+      console.log(`[RoboOfertas JIT] ✅ Oferta agendada com sucesso para RPA buscar (Grupo: ${group.name || group.id}).`);
+    }
 
   } catch (err) {
     console.error('[RoboOfertas JIT] Erro na rotina JIT:', err);

@@ -46,7 +46,7 @@ export default function OffersAgent() {
   // Form States
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState('');
+  const [targetGroups, setTargetGroups] = useState<{id: string, name: string}[]>([]);
   const [savingTarget, setSavingTarget] = useState(false);
   
   // Custom Manual Group States
@@ -67,53 +67,68 @@ export default function OffersAgent() {
       const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank/settings/target-group`);
       if (res.ok) {
         const data = await res.json();
-        if (data.groupId) setSelectedGroup(data.groupId);
+        if (data.targetGroups && Array.isArray(data.targetGroups)) {
+          setTargetGroups(data.targetGroups);
+        }
       }
     } catch {}
   }, []);
 
-  const saveTargetGroup = async (groupId: string) => {
+  const saveTargetGroups = async (groupsList: {id: string, name: string}[]) => {
     setSavingTarget(true);
     try {
       await fetch(`${API_BASE}/api/whatsapp/offers-bank/settings/target-group`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId })
+        body: JSON.stringify({ targetGroups: groupsList })
       });
-      addToast('🎯 Grupo alvo automático atualizado!', 'success');
+      addToast('🎯 Grupos alvo atualizados!', 'success');
+      setTargetGroups(groupsList);
     } catch {
-      addToast('Erro ao salvar grupo alvo.', 'error');
+      addToast('Erro ao salvar grupos alvo.', 'error');
     } finally {
       setSavingTarget(false);
     }
   };
 
+  const addTargetGroup = (id: string, name: string) => {
+    if (targetGroups.find(g => g.id === id)) return;
+    saveTargetGroups([...targetGroups, { id, name }]);
+  };
+
+  const removeTargetGroup = (id: string) => {
+    saveTargetGroups(targetGroups.filter(g => g.id !== id));
+  };
+
   const handleSendImmediate = async (offer: Offer) => {
-    if (!selectedGroup) {
-      addToast('Selecione o Grupo Alvo no topo da página primeiro.', 'warning');
+    if (targetGroups.length === 0) {
+      addToast('Adicione pelo menos um Grupo Alvo no topo da página primeiro.', 'warning');
       return;
     }
 
-    const groupObj = groups.find(g => g.id === selectedGroup || g.subject === selectedGroup);
-    const groupLabel = groupObj ? (groupObj.subject || groupObj.name) : selectedGroup;
-
-    if (!confirm(`Deseja disparar imediatamente a oferta "${offer.productName}" para "${groupLabel}"?`)) {
+    if (!confirm(`Deseja disparar imediatamente a oferta "${offer.productName}" para todos os ${targetGroups.length} grupos selecionados?`)) {
       return;
     }
 
     setSendingImmediateId(offer.id);
+    let successCount = 0;
+    
     try {
-      const res = await fetch(`${API_BASE}/api/whatsapp/send-immediate-bank`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ offerId: offer.id, groupId: selectedGroup, groupName: groupLabel })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast('🚀 Oferta enviada para a fila de disparo imediato!', 'success');
+      for (const group of targetGroups) {
+        const res = await fetch(`${API_BASE}/api/whatsapp/send-immediate-bank`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offerId: offer.id, groupId: group.id, groupName: group.name })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) successCount++;
+      }
+      
+      if (successCount > 0) {
+        addToast(`🚀 Oferta enviada para ${successCount} grupos!`, 'success');
         fetchHistory();
       } else {
-        addToast(data.error || 'Erro ao agendar disparo.', 'error');
+        addToast('Erro ao agendar disparos.', 'error');
       }
     } catch {
       addToast('Erro de conexão.', 'error');
@@ -135,8 +150,7 @@ export default function OffersAgent() {
       if (res.ok) {
         addToast('Grupo customizado salvo!', 'success');
         await fetchGroups();
-        setSelectedGroup(manualGroupName);
-        saveTargetGroup(manualGroupName);
+        addTargetGroup(manualGroupName, manualGroupName);
         setIsManualGroup(false);
         setManualGroupName('');
       }
@@ -146,11 +160,10 @@ export default function OffersAgent() {
   };
 
   const handleDeleteCustomGroup = async (id: string) => {
-    if (!confirm('Remover grupo customizado?')) return;
+    if (!confirm('Remover grupo customizado do banco local?')) return;
     try {
       await fetch(`${API_BASE}/api/whatsapp/custom-groups/${id}`, { method: 'DELETE' });
-      setSelectedGroup('');
-      saveTargetGroup('');
+      removeTargetGroup(id);
       fetchGroups();
     } catch {}
   };
@@ -289,64 +302,75 @@ export default function OffersAgent() {
       </div>
 
       {/* Target Group Config */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-500">
-            <Users className="w-5 h-5" />
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-500 shrink-0">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Grupos Alvo do WhatsApp</h3>
+              <p className="text-xs text-slate-500">O robô enviará 1 oferta do banco para estes grupos a cada hora (08h-20h, Seg-Sex).</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Grupo Alvo do WhatsApp</h3>
-            <p className="text-xs text-slate-500">O robô enviará 1 oferta do banco para este grupo a cada hora (08h-20h, Seg-Sex).</p>
+
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+            <div className="relative w-full sm:w-72">
+              <select
+                value=""
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === 'manual') {
+                    setIsManualGroup(true);
+                  } else if (val !== '') {
+                    setIsManualGroup(false);
+                    const selectedGroupObj = groups.find(g => g.id === val);
+                    const name = selectedGroupObj ? (selectedGroupObj.subject || selectedGroupObj.name || val) : val;
+                    addTargetGroup(val, name);
+                  }
+                }}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 appearance-none"
+              >
+                <option value="">Adicionar grupo alvo...</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.isCustom ? `⭐ [Salvo] ${g.name}` : g.subject || g.name || g.id}</option>
+                ))}
+                <option value="manual">✍️ Digitar Manualmente...</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
+            {savingTarget && <RefreshCw className="w-4 h-4 text-indigo-500 animate-spin" />}
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-          <div className="relative w-full sm:w-72">
-            <select
-              value={isManualGroup ? 'manual' : selectedGroup}
-              onChange={e => {
-                const val = e.target.value;
-                if (val === 'manual') {
-                  setIsManualGroup(true);
-                } else {
-                  setIsManualGroup(false);
-                  setSelectedGroup(val);
-                  saveTargetGroup(val);
-                }
-              }}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 appearance-none"
-            >
-              <option value="">Selecione o grupo alvo...</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.isCustom ? `⭐ [Salvo] ${g.name}` : g.subject || g.name || g.id}</option>
-              ))}
-              <option value="manual">✍️ Digitar Manualmente...</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+        {/* Selected Groups Chips */}
+        {targetGroups.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            {targetGroups.map(group => (
+              <div key={group.id} className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-800/50">
+                <span className="text-xs font-bold">{group.name}</span>
+                <button onClick={() => removeTargetGroup(group.id)} className="hover:text-red-500 transition-colors p-0.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
           </div>
-          {savingTarget && <RefreshCw className="w-4 h-4 text-indigo-500 animate-spin" />}
-          
-          {selectedGroup && groups.find(g => g.id === selectedGroup)?.isCustom && (
-            <button onClick={() => handleDeleteCustomGroup(selectedGroup)} className="p-2 bg-red-50 text-red-500 rounded-lg">
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        )}
+
+        {isManualGroup && (
+          <div className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 rounded-xl p-4 flex gap-3 items-center">
+            <input
+              type="text"
+              placeholder="Nome exato do grupo no WhatsApp"
+              value={manualGroupName}
+              onChange={e => setManualGroupName(e.target.value)}
+              className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold"
+            />
+            <button onClick={handleSaveCustomGroup} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold">Adicionar</button>
+            <button onClick={() => setIsManualGroup(false)} className="px-4 py-2 text-slate-500 text-sm font-bold">Cancelar</button>
+          </div>
+        )}
       </div>
-
-      {isManualGroup && (
-        <div className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 rounded-xl p-4 flex gap-3 items-center">
-          <input
-            type="text"
-            placeholder="Nome exato do grupo no WhatsApp"
-            value={manualGroupName}
-            onChange={e => setManualGroupName(e.target.value)}
-            className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold"
-          />
-          <button onClick={handleSaveCustomGroup} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold">Salvar</button>
-          <button onClick={() => setIsManualGroup(false)} className="px-4 py-2 text-slate-500 text-sm font-bold">Cancelar</button>
-        </div>
-      )}
 
       {/* Main Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -396,11 +420,10 @@ export default function OffersAgent() {
           </div>
         </div>
 
-        {/* Right Column: History and Bank */}
-        <div className="lg:col-span-2 space-y-6">
-          
+        {/* Right Column: History */}
+        <div className="lg:col-span-2">
           {/* History */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm h-full">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                 <History className="w-4 h-4 text-indigo-500" /> Histórico de Disparos
@@ -413,7 +436,7 @@ export default function OffersAgent() {
             ) : history.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-400 font-medium border border-dashed border-slate-200 rounded-xl">Nenhum disparo registrado ainda.</div>
             ) : (
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 scrollbar-thin">
                 {history.map(post => (
                   <div key={post.id} className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
                     {post.mediaPath ? (
@@ -438,47 +461,47 @@ export default function OffersAgent() {
               </div>
             )}
           </div>
-
-          {/* Offers Bank (Compact) */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-indigo-500" /> Banco de Opções para IA
-              </h3>
-              <span className="text-xs font-black bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-300">{offers.length} opções</span>
-            </div>
-
-            {loadingOffers ? (
-              <div className="py-8 flex justify-center"><RefreshCw className="w-6 h-6 animate-spin text-slate-300" /></div>
-            ) : offers.length === 0 ? (
-              <div className="py-8 text-center text-sm text-slate-400 font-medium">O banco está vazio.</div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
-                {offers.map(offer => (
-                  <div key={offer.id} className="group relative rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800 flex flex-col">
-                    <div className="aspect-square relative">
-                      {offer.mediaPath ? (
-                        <img src={`${API_BASE}${offer.mediaPath}`} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-slate-300" /></div>
-                      )}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <button onClick={() => handleSendImmediate(offer)} className="p-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600" title="Disparar Agora"><Send className="w-3.5 h-3.5"/></button>
-                        <button onClick={() => handleDeleteOffer(offer.id)} className="p-1.5 bg-red-500 text-white rounded-md hover:bg-red-600" title="Excluir"><Trash2 className="w-3.5 h-3.5"/></button>
-                      </div>
-                    </div>
-                    <div className="p-2 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 truncate" title={offer.productName}>{offer.productName}</p>
-                      <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black">R$ {offer.price.toFixed(2)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
         </div>
       </div>
+
+      {/* Offers Bank (Full Width) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-indigo-500" /> Banco de Opções para IA
+          </h3>
+          <span className="text-xs font-black bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-300">{offers.length} opções</span>
+        </div>
+
+        {loadingOffers ? (
+          <div className="py-8 flex justify-center"><RefreshCw className="w-6 h-6 animate-spin text-slate-300" /></div>
+        ) : offers.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400 font-medium border border-dashed border-slate-200 rounded-xl">O banco está vazio. Adicione opções acima.</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 max-h-[350px] overflow-y-auto pr-1 scrollbar-thin">
+            {offers.map(offer => (
+              <div key={offer.id} className="group relative rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800 flex flex-col">
+                <div className="aspect-square relative">
+                  {offer.mediaPath ? (
+                    <img src={`${API_BASE}${offer.mediaPath}`} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-slate-300" /></div>
+                  )}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <button onClick={() => handleSendImmediate(offer)} className="p-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600" title="Disparar Agora"><Send className="w-3.5 h-3.5"/></button>
+                    <button onClick={() => handleDeleteOffer(offer.id)} className="p-1.5 bg-red-500 text-white rounded-md hover:bg-red-600" title="Excluir"><Trash2 className="w-3.5 h-3.5"/></button>
+                  </div>
+                </div>
+                <div className="p-2 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+                  <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 truncate" title={offer.productName}>{offer.productName}</p>
+                  <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black">R$ {offer.price.toFixed(2)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
