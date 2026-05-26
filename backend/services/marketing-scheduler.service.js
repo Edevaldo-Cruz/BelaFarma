@@ -11,7 +11,7 @@ const whatsappShortage = require('./whatsapp-shortage.service');
 
 // Números para receber os relatórios
 // Usando lazy loading para process.env para refletir mudanças se necessário
-function getRosanaPhone() { return process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP; }
+function getRosanaPhone() { return process.env.MARKETING_ROSANA_PHONE || null; }
 function getEdevaldoPhone() { return process.env.EDEVALDO_WHATSAPP || '+5532988634755'; }
 
 // Intervalo quinzenal em dias para o relatório estratégico
@@ -80,10 +80,14 @@ async function executarTarefasDiarias(db) {
   // 1. Clima para Rosana
   try {
     const phone = getRosanaPhone();
-    const mensagemClima = await marketingAgent.gerarMensagemClimaDiaria();
-    if (mensagemClima) {
-      console.log(`[MarketingScheduler] 📱 Enviando clima diário para Rosana (${phone})...`);
-      await sender.sendMessage(phone, mensagemClima);
+    if (phone) {
+      const mensagemClima = await marketingAgent.gerarMensagemClimaDiaria();
+      if (mensagemClima) {
+        console.log(`[MarketingScheduler] 📱 Enviando clima diário para Rosana (${phone})...`);
+        await sender.sendMessage(phone, mensagemClima);
+      }
+    } else {
+      console.log('[MarketingScheduler] 🚫 Envio de clima diário para Rosana cancelado/desativado (MARKETING_ROSANA_PHONE não configurado).');
     }
   } catch (e) {
     console.error('[MarketingScheduler] Erro ao enviar clima para Rosana:', e.message);
@@ -107,7 +111,9 @@ async function executarTarefasDiarias(db) {
     const rosanaPhone = getRosanaPhone();
     const edevaldoPhone = getEdevaldoPhone();
     if (ADMIN_PHONE) {
-      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n✅ Previsão do tempo enviada para Rosana (${rosanaPhone})\n✅ Análise de 10 produtos enviada para Edevaldo (${edevaldoPhone})\n\n_Aguardando sua aprovação para criar tarefas._`;
+      const resumo = `🤖 *Belinha: Relatório de Execução Diária*\n\n` +
+        (rosanaPhone ? `✅ Previsão do tempo enviada para Rosana (${rosanaPhone})\n` : `🚫 Envio de clima para Rosana desativado/cancelado\n`) +
+        `✅ Análise de 10 produtos enviada para Edevaldo (${edevaldoPhone})\n\n_Aguardando sua aprovação para criar tarefas._`;
       console.log(`[MarketingScheduler] 📱 Enviando resumo da manhã para o Admin...`);
       await sender.sendMessage(ADMIN_PHONE, resumo);
     }
@@ -129,6 +135,11 @@ async function executarJobMarketing(db, opcoes = {}) {
   console.log('[MarketingScheduler] 🚀 Iniciando job estratégico quinzenal...');
 
   const phone = opcoes.phone || getRosanaPhone();
+  if (!phone) {
+    console.log('[MarketingScheduler] 🚫 Relatório estratégico quinzenal para Rosana cancelado (MARKETING_ROSANA_PHONE não configurado).');
+    isRunning = false;
+    return { success: false, error: 'Destinatário Rosana não configurado' };
+  }
 
   try {
     const { relatorio, metadata } = await marketingAgent.gerarRelatorioCompleto(db);

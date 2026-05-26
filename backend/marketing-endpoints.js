@@ -86,8 +86,11 @@ function initializeMarketingEndpoints(app, db) {
 
       const destinatario = phone
         || process.env.MARKETING_ROSANA_PHONE
-        || process.env.ADMIN_WHATSAPP
-        || '+5532988634755';
+        || null;
+
+      if (!destinatario) {
+        return res.status(400).json({ error: 'Nenhum destinatário de telefone fornecido ou configurado no MARKETING_ROSANA_PHONE.' });
+      }
 
       let report;
       if (reportId) {
@@ -266,7 +269,10 @@ function initializeMarketingEndpoints(app, db) {
       console.log('[IsaMarketing] Gerando clima diário para Rosana...');
       const mensagem = await gerarMensagemClimaDiaria();
       
-      const phone = req.body.phone || process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP;
+      const phone = req.body.phone || process.env.MARKETING_ROSANA_PHONE || null;
+      if (!phone) {
+        return res.status(400).json({ error: 'Nenhum destinatário de telefone fornecido ou configurado no MARKETING_ROSANA_PHONE.' });
+      }
       
       if (mensagem) {
         await sendMessage(phone, mensagem);
@@ -1303,7 +1309,7 @@ Responda APENAS com o texto final da mensagem de pós-venda, sem explicações o
         ativo: true,
         emExecucao: false,
         proximoEnvio: proximaSegunda.toISOString(),
-        destinatario: process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP || '+5532988634755',
+        destinatario: process.env.MARKETING_ROSANA_PHONE || 'Desativado/Cancelado',
         frequencia: 'Toda segunda-feira às 08:00 (Horário de Brasília)',
         descricao: 'Especialista em comunicação e tendências da Bela Farma Sul — JF/MG',
         ultimoRelatorio: ultimoRelatorio ? {
