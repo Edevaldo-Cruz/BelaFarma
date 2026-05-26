@@ -125,7 +125,6 @@ async function connect(db) {
         lastError = `Desconectado: ${reason}`;
         reconnectTimer = setTimeout(connect, 8000);
       }
-      }
     });
 
     // ── Mensagens (Integração PixBot) ──────────────────────
