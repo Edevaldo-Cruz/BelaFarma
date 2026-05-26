@@ -1099,7 +1099,12 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
               console.log(`[RoboOfertas JIT] Enviando (Tentativa #${sendAttempt}/3)...`);
               if (attemptOffer.mediaPath) {
                 const absoluteMediaPath = path.join(uploadDir, path.basename(attemptOffer.mediaPath));
-                await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
+                if (fs.existsSync(absoluteMediaPath)) {
+                  await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
+                } else {
+                  console.warn(`[RoboOfertas JIT] ⚠️ Imagem física não encontrada em: ${absoluteMediaPath}. Enviando apenas texto como fallback de emergência.`);
+                  await baileys.sendTextToGroup(groupName, finalContent);
+                }
               } else {
                 await baileys.sendTextToGroup(groupName, finalContent);
               }
