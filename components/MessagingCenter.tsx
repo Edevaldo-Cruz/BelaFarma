@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, AlertCircle, RefreshCw,
   ChevronDown, ChevronUp, Loader2, Search,
   ToggleLeft, ToggleRight, Zap, Users, Cake, CreditCard,
-  BarChart3, ArrowLeft, Calendar, ChevronLeft, ChevronRight, ImageIcon
+  BarChart3, ArrowLeft, Calendar, ChevronLeft, ChevronRight, ImageIcon, Sparkles, Smile
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { MessageTemplate, MessageLog, MessageCampaign, MessageSchedule, Customer } from '../types';
@@ -1154,7 +1154,7 @@ const WhatsAppGroupsTab: React.FC = () => {
         setMediaFiles(prev => prev.map(m => m.id === item.id ? { ...m, base64: base64String } : m));
         handleGenerateCaption(item.id, base64String);
       };
-      reader.readAsDataURL(item.file);
+      reader.readAsDataURL(item.file as Blob);
     }
   };
 
@@ -1762,6 +1762,12 @@ const PostSalesTab: React.FC = () => {
     'Olá, {nome}! Tudo bem? Passando para agradecer a preferência na sua compra na BelaFarma. Deu tudo certo com o seu atendimento e a entrega? Esperamos que tenha tido uma ótima experiência! Qualquer dúvida estou à disposição. 💚'
   );
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
+  
+  // Novos estados para pós-venda inteligente
+  const [customMessages, setCustomMessages] = useState<Record<string, string>>({});
+  const [auditingClients, setAuditingClients] = useState<Record<string, boolean>>({});
+  const [generatingMessages, setGeneratingMessages] = useState<Record<string, boolean>>({});
+
   const { addToast } = useToast();
 
   const fetchNewCustomers = useCallback(async () => {
@@ -1805,7 +1811,7 @@ const PostSalesTab: React.FC = () => {
       addToast('Por favor, selecione pelo menos um cliente para receber a mensagem.', 'warning');
       return;
     }
-    if (!messageText.trim()) {
+    if (!messageText.trim() && !selectedClientIds.some(id => customMessages[id])) {
       addToast('A mensagem não pode estar em branco.', 'warning');
       return;
     }
@@ -1820,7 +1826,15 @@ const PostSalesTab: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clients: selectedClients.map(c => ({ id: c.id, name: c.name, phone: c.phone })),
+          clients: selectedClients.map(c => {
+            const key = c.id || c.phone;
+            return {
+              id: c.id,
+              name: c.name,
+              phone: c.phone,
+              messageText: customMessages[key] || null
+            };
+          }),
           messageText
         })
       });
@@ -2023,7 +2037,7 @@ const PostSalesTab: React.FC = () => {
                         {isExpanded && (
                           <tr className="bg-slate-50/50 dark:bg-slate-900/10">
                             <td colSpan={6} className="px-6 py-4 border-t border-slate-100 dark:border-slate-700/50">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-300">
                                 <div className="space-y-2 pr-4 border-r border-transparent md:border-slate-150 dark:md:border-slate-800">
                                   <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
                                     🛍️ Produtos da Última Compra
@@ -2040,7 +2054,72 @@ const PostSalesTab: React.FC = () => {
                                       ))}
                                     </div>
                                   ) : (
-                                    <p className="text-xs text-slate-400 italic py-1">Nenhum produto cadastrado nesta compra.</p>
+                                    <div className="space-y-3">
+                                      <p className="text-xs text-slate-400 italic py-1">Nenhum produto cadastrado nesta compra.</p>
+                                      
+                                      <button
+                                        type="button"
+                                        disabled={auditingClients[key]}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          setAuditingClients(prev => ({ ...prev, [key]: true }));
+                                          try {
+                                            const auditRes = await fetch('/api/marketing/post-sales/audit', {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ phone: client.phone, customerId: client.id })
+                                            });
+                                            if (auditRes.ok) {
+                                              const auditData = await auditRes.json();
+                                              if (auditData.success) {
+                                                const detectedProducts = (auditData.products || []).map((pName: string) => ({
+                                                  productName: `${pName} (WhatsApp)`,
+                                                  quantity: 1
+                                                }));
+                                                
+                                                setNewCustomers(prev => prev.map(c => {
+                                                  const cKey = c.id || c.phone;
+                                                  if (cKey === key) {
+                                                    return {
+                                                      ...c,
+                                                      purchasedProducts: detectedProducts,
+                                                      address: auditData.address || c.address
+                                                    };
+                                                  }
+                                                  return c;
+                                                }));
+
+                                                if (auditData.suggestedMessage) {
+                                                  setCustomMessages(prev => ({ ...prev, [key]: auditData.suggestedMessage }));
+                                                }
+                                                addToast('Conversa do WhatsApp analisada com sucesso pela Belinha!', 'success');
+                                              } else {
+                                                addToast(auditData.details || 'Nenhum dado capturado no WhatsApp.', 'info');
+                                              }
+                                            } else {
+                                              addToast('Erro ao auditar conversa do WhatsApp.', 'error');
+                                            }
+                                          } catch (err) {
+                                            addToast('Erro ao conectar com o serviço de auditoria.', 'error');
+                                          } finally {
+                                            setAuditingClients(prev => ({ ...prev, [key]: false }));
+                                          }
+                                        }}
+                                        className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-black text-xs rounded-xl shadow-md hover:shadow-lg active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:scale-100"
+                                      >
+                                        {auditingClients[key] ? (
+                                          <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            Belinha lendo chat...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Zap className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                                            Rastrear WhatsApp com Belinha 🤖
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
 
@@ -2052,6 +2131,84 @@ const PostSalesTab: React.FC = () => {
                                     <p><strong className="text-slate-600 font-bold">Endereço:</strong> {client.address}</p>
                                     <p><strong className="text-slate-600 font-bold">Notas/Observações:</strong> {client.notes || 'Sem anotações registradas'}</p>
                                   </div>
+                                </div>
+
+                                {/* Custom Message Section */}
+                                <div className="col-span-1 md:col-span-2 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
+                                      ✉️ Mensagem de Pós-Venda Personalizada (Belinha)
+                                    </h4>
+                                    {(purchasesCount > 0 || client.purchasedProducts?.length > 0) && (
+                                      <button
+                                        type="button"
+                                        disabled={generatingMessages[key]}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          setGeneratingMessages(prev => ({ ...prev, [key]: true }));
+                                          try {
+                                            const genRes = await fetch('/api/marketing/post-sales/generate-message', {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ name: client.name, products: client.purchasedProducts.map((p: any) => p.productName) })
+                                            });
+                                            if (genRes.ok) {
+                                              const genData = await genRes.json();
+                                              if (genData.success) {
+                                                setCustomMessages(prev => ({ ...prev, [key]: genData.suggestedMessage }));
+                                                addToast('Mensagem personalizada gerada pela Belinha!', 'success');
+                                              }
+                                            } else {
+                                              addToast('Erro ao gerar mensagem com a IA.', 'error');
+                                            }
+                                          } catch (err) {
+                                            addToast('Erro de rede ao gerar mensagem.', 'error');
+                                          } finally {
+                                            setGeneratingMessages(prev => ({ ...prev, [key]: false }));
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-900/30 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+                                      >
+                                        {generatingMessages[key] ? (
+                                          <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            Gerando...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                                            Gerar com a Belinha ✨
+                                          </>
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                  
+                                  <textarea
+                                    value={customMessages[key] || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setCustomMessages(prev => ({ ...prev, [key]: val }));
+                                    }}
+                                    placeholder="Escreva ou gere uma mensagem específica para este cliente (ou deixe em branco para usar o modelo geral do painel)..."
+                                    className="w-full h-24 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs outline-none focus:ring-2 focus:ring-blue-500 font-medium resize-none shadow-sm text-slate-800 dark:text-slate-200"
+                                  />
+                                  {customMessages[key] && (
+                                    <div className="flex justify-between items-center text-[10px] text-green-600 font-bold">
+                                      <span>✓ Mensagem customizada ativa para este cliente!</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setCustomMessages(prev => {
+                                          const next = { ...prev };
+                                          delete next[key];
+                                          return next;
+                                        })}
+                                        className="text-red-500 hover:text-red-650 transition-colors"
+                                      >
+                                        Limpar e usar geral
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </td>

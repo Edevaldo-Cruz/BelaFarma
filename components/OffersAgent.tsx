@@ -312,7 +312,7 @@ export default function OffersAgent() {
           previews.push(reader.result as string);
           if (previews.length === filesArray.length) setImagePreviews(previews);
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(file as Blob);
       });
     } else {
       setMediaFiles([]);
@@ -436,7 +436,7 @@ export default function OffersAgent() {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Grupos Alvo do WhatsApp</h3>
-              <p className="text-xs text-slate-500">O robô enviará 1 oferta do banco para estes grupos a cada hora (08h-20h, Seg-Sex).</p>
+              <p className="text-xs text-slate-500">O robô enviará 1 oferta do banco para estes grupos a cada hora (08h-20h, Seg-Sáb).</p>
             </div>
           </div>
 

@@ -1066,6 +1066,169 @@ Você deve responder estritamente com um objeto JSON válido (sem tags markdown 
     }
   });
 
+  // ─── POST /api/marketing/post-sales/audit ────────────────────────────────
+  app.post('/api/marketing/post-sales/audit', async (req, res) => {
+    try {
+      const { phone, customerId } = req.body;
+      if (!phone) {
+        return res.status(400).json({ error: 'O telefone é obrigatório.' });
+      }
+
+      console.log(`[IsaMarketing] 🤖 Auditando WhatsApp para pós-venda do cliente ${phone}...`);
+
+      let messages = [];
+      try {
+        const cleanPhone = phone.replace(/\D/g, '');
+        const suffix = cleanPhone.slice(-8);
+        messages = db.prepare(`
+          SELECT fromMe, messageText, timestamp
+          FROM whatsapp_messages
+          WHERE phone LIKE ? OR phone = ?
+          ORDER BY timestamp DESC
+          LIMIT 25
+        `).all(`%${suffix}`, cleanPhone);
+      } catch (dbErr) {
+        console.error('[IsaMarketing] Erro ao buscar mensagens locais:', dbErr.message);
+      }
+
+      if (messages.length === 0) {
+        try {
+          const EVOLUTION_MAIN_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belafarma_principal';
+          const API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+          const API_KEY = process.env.EVOLUTION_SENDER_API_KEY || process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+          const jid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+
+          const msgsRes = await fetch(`${API_URL}/chat/findMessages/${EVOLUTION_MAIN_INSTANCE}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': API_KEY
+            },
+            body: JSON.stringify({
+              where: {
+                key: { remoteJid: jid }
+              },
+              limit: 25
+            })
+          });
+
+          if (msgsRes.ok) {
+            const msgsData = await msgsRes.json();
+            const list = Array.isArray(msgsData) ? msgsData : (msgsData.records || []);
+            messages = list.map(m => ({
+              fromMe: m.key?.fromMe ? 1 : 0,
+              messageText: m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || '',
+              timestamp: m.messageTimestamp ? (m.messageTimestamp * 1000) : Date.now()
+            })).filter(m => m.messageText);
+          }
+        } catch (waErr) {
+          console.warn('[IsaMarketing] Falha ao consultar Evolution para novas mensagens:', waErr.message);
+        }
+      }
+
+      const sortedMessages = [...messages].reverse();
+      const formattedDialog = sortedMessages.map(m => {
+        const sender = m.fromMe === 1 ? 'Atendente/Bela' : 'Cliente';
+        return `${sender}: ${m.messageText}`;
+      }).join('\n');
+
+      if (!formattedDialog.trim()) {
+        return res.json({
+          success: true,
+          products: [],
+          address: null,
+          suggestedMessage: null,
+          details: 'Nenhuma mensagem encontrada para auditar no WhatsApp.'
+        });
+      }
+
+      const systemPrompt = `Você é a Belinha, a assistente digital de pós-venda e sucesso do cliente da BelaFarma em Juiz de Fora, MG.
+Seu tom de voz é de "vizinha especialista": amigável, calorosa, confiável e prestativa.
+
+Analise o histórico de conversa do WhatsApp fornecido e responda estritamente com um objeto JSON válido (sem tags markdown de código como \`\`\`json) contendo:
+{
+  "products": ["Produto 1", "Produto 2"], // Lista de produtos comprados, encomendados ou negociados pelo cliente na conversa (ex: 'Pomada Nebacetin', 'Aptamil 1'). Se nenhum, deixe vazio.
+  "address": "Endereço completo de entrega se mencionado na conversa, caso contrário null",
+  "suggestedMessage": "Uma mensagem de pós-venda/agradecimento de sucesso do cliente altamente personalizada e carinhosa. Cite os produtos identificados de forma natural (ex: perguntando se a pomada ajudou ou se a entrega deu certo), use gírias ou tons amigáveis de Juiz de Fora/MG de forma sutil, emojis moderados e termine com um gancho/CTA caloroso."
+}`;
+
+      const responseText = await callAI(
+        `Analise a seguinte conversa de WhatsApp para capturar a venda no pós-venda:\n---\n${formattedDialog}\n---`,
+        systemPrompt,
+        { temperature: 0.3 }
+      );
+
+      let cleanedText = responseText.trim();
+      if (cleanedText.startsWith('```')) {
+        cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+      }
+
+      const aiResult = JSON.parse(cleanedText);
+
+      if (aiResult.address && customerId) {
+        try {
+          const currentCust = db.prepare('SELECT address FROM customers WHERE id = ?').get(customerId);
+          if (currentCust && !currentCust.address) {
+            db.prepare('UPDATE customers SET address = ?, updatedAt = datetime(\'now\') WHERE id = ?')
+              .run(aiResult.address, customerId);
+            console.log(`[IsaMarketing] 🏠 Endereço de entrega do cliente ${customerId} atualizado automaticamente: ${aiResult.address}`);
+          }
+        } catch (dbUpdErr) {
+          console.error('[IsaMarketing] Erro ao atualizar endereço do cliente:', dbUpdErr.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        products: aiResult.products || [],
+        address: aiResult.address,
+        suggestedMessage: aiResult.suggestedMessage
+      });
+
+    } catch (err) {
+      console.error('[IsaMarketing] Erro no smart-audit de pós-venda:', err);
+      res.status(500).json({ error: err.message || 'Erro interno na auditoria de pós-venda' });
+    }
+  });
+
+  // ─── POST /api/marketing/post-sales/generate-message ────────────────────
+  app.post('/api/marketing/post-sales/generate-message', async (req, res) => {
+    try {
+      const { name, products } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: 'O nome do cliente é obrigatório.' });
+      }
+
+      const productsList = Array.isArray(products) ? products : [];
+      console.log(`[IsaMarketing] 🤖 Gerando mensagem de pós-venda para ${name} com base em ${productsList.length} produtos...`);
+
+      const systemPrompt = `Você é a Belinha, a assistente digital de pós-venda e sucesso do cliente da BelaFarma em Juiz de Fora, MG.
+Seu tom de voz é de "vizinha especialista": extremamente simpática, prestativa e calorosa.
+
+Escreva uma mensagem de pós-venda (WhatsApp) sob medida para o cliente.
+Regras:
+1. Comece saudando o cliente pelo nome.
+2. Faça referência específica aos produtos que ele comprou (se houver). Se a lista de produtos estiver vazia, faça uma mensagem de pós-venda geral e carinhosa de agradecimento.
+3. Seja atenciosa: se comprou medicamentos de uso agudo (ex: analgésicos, anti-inflamatórios, antibióticos, antigripais), pergunte se ele já está se sentindo melhor. Se comprou itens infantis (fralda, leite), pergunte se o bebê se adaptou bem. Se comprou cosméticos, pergunte sobre a experiência.
+4. Termine de forma prestativa, com uma pergunta ou CTA natural (ex: "Qualquer dúvida, é só me chamar por aqui! Como foi sua experiência com a entrega?").
+5. Use emojis de forma moderada, negritos para destacar os produtos, e mantenha o texto curto/médio para leitura rápida no WhatsApp.
+
+Responda APENAS com o texto final da mensagem de pós-venda, sem explicações ou introduções.`;
+
+      const prompt = `CLIENTE: ${name}\nPRODUTOS COMPRADOS: ${productsList.join(', ')}`;
+      const suggestedMessage = await callAI(prompt, systemPrompt, { temperature: 0.6 });
+
+      res.json({
+        success: true,
+        suggestedMessage: suggestedMessage.trim()
+      });
+
+    } catch (err) {
+      console.error('[IsaMarketing] Erro ao gerar mensagem de pós-venda:', err);
+      res.status(500).json({ error: err.message || 'Erro ao gerar mensagem de pós-venda' });
+    }
+  });
+
   // ─── POST /api/marketing/post-sales/send ─────────────────────────────────
   app.post('/api/marketing/post-sales/send', async (req, res) => {
     try {
@@ -1073,7 +1236,7 @@ Você deve responder estritamente com um objeto JSON válido (sem tags markdown 
       if (!Array.isArray(clients) || clients.length === 0) {
         return res.status(400).json({ error: 'Nenhum cliente selecionado.' });
       }
-      if (!messageText) {
+      if (!messageText && !clients.some(c => c.messageText)) {
         return res.status(400).json({ error: 'A mensagem de pós-venda não pode estar vazia.' });
       }
 
@@ -1083,7 +1246,8 @@ Você deve responder estritamente com um objeto JSON válido (sem tags markdown 
       let failedCount = 0;
 
       for (const client of clients) {
-        const response = await sendMessage(client.phone, messageText.replace('{nome}', client.name));
+        const textToSend = (client.messageText || messageText || '').replace('{nome}', client.name);
+        const response = await sendMessage(client.phone, textToSend);
         
         const logId = 'log_' + Math.random().toString(36).substr(2, 9);
         const status = response.success ? 'Enviado' : 'Erro';
