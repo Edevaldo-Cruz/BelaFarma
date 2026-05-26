@@ -3060,8 +3060,17 @@ const marketingScheduler = require('./services/marketing-scheduler.service');
 initializeMarketingEndpoints(app, db);
 
 // Módulo Grupos de WhatsApp
-const { initializeWhatsAppGroupEndpoints } = require('./whatsapp-group-endpoints.js');
+const { initializeWhatsAppGroupEndpoints, escolherEPostarOfertaInteligente } = require('./whatsapp-group-endpoints.js');
 initializeWhatsAppGroupEndpoints(app, db);
+
+// ============================================================================
+// CRON: ROBÔ DE OFERTAS (JIT)
+// ============================================================================
+// Roda a cada hora, nos 10 minutos (08:10, 09:10, ..., 20:10) de Seg a Sex
+cron.schedule('10 8-20 * * 1-5', () => {
+  escolherEPostarOfertaInteligente();
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON] 🤖 Robô de Ofertas JIT agendado para rodar a cada hora (:10) das 08h às 20h, Seg-Sex.');
 
 // Módulo CRM WhatsApp (Importação de Clientes e Histórico de Produtos)
 const { initializeWhatsAppCRMEndpoints } = require('./whatsapp-crm-endpoints.js');

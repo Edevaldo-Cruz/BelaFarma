@@ -909,7 +909,155 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
     }
   });
 
-  console.log('[WhatsAppGroups] ✅ Endpoints de grupos inicializados.');
+  // 15. Obter configuração do Grupo Alvo Automático
+  app.get('/api/whatsapp/offers-bank/settings/target-group', (req, res) => {
+    try {
+      const targetGroupSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'auto_offer_group_id'").get();
+      res.json({ groupId: targetGroupSetting ? targetGroupSetting.value : '' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 16. Salvar configuração do Grupo Alvo Automático
+  app.post('/api/whatsapp/offers-bank/settings/target-group', express.json(), (req, res) => {
+    try {
+      const { groupId } = req.body;
+      db.prepare(`
+        INSERT INTO system_settings (key, value) VALUES ('auto_offer_group_id', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(groupId || '');
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 17. Obter Histórico de Postagens (JIT)
+  app.get('/api/whatsapp/offers-bank/history', (req, res) => {
+    try {
+      const history = db.prepare("SELECT * FROM whatsapp_group_posts ORDER BY scheduledAt DESC LIMIT 30").all();
+      res.json(history);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  console.log('[WhatsAppGroups] ✨ Endpoints de grupos inicializados.');
 }
 
-module.exports = { initializeWhatsAppGroupEndpoints };
+// ============================================================================
+// AGENDAMENTO JUST-IN-TIME (JIT) DO ROBÔ DE OFERTAS
+// ============================================================================
+async function escolherEPostarOfertaInteligente() {
+  try {
+    console.log('[RoboOfertas JIT] Iniciando escolha inteligente de oferta...');
+
+    // 1. Verificar se existe um grupo alvo configurado
+    const targetGroupSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'auto_offer_group_id'").get();
+    if (!targetGroupSetting || !targetGroupSetting.value) {
+      console.log('[RoboOfertas JIT] Nenhum grupo alvo configurado. Abortando.');
+      return;
+    }
+    const groupId = targetGroupSetting.value;
+
+    // Buscar nome do grupo
+    let groupName = groupId;
+    const customGroup = db.prepare("SELECT name FROM whatsapp_custom_groups WHERE id = ?").get(groupId);
+    if (customGroup) groupName = customGroup.name;
+
+    // 2. Buscar todas as ofertas disponíveis
+    const availableOffers = db.prepare('SELECT * FROM whatsapp_offers_bank').all();
+    if (availableOffers.length === 0) {
+      console.log('[RoboOfertas JIT] Nenhuma oferta disponível no banco. Abortando.');
+      return;
+    }
+
+    // 3. Buscar histórico recente (últimas 10 postagens para não repetir)
+    const recentPosts = db.prepare(
+      'SELECT content FROM whatsapp_group_posts WHERE status = ? ORDER BY scheduledAt DESC LIMIT 10'
+    ).all('Enviado');
+
+    // 4. Buscar contexto atual (Hora, Clima)
+    const horaAtual = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+    const diaAtual = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long' });
+    let clima = 'Desconhecido';
+    try {
+      clima = await buscarClimaReal();
+    } catch (err) {
+      console.log('[RoboOfertas JIT] Falha ao buscar clima, usando fallback.');
+    }
+
+    // 5. Preparar prompt para o Gemini
+    const prompt = `
+Você é a IA estratégica da Bela Farma (Drogaria Bela Farma). Seu papel é escolher a MELHOR oferta para postar AGORA num grupo de clientes no WhatsApp.
+Contexto Atual:
+- Dia da semana: ${diaAtual}
+- Horário: ${horaAtual}
+- Clima em Juiz de Fora: ${clima}
+
+Últimas postagens feitas recentemente (EVITE REPETIR OS MESMOS PRODUTOS):
+${recentPosts.map(p => `- ${p.content.substring(0, 50)}...`).join('\n')}
+
+Banco de Ofertas Disponíveis (ID | Produto | Legenda):
+${availableOffers.map(o => `${o.id} | ${o.productName} | ${o.aiCaption.substring(0, 50).replace(/\n/g, ' ')}...`).join('\n')}
+
+TAREFA:
+Analise o contexto atual. Se estiver frio/chuva, priorize remédios para gripe ou vitamina C. Se estiver sol, priorize protetor solar, hidratação. Se for horário de almoço, priorize energéticos ou produtos de uso rápido. Sempre prefira produtos que NÃO foram postados recentemente.
+Selecione APENAS o ID de 1 oferta do Banco de Ofertas.
+Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação markdown \`\`\` em volta):
+{
+  "selectedOfferId": "ID_ESCOLHIDO",
+  "reasoning": "Sua justificativa breve do motivo da escolha em relação ao clima, dia ou horário."
+}
+`;
+
+    const aiResponseStr = await callAI(prompt, 'Você é um assistente JSON. Retorne apenas JSON válido.', { temperature: 0.8 });
+    const aiResponseRaw = aiResponseStr.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    let aiResponse;
+    try {
+      aiResponse = JSON.parse(aiResponseRaw);
+    } catch (e) {
+      console.error('[RoboOfertas JIT] IA retornou um JSON inválido:', aiResponseRaw);
+      return;
+    }
+
+    if (!aiResponse.selectedOfferId) {
+      console.error("[RoboOfertas JIT] IA não retornou um selectedOfferId válido");
+      return;
+    }
+
+    const chosenOffer = availableOffers.find(o => o.id === aiResponse.selectedOfferId);
+    if (!chosenOffer) {
+      console.error(`[RoboOfertas JIT] IA escolheu um ID que não existe: ${aiResponse.selectedOfferId}`);
+      return;
+    }
+
+    console.log(`[RoboOfertas JIT] 🎯 IA escolheu: ${chosenOffer.productName}. Motivo: ${aiResponse.reasoning}`);
+
+    // 6. Criar postagem "Pendente" para o RPA pegar
+    const nowISO = new Date().toISOString();
+    const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
+    
+    db.prepare(`
+      INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      groupId,
+      groupName,
+      chosenOffer.aiCaption,
+      chosenOffer.mediaPath,
+      nowISO,
+      'Pendente',
+      nowISO
+    );
+    console.log(`[RoboOfertas JIT] ✅ Oferta agendada com sucesso para RPA buscar (Grupo: ${groupName}).`);
+
+  } catch (err) {
+    console.error('[RoboOfertas JIT] Erro na rotina JIT:', err);
+  }
+}
+
+module.exports = { initializeWhatsAppGroupEndpoints, escolherEPostarOfertaInteligente };
