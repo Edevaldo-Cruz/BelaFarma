@@ -40,7 +40,7 @@ async function runTest() {
     const messageId = `TEST_${Date.now()}`;
     
     // Sobrescrever temporariamente o método de download para usar o nosso base64 local
-    pixBot.getBase64FromEvolution = async () => base64;
+    pixBot.getBase64FromEvolution = async () => ({ base64, mimeType: 'image/jpeg' });
     
     await pixBot.handleImageMessage({ key: { id: messageId } }, phone);
     
