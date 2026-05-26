@@ -961,6 +961,30 @@ async function escolherEPostarOfertaInteligente() {
   try {
     console.log('[RoboOfertas JIT] Iniciando escolha inteligente de oferta...');
 
+    // Carregar Baileys e tentar reconexão preventiva se estiver desconectado
+    let baileys = null;
+    try { baileys = require('./baileys-service.js'); } catch(e) {}
+    let baileysStatus = baileys ? baileys.getStatus() : null;
+    let baileysConnected = baileys && baileysStatus && baileysStatus.connected;
+
+    if (baileys && (!baileysStatus || !baileysConnected)) {
+      console.log('[RoboOfertas JIT] 🔌 Baileys desconectado antes do envio! Iniciando reconexão de emergência...');
+      try {
+        baileys.connect();
+        // Aguarda 6 segundos para ver se a conexão restabelece sozinha
+        await new Promise(resolve => setTimeout(resolve, 6000));
+        baileysStatus = baileys.getStatus();
+        baileysConnected = baileys && baileysStatus && baileysStatus.connected;
+        if (baileysConnected) {
+          console.log('[RoboOfertas JIT] ⚡ Conexão de emergência estabelecida com sucesso!');
+        } else {
+          console.warn('[RoboOfertas JIT] ⚠️ Conexão rápida falhou. Prosseguindo com tentativa de envio mesmo assim...');
+        }
+      } catch (connErr) {
+        console.error('[RoboOfertas JIT] Erro ao conectar de emergência:', connErr.message);
+      }
+    }
+
     // 1. Verificar se existe um grupo alvo configurado
     const targetGroupSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'auto_offer_group_id'").get();
     let targetGroups = [];
@@ -1023,64 +1047,103 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
 }
 `;
 
-    const aiResponseStr = await callAI(prompt, 'Você é um assistente JSON. Retorne apenas JSON válido.', { temperature: 0.8 });
-    const aiResponseRaw = aiResponseStr.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    let aiResponse;
+    let chosenOfferId = null;
+    let aiResponseRaw = '';
     try {
-      aiResponse = JSON.parse(aiResponseRaw);
+      const aiResponseStr = await callAI(prompt, 'Você é um assistente JSON. Retorne apenas JSON válido.', { temperature: 0.8 });
+      aiResponseRaw = aiResponseStr.replace(/```json/g, '').replace(/```/g, '').trim();
+      const aiResponse = JSON.parse(aiResponseRaw);
+      chosenOfferId = aiResponse.selectedOfferId;
+      console.log(`[RoboOfertas JIT] 🎯 IA escolheu inicialmente a oferta ${chosenOfferId}. Motivo: ${aiResponse.reasoning}`);
     } catch (e) {
-      console.error('[RoboOfertas JIT] IA retornou um JSON inválido:', aiResponseRaw);
-      return;
+      console.error('[RoboOfertas JIT] Erro ao chamar/analisar IA, usando fallback de primeira oferta livre:', e.message);
     }
 
-    if (!aiResponse.selectedOfferId) {
-      console.error("[RoboOfertas JIT] IA não retornou um selectedOfferId válido");
-      return;
+    // Fallback inicial se a IA falhou
+    let currentOffer = null;
+    if (chosenOfferId) {
+      currentOffer = availableOffers.find(o => o.id === chosenOfferId);
+    }
+    if (!currentOffer) {
+      // Pega qualquer uma que não esteja no histórico recente
+      const freeOffers = availableOffers.filter(o => !recentPosts.some(p => p.content.includes(o.productName)));
+      currentOffer = freeOffers.length > 0 ? freeOffers[0] : availableOffers[0];
+      console.log(`[RoboOfertas JIT] Usando fallback de produto sem IA: ${currentOffer.productName}`);
     }
 
-    const chosenOffer = availableOffers.find(o => o.id === aiResponse.selectedOfferId);
-    if (!chosenOffer) {
-      console.error(`[RoboOfertas JIT] IA escolheu um ID que não existe: ${aiResponse.selectedOfferId}`);
-      return;
-    }
-
-    console.log(`[RoboOfertas JIT] 🎯 IA escolheu: ${chosenOffer.productName}. Motivo: ${aiResponse.reasoning}`);
-
-    // 6. Enviar via Baileys (se conectado) ou criar como "Pendente"
     const nowISO = new Date().toISOString();
-    const finalContent = `${chosenOffer.aiCaption}\n\nFique atento! A cada hora traremos uma oferta imperdível para você! 🔔`;
-
-    // Carregar Baileys
-    let baileys = null;
-    try { baileys = require('./baileys-service.js'); } catch(e) {}
-    const baileysStatus = baileys ? baileys.getStatus() : null;
-    const baileysConnected = baileys && baileysStatus && baileysStatus.connected;
 
     for (const group of targetGroups) {
-      const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
       const groupName = group.name || group.id;
+      const failedOfferIds = [];
+      let success = false;
+      let attemptOffer = currentOffer;
+      let finalContent = '';
       let status = 'Pendente';
 
-      // Tentar enviar via Baileys diretamente
-      if (baileysConnected) {
-        try {
-          if (chosenOffer.mediaPath) {
-            const absoluteMediaPath = path.join(uploadDir, path.basename(chosenOffer.mediaPath));
-            await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
-          } else {
-            await baileys.sendTextToGroup(groupName, finalContent);
+      // Loop de tentativa de produto alternativo (tenta até 3 produtos diferentes se houver erro permanente)
+      for (let productAttempt = 1; productAttempt <= 3 && !success && attemptOffer; productAttempt++) {
+        finalContent = `${attemptOffer.aiCaption}\n\nFique atento! A cada hora traremos uma oferta imperdível para você! 🔔`;
+        console.log(`[RoboOfertas JIT] Tentativa de Produto #${productAttempt}: "${attemptOffer.productName}" para o grupo "${groupName}"`);
+
+        // Tentar enviar o produto atual (com até 3 retentativas com delay)
+        for (let sendAttempt = 1; sendAttempt <= 3 && !success; sendAttempt++) {
+          if (!baileysConnected) {
+            // Re-verifica status rápido para ver se reconectou em background
+            baileysStatus = baileys ? baileys.getStatus() : null;
+            baileysConnected = baileys && baileysStatus && baileysStatus.connected;
           }
-          status = 'Enviado';
-          console.log(`[RoboOfertas JIT] ✅ Oferta ENVIADA com sucesso via Baileys (Grupo: ${groupName}).`);
-        } catch (sendErr) {
-          console.error(`[RoboOfertas JIT] ❌ Erro ao enviar via Baileys para "${groupName}":`, sendErr.message);
-          status = 'Pendente';
+
+          if (baileysConnected) {
+            try {
+              console.log(`[RoboOfertas JIT] Enviando (Tentativa #${sendAttempt}/3)...`);
+              if (attemptOffer.mediaPath) {
+                const absoluteMediaPath = path.join(uploadDir, path.basename(attemptOffer.mediaPath));
+                await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
+              } else {
+                await baileys.sendTextToGroup(groupName, finalContent);
+              }
+              success = true;
+              status = 'Enviado';
+              console.log(`[RoboOfertas JIT] ✅ Sucesso no envio do produto "${attemptOffer.productName}" para "${groupName}"!`);
+            } catch (sendErr) {
+              console.error(`[RoboOfertas JIT] ❌ Falha na tentativa #${sendAttempt}/3 de envio para "${groupName}":`, sendErr.message);
+              if (sendAttempt < 3) {
+                console.log('[RoboOfertas JIT] Aguardando 5 segundos antes de tentar novamente...');
+                await new Promise(r => setTimeout(r, 5000));
+              }
+            }
+          } else {
+            console.warn('[RoboOfertas JIT] ⚠️ Baileys não conectado nesta tentativa.');
+            if (sendAttempt < 3) {
+              await new Promise(r => setTimeout(r, 3000));
+            }
+          }
         }
-      } else {
-        console.log(`[RoboOfertas JIT] ⚠️ Baileys não conectado. Oferta salva como Pendente para "${groupName}".`);
+
+        // Se o produto falhou completamente após as 3 tentativas de envio
+        if (!success) {
+          console.warn(`[RoboOfertas JIT] ⚠️ Produto "${attemptOffer.productName}" falhou em todas as 3 tentativas de envio.`);
+          failedOfferIds.push(attemptOffer.id);
+          
+          // Selecionar uma oferta alternativa do banco que não tenha falhado e não seja recente
+          const alternative = availableOffers.find(o => 
+            !failedOfferIds.includes(o.id) && 
+            !recentPosts.some(p => p.content.includes(o.productName))
+          ) || availableOffers.find(o => !failedOfferIds.includes(o.id));
+
+          if (alternative) {
+            console.log(`[RoboOfertas JIT] 🔄 Selecionado produto alternativo de fallback: "${alternative.productName}"`);
+            attemptOffer = alternative;
+          } else {
+            console.warn('[RoboOfertas JIT] Nenhuma outra oferta disponível no banco para fallback.');
+            attemptOffer = null;
+          }
+        }
       }
 
+      // Registrar resultado no banco de dados SQLite
+      const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
       db.prepare(`
         INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1089,7 +1152,7 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
         group.id,
         groupName,
         finalContent,
-        chosenOffer.mediaPath,
+        attemptOffer ? attemptOffer.mediaPath : currentOffer.mediaPath,
         nowISO,
         status,
         nowISO
