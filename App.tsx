@@ -32,6 +32,7 @@ import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
 import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
+import { PixGenerator } from "./components/PixGenerator";
 import {
   Order,
   View,
@@ -824,6 +825,12 @@ const App: React.FC = () => {
               )}
               {currentView === 'whatsapp-crm' && user.role === UserRole.ADM && (
                 <WhatsAppCRM />
+              )}
+              {currentView === 'pix' && (
+                <PixGenerator 
+                  user={user}
+                  onNavigate={handleNavigate}
+                />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

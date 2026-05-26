@@ -1113,6 +1113,43 @@ app.post('/api/daily-records', (req, res) => {
   }
 });
 
+app.post('/api/daily-records/pix-direct', (req, res) => {
+  try {
+    const { value, desc, userName } = req.body;
+    if (!value || isNaN(value)) {
+      return res.status(400).json({ error: 'Value is required and must be a number.' });
+    }
+    const today = new Intl.DateTimeFormat('fr-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+
+    const PixBotService = require('./services/pix-bot.service');
+    const pixBot = new PixBotService(db);
+    pixBot.recordPixDirect(value, desc || 'Venda Gerador Pix', today);
+
+    // Registra auditoria
+    const logId = Math.random().toString(36).substr(2, 9);
+    db.prepare(`
+      INSERT INTO logs (id, timestamp, userName, userId, action, category, details)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      logId, 
+      new Date().toISOString(), 
+      userName || 'Operador', 
+      'pix-generator', 
+      'Lançou Pix Direto', 
+      'Financeiro', 
+      `Valor: R$ ${value}, Descrição: ${desc || 'Venda Gerador Pix'}`
+    );
+
+    res.status(200).json({ success: true, message: 'Pix Direct registered successfully.' });
+  } catch (err) {
+    console.error('Error recording Pix Direct:', err);
+    res.status(500).json({ error: 'Failed to record Pix Direct.', details: err.message });
+  }
+});
+
 // IMPORTANT: Specific routes must come before parameterized routes!
 // This must be BEFORE app.put('/api/daily-records/:id') to avoid route conflicts
 app.put('/api/daily-records/mark-processed', (req, res) => {

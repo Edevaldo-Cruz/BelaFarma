@@ -345,13 +345,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
             { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
             { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
             { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
+            { id: 'pix', label: 'Gerador Pix', icon: CreditCard, color: 'emerald' },
           ];
 
-          // Filter by permission and sort by usage
-          const visibleShortcuts = allShortcuts
+          // Filter and ensure 'pix' is always first, followed by top 7 most used
+          const otherShortcuts = allShortcuts
+            .filter(s => s.id !== 'pix')
             .filter(s => !s.adminOnly || isAdmin)
-            .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0))
-            .slice(0, 7); // Show top 7
+            .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0));
+
+          const visibleShortcuts = [
+            allShortcuts.find(s => s.id === 'pix')!,
+            ...otherShortcuts
+          ].filter(Boolean).slice(0, 8); // Show Pix + top 7
 
           return visibleShortcuts.map(s => {
             const Icon = s.icon;
