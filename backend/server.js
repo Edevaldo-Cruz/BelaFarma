@@ -3072,6 +3072,36 @@ cron.schedule('10 8-20 * * 1-5', () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON] 🤖 Robô de Ofertas JIT agendado para rodar a cada hora (:10) das 08h às 20h, Seg-Sex.');
 
+// Endpoint para disparar o JIT manualmente (para testes)
+app.post('/api/whatsapp/offers-bank/trigger-jit', async (req, res) => {
+  try {
+    console.log('[RoboOfertas JIT] Disparo manual solicitado via API...');
+    await escolherEPostarOfertaInteligente();
+    res.json({ success: true, message: 'JIT executado! Verifique o histórico.' });
+  } catch (err) {
+    console.error('[RoboOfertas JIT] Erro no disparo manual:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para testar envio simples via Baileys (diagnóstico)
+app.post('/api/whatsapp/test-send', express.json(), async (req, res) => {
+  const { groupName, message } = req.body;
+  if (!groupName || !message) return res.status(400).json({ error: 'groupName e message obrigatórios.' });
+
+  try {
+    const baileys = require('./baileys-service.js');
+    const status = baileys.getStatus();
+    if (!status.connected) return res.status(503).json({ error: 'Baileys não está conectado.', status });
+
+    await baileys.sendTextToGroup(groupName, message);
+    res.json({ success: true, message: `Mensagem enviada para "${groupName}"!` });
+  } catch (err) {
+    console.error('[TestSend] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Módulo CRM WhatsApp (Importação de Clientes e Histórico de Produtos)
 const { initializeWhatsAppCRMEndpoints } = require('./whatsapp-crm-endpoints.js');
 initializeWhatsAppCRMEndpoints(app, db);

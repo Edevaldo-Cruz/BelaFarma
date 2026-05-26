@@ -3,7 +3,8 @@ import { useToast } from './ToastContext';
 import {
   Sparkles, Bot, Image as ImageIcon, Trash2, Calendar, Clock,
   Upload, CheckCircle, RefreshCw, Send, AlertCircle, ChevronDown,
-  CloudRain, Users, FolderOpen, Terminal, Download, History
+  CloudRain, Users, FolderOpen, Terminal, Download, History,
+  Wifi, WifiOff, QrCode, RotateCcw
 } from 'lucide-react';
 
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
@@ -43,6 +44,11 @@ export default function OffersAgent() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [history, setHistory] = useState<PostHistory[]>([]);
   
+  // Baileys Status
+  const [baileysConnected, setBaileysConnected] = useState(false);
+  const [baileysQR, setBaileysQR] = useState<string | null>(null);
+  const [baileysReconnecting, setBaileysReconnecting] = useState(false);
+  
   // Form States
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -61,6 +67,30 @@ export default function OffersAgent() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [submittingOffer, setSubmittingOffer] = useState(false);
   const [openingFolder, setOpeningFolder] = useState(false);
+
+  const fetchBaileysStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/baileys/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setBaileysConnected(data.connected);
+        setBaileysQR(data.connected ? null : (data.qrCode || null));
+      }
+    } catch {}
+  }, []);
+
+  const handleReconnectBaileys = async () => {
+    setBaileysReconnecting(true);
+    try {
+      await fetch(`${API_BASE}/api/whatsapp/baileys/reconnect`, { method: 'POST' });
+      addToast('🔄 Reconexão iniciada! Aguarde o QR Code...', 'info');
+      setTimeout(fetchBaileysStatus, 3000);
+    } catch {
+      addToast('Erro ao reconectar.', 'error');
+    } finally {
+      setBaileysReconnecting(false);
+    }
+  };
 
   const fetchTargetGroup = useCallback(async () => {
     try {
@@ -214,11 +244,13 @@ export default function OffersAgent() {
     fetchGroups();
     fetchHistory();
     fetchTargetGroup();
+    fetchBaileysStatus();
     
-    // Polling do historico a cada 10s
-    const interval = setInterval(fetchHistory, 10000);
-    return () => clearInterval(interval);
-  }, [fetchOffers, fetchGroups, fetchHistory, fetchTargetGroup]);
+    // Polling do historico e status baileys
+    const historyInterval = setInterval(fetchHistory, 10000);
+    const baileysInterval = setInterval(fetchBaileysStatus, 5000);
+    return () => { clearInterval(historyInterval); clearInterval(baileysInterval); };
+  }, [fetchOffers, fetchGroups, fetchHistory, fetchTargetGroup, fetchBaileysStatus]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -291,15 +323,61 @@ export default function OffersAgent() {
               <p className="text-indigo-100 text-sm font-medium">Agendamento Inteligente Just-In-Time</p>
             </div>
           </div>
-          <span className="px-3 py-1.5 bg-emerald-500/20 text-emerald-100 border border-emerald-500/30 rounded-full text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+          <span className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest flex items-center gap-2 border ${
+            baileysConnected
+              ? 'bg-emerald-500/20 text-emerald-100 border-emerald-500/30'
+              : 'bg-red-500/20 text-red-100 border-red-500/30'
+          }`}>
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative rounded-full h-2 w-2 bg-emerald-500"></span>
+              <span className={`animate-ping absolute h-full w-full rounded-full opacity-75 ${baileysConnected ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
+              <span className={`relative rounded-full h-2 w-2 ${baileysConnected ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
             </span>
-            Disparador JIT Ativo
+            {baileysConnected ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
           </span>
         </div>
       </div>
+
+      {/* QR Code Card — aparece quando Baileys não está conectado */}
+      {!baileysConnected && (
+        <div className="bg-white dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-600 rounded-3xl p-6 shadow-lg">
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            <div className="flex-1 text-center md:text-left">
+              <div className="flex items-center gap-2 mb-2 justify-center md:justify-start">
+                <WifiOff className="w-5 h-5 text-amber-500" />
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-200">WhatsApp Desconectado</h3>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Escaneie o QR Code ao lado para conectar o robô ao WhatsApp. Sem isso, as mensagens não serão enviadas.</p>
+              <div className="text-xs text-slate-400 space-y-1 mb-4">
+                <p>1. Abra o <strong className="text-slate-600 dark:text-slate-300">WhatsApp</strong> no celular</p>
+                <p>2. Toque em <strong className="text-slate-600 dark:text-slate-300">⋮ → Aparelhos Conectados</strong></p>
+                <p>3. Toque em <strong className="text-slate-600 dark:text-slate-300">Conectar Aparelho</strong></p>
+                <p>4. Aponte a câmera para o QR Code</p>
+              </div>
+              <button
+                onClick={handleReconnectBaileys}
+                disabled={baileysReconnecting}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-sm flex items-center gap-2 mx-auto md:mx-0 disabled:opacity-60"
+              >
+                {baileysReconnecting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                Gerar Novo QR Code
+              </button>
+            </div>
+            <div className="shrink-0">
+              {baileysQR ? (
+                <div className="bg-white p-3 rounded-2xl shadow-md border border-slate-200">
+                  <img src={baileysQR} alt="QR Code WhatsApp" className="w-56 h-56 rounded-xl" />
+                </div>
+              ) : (
+                <div className="w-56 h-56 bg-slate-100 dark:bg-slate-800 rounded-2xl flex flex-col items-center justify-center gap-2">
+                  <QrCode className="w-10 h-10 text-slate-300" />
+                  <p className="text-xs text-slate-400 font-medium">Aguardando QR...</p>
+                  <RefreshCw className="w-4 h-4 text-slate-300 animate-spin" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Target Group Config */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm flex flex-col gap-4">

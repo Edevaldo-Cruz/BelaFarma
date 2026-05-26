@@ -11,7 +11,7 @@ const fs   = require('fs');
 // Diretório persistente da sessão (volume Docker em produção)
 const SESSION_DIR = process.platform === 'win32'
   ? path.join(__dirname, 'baileys-session')
-  : path.join(__dirname, '..', 'data', 'baileys-session');
+  : path.join(__dirname, 'data', 'baileys-session');
 
 // Estado interno do serviço
 let sock          = null;   // Socket Baileys ativo
