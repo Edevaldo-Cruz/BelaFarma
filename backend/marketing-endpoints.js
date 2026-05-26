@@ -349,24 +349,37 @@ function initializeMarketingEndpoints(app, db) {
       if (payload.event === 'messages.upsert' && !payload.data.key?.fromMe) {
         notificationEmitter.emit('message');
         
-        // Disparar sinal sonoro de notificação na rádio da farmácia de forma dinâmica e resiliente
-        const radioUrl = process.env.RADIO_API_URL || 'http://192.168.1.70:5005';
-        console.log(`[Webhook] 🔔 Nova mensagem recebida. Disparando sinal sonoro na rádio em: ${radioUrl}...`);
-        
-        fetch(`${radioUrl}/api/notificar`, { 
-          method: 'POST',
-          signal: AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined
-        })
-        .then(async res => {
-          if (res.ok) {
-            console.log('[Webhook] 🔔 Sinal sonoro (chime) disparado na rádio com sucesso!');
-          } else {
-            console.error(`[Webhook] ⚠️ Rádio respondeu com status ${res.status} ao disparar chime.`);
-          }
-        })
-        .catch(err => {
-          console.error('[Webhook] ❌ Falha ao notificar rádio Bela Farma:', err.message);
-        });
+        const instance = payload.instance || '';
+        const remoteJid = payload.data.key?.remoteJid || '';
+        const isGroup = remoteJid.includes('@g.us');
+        const isBroadcast = remoteJid.includes('@broadcast');
+        const mainInstance = process.env.EVOLUTION_MAIN_INSTANCE || 'belaFarma';
+
+        // Disparar sinal sonoro de notificação na rádio apenas se:
+        // 1. A mensagem vier da instância principal (belaFarma)
+        // 2. Não for mensagem de grupo (@g.us)
+        // 3. Não for lista de transmissão (@broadcast)
+        if (instance === mainInstance && !isGroup && !isBroadcast) {
+          const radioUrl = process.env.RADIO_API_URL || 'http://192.168.1.70:5005';
+          console.log(`[Webhook] 🔔 Nova mensagem da instância principal (${mainInstance}). Disparando sinal sonoro na rádio em: ${radioUrl}...`);
+          
+          fetch(`${radioUrl}/api/notificar`, { 
+            method: 'POST',
+            signal: AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined
+          })
+          .then(async res => {
+            if (res.ok) {
+              console.log('[Webhook] 🔔 Sinal sonoro (chime) disparado na rádio com sucesso!');
+            } else {
+              console.error(`[Webhook] ⚠️ Rádio respondeu com status ${res.status} ao disparar chime.`);
+            }
+          })
+          .catch(err => {
+            console.error('[Webhook] ❌ Falha ao notificar rádio Bela Farma:', err.message);
+          });
+        } else {
+          console.log(`[Webhook] 🔔 Mensagem ignorada para sinal sonoro na rádio. (Instância: ${instance}, Grupo: ${isGroup}, Transmissão: ${isBroadcast})`);
+        }
       }
 
       // O evento de mensagem recebida na Evolution v2 é 'messages.upsert'

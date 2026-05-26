@@ -146,10 +146,10 @@ const App: React.FC = () => {
     eventSource.onmessage = (event) => {
       if (event.data === 'message') {
         const now = Date.now();
-        // Debounce de 15 segundos: Só toca o som se houver silêncio nos últimos 15s
+        // Debounce de 15 segundos
         if (now - lastNotificationTime > 15000) {
           lastNotificationTime = now;
-          tocarSino();
+          // tocarSino(); // Desativado a pedido do usuário: notificação sonora agora ocorre apenas na rádio física da loja, não no PC.
         }
       }
     };
