@@ -3,6 +3,8 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 let db = require('./database.js');
+const InterPixService = require('./services/inter-pix.service.js');
+const interPixService = new InterPixService(db);
 const multer = require('multer');
 const fs = require('fs');
 const fetch = require('node-fetch');
@@ -1147,6 +1149,136 @@ app.post('/api/daily-records/pix-direct', (req, res) => {
   } catch (err) {
     console.error('Error recording Pix Direct:', err);
     res.status(500).json({ error: 'Failed to record Pix Direct.', details: err.message });
+  }
+});
+
+// ==========================================
+// BANCO INTER PIX DINÂMICO - ROTAS DE API
+// ==========================================
+
+// 1. GERAR COBRANÇA PIX DINÂMICA
+app.post('/api/pix/generate-dynamic', async (req, res) => {
+  try {
+    const { value, description } = req.body;
+    if (!value || isNaN(value) || parseFloat(value) <= 0) {
+      return res.status(400).json({ error: 'Value must be a positive number.' });
+    }
+
+    const charge = await interPixService.createPixCharge(value, description);
+    
+    // Salva na tabela local pix_confirmations como 'Pendente' para conciliação mútua
+    db.prepare(`
+      INSERT OR REPLACE INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      charge.txid,
+      'balcao',
+      charge.value,
+      charge.description || 'Venda Balcão Banco Inter PJ',
+      new Date().toISOString().split('T')[0],
+      'Pendente',
+      'Pix Dinâmico Banco Inter',
+      new Date().toISOString()
+    );
+
+    res.status(200).json(charge);
+  } catch (err) {
+    console.error('Error generating dynamic Pix:', err);
+    res.status(500).json({ error: 'Failed to generate Pix charge.', details: err.message });
+  }
+});
+
+// 2. CONSULTAR STATUS DA COBRANÇA (POLLING E FAIL-SAFE)
+app.get('/api/pix/status/:txid', async (req, res) => {
+  try {
+    const { txid } = req.params;
+    const status = await interPixService.getChargeStatus(txid);
+    
+    // Se estiver paga/concluída nas APIs, garante que está lançada localmente de forma idempotente
+    if (status === 'CONCLUIDA' || status === 'CONCLUIDO') {
+      const localRecord = db.prepare('SELECT status, value, senderName FROM pix_confirmations WHERE id = ?').get(txid);
+      
+      if (localRecord && localRecord.status === 'Pendente') {
+        console.log(`[BANCO INTER FAIL-SAFE] Pix pago detectado por consulta. Txid: ${txid}. Atualizando caixa...`);
+        
+        // 1. Confirma o pagamento no banco local
+        db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
+        
+        // 2. Lança no caixa diário
+        const today = new Intl.DateTimeFormat('fr-CA', {
+          timeZone: 'America/Sao_Paulo',
+          year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
+
+        const PixBotService = require('./services/pix-bot.service');
+        const pixBot = new PixBotService(db);
+        pixBot.recordPixDirect(localRecord.value, localRecord.senderName || 'Venda Balcão Banco Inter PJ', today);
+      }
+    }
+
+    res.status(200).json({ status });
+  } catch (err) {
+    console.error(`Error checking Pix status for txid ${txid}:`, err);
+    res.status(500).json({ error: 'Failed to fetch status.' });
+  }
+});
+
+// 3. SIMULAR PAGAMENTO DE PIX (Apenas em modo de teste/simulado)
+app.post('/api/pix/mock-pay/:txid', (req, res) => {
+  try {
+    const { txid } = req.params;
+    const success = interPixService.simulatePayment(txid);
+    
+    if (success) {
+      // Confirma localmente
+      db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
+      res.status(200).json({ success: true, message: 'Simulated payment processed and recorded in cash closing.' });
+    } else {
+      res.status(400).json({ error: 'Charge not found or already paid.' });
+    }
+  } catch (err) {
+    console.error('Error processing mock payment:', err);
+    res.status(500).json({ error: 'Failed to process mock payment.' });
+  }
+});
+
+// 4. WEBHOOK OFICIAL DO BANCO INTER (Para conciliação automática de produção)
+app.post('/api/webhook/inter-pix', (req, res) => {
+  try {
+    const payments = req.body;
+    console.log('[BANCO INTER WEBHOOK] 📥 Recebido evento de pagamento:', JSON.stringify(payments));
+    
+    if (Array.isArray(payments)) {
+      for (const event of payments) {
+        if (event.pix && Array.isArray(event.pix)) {
+          for (const item of event.pix) {
+            const { txid, valor } = item;
+            if (txid) {
+              const localRecord = db.prepare('SELECT status, value, senderName FROM pix_confirmations WHERE id = ?').get(txid);
+              if (localRecord && localRecord.status === 'Pendente') {
+                console.log(`[BANCO INTER WEBHOOK] ✓ Confirmando pagamento do txid: ${txid} - R$ ${valor}`);
+                
+                db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
+                
+                const today = new Intl.DateTimeFormat('fr-CA', {
+                  timeZone: 'America/Sao_Paulo',
+                  year: 'numeric', month: '2-digit', day: '2-digit'
+                }).format(new Date());
+
+                const PixBotService = require('./services/pix-bot.service');
+                const pixBot = new PixBotService(db);
+                pixBot.recordPixDirect(localRecord.value, localRecord.senderName || 'Venda Balcão Banco Inter PJ', today);
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error('[BANCO INTER WEBHOOK] Erro ao processar:', err.message);
+    res.status(550).send('Error'); // Código padrão do Inter para rejeitar
   }
 });
 

@@ -4,6 +4,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
+      - TZ=America/Sao_Paulo
       # Caminho do banco de dados dentro do container
       - DB_PATH=/usr/src/app/data/belafarma.db
       # Evolution API (WhatsApp)
@@ -38,6 +39,7 @@ services:
   evolution-api:
     image: atendai/evolution-api:v1.8.2
     environment:
+      - TZ=America/Sao_Paulo
       # Configuração básica
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-BelafarmaSul2026}
@@ -65,6 +67,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    environment:
+      - TZ=America/Sao_Paulo
     ports:
       - "8085:80"
     depends_on:
