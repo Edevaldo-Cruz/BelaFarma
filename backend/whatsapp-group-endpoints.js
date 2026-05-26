@@ -1047,26 +1047,53 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
 
     console.log(`[RoboOfertas JIT] 🎯 IA escolheu: ${chosenOffer.productName}. Motivo: ${aiResponse.reasoning}`);
 
-    // 6. Criar postagem "Pendente" para o RPA pegar
+    // 6. Enviar via Baileys (se conectado) ou criar como "Pendente"
     const nowISO = new Date().toISOString();
-    
+    const finalContent = `${chosenOffer.aiCaption}\n\nFique atento! A cada hora traremos uma oferta imperdível para você! 🔔`;
+
+    // Carregar Baileys
+    let baileys = null;
+    try { baileys = require('./baileys-service.js'); } catch(e) {}
+    const baileysStatus = baileys ? baileys.getStatus() : null;
+    const baileysConnected = baileys && baileysStatus && baileysStatus.connected;
+
     for (const group of targetGroups) {
       const id = Date.now().toString() + Math.floor(Math.random() * 1000).toString();
-      
+      const groupName = group.name || group.id;
+      let status = 'Pendente';
+
+      // Tentar enviar via Baileys diretamente
+      if (baileysConnected) {
+        try {
+          if (chosenOffer.mediaPath) {
+            const absoluteMediaPath = path.join(uploadDir, path.basename(chosenOffer.mediaPath));
+            await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
+          } else {
+            await baileys.sendTextToGroup(groupName, finalContent);
+          }
+          status = 'Enviado';
+          console.log(`[RoboOfertas JIT] ✅ Oferta ENVIADA com sucesso via Baileys (Grupo: ${groupName}).`);
+        } catch (sendErr) {
+          console.error(`[RoboOfertas JIT] ❌ Erro ao enviar via Baileys para "${groupName}":`, sendErr.message);
+          status = 'Pendente';
+        }
+      } else {
+        console.log(`[RoboOfertas JIT] ⚠️ Baileys não conectado. Oferta salva como Pendente para "${groupName}".`);
+      }
+
       db.prepare(`
         INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         group.id,
-        group.name || group.id,
-        chosenOffer.aiCaption,
+        groupName,
+        finalContent,
         chosenOffer.mediaPath,
         nowISO,
-        'Pendente',
+        status,
         nowISO
       );
-      console.log(`[RoboOfertas JIT] ✅ Oferta agendada com sucesso para RPA buscar (Grupo: ${group.name || group.id}).`);
     }
 
   } catch (err) {
