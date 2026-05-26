@@ -4,7 +4,7 @@ import {
   Sparkles, Bot, Image as ImageIcon, Trash2, Calendar, Clock,
   Upload, CheckCircle, RefreshCw, Send, AlertCircle, ChevronDown,
   CloudRain, Users, FolderOpen, Terminal, Download, History,
-  Wifi, WifiOff, QrCode, RotateCcw
+  Wifi, WifiOff, QrCode, RotateCcw, Edit, X
 } from 'lucide-react';
 
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
@@ -49,6 +49,14 @@ export default function OffersAgent() {
   const [baileysQR, setBaileysQR] = useState<string | null>(null);
   const [baileysReconnecting, setBaileysReconnecting] = useState(false);
   
+  // Modal Edit States
+  const [selectedOfferForEdit, setSelectedOfferForEdit] = useState<Offer | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingPrice, setEditingPrice] = useState<number>(0);
+  const [editingCategory, setEditingCategory] = useState('');
+  const [editingCaption, setEditingCaption] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  
   // Form States
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -89,6 +97,46 @@ export default function OffersAgent() {
       addToast('Erro ao reconectar.', 'error');
     } finally {
       setBaileysReconnecting(false);
+    }
+  };
+
+  const handleOpenEditModal = (offer: Offer) => {
+    setSelectedOfferForEdit(offer);
+    setEditingName(offer.productName);
+    setEditingPrice(offer.price);
+    setEditingCategory(offer.category);
+    setEditingCaption(offer.aiCaption);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOfferForEdit) return;
+    
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank/${selectedOfferForEdit.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productName: editingName,
+          price: editingPrice,
+          category: editingCategory,
+          aiCaption: editingCaption
+        })
+      });
+
+      if (res.ok) {
+        addToast('✏️ Oferta atualizada com sucesso!', 'success');
+        setSelectedOfferForEdit(null);
+        fetchOffers();
+      } else {
+        const data = await res.json();
+        addToast(data.error || 'Erro ao atualizar oferta.', 'error');
+      }
+    } catch {
+      addToast('Erro de conexão ao salvar alterações.', 'error');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -567,6 +615,7 @@ export default function OffersAgent() {
                   )}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button onClick={() => handleSendImmediate(offer)} className="p-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600" title="Disparar Agora"><Send className="w-3.5 h-3.5"/></button>
+                    <button onClick={() => handleOpenEditModal(offer)} className="p-1.5 bg-amber-500 text-white rounded-md hover:bg-amber-600" title="Editar"><Edit className="w-3.5 h-3.5"/></button>
                     <button onClick={() => handleDeleteOffer(offer.id)} className="p-1.5 bg-red-500 text-white rounded-md hover:bg-red-600" title="Excluir"><Trash2 className="w-3.5 h-3.5"/></button>
                   </div>
                 </div>
@@ -580,6 +629,102 @@ export default function OffersAgent() {
         )}
       </div>
 
+      {/* Edit Offer Modal */}
+      {selectedOfferForEdit && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">✏️</span>
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">Editar Detalhes da Oferta</h3>
+              </div>
+              <button 
+                onClick={() => setSelectedOfferForEdit(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+              {/* Product Name */}
+              <div>
+                <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Nome do Produto</label>
+                <input
+                  type="text"
+                  required
+                  value={editingName}
+                  onChange={e => setEditingName(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+
+              {/* Price & Category */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Preço (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editingPrice}
+                    onChange={e => setEditingPrice(parseFloat(e.target.value) || 0)}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Categoria</label>
+                  <select
+                    value={editingCategory}
+                    onChange={e => setEditingCategory(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="vitamina">Vitamina</option>
+                    <option value="beleza">Beleza</option>
+                    <option value="dor">Dor / Sintomas</option>
+                    <option value="higiene">Higiene</option>
+                    <option value="infantil">Infantil</option>
+                    <option value="geral">Geral</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* AI Caption / Text */}
+              <div>
+                <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Legenda Promocional (WhatsApp)</label>
+                <textarea
+                  rows={4}
+                  required
+                  value={editingCaption}
+                  onChange={e => setEditingCaption(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none resize-none scrollbar-thin animate-none"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOfferForEdit(null)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold rounded-xl text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow flex items-center gap-2 disabled:opacity-75"
+                >
+                  {savingEdit ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

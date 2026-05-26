@@ -660,6 +660,33 @@ Responda apenas com o JSON.`;
     }
   });
 
+  // 2b. Editar Oferta do Banco
+  app.put('/api/whatsapp/offers-bank/:id', express.json(), async (req, res) => {
+    try {
+      const offerId = req.params.id;
+      const { productName, price, category, aiCaption } = req.body;
+
+      if (!productName || price === undefined || !category || !aiCaption) {
+        return res.status(400).json({ error: 'Todos os campos (nome, preço, categoria, legenda) são obrigatórios para atualizar a oferta.' });
+      }
+
+      const offer = await db.prepare('SELECT id FROM whatsapp_offers_bank WHERE id = ?').get(offerId);
+      if (!offer) {
+        return res.status(404).json({ error: 'Oferta não encontrada.' });
+      }
+
+      db.prepare(`
+        UPDATE whatsapp_offers_bank
+        SET productName = ?, price = ?, category = ?, aiCaption = ?
+        WHERE id = ?
+      `).run(productName, parseFloat(price), category, aiCaption, offerId);
+
+      res.json({ success: true, message: 'Oferta atualizada com sucesso!' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 3. Excluir Oferta do Banco
   app.delete('/api/whatsapp/offers-bank/:id', async (req, res) => {
     try {
