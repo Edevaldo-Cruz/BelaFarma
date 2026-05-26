@@ -6,7 +6,7 @@ const ENABLED = process.env.WA_NOTIFICATIONS_ENABLED !== 'false';
 const ADMIN_PHONES = (process.env.ADMIN_WHATSAPP || '').split(',').map(p => p.trim()).filter(p => !!p);
 const API_URL = process.env.EVOLUTION_API_URL || 'http://evolution-api:8080';
 // belaAtende é a instância de ENVIO; belaFarma é a instância de RECEBIMENTO
-const API_KEY = process.env.EVOLUTION_SENDER_API_KEY || process.env.EVOLUTION_API_KEY || 'BelaAtende2026';
+const API_KEY = process.env.EVOLUTION_API_KEY || process.env.EVOLUTION_SENDER_API_KEY || 'BelafarmaSul2026';
 const INSTANCE_NAME = process.env.EVOLUTION_SENDER_INSTANCE || process.env.EVOLUTION_INSTANCE_NAME || 'belaAtende';
 
 const RATE_LIMIT_MS = 3000; // 3 segundos entre cada mensagem

@@ -31,7 +31,14 @@ class PixBotService {
     if (!event || event.toLowerCase() !== 'messages.upsert' || !data || data.key.fromMe) return;
 
     const message = data.message;
-    const remoteJid = data.key.remoteJid;
+    const remoteJid = data.key.remoteJid || '';
+
+    // Ignorar explicitamente se for mensagem de grupo ou transmissão (evita desperdício de tokens)
+    if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) {
+      console.log(`[PixBot] ℹ️ Ignorando mensagem recebida de grupo ou transmissão: ${remoteJid}`);
+      return;
+    }
+
     const phone = remoteJid.split('@')[0];
     const messageType = data.messageType || '';
 

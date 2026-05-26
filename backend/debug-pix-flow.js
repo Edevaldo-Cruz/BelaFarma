@@ -141,7 +141,7 @@ async function checkEvolution() {
         (i.instance?.instanceName || i.instanceName) === EVOLUTION_INSTANCE
       );
       if (minha) {
-        const status = minha.instance?.state || minha.state || 'desconhecido';
+        const status = minha.instance?.status || minha.instance?.state || minha.status || minha.state || 'desconhecido';
         if (status === 'open') {
           console.log(`   ✅ Instância "${EVOLUTION_INSTANCE}" está CONECTADA (status: ${status})`);
         } else {
