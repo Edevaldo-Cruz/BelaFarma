@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Redirecionar logs para arquivo persistente (volume Docker /data)
 const LOG_DIR = process.platform === 'win32' 
   ? path.join(__dirname) 
-  : path.join(__dirname, '..', 'data');
+  : path.join(__dirname, 'data');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 const logStream = fs.createWriteStream(path.join(LOG_DIR, 'backend.log'), { flags: 'a' });
 const originalLog = console.log;
@@ -128,7 +128,7 @@ app.post('/api/backups/create', (req, res) => {
 // Restore is dangerous, so we just run the restore script which handles logic
 app.post('/api/backups/:filename/restore', (req, res) => {
   const { filename } = req.params;
-  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : '../data/backups');
+  const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : 'data/backups');
   const backupPath = path.join(backupDir, filename);
 
   // Determine source DB path (target for restore)
@@ -138,7 +138,7 @@ app.post('/api/backups/:filename/restore', (req, res) => {
   } else {
      // Docker fallback
       if (!fs.existsSync(targetPath)) {
-        targetPath = path.join(__dirname, '../data/belafarma.db');
+        targetPath = path.join(__dirname, 'data/belafarma.db');
       }
   }
 
@@ -3143,7 +3143,7 @@ console.log('🤖 Agente de Compras e Central de Arquivos inicializados.');
 
 const BACKUP_DIR = process.platform === 'win32'
   ? path.join(__dirname, '../backups_dev_simulated')
-  : path.join(__dirname, '../data/backups');
+  : path.join(__dirname, 'data/backups');
 const DB_BACKUP_PATH = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
 const MAX_BACKUPS = 30; // Mantém os últimos 30 arquivos
 

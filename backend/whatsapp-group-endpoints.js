@@ -11,7 +11,7 @@ const { buscarClimaReal } = require('./services/marketing-agent.service');
 // Configuração do diretório de uploads persistente (Windows = public/uploads, Linux/Docker = ../data/uploads)
 const uploadDir = process.platform === 'win32'
   ? path.join(__dirname, 'public', 'uploads')
-  : path.join(__dirname, '..', 'data', 'uploads');
+  : path.join(__dirname, 'data', 'uploads');
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -377,7 +377,7 @@ function initializeWhatsAppGroupEndpoints(app) {
     try {
         const logPath = process.platform === 'win32'
             ? path.join(__dirname, 'backend.log')
-            : path.join(__dirname, '..', 'data', 'backend.log');
+            : path.join(__dirname, 'data', 'backend.log');
         if (fs.existsSync(logPath)) {
             const content = fs.readFileSync(logPath, 'utf8');
             const lines = content.split('\n').slice(-200).join('\n');
@@ -397,7 +397,7 @@ function initializeWhatsAppGroupEndpoints(app) {
         if (!q) return res.status(400).send('Use ?q=termo para buscar.');
         const logPath = process.platform === 'win32'
             ? path.join(__dirname, 'backend.log')
-            : path.join(__dirname, '..', 'data', 'backend.log');
+            : path.join(__dirname, 'data', 'backend.log');
         if (!fs.existsSync(logPath)) return res.send('Log não encontrado.');
         const content = fs.readFileSync(logPath, 'utf8');
         const lines = content.split('\n').filter(l => l.toLowerCase().includes(q.toLowerCase()));
