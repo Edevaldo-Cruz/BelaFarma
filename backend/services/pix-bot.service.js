@@ -209,8 +209,8 @@ class PixBotService {
       console.log(`[PixBot-Baileys] 🤖 Auditoria IA para ${phone}:`, result);
 
       if (!result.isPix) {
-        console.log(`[PixBot-Baileys] ℹ️ Imagem de ${phone} não é um comprovante PIX. Ignorando.`);
-        return;
+        console.log(`[PixBot-Baileys] ℹ️ Imagem de ${phone} não é um comprovante PIX. Retornando false para fallback.`);
+        return false;
       }
 
       const aprovado = result.isBelaFarma && result.isValidStatus && result.isTodayDate && result.confidence > 0.85;
@@ -221,6 +221,7 @@ class PixBotService {
         console.log(`[PixBot-Baileys] 🚫 PIX RECUSADO PELA SEGURANÇA: ${result.reason}`);
         await this.logRejectedPix(result, phone);
       }
+      return true;
     } catch (err) {
       console.error('[PixBot-Baileys] 💥 Erro ao processar imagem:', err.message);
     }

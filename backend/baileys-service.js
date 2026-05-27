@@ -127,10 +127,13 @@ async function connect(db) {
       }
     });
 
-    // ── Mensagens (Integração PixBot) ──────────────────────
+    // ── Mensagens (Integração PixBot & LabelBot) ──────────────────────
     if (db) {
       const PixBotService = require('./services/pix-bot.service.js');
       const pixBot = new PixBotService(db);
+
+      const LabelBotService = require('./services/label-bot.service.js');
+      const labelBot = new LabelBotService(db);
 
       sock.ev.on('messages.upsert', async (m) => {
         try {
@@ -144,15 +147,59 @@ async function connect(db) {
           const phone = remoteJid.split('@')[0];
           const messageType = Object.keys(msg.message)[0];
           
+          // 1. Extração de Texto
+          let text = null;
+          if (messageType === 'conversation') {
+            text = msg.message.conversation;
+          } else if (messageType === 'extendedTextMessage') {
+            text = msg.message.extendedTextMessage.text;
+          } else if (messageType === 'imageMessage' && msg.message.imageMessage.caption) {
+            text = msg.message.imageMessage.caption;
+          } else if (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.caption) {
+            text = msg.message.documentWithCaptionMessage.message.documentMessage.caption;
+          }
+
+          const cleanText = text ? text.toLowerCase().trim() : '';
+          const isLabelTrigger = cleanText.startsWith('etiqueta') || 
+                                 cleanText.startsWith('#etiqueta') || 
+                                 cleanText.startsWith('etq') || 
+                                 cleanText.startsWith('criar etiqueta') || 
+                                 cleanText.startsWith('gerar etiqueta') || 
+                                 cleanText.startsWith('imprimir etiqueta');
+
           // Verifica se é imagem ou documento com imagem
           const isImage = messageType === 'imageMessage' || 
                          (messageType === 'documentMessage' && msg.message.documentMessage.mimetype.startsWith('image/')) ||
                          (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.mimetype?.startsWith('image/'));
 
-          if (isImage) {
-            console.log(`[Baileys] 📸 Imagem recebida de ${phone}. Repassando ao PixBot...`);
+          const isAudio = messageType === 'audioMessage';
+
+          // ── FLUXO DE ÁUDIO ──────────────────────────────────
+          if (isAudio) {
+            console.log(`[Baileys] 🎙️ Áudio recebido de ${phone}. Baixando mídia...`);
+            const buffer = await downloadMediaMessage(
+              msg,
+              'buffer',
+              { },
+              { 
+                logger: sock.logger,
+                reuploadRequest: sock.updateMediaMessage
+              }
+            );
+
+            const result = await labelBot.processWhatsAppInput({
+              phone,
+              audioBuffer: buffer
+            });
+
+            if (result && result.replyText) {
+              await sock.sendMessage(remoteJid, { text: result.replyText });
+            }
+          }
+          // ── FLUXO DE IMAGEM ─────────────────────────────────
+          else if (isImage) {
+            console.log(`[Baileys] 📸 Imagem recebida de ${phone}. Analisando...`);
             
-            // Baixa a mídia usando o método nativo do Baileys
             const buffer = await downloadMediaMessage(
               msg,
               'buffer',
@@ -168,7 +215,47 @@ async function connect(db) {
                             msg.message?.documentMessage?.mimetype || 
                             'image/jpeg';
             
-            await pixBot.processBaileysImage(base64Image, mimeType, phone, msg.key.id);
+            // Se tiver legenda contendo gatilho de etiqueta
+            if (isLabelTrigger) {
+              console.log(`[Baileys] 🏷️ Legenda explícita de etiqueta detectada. Roteando para LabelBot...`);
+              const result = await labelBot.processWhatsAppInput({
+                phone,
+                imageBase64: base64Image,
+                imageMime: mimeType,
+                text: text
+              });
+              if (result && result.replyText) {
+                await sock.sendMessage(remoteJid, { text: result.replyText });
+              }
+            } else {
+              // Caso contrário, tenta o PixBot primeiro
+              console.log(`[Baileys] 🔍 Tentando auditoria PIX via PixBot...`);
+              const isPix = await pixBot.processBaileysImage(base64Image, mimeType, phone, msg.key.id);
+              
+              // Se não for um PIX, faz o fallback automático para o LabelBot!
+              if (isPix === false) {
+                console.log(`[Baileys] 🏷️ Não é comprovante PIX. Fazendo fallback de imagem para o LabelBot...`);
+                const result = await labelBot.processWhatsAppInput({
+                  phone,
+                  imageBase64: base64Image,
+                  imageMime: mimeType
+                });
+                if (result && result.replyText) {
+                  await sock.sendMessage(remoteJid, { text: result.replyText });
+                }
+              }
+            }
+          }
+          // ── FLUXO DE TEXTO ──────────────────────────────────
+          else if (isLabelTrigger) {
+            console.log(`[Baileys] 💬 Texto de gatilho de etiqueta recebido de ${phone}. Enviando ao LabelBot...`);
+            const result = await labelBot.processWhatsAppInput({
+              phone,
+              text: text
+            });
+            if (result && result.replyText) {
+              await sock.sendMessage(remoteJid, { text: result.replyText });
+            }
           }
         } catch (err) {
           console.error('[Baileys] Erro ao processar mensagem recebida:', err.message);

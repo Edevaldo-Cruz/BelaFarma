@@ -33,6 +33,7 @@ import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { PixGenerator } from "./components/PixGenerator";
+import { EtiquetasManager } from "./components/EtiquetasManager";
 import {
   Order,
   View,
@@ -832,6 +833,7 @@ const App: React.FC = () => {
                   onNavigate={handleNavigate}
                 />
               )}
+              {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>
           )}

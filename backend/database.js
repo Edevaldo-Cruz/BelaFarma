@@ -310,6 +310,34 @@ try {
       );
     `;
 
+    // Stock products and label printing queue tables
+    const createStockProductsTable = `
+      CREATE TABLE IF NOT EXISTS stock_products (
+        code TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        sale_price REAL NOT NULL,
+        cost_price REAL,
+        stock_qty INTEGER,
+        updated_at TEXT NOT NULL
+      );
+    `;
+
+    const createLabelPrintQueueTable = `
+      CREATE TABLE IF NOT EXISTS label_print_queue (
+        id TEXT PRIMARY KEY,
+        product_name TEXT NOT NULL,
+        price REAL NOT NULL,
+        original_price REAL,
+        barcode TEXT,
+        quantity INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'Pendente',
+        source TEXT,
+        phone TEXT,
+        created_at TEXT NOT NULL,
+        printed_at TEXT
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -332,6 +360,18 @@ try {
     db.exec(createPixConfirmationsTable);
     db.exec(createCustomersTable);
     db.exec(createCustomerDebtsTable);
+    db.exec(createStockProductsTable);
+    db.exec(createLabelPrintQueueTable);
+
+    // Create indexes for fast lookups
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_stock_products_name ON stock_products(name);');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_label_print_queue_status ON label_print_queue(status);');
+      console.log('Stock and Label indexes verified/created.');
+    } catch (e) {
+      console.log('Stock/Label indexes already exist or failed to create:', e.message);
+    }
+
     // --- Boletos Table Migrations ---
     // Add supplierName column if it doesn't exist
     try {

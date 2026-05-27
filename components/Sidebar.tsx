@@ -37,6 +37,7 @@ import {
   Radio, // Added for Rádio Bela Farma
   ContactRound, // Added for CRM WhatsApp
   Sparkles, // Added for Tera Incentive
+  Printer, // Added for Labels
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -137,6 +138,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'radio-manager', label: 'Rádio Bela Farma', icon: Radio },
     { id: 'whatsapp-crm', label: 'CRM WhatsApp', icon: ContactRound },
     { id: 'pix', label: 'Gerador Pix', icon: CreditCard },
+    { id: 'labels', label: 'Etiquetas A4', icon: Printer },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 

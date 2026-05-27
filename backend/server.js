@@ -3582,5 +3582,187 @@ app.get('/api/whatsapp/baileys/groups', async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// 🏷️ MÓDULO DE EMISSÃO DE ETIQUETAS E CATÁLOGO DE ESTOQUE
+// ══════════════════════════════════════════════════════════════════════
+const PdfParserService = require('./services/pdf-parser.service.js');
+const pdfParser = new PdfParserService(db);
+
+// GET /api/labels/queue - Retorna todas as etiquetas na fila
+app.get('/api/labels/queue', (req, res) => {
+  try {
+    const queue = db.prepare('SELECT * FROM label_print_queue ORDER BY created_at DESC').all();
+    res.json(queue);
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro ao listar fila:', err.message);
+    res.status(500).json({ error: 'Erro ao listar fila de etiquetas.' });
+  }
+});
+
+// POST /api/labels/queue - Cria etiqueta manualmente
+app.post('/api/labels/queue', (req, res) => {
+  const { productName, price, originalPrice, barcode, quantity } = req.body;
+  if (!productName || !price) {
+    return res.status(400).json({ error: 'Nome do produto e Preço de venda são obrigatórios.' });
+  }
+  
+  try {
+    const id = `label_${Date.now()}`;
+    const stmt = db.prepare(`
+      INSERT INTO label_print_queue (id, product_name, price, original_price, barcode, quantity, status, source, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(
+      id,
+      productName,
+      parseFloat(price),
+      originalPrice ? parseFloat(originalPrice) : null,
+      barcode || '',
+      quantity ? parseInt(quantity, 10) : 1,
+      'Pendente',
+      'web',
+      new Date().toISOString()
+    );
+    
+    res.status(201).json({ success: true, message: 'Etiqueta criada com sucesso.', id });
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro ao criar etiqueta manualmente:', err.message);
+    res.status(500).json({ error: 'Erro ao salvar etiqueta.' });
+  }
+});
+
+// PUT /api/labels/queue/:id - Edita etiqueta
+app.put('/api/labels/queue/:id', (req, res) => {
+  const { id } = req.params;
+  const { product_name, price, original_price, barcode, quantity, status } = req.body;
+  
+  try {
+    const stmt = db.prepare(`
+      UPDATE label_print_queue 
+      SET product_name = ?, price = ?, original_price = ?, barcode = ?, quantity = ?, status = ?
+      WHERE id = ?
+    `);
+    
+    const result = stmt.run(
+      product_name,
+      parseFloat(price),
+      original_price ? parseFloat(original_price) : null,
+      barcode || '',
+      parseInt(quantity, 10) || 1,
+      status || 'Pendente',
+      id
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Etiqueta não encontrada.' });
+    }
+    
+    res.json({ success: true, message: 'Etiqueta atualizada com sucesso.' });
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro ao atualizar etiqueta:', err.message);
+    res.status(500).json({ error: 'Erro ao atualizar etiqueta.' });
+  }
+});
+
+// DELETE /api/labels/queue/:id - Remove etiqueta da fila
+app.delete('/api/labels/queue/:id', (req, res) => {
+  const { id } = req.params;
+  try {
+    const stmt = db.prepare('DELETE FROM label_print_queue WHERE id = ?');
+    const result = stmt.run(id);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Etiqueta não encontrada.' });
+    }
+    res.json({ success: true, message: 'Etiqueta removida com sucesso.' });
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro ao deletar etiqueta:', err.message);
+    res.status(500).json({ error: 'Erro ao remover etiqueta.' });
+  }
+});
+
+// POST /api/labels/print-batch - Marca lote como impresso
+app.post('/api/labels/print-batch', (req, res) => {
+  const { ids } = req.body; // Array de IDs
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'IDs das etiquetas impressas são necessários.' });
+  }
+  
+  try {
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      UPDATE label_print_queue 
+      SET status = 'Impresso', printed_at = ? 
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction((labelIds) => {
+      let count = 0;
+      for (const id of labelIds) {
+        const result = stmt.run(now, id);
+        count += result.changes;
+      }
+      return count;
+    });
+    
+    const updatedCount = transaction(ids);
+    res.json({ success: true, message: `${updatedCount} etiquetas marcadas como impressas.` });
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro ao processar lote impresso:', err.message);
+    res.status(500).json({ error: 'Erro ao marcar etiquetas como impressas.' });
+  }
+});
+
+// POST /api/labels/upload-stock-pdf - Recebe PDF e atualiza catálogo stock_products
+app.post('/api/labels/upload-stock-pdf', upload.single('stockPdf'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo PDF enviado.' });
+  }
+
+  console.log(`[SERVER-LABELS] Recebido PDF de estoque: ${req.file.originalname} -> ${req.file.path}`);
+  
+  try {
+    const importedCount = await pdfParser.importStockFromPdf(req.file.path);
+    
+    // Limpa o arquivo temporário após o processamento bem sucedido
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    
+    res.json({ 
+      success: true, 
+      message: `Estoque atualizado com sucesso! ${importedCount} produtos importados do PDF.` 
+    });
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro catastrófico na importação do PDF:', err.message);
+    // Limpa o arquivo mesmo se der erro
+    try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch (e) {}
+    
+    res.status(500).json({ 
+      error: `Erro ao processar o relatório de estoque em PDF: ${err.message}` 
+    });
+  }
+});
+
+// GET /api/labels/stock - Busca produtos no catálogo do estoque (para autocomplete no manual)
+app.get('/api/labels/stock', (req, res) => {
+  const { q } = req.query;
+  try {
+    let products = [];
+    if (q && q.length >= 2) {
+      products = db.prepare(`
+        SELECT * FROM stock_products 
+        WHERE name LIKE ? OR code = ?
+        ORDER BY name LIMIT 50
+      `).all(`%${q}%`, q);
+    } else {
+      products = db.prepare('SELECT * FROM stock_products ORDER BY name LIMIT 50').all();
+    }
+    res.json(products);
+  } catch (err) {
+    console.error('[SERVER-LABELS] Erro ao buscar estoque:', err.message);
+    res.status(500).json({ error: 'Erro ao buscar catálogo de produtos.' });
+  }
+});
+
 // Nodemon trigger restart
+
 
