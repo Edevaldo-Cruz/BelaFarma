@@ -344,7 +344,8 @@ class LabelBotService {
     const SIZE_TOKENS = new Set(['p', 'm', 'g', 'gg', 'rn']);
     const STOP_WORDS = new Set([
       'de', 'do', 'da', 'dos', 'das', 'em', 'um', 'uma', 'uns', 'umas', 
-      'o', 'a', 'os', 'as', 'e', 'para', 'com', 'sem', 'sob', 'sobre'
+      'o', 'a', 'os', 'as', 'e', 'para', 'com', 'sem', 'sob', 'sobre',
+      'outros', 'perfumaria', 'higiene', 'beleza', 'st', 'generico'
     ]);
 
     // Dicionário bidirecional de equivalências farmacêuticas de abreviações brasileiras
@@ -378,6 +379,8 @@ class LabelBotService {
       'caixa': ['caixa'], 'cx': ['caixa'],
       // Unidades / Quantidades
       'unidade': ['unidade'], 'unidades': ['unidade'], 'un': ['unidade'], 'und': ['unidade'], 'unid': ['unidade'],
+      'g': ['grama'], 'gr': ['grama'], 'grama': ['grama'], 'gramas': ['grama'],
+      'ml': ['mililítro'], 'mls': ['mililítro'],
       // Uso / Público
       'adulto': ['adulto'], 'adt': ['adulto'], 'ad': ['adulto'],
       'infantil': ['infantil'], 'inf': ['infantil'], 'pediatrico': ['infantil'], 'ped': ['infantil'],
@@ -388,7 +391,9 @@ class LabelBotService {
       'desodorante': ['desodorante'], 'des': ['desodorante'], 'desod': ['desodorante'],
       'protetor': ['protetor'], 'prot': ['protetor'],
       // Controle / Queda
-      'controle': ['controle'], 'control': ['controle'], 'cont': ['controle']
+      'controle': ['controle'], 'control': ['controle'], 'cont': ['controle'],
+      // Relaxante / Relax
+      'relaxante': ['relaxante'], 'relax': ['relaxante'], 'relax.': ['relaxante']
     };
 
     // Helper de normalização inteligente
@@ -431,13 +436,14 @@ class LabelBotService {
       return 1;
     };
 
-    // Helper de pontuação da correspondência
+    // Helper de pontuação de correspondência em duas vias
     const calculateMatchScore = (queryTokens, candidateName) => {
       const candidateTokens = tokenize(candidateName);
       if (queryTokens.length === 0 || candidateTokens.length === 0) return 0;
       
+      // 1. Relevância da query para o candidato
       let totalQueryWeight = 0;
-      let matchedWeight = 0;
+      let queryMatchedWeight = 0;
       
       for (const qToken of queryTokens) {
         const weight = getTokenWeight(qToken);
@@ -451,12 +457,38 @@ class LabelBotService {
           }
         }
         if (isMatched) {
-          matchedWeight += weight;
+          queryMatchedWeight += weight;
         }
       }
       
-      let score = matchedWeight / totalQueryWeight;
+      const queryScore = queryMatchedWeight / totalQueryWeight;
+
+      // 2. Relevância do candidato para a query (essencial para queries verbosas vs nomes curtos)
+      let totalCandidateWeight = 0;
+      let candidateMatchedWeight = 0;
       
+      for (const cToken of candidateTokens) {
+        const weight = getTokenWeight(cToken);
+        totalCandidateWeight += weight;
+        
+        let isMatched = false;
+        for (const qToken of queryTokens) {
+          if (tokensMatch(qToken, cToken)) {
+            isMatched = true;
+            break;
+          }
+        }
+        if (isMatched) {
+          candidateMatchedWeight += weight;
+        }
+      }
+      
+      const candidateScore = candidateMatchedWeight / totalCandidateWeight;
+      
+      // Usa o maior score entre as duas visões
+      let score = Math.max(queryScore, candidateScore);
+      
+      // Penalidade leve por termos avulsos/sobressalentes no candidato
       let unmatchedCandidateCount = 0;
       for (const cToken of candidateTokens) {
         let matched = false;
@@ -477,13 +509,14 @@ class LabelBotService {
     const queryTokens = tokenize(searchName);
     if (queryTokens.length === 0) return null;
 
-    // 3. Otimização de busca no SQLite usando LIKE nos termos mais longos (mais específicos)
+    // 3. Busca no SQLite usando os principais termos significativos ordenados por relevância
     const sigTokens = queryTokens.filter(t => t.length >= 3 && !STOP_WORDS.has(t));
     sigTokens.sort((a, b) => b.length - a.length);
 
     let candidates = [];
     if (sigTokens.length > 0) {
-      const topTokens = sigTokens.slice(0, 3);
+      // Usa até os 6 termos mais longos para ampliar o recall da busca
+      const topTokens = sigTokens.slice(0, 6);
       const conditions = topTokens.map(() => 'name LIKE ?').join(' OR ');
       const params = topTokens.map(t => `%${t}%`);
       candidates = this.db.prepare(`SELECT * FROM stock_products WHERE ${conditions}`).all(...params);

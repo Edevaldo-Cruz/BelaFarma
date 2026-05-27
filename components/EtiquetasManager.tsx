@@ -512,37 +512,43 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
               return (
                 <div 
                   key={slotIdx} 
-                  className="w-full h-full border border-dashed border-slate-200 p-2 flex flex-col justify-between items-center text-center bg-white overflow-hidden"
+                  className="w-full h-full border border-solid border-black flex flex-col bg-white overflow-hidden text-black font-sans"
                   style={{ boxSizing: 'border-box' }}
                 >
-                  {/* Cabeçalho */}
-                  <div className="text-[7px] font-black text-slate-500 uppercase tracking-wider leading-none">
-                    Drogaria Bela Farma
+                  {/* Cabeçalho com fundo cinza claro e borda inferior */}
+                  <div className="w-full border-b border-black py-1.5 px-2 text-center bg-slate-100 flex items-center justify-center min-h-[16px]">
+                    <span className="text-[8px] font-black text-black uppercase tracking-wider leading-none">
+                      Drogaria Bela Farma
+                    </span>
                   </div>
                   
-                  {/* Nome do Produto */}
-                  <div className="text-[10px] font-black text-slate-900 uppercase leading-snug line-clamp-2 px-1">
-                    {label.product_name}
+                  {/* Nome do Produto com borda inferior */}
+                  <div className="w-full border-b border-black flex-1 flex items-center justify-center py-2 px-1 bg-white">
+                    <span className="text-[10px] font-black text-black uppercase leading-tight line-clamp-2 text-center font-bold">
+                      {label.product_name}
+                    </span>
                   </div>
                   
-                  {/* Preço de Venda */}
-                  <div className="flex flex-col leading-none items-center">
+                  {/* Preço de Venda com borda inferior */}
+                  <div className="w-full border-b border-black py-1.5 flex flex-col items-center justify-center bg-slate-50 min-h-[36px]">
                     {label.original_price && (
-                      <span className="text-[8px] text-slate-400 line-through font-bold">
-                        De: R$ {label.original_price.toFixed(2)}
+                      <span className="text-[8px] text-slate-550 line-through font-bold leading-none mb-0.5">
+                        DE: R$ {label.original_price.toFixed(2)}
                       </span>
                     )}
-                    <span className="text-lg font-black text-red-600 dark:text-red-700 tracking-tighter">
+                    <span className="text-lg font-black text-red-600 tracking-tighter leading-none py-0.5">
                       R$ {label.price.toFixed(2)}
                     </span>
                   </div>
 
                   {/* Código de Barras */}
-                  {label.barcode ? (
-                    <Code39Barcode value={label.barcode} />
-                  ) : (
-                    <div className="text-[7px] font-bold text-slate-400 italic">Sem código de barras</div>
-                  )}
+                  <div className="w-full py-1.5 flex flex-col items-center justify-center bg-white min-h-[38px]">
+                    {label.barcode ? (
+                      <Code39Barcode value={label.barcode} />
+                    ) : (
+                      <span className="text-[8px] font-bold text-slate-400 italic">Sem código de barras</span>
+                    )}
+                  </div>
                 </div>
               );
             })}
