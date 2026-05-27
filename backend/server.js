@@ -3583,6 +3583,90 @@ app.get('/api/whatsapp/baileys/groups', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
+// 🤖 BAILEYS WHATSAPP SECONDARY SERVICE — Inicialização e Endpoints
+// ══════════════════════════════════════════════════════════════════════
+let baileysSecondary = null;
+try {
+  baileysSecondary = require('./baileys-secondary-service.js');
+  console.log('[Baileys-Secondary] 🚀 Iniciando conexão WhatsApp Secundário em background...');
+  baileysSecondary.connect(db).catch(err => {
+    console.error('[Baileys-Secondary] ⚠️ Falha na inicialização do secundário:', err.message);
+  });
+} catch (e) {
+  console.warn('[Baileys-Secondary] ⚠️ Serviço secundário indisponível:', e.message);
+}
+
+// GET /api/whatsapp/secondary/status — Status da conexão
+app.get('/api/whatsapp/secondary/status', (req, res) => {
+  if (!baileysSecondary) return res.json({ connected: false, error: 'Serviço Baileys Secundário não carregado.' });
+  res.json(baileysSecondary.getStatus());
+});
+
+// GET /api/whatsapp/secondary/qrcode — Retorna o QR Code atual (base64)
+app.get('/api/whatsapp/secondary/qrcode', (req, res) => {
+  if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
+  const status = baileysSecondary.getStatus();
+  if (!status.hasQR) {
+    return res.json({ hasQR: false, message: status.connected ? 'Já conectado!' : 'Aguardando QR Code...' });
+  }
+  res.json({ hasQR: true, qrCode: status.qrCode });
+});
+
+// POST /api/whatsapp/secondary/reconnect — Força reconexão/novo QR
+app.post('/api/whatsapp/secondary/reconnect', async (req, res) => {
+  if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
+  try {
+    await baileysSecondary.disconnect();
+    await new Promise(r => setTimeout(r, 1000));
+    baileysSecondary.connect(db).catch(e => console.error('[Baileys-Secondary] Erro ao reconectar:', e.message));
+    res.json({ success: true, message: 'Reconexão do secundário iniciada! Aguarde o QR Code.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/whatsapp/secondary/send-text — Envio de mensagem de texto (manual/automático)
+app.post('/api/whatsapp/secondary/send-text', async (req, res) => {
+  if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
+  const { to, text } = req.body;
+  if (!to || !text) {
+    return res.status(400).json({ error: 'Parâmetros "to" (número ou grupo) e "text" são obrigatórios.' });
+  }
+  try {
+    const result = await baileysSecondary.sendTextToGroup(to, text);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/whatsapp/secondary/send-media — Envio de imagem
+app.post('/api/whatsapp/secondary/send-media', async (req, res) => {
+  if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
+  const { to, caption, imagePath } = req.body;
+  if (!to || !imagePath) {
+    return res.status(400).json({ error: 'Parâmetros "to" e "imagePath" são obrigatórios.' });
+  }
+  try {
+    const result = await baileysSecondary.sendImageToGroup(to, imagePath, caption);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/whatsapp/secondary/groups — Lista grupos do WhatsApp Secundário
+app.get('/api/whatsapp/secondary/groups', async (req, res) => {
+  if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
+  try {
+    const groups = await baileysSecondary.listGroups();
+    res.json(groups);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
 // 🏷️ MÓDULO DE EMISSÃO DE ETIQUETAS E CATÁLOGO DE ESTOQUE
 // ══════════════════════════════════════════════════════════════════════
 const PdfParserService = require('./services/pdf-parser.service.js');
