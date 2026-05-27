@@ -18,6 +18,7 @@ function getOpenAI() {
 class LabelBotService {
   constructor(db) {
     this.db = db;
+    this.pendingPrices = new Map(); // phone -> { name, barcode, quantity, originalPrice }
   }
 
   /**
@@ -34,6 +35,52 @@ class LabelBotService {
     console.log(`[LabelBot] 📥 Processando entrada de ${phone}. TemTexto: ${!!text}, TemImagem: ${!!imageBase64}, TemAudio: ${!!audioBuffer}`);
 
     try {
+      // ── VERIFICA SE É RESPOSTA DE PREÇO PENDENTE ──
+      if (text && !imageBase64 && !audioBuffer) {
+        const cleanText = text.toLowerCase().trim();
+        const priceMatch = cleanText.match(/^(?:preço|preco)\s*(?:r\$\s*)?(\d+[\.,]\d{2})/i);
+        
+        if (priceMatch && this.pendingPrices.has(phone)) {
+          const typedPrice = parseFloat(priceMatch[1].replace(',', '.'));
+          const pending = this.pendingPrices.get(phone);
+          
+          this.pendingPrices.delete(phone); // Limpa o estado pendente
+          
+          console.log(`[LabelBot] 💰 Preço digitado recebido de ${phone}: R$ ${typedPrice} para o produto ${pending.name}`);
+          
+          // Insere na fila de impressão
+          const labelId = `label_${Date.now()}`;
+          this.db.prepare(`
+            INSERT INTO label_print_queue (id, product_name, price, original_price, barcode, quantity, status, source, phone, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            labelId,
+            pending.name,
+            typedPrice,
+            pending.originalPrice,
+            pending.barcode,
+            pending.quantity,
+            'Pendente',
+            'whatsapp_text',
+            phone,
+            new Date().toISOString()
+          );
+
+          const replyText = `🏷️ *Etiqueta Agendada com Sucesso (Preço Informado)!*\n\n` +
+                          `📦 *Produto:* ${pending.name}\n` +
+                          `💰 *Preço:* R$ ${typedPrice.toFixed(2)}\n` +
+                          `📋 *Quantidade:* ${pending.quantity} cópia(s)\n` +
+                          `🔢 *Cód. Barras (EAN):* ${pending.barcode || '_Não informado_'}\n\n` +
+                          `🖥️ _A etiqueta já está na Estação de Impressão no painel do sistema!_`;
+
+          return {
+            success: true,
+            replyText,
+            label: { id: labelId, name: pending.name, price: typedPrice, barcode: pending.barcode, quantity: pending.quantity }
+          };
+        }
+      }
+
       let extractedData = null;
       let source = 'whatsapp_text';
 
@@ -92,6 +139,16 @@ class LabelBotService {
 
       // Se mesmo após a pesquisa não temos o preço, precisamos pedir ao usuário
       if (!finalPrice || finalPrice <= 0) {
+        const quantity = extractedData.quantity || 1;
+        const originalPrice = extractedData.original_price || null;
+        
+        this.pendingPrices.set(phone, {
+          name: finalName,
+          barcode: finalBarcode,
+          quantity: quantity,
+          originalPrice: originalPrice
+        });
+
         return {
           success: false,
           replyText: `🔍 Identifiquei o produto *"${finalName}"*, mas não encontrei um preço de venda cadastrado para ele no estoque.\n\nPor favor, envie o preço digitando: *Preço R$ XX,XX*`

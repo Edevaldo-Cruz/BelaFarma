@@ -150,12 +150,14 @@ async function connect(db) {
           }
 
           const cleanText = text ? text.toLowerCase().trim() : '';
+          const isPriceResponse = cleanText.startsWith('preço') || cleanText.startsWith('preco');
           const isLabelTrigger = cleanText.startsWith('etiqueta') || 
                                  cleanText.startsWith('#etiqueta') || 
                                  cleanText.startsWith('etq') || 
                                  cleanText.startsWith('criar etiqueta') || 
                                  cleanText.startsWith('gerar etiqueta') || 
-                                 cleanText.startsWith('imprimir etiqueta');
+                                 cleanText.startsWith('imprimir etiqueta') ||
+                                 isPriceResponse;
 
           const isImage = messageType === 'imageMessage' || 
                          (messageType === 'documentMessage' && msg.message.documentMessage.mimetype.startsWith('image/')) ||

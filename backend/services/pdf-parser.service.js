@@ -14,7 +14,9 @@ async function extractPdfText(dataBuffer) {
   } else if (pdfParseModule && typeof pdfParseModule.PDFParse === 'function') {
     // Versão TypeScript/Moderna: 'pdf-parse' exporta a classe PDFParse
     console.log('[PdfParser] 📑 Usando parser moderno do pdf-parse (classe PDFParse)...');
-    const parserInstance = new pdfParseModule.PDFParse(dataBuffer);
+    // Converte o Buffer para Uint8Array puro para satisfazer a exigência estrita do pacote
+    const uint8Array = new Uint8Array(dataBuffer);
+    const parserInstance = new pdfParseModule.PDFParse(uint8Array);
     const result = await parserInstance.getText();
     return result.text;
   } else {
