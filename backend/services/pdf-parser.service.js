@@ -55,38 +55,32 @@ class PdfParserService {
 
     if (onProgress) onProgress(35, 'Analisando e parseando as linhas do relatório...');
 
-    // 2. Dividir em linhas e remover vazias
+    // 2. Dividir em linhas e remover vazias (Preserva todas para não perder números de quantidades como 18, 24, 32 embrulhados)
     const lines = rawText.split('\n')
       .map(line => line.trim())
-      .filter(line => line.length > 5);
+      .filter(line => line.length > 0);
 
     console.log(`[PdfParser] 📊 Total de linhas brutas para análise: ${lines.length}`);
 
     const productsToInsert = [];
 
-    // 3. Parsear cada linha usando regras regulares determinísticas
-    for (const line of lines) {
-      // Uma linha de produto válida DEVE começar com o código de barras (13 dígitos)
-      if (!/^\d{13}\b/.test(line)) {
-        continue;
-      }
-
+    // Funções auxiliares internas para parsing e bufferização
+    const parseSingleLine = (line, list) => {
       try {
-        // Encontra a NCM de 8 dígitos na linha como âncora de divisão
         const ncmMatch = line.match(/\b\d{8}\b/);
-        if (!ncmMatch) continue;
+        if (!ncmMatch) return;
 
         const ncm = ncmMatch[0];
         const parts = line.split(ncm);
         
-        if (parts.length < 2) continue;
+        if (parts.length < 2) return;
 
         // --- PARTE 1 (Antes da NCM): EAN, Código Interno, Nome do Produto + Laboratório ---
         const firstHalf = parts[0].trim();
         
         // Regex para capturar EAN (13 dígitos) no início, seguido do Código Interno (dígitos)
         const matchStart = firstHalf.match(/^(\d{13})\s+(\d+)\s+(.+)$/);
-        if (!matchStart) continue;
+        if (!matchStart) return;
 
         const ean = matchStart[1];
         const internalCode = matchStart[2];
@@ -133,7 +127,7 @@ class PdfParserService {
         }
 
         if (ean && productName && salePrice !== null) {
-          productsToInsert.push({
+          list.push({
             code: ean.toString().trim(),
             name: productName.toString().trim(),
             sale_price: salePrice,
@@ -142,8 +136,67 @@ class PdfParserService {
           });
         }
       } catch (lineErr) {
-        // Silencia erro de parse de linha individual e continua com as outras
+        // Silencia erro de parse de linha individual
       }
+    };
+
+    const parseAndPushProduct = (buffer, list) => {
+      if (!buffer.ean || !buffer.detailsLine) return;
+      const productName = buffer.nameParts.join(' ').trim();
+      const syntheticLine = `${buffer.ean} ${buffer.internalCode} ${productName} ${buffer.detailsLine}`;
+      parseSingleLine(syntheticLine, list);
+    };
+
+    // 3. Buffer de parsing para lidar com quebras de linha no PDF do relatório
+    let currentBuffer = null;
+
+    for (const line of lines) {
+      const isStartLine = /^\d{13}\b/.test(line);
+      const hasNcm = /\b\d{8}\b/.test(line);
+
+      if (isStartLine && hasNcm) {
+        // Produto completo em uma única linha
+        if (currentBuffer) {
+          parseAndPushProduct(currentBuffer, productsToInsert);
+          currentBuffer = null;
+        }
+        parseSingleLine(line, productsToInsert);
+      } else if (isStartLine) {
+        // Começo de uma linha de produto que sofreu quebra de linha
+        if (currentBuffer) {
+          parseAndPushProduct(currentBuffer, productsToInsert);
+        }
+        const startMatch = line.match(/^(\d{13})\s+(\d+)\s+(.+)$/);
+        if (startMatch) {
+          currentBuffer = {
+            ean: startMatch[1],
+            internalCode: startMatch[2],
+            nameParts: [startMatch[3].trim()],
+            detailsLine: null
+          };
+        } else {
+          currentBuffer = null;
+        }
+      } else if (currentBuffer) {
+        // Conteúdo dentro de um produto que sofreu quebra de linha
+        if (hasNcm && line.includes('R$')) {
+          // É a linha final de detalhes comerciais/tributários
+          currentBuffer.detailsLine = line;
+          parseAndPushProduct(currentBuffer, productsToInsert);
+          currentBuffer = null;
+        } else {
+          // É a continuação do nome/descrição do produto
+          // Filtra tags de página e rodapés para evitar lixo no nome do produto
+          if (!line.includes('SUB-TOTAL') && !line.includes('Gerado Por') && !/^\d{2}\/\d{2}\/\d{4}/.test(line)) {
+            currentBuffer.nameParts.push(line.trim());
+          }
+        }
+      }
+    }
+
+    // Processa o último produto pendente no buffer, se houver
+    if (currentBuffer) {
+      parseAndPushProduct(currentBuffer, productsToInsert);
     }
 
     console.log(`[PdfParser] 🤖 Parse concluído. Extraídos deterministicamente ${productsToInsert.length} produtos.`);

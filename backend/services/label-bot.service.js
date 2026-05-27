@@ -337,22 +337,190 @@ class LabelBotService {
       if (directMatch) return directMatch;
     }
 
-    // 2. Busca por aproximação textual na tabela
+    // 2. Busca por aproximação textual inteligente
     if (!searchName || searchName.length < 3) return null;
 
-    // Busca rápida usando LIKE nas primeiras palavras
-    const firstWord = searchName.split(' ')[0].trim();
-    const potentialMatches = this.db.prepare(`
-      SELECT * FROM stock_products 
-      WHERE name LIKE ? OR name LIKE ? 
-      LIMIT 15
-    `).all(`%${searchName}%`, `%${firstWord}%`);
+    // Configurações de Tokens de Tamanho e Stop Words em Português
+    const SIZE_TOKENS = new Set(['p', 'm', 'g', 'gg', 'rn']);
+    const STOP_WORDS = new Set([
+      'de', 'do', 'da', 'dos', 'das', 'em', 'um', 'uma', 'uns', 'umas', 
+      'o', 'a', 'os', 'as', 'e', 'para', 'com', 'sem', 'sob', 'sobre'
+    ]);
 
-    if (potentialMatches.length === 0) return null;
-    if (potentialMatches.length === 1) return potentialMatches[0];
+    // Dicionário bidirecional de equivalências farmacêuticas de abreviações brasileiras
+    const SYNONYMS = {
+      // Fraldas
+      'fralda': ['fralda'], 'fraldas': ['fralda'], 'fr': ['fralda', 'frasco'],
+      // Shampoo
+      'shampoo': ['shampoo'], 'shamp': ['shampoo'], 'sh': ['shampoo'], 'xamp': ['shampoo'],
+      // Creme / Condicionador / Sabonete / Gel
+      'creme': ['creme'], 'crem': ['creme'], 'cr': ['creme'],
+      'condicionador': ['condicionador'], 'cond': ['condicionador'], 'condic': ['condicionador'],
+      'sabonete': ['sabonete'], 'sab': ['sabonete'],
+      'hidratante': ['hidratante'], 'hidr': ['hidratante'], 'hidrat': ['hidratante'],
+      'gel': ['gel'],
+      // Xaropes e Soluções
+      'xarope': ['xarope'], 'xpe': ['xarope'], 'xar': ['xarope'],
+      'solucao': ['solucao'], 'solucoes': ['solucao'], 'sol': ['solucao'], 'soluc': ['solucao'],
+      'suspensao': ['suspensao'], 'susp': ['suspensao'],
+      'gotas': ['gotas'], 'gts': ['gotas'], 'gt': ['gotas'],
+      'colirio': ['colirio'], 'col': ['colirio'],
+      // Comprimidos / Cápsulas / Drágeas / Envelopes
+      'comprimido': ['comprimido'], 'comprimidos': ['comprimido'], 'cpr': ['comprimido'], 'cp': ['comprimido'], 'comp': ['comprimido'], 'cprs': ['comprimido'], 'cps': ['comprimido'],
+      'capsula': ['capsula'], 'capsulas': ['capsula'], 'cap': ['capsula'], 'caps': ['capsula'],
+      'dragea': ['comprimido'], 'drageas': ['comprimido'], 'drg': ['comprimido'], 'drgs': ['comprimido'],
+      'envelope': ['envelope'], 'envelopes': ['envelope'], 'env': ['envelope'],
+      'pastilha': ['pastilha'], 'past': ['pastilha'],
+      // Formatos / Recipientes
+      'frasco': ['frasco'], 'frascos': ['frasco'], 'frc': ['frasco'],
+      'ampola': ['ampola'], 'ampolas': ['ampola'], 'amp': ['ampola'],
+      'pomada': ['pomada'], 'pom': ['pomada'],
+      'caixa': ['caixa'], 'cx': ['caixa'],
+      // Unidades / Quantidades
+      'unidade': ['unidade'], 'unidades': ['unidade'], 'un': ['unidade'], 'und': ['unidade'], 'unid': ['unidade'],
+      // Uso / Público
+      'adulto': ['adulto'], 'adt': ['adulto'], 'ad': ['adulto'],
+      'infantil': ['infantil'], 'inf': ['infantil'], 'pediatrico': ['infantil'], 'ped': ['infantil'],
+      // Vários / Conectivos
+      'com': ['com'], 'c/': ['com'], 'c': ['com'], 'contem': ['com'],
+      'para': ['para'], 'p/': ['para'], 'p': ['para', 'p_size'],
+      'injetavel': ['injetavel'], 'inj': ['injetavel'], 'injet': ['injetavel'],
+      'desodorante': ['desodorante'], 'des': ['desodorante'], 'desod': ['desodorante'],
+      'protetor': ['protetor'], 'prot': ['protetor'],
+      // Controle / Queda
+      'controle': ['controle'], 'control': ['controle'], 'cont': ['controle']
+    };
 
-    // 3. Se houver múltiplos matches, usa a IA para selecionar o melhor item de estoque
-    return this.findBestStockMatchWithAI(searchName, potentialMatches);
+    // Helper de normalização inteligente
+    const normalizeText = (str) => {
+      if (!str) return '';
+      return str
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/(\d+)([a-zA-Z]+)/g, '$1 $2')
+        .replace(/([a-zA-Z]+)(\d+)/g, '$1 $2')
+        .replace(/[^a-z0-9]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // Helper de tokenização
+    const tokenize = (str) => {
+      return normalizeText(str).split(' ').filter(t => t && !STOP_WORDS.has(t));
+    };
+
+    // Helper de matching de equivalências
+    const tokensMatch = (tokenA, tokenB) => {
+      if (tokenA === tokenB) return true;
+      const canonicalA = SYNONYMS[tokenA] || [tokenA];
+      const canonicalB = SYNONYMS[tokenB] || [tokenB];
+      for (const a of canonicalA) {
+        if (canonicalB.includes(a)) return true;
+      }
+      return false;
+    };
+
+    // Helper de cálculo de peso do token (números e tamanhos têm extrema relevância)
+    const getTokenWeight = (token) => {
+      if (/^\d+$/.test(token)) return 6;
+      if (SIZE_TOKENS.has(token)) return 5;
+      if (token.length >= 5) return 4;
+      if (token.length === 4) return 3;
+      if (token.length === 3) return 2;
+      return 1;
+    };
+
+    // Helper de pontuação da correspondência
+    const calculateMatchScore = (queryTokens, candidateName) => {
+      const candidateTokens = tokenize(candidateName);
+      if (queryTokens.length === 0 || candidateTokens.length === 0) return 0;
+      
+      let totalQueryWeight = 0;
+      let matchedWeight = 0;
+      
+      for (const qToken of queryTokens) {
+        const weight = getTokenWeight(qToken);
+        totalQueryWeight += weight;
+        
+        let isMatched = false;
+        for (const cToken of candidateTokens) {
+          if (tokensMatch(qToken, cToken)) {
+            isMatched = true;
+            break;
+          }
+        }
+        if (isMatched) {
+          matchedWeight += weight;
+        }
+      }
+      
+      let score = matchedWeight / totalQueryWeight;
+      
+      let unmatchedCandidateCount = 0;
+      for (const cToken of candidateTokens) {
+        let matched = false;
+        for (const qToken of queryTokens) {
+          if (tokensMatch(qToken, cToken)) {
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) unmatchedCandidateCount++;
+      }
+      
+      const penalty = Math.min(unmatchedCandidateCount * 0.02, 0.20);
+      score = Math.max(0, score - penalty);
+      return score;
+    };
+
+    const queryTokens = tokenize(searchName);
+    if (queryTokens.length === 0) return null;
+
+    // 3. Otimização de busca no SQLite usando LIKE nos termos mais longos (mais específicos)
+    const sigTokens = queryTokens.filter(t => t.length >= 3 && !STOP_WORDS.has(t));
+    sigTokens.sort((a, b) => b.length - a.length);
+
+    let candidates = [];
+    if (sigTokens.length > 0) {
+      const topTokens = sigTokens.slice(0, 3);
+      const conditions = topTokens.map(() => 'name LIKE ?').join(' OR ');
+      const params = topTokens.map(t => `%${t}%`);
+      candidates = this.db.prepare(`SELECT * FROM stock_products WHERE ${conditions}`).all(...params);
+    }
+
+    // Se a busca por termos específicos for vazia, busca todo o catálogo pequeno como fallback
+    if (candidates.length === 0) {
+      candidates = this.db.prepare('SELECT * FROM stock_products').all();
+    }
+
+    // 4. Calcular e classificar pontuações
+    const scoredCandidates = candidates.map(prod => {
+      const score = calculateMatchScore(queryTokens, prod.name);
+      return { product: prod, score };
+    });
+
+    const threshold = 0.45;
+    const validMatches = scoredCandidates.filter(c => c.score >= threshold);
+
+    if (validMatches.length === 0) return null;
+
+    // Classifica por score desc, diferença de comprimento do nome e quantidade em estoque
+    validMatches.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      const diffA = Math.abs(a.product.name.length - searchName.length);
+      const diffB = Math.abs(b.product.name.length - searchName.length);
+      if (diffA !== diffB) {
+        return diffA - diffB;
+      }
+      return b.product.stock_qty - a.product.stock_qty;
+    });
+
+    const bestMatch = validMatches[0];
+    console.log(`[LabelBot] 🎯 Correspondência determinística de estoque encontrada: "${bestMatch.product.name}" com score ${bestMatch.score.toFixed(4)}`);
+    return bestMatch.product;
   }
 
   /**
