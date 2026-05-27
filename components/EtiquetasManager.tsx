@@ -308,7 +308,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
         });
       }, 500);
 
-      setUploadStatusMsg('Gemini está lendo e estruturando as páginas do estoque (isso pode demorar 15-30s)...');
+      setUploadStatusMsg('Belinha está lendo e estruturando as páginas do estoque (isso pode demorar 15-30s)...');
 
       const res = await fetch('/api/labels/upload-stock-pdf', {
         method: 'POST',
@@ -323,18 +323,21 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
         setUploadProgress(100);
         setUploadStatusMsg('Concluído!');
         showToast('success', result.message || 'Catálogo de estoque atualizado com sucesso!');
+        // Limpa o progresso de sucesso após 8 segundos
+        setTimeout(() => {
+          setUploadProgress(0);
+          setUploadStatusMsg('');
+        }, 8000);
       } else {
         throw new Error(result.error || 'Falha ao processar o PDF.');
       }
     } catch (err: any) {
       showToast('error', err.message);
       setUploadStatusMsg(`Erro: ${err.message}`);
+      setUploadProgress(0);
+      // Erro NÃO possui setTimeout para limpar de forma automática, garantindo visibilidade
     } finally {
       setIsUploading(false);
-      setTimeout(() => {
-        setUploadProgress(0);
-        setUploadStatusMsg('');
-      }, 8000);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -591,20 +594,49 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
 
         {/* Notificação de Upload de Estoque */}
         {uploadStatusMsg && (
-          <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-2xl flex flex-col gap-3">
+          <div className={`p-4 border rounded-2xl flex flex-col gap-3 transition-all ${
+            uploadStatusMsg.startsWith('Erro:')
+              ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/40'
+              : 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50'
+          }`}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
-                <FileText size={20} className="animate-bounce" />
+              <div className={`flex items-center gap-2 ${
+                uploadStatusMsg.startsWith('Erro:')
+                  ? 'text-red-700 dark:text-red-400'
+                  : 'text-blue-700 dark:text-blue-400'
+              }`}>
+                {uploadStatusMsg.startsWith('Erro:') ? (
+                  <AlertCircle size={20} className="stroke-[2.5]" />
+                ) : (
+                  <FileText size={20} className="animate-bounce" />
+                )}
                 <span className="text-sm font-black uppercase tracking-wider">{uploadStatusMsg}</span>
               </div>
-              <span className="text-xs font-black text-blue-500">{uploadProgress}%</span>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs font-black ${
+                  uploadStatusMsg.startsWith('Erro:') ? 'text-red-500' : 'text-blue-500'
+                }`}>{uploadProgress}%</span>
+                {(uploadStatusMsg.startsWith('Erro:') || uploadStatusMsg === 'Concluído!') && (
+                  <button 
+                    onClick={() => {
+                      setUploadProgress(0);
+                      setUploadStatusMsg('');
+                    }}
+                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-all text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div 
-                className="bg-blue-600 h-full transition-all duration-300" 
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
+            {!uploadStatusMsg.startsWith('Erro:') && (
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-blue-600 h-full transition-all duration-300" 
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            )}
           </div>
         )}
 
