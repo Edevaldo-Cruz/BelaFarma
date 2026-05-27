@@ -1,5 +1,26 @@
 const fs = require('fs');
-const pdf = require('pdf-parse');
+const pdfParseModule = require('pdf-parse');
+
+/**
+ * Função auxiliar robusta para extrair o texto de um buffer de PDF de forma
+ * compatível com diferentes versões instaladas do pacote 'pdf-parse'.
+ */
+async function extractPdfText(dataBuffer) {
+  if (typeof pdfParseModule === 'function') {
+    // Versão clássica: 'pdf-parse' exporta uma função direta
+    console.log('[PdfParser] 📑 Usando parser clássico do pdf-parse (função)...');
+    const result = await pdfParseModule(dataBuffer);
+    return result.text;
+  } else if (pdfParseModule && typeof pdfParseModule.PDFParse === 'function') {
+    // Versão TypeScript/Moderna: 'pdf-parse' exporta a classe PDFParse
+    console.log('[PdfParser] 📑 Usando parser moderno do pdf-parse (classe PDFParse)...');
+    const parserInstance = new pdfParseModule.PDFParse(dataBuffer);
+    const result = await parserInstance.getText();
+    return result.text;
+  } else {
+    throw new Error('O formato exportado do pacote "pdf-parse" é incompatível ou inválido.');
+  }
+}
 
 /**
  * Serviço de Importação Determinística de Estoque via PDF
@@ -26,10 +47,9 @@ class PdfParserService {
 
     const dataBuffer = fs.readFileSync(pdfPath);
     
-    // 1. Extrair o texto bruto do PDF usando pdf-parse
-    const parsedPdf = await pdf(dataBuffer);
-    const rawText = parsedPdf.text;
-    console.log(`[PdfParser] 📝 PDF lido. Tamanho do texto extraído: ${rawText.length} caracteres.`);
+    // 1. Extrair o texto bruto do PDF de forma universal
+    const rawText = await extractPdfText(dataBuffer);
+    console.log(`[PdfParser] 📝 PDF lido com sucesso! Tamanho do texto extraído: ${rawText.length} caracteres.`);
 
     if (onProgress) onProgress(35, 'Analisando e parseando as linhas do relatório...');
 
