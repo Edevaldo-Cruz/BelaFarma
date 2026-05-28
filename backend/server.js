@@ -655,10 +655,21 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
     `);
     
     const result = stmt.run({
-      ...order,
+      id: order.id || null,
+      orderDate: order.orderDate || null,
+      distributor: order.distributor || null,
+      seller: order.seller || null,
       totalValue: totalValue,
+      arrivalForecast: order.arrivalForecast || null,
+      status: order.status || null,
+      paymentMonth: order.paymentMonth || null,
+      invoiceNumber: order.invoiceNumber || null,
+      paymentMethod: order.paymentMethod || null,
+      receiptDate: order.receiptDate || null,
+      notes: order.notes || null,
       installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
-      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0
+      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
+      boletoPath: order.boletoPath || null
     });
 
     console.log('[ORDERS] Pedido salvo com sucesso. RowID:', result.lastInsertRowid);
@@ -695,10 +706,20 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
 
     const result = stmt.run({
       id,
-      ...order,
+      orderDate: order.orderDate || null,
+      distributor: order.distributor || null,
+      seller: order.seller || null,
       totalValue: totalValue,
+      arrivalForecast: order.arrivalForecast || null,
+      status: order.status || null,
+      paymentMonth: order.paymentMonth || null,
+      invoiceNumber: order.invoiceNumber || null,
+      paymentMethod: order.paymentMethod || null,
+      receiptDate: order.receiptDate || null,
+      notes: order.notes || null,
       installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
-      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0
+      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
+      boletoPath: order.boletoPath || null
     });
 
     if (result.changes > 0) {
@@ -939,7 +960,15 @@ app.post('/api/boletos', (req, res) => {
       INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
       VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
     `);
-    const result = stmt.run(boleto);
+    const result = stmt.run({
+      id: boleto.id || null,
+      supplierName: boleto.supplierName || null,
+      order_id: boleto.order_id || null,
+      due_date: boleto.due_date || null,
+      value: boleto.value !== undefined ? parseFloat(boleto.value) : null,
+      status: boleto.status || null,
+      invoice_number: boleto.invoice_number || null
+    });
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (err) {
     console.error('Error creating boleto:', err);
@@ -969,7 +998,15 @@ app.put('/api/boletos/:id', (req, res) => {
       WHERE id = @id
     `);
     
-    const result = stmt.run({ id, supplierName, order_id, due_date, value, status, invoice_number });
+    const result = stmt.run({
+      id,
+      supplierName,
+      order_id: order_id || null,
+      due_date,
+      value: parseFloat(value),
+      status,
+      invoice_number: invoice_number || null
+    });
 
     if (result.changes > 0) {
       res.status(200).json({ message: 'Boleto updated successfully.' });

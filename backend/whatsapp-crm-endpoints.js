@@ -560,6 +560,283 @@ Regras:
     }
   });
 
+  // ─── GET /api/whatsapp/crm-reminders ──────────────────────────────────────
+  /**
+   * Retorna os clientes com lembretes ativos de uso contínuo para hoje.
+   */
+  app.get('/api/whatsapp/crm-reminders', (req, res) => {
+    try {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const query = `
+        SELECT 
+          wph.id as history_id,
+          wph.phone,
+          wph.product_name,
+          wph.last_purchase_date,
+          wph.next_reminder_date,
+          wph.treatment_duration_days,
+          c.name as customer_name,
+          c.id as customer_id
+        FROM whatsapp_product_history wph
+        JOIN customers c ON wph.phone = c.phone
+        WHERE wph.is_continuous_use = 1 
+          AND wph.reminder_status = 'pendente'
+          AND wph.next_reminder_date <= ?
+        ORDER BY wph.next_reminder_date ASC
+      `;
+      const reminders = db.prepare(query).all(today);
+      res.json({ success: true, count: reminders.length, reminders });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao buscar lembretes:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── PUT /api/whatsapp/crm-products/:id/continuous ───────────────────────
+  /**
+   * Configura se um produto do histórico do cliente é de Uso Contínuo.
+   */
+  app.put('/api/whatsapp/crm-products/:id/continuous', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { is_continuous_use, treatment_duration_days, last_purchase_date } = req.body;
+
+      const isContinuous = is_continuous_use ? 1 : 0;
+      const duration = treatment_duration_days ? parseInt(treatment_duration_days) : 30;
+      
+      let lastPurchase = last_purchase_date;
+      if (!lastPurchase) {
+        lastPurchase = new Date().toISOString().split('T')[0]; // default to today
+      }
+
+      // Calcular próxima data de lembrete
+      let nextReminder = null;
+      if (isContinuous === 1) {
+        const dateObj = new Date(lastPurchase + 'T12:00:00'); // evitar timezone shift
+        dateObj.setDate(dateObj.getDate() + duration);
+        nextReminder = dateObj.toISOString().split('T')[0];
+      }
+
+      const stmt = db.prepare(`
+        UPDATE whatsapp_product_history
+        SET is_continuous_use = ?,
+            treatment_duration_days = ?,
+            last_purchase_date = ?,
+            next_reminder_date = ?,
+            reminder_status = 'pendente'
+        WHERE id = ?
+      `);
+      const result = stmt.run(isContinuous, duration, lastPurchase, nextReminder, id);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Produto não encontrado no histórico.' });
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Configuração de uso contínuo atualizada.',
+        data: { is_continuous_use: isContinuous, treatment_duration_days: duration, last_purchase_date: lastPurchase, next_reminder_date: nextReminder }
+      });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao configurar uso contínuo:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/whatsapp/crm-reminders/:id/status ──────────────────────────
+  /**
+   * Atualiza o status do lembrete (enviado, ignorado, pendente).
+   */
+  app.post('/api/whatsapp/crm-reminders/:id/status', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!['enviado', 'ignorado', 'pendente'].includes(status)) {
+        return res.status(400).json({ error: 'Status inválido.' });
+      }
+
+      const stmt = db.prepare(`
+        UPDATE whatsapp_product_history
+        SET reminder_status = ?
+        WHERE id = ?
+      `);
+      const result = stmt.run(status, id);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Lembrete não encontrado.' });
+      }
+
+      res.json({ success: true, message: `Status do lembrete atualizado para ${status}.` });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao atualizar status do lembrete:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/whatsapp/crm-products/:id/record-purchase ─────────────────
+  /**
+   * Registra uma nova compra de um item de uso contínuo, reiniciando o ciclo.
+   */
+  app.post('/api/whatsapp/crm-products/:id/record-purchase', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { purchase_date } = req.body;
+
+      const product = db.prepare('SELECT * FROM whatsapp_product_history WHERE id = ?').get(id);
+      if (!product) {
+        return res.status(404).json({ error: 'Produto não encontrado no histórico.' });
+      }
+
+      const duration = product.treatment_duration_days || 30;
+      let lastPurchase = purchase_date;
+      if (!lastPurchase) {
+        lastPurchase = new Date().toISOString().split('T')[0];
+      }
+
+      const dateObj = new Date(lastPurchase + 'T12:00:00');
+      dateObj.setDate(dateObj.getDate() + duration);
+      const nextReminder = dateObj.toISOString().split('T')[0];
+
+      const stmt = db.prepare(`
+        UPDATE whatsapp_product_history
+        SET last_purchase_date = ?,
+            next_reminder_date = ?,
+            reminder_status = 'pendente',
+            notified_arrival = 0
+        WHERE id = ?
+      `);
+      stmt.run(lastPurchase, nextReminder, id);
+
+      res.json({ 
+        success: true, 
+        message: 'Nova compra registrada! Ciclo de lembrete reiniciado.',
+        data: { last_purchase_date: lastPurchase, next_reminder_date: nextReminder }
+      });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao registrar nova compra:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── GET /api/whatsapp/crm-shortages-resolved ────────────────────────────
+  /**
+   * Retorna clientes aguardando produtos indisponíveis que acabaram de chegar/ser comprados.
+   */
+  app.get('/api/whatsapp/crm-shortages-resolved', (req, res) => {
+    try {
+      const query = `
+        SELECT DISTINCT
+          wph.id as history_id,
+          wph.product_name,
+          wph.phone,
+          wph.created_at as inquiry_date,
+          c.name as customer_name,
+          c.id as customer_id,
+          s.id as shortage_id,
+          s.purchased,
+          s.ordered
+        FROM whatsapp_product_history wph
+        JOIN customers c ON wph.phone = c.phone
+        JOIN shortages s ON (
+          LOWER(s.productName) LIKE '%' || LOWER(wph.product_name) || '%'
+          OR LOWER(wph.product_name) LIKE '%' || LOWER(s.productName) || '%'
+        )
+        WHERE wph.status = 'nao_encontrado'
+          AND wph.notified_arrival = 0
+          AND (s.purchased = 1 OR s.ordered = 1)
+          AND wph.created_at >= date('now', '-30 days')
+        ORDER BY wph.created_at DESC
+      `;
+      const resolved = db.prepare(query).all();
+      res.json({ success: true, count: resolved.length, resolved });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao buscar faltas resolvidas:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/whatsapp/crm-shortages-resolved/:id/notified ─────────────
+  /**
+   * Marca uma indisponibilidade de produto como notificada de sua chegada.
+   */
+  app.post('/api/whatsapp/crm-shortages-resolved/:id/notified', (req, res) => {
+    try {
+      const { id } = req.params;
+      const stmt = db.prepare(`
+        UPDATE whatsapp_product_history
+        SET notified_arrival = 1
+        WHERE id = ?
+      `);
+      const result = stmt.run(id);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Registro não encontrado.' });
+      }
+
+      res.json({ success: true, message: 'Notificação de chegada registrada com sucesso.' });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao marcar chegada como notificada:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/whatsapp/crm-customers/:id/products ───────────────────────
+  /**
+   * Adiciona um produto manualmente ao histórico de compras/pesquisas do cliente.
+   */
+  app.post('/api/whatsapp/crm-customers/:id/products', (req, res) => {
+    try {
+      const { id } = req.params; // customerId
+      const { product_name, status, is_continuous_use, treatment_duration_days, notes } = req.body;
+
+      if (!product_name || !status) {
+        return res.status(400).json({ error: 'Nome do produto e status são obrigatórios.' });
+      }
+
+      const customer = db.prepare('SELECT phone, name FROM customers WHERE id = ?').get(id);
+      if (!customer) {
+        return res.status(404).json({ error: 'Cliente não encontrado.' });
+      }
+
+      const now = new Date().toISOString();
+      const wphId = genId('wph');
+      const duration = treatment_duration_days ? parseInt(treatment_duration_days) : 30;
+      const isContinuous = is_continuous_use ? 1 : 0;
+
+      let nextReminder = null;
+      if (isContinuous === 1 && status === 'comprado') {
+        const dateObj = new Date();
+        dateObj.setDate(dateObj.getDate() + duration);
+        nextReminder = dateObj.toISOString().split('T')[0];
+      }
+
+      db.prepare(`
+        INSERT INTO whatsapp_product_history
+        (id, phone, customer_id, product_name, status, interaction_date, source, notes, created_at, is_continuous_use, treatment_duration_days, last_purchase_date, next_reminder_date, reminder_status)
+        VALUES (?, ?, ?, ?, ?, ?, 'Manual', ?, ?, ?, ?, ?, ?, 'pendente')
+      `).run(
+        wphId,
+        customer.phone,
+        id,
+        product_name,
+        status,
+        now,
+        notes || null,
+        now,
+        isContinuous,
+        duration,
+        status === 'comprado' ? now.split('T')[0] : null,
+        nextReminder
+      );
+
+      res.status(201).json({ success: true, id: wphId, message: 'Produto adicionado manualmente ao CRM.' });
+    } catch (err) {
+      console.error('[WhatsAppCRM] Erro ao adicionar produto manualmente:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log('[WhatsAppCRM] ✅ Endpoints do CRM WhatsApp inicializados.');
 }
 

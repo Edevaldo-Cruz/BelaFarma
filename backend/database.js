@@ -1102,6 +1102,23 @@ try {
       console.log('✅ Migration: coluna whatsapp_name adicionada em customers.');
     }
 
+    // Migration: adicionar colunas de CRM Preditivo (Uso Contínuo e Cruzamento de Faltas) em whatsapp_product_history
+    try {
+      db.prepare('SELECT is_continuous_use FROM whatsapp_product_history LIMIT 1').get();
+    } catch (e) {
+      try {
+        db.exec('ALTER TABLE whatsapp_product_history ADD COLUMN is_continuous_use INTEGER DEFAULT 0');
+        db.exec('ALTER TABLE whatsapp_product_history ADD COLUMN treatment_duration_days INTEGER DEFAULT 30');
+        db.exec('ALTER TABLE whatsapp_product_history ADD COLUMN last_purchase_date TEXT');
+        db.exec('ALTER TABLE whatsapp_product_history ADD COLUMN next_reminder_date TEXT');
+        db.exec("ALTER TABLE whatsapp_product_history ADD COLUMN reminder_status TEXT DEFAULT 'pendente'");
+        db.exec('ALTER TABLE whatsapp_product_history ADD COLUMN notified_arrival INTEGER DEFAULT 0');
+        console.log('✅ Migration: Colunas de CRM Preditivo adicionadas a whatsapp_product_history.');
+      } catch (alterErr) {
+        console.error('❌ Erro ao adicionar colunas de CRM Preditivo:', alterErr.message);
+      }
+    }
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 
