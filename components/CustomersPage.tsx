@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, Plus, Search, Edit2, Trash2, Phone, Mail, MapPin, X, Eye, AlertCircle } from 'lucide-react';
+import { Users, Plus, Search, Edit2, Trash2, Phone, Mail, MapPin, X, Eye, AlertCircle, FileText, UploadCloud, Stethoscope, Loader2 } from 'lucide-react';
 import { Customer, CustomerDebt, User } from '../types';
 import { useToast } from './ToastContext';
 
@@ -17,6 +17,11 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
   const [customerDebts, setCustomerDebts] = useState<CustomerDebt[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { addToast } = useToast();
+  
+  // Recipes state
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [isUploadingRecipe, setIsUploadingRecipe] = useState(false);
+  const [recipeForm, setRecipeForm] = useState({ doctor_name: '', medication_name: '', expiry_date: '', file: null as File | null });
   
   // Form state
   const [form, setForm] = useState({
@@ -56,6 +61,59 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
       setCustomers(data);
     } catch (error) {
       console.error('Failed to fetch customers:', error);
+    }
+  };
+
+  const fetchRecipes = async (customerId: string) => {
+    try {
+      const response = await fetch(`/api/recipes/customer/${customerId}`);
+      const data = await response.json();
+      setRecipes(data);
+    } catch (error) {
+      console.error('Failed to fetch recipes:', error);
+    }
+  };
+
+  const handleRecipeUpload = async () => {
+    if (!selectedCustomer || !recipeForm.file) return;
+    setIsUploadingRecipe(true);
+    try {
+      const formData = new FormData();
+      formData.append('recipeImage', recipeForm.file);
+      formData.append('doctor_name', recipeForm.doctor_name);
+      formData.append('medication_name', recipeForm.medication_name);
+      formData.append('expiry_date', recipeForm.expiry_date);
+
+      const response = await fetch(`/api/recipes/customer/${selectedCustomer.id}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        addToast('Receita salva com sucesso.', 'success');
+        setRecipeForm({ doctor_name: '', medication_name: '', expiry_date: '', file: null });
+        fetchRecipes(selectedCustomer.id);
+      } else {
+        addToast('Erro ao salvar receita.', 'error');
+      }
+    } catch (error) {
+      console.error('Error uploading recipe:', error);
+      addToast('Erro ao salvar receita.', 'error');
+    } finally {
+      setIsUploadingRecipe(false);
+    }
+  };
+
+  const handleDeleteRecipe = async (recipeId: string) => {
+    if (!confirm('Deseja realmente excluir esta receita?')) return;
+    try {
+      const response = await fetch(`/api/recipes/${recipeId}`, { method: 'DELETE' });
+      if (response.ok) {
+        addToast('Receita excluída.', 'success');
+        if (selectedCustomer) fetchRecipes(selectedCustomer.id);
+      }
+    } catch (error) {
+      console.error('Error deleting recipe:', error);
     }
   };
 
@@ -189,6 +247,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
       console.error('Error fetching customer debts:', error);
       setCustomerDebts([]);
     }
+    fetchRecipes(customer.id);
     setIsDetailsModalOpen(true);
   };
 
@@ -571,6 +630,87 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Receituários e Documentos */}
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-black text-slate-500 uppercase mb-4 flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Receituários e Documentos Controlados
+              </h3>
+              
+              {/* Formulário de Upload */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                  <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Receita (Img/PDF)</label>
+                    <input type="file" accept="image/*,application/pdf" onChange={e => setRecipeForm({...recipeForm, file: e.target.files?.[0] || null})} className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-red-50 file:text-red-700 hover:file:bg-red-100" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Medicamento *</label>
+                    <input type="text" placeholder="Ex: Ritalina 10mg" value={recipeForm.medication_name} onChange={e => setRecipeForm({...recipeForm, medication_name: e.target.value})} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Médico (Opcional)</label>
+                    <input type="text" placeholder="Ex: Dr. João" value={recipeForm.doctor_name} onChange={e => setRecipeForm({...recipeForm, doctor_name: e.target.value})} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Validade *</label>
+                    <input type="date" value={recipeForm.expiry_date} onChange={e => setRecipeForm({...recipeForm, expiry_date: e.target.value})} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none" />
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-4 mt-2">
+                    <button onClick={handleRecipeUpload} disabled={!recipeForm.file || !recipeForm.medication_name || !recipeForm.expiry_date || isUploadingRecipe} className="w-full px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-red-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                      {isUploadingRecipe ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                      Salvar Receita
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista de Receitas */}
+              {recipes.length === 0 ? (
+                <p className="text-center text-slate-400 text-sm py-4 font-medium">Nenhuma receita anexada para este cliente.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {recipes.map(recipe => {
+                    const expiry = recipe.expiry_date ? new Date(recipe.expiry_date) : null;
+                    const daysToExpiry = expiry ? Math.ceil((expiry.getTime() - new Date().getTime()) / (1000 * 3600 * 24)) : null;
+                    let statusColor = 'bg-slate-100 text-slate-600 border-slate-200';
+                    let statusText = 'Sem validade';
+                    
+                    if (daysToExpiry !== null) {
+                      if (daysToExpiry < 0) { statusColor = 'bg-red-100 text-red-700 border-red-200'; statusText = 'Vencida'; }
+                      else if (daysToExpiry <= 10) { statusColor = 'bg-amber-100 text-amber-700 border-amber-200'; statusText = `Vence em ${daysToExpiry} dias`; }
+                      else { statusColor = 'bg-emerald-100 text-emerald-700 border-emerald-200'; statusText = 'Válida'; }
+                    }
+
+                    return (
+                      <div key={recipe.id} className="relative p-3 rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex gap-3 group items-center shadow-sm hover:shadow transition-all">
+                        <a href={recipe.recipe_image_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                          <div className="w-16 h-16 rounded-xl bg-slate-100 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-700">
+                             {recipe.recipe_image_url.endsWith('.pdf') ? (
+                               <div className="w-full h-full flex items-center justify-center bg-red-50 text-red-400 text-[10px] font-black uppercase">PDF</div>
+                             ) : (
+                               <img src={recipe.recipe_image_url} alt="Receita" className="w-full h-full object-cover" />
+                             )}
+                          </div>
+                        </a>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black text-slate-800 dark:text-white truncate text-sm leading-tight">{recipe.medication_name || 'Receita'}</p>
+                          <p className="text-[10px] text-slate-500 font-bold flex items-center gap-1 mt-1 truncate"><Stethoscope className="w-3 h-3 text-slate-400" /> {recipe.doctor_name || 'Não informado'}</p>
+                          <div className="mt-2">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${statusColor}`}>
+                              {statusText}
+                            </span>
+                          </div>
+                        </div>
+                        <button onClick={() => handleDeleteRecipe(recipe.id)} className="absolute top-2 right-2 p-1.5 text-slate-300 hover:bg-red-50 hover:text-red-600 rounded-lg opacity-0 group-hover:opacity-100 transition-all bg-white shadow-sm">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

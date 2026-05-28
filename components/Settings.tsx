@@ -16,7 +16,11 @@ import {
   MessageSquare,
   RefreshCw,
   Power,
-  QrCode
+  QrCode,
+  Activity,
+  Server,
+  HardDrive,
+  Cpu
 } from 'lucide-react';
 import { User, UserRole, MonthlyLimit } from '../types';
 import { isAtlasConfigured } from '../lib/mongodb';
@@ -41,6 +45,25 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
 
   const [secondaryStatus, setSecondaryStatus] = React.useState<any>(null);
   const [secondaryReconnecting, setSecondaryReconnecting] = React.useState(false);
+
+  // --- System Health ---
+  const [systemHealth, setSystemHealth] = React.useState<any>(null);
+  const [healthLoading, setHealthLoading] = React.useState(false);
+
+  const fetchSystemHealth = async () => {
+    setHealthLoading(true);
+    try {
+      const res = await fetch('/api/system/status');
+      if (res.ok) {
+        const data = await res.json();
+        setSystemHealth(data);
+      }
+    } catch (err) {
+      console.error('Error fetching system health:', err);
+    } finally {
+      setHealthLoading(false);
+    }
+  };
 
   // --- WhatsApp Principal ---
   const fetchBaileysStatus = async () => {
@@ -98,10 +121,12 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     
     fetchBaileysStatus();
     fetchSecondaryStatus();
+    fetchSystemHealth();
 
     const interval = setInterval(() => {
       fetchBaileysStatus();
       fetchSecondaryStatus();
+      fetchSystemHealth();
     }, 10000); // Poll status a cada 10 segundos
 
     return () => clearInterval(interval);
@@ -495,6 +520,88 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* ── PAINEL DE SAÚDE DO SISTEMA (HEALTH DASHBOARD) ── */}
+      {user.role === UserRole.ADM && (
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl shadow-sm">
+                <Activity className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Saúde e Diagnóstico</h3>
+                <p className="text-[10px] text-slate-400 font-medium leading-tight">Monitoramento do Servidor em Tempo Real</p>
+              </div>
+            </div>
+            <button
+              onClick={fetchSystemHealth}
+              disabled={healthLoading}
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${healthLoading ? 'animate-spin' : ''}`} />
+              Diagnóstico
+            </button>
+          </div>
+
+          {systemHealth && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-50">
+              
+              {/* Database Status */}
+              <div className="p-5 rounded-2xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <Database className="w-5 h-5" />
+                    <span className="text-xs font-black uppercase tracking-widest">Banco Local</span>
+                  </div>
+                  <div className={`w-2.5 h-2.5 rounded-full ${systemHealth.database.operational ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-slate-800">{systemHealth.database.sizeMB} <span className="text-sm text-slate-500 font-bold">MB</span></p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">SQLite (belafarma.db)</p>
+                </div>
+              </div>
+
+              {/* Memory Status */}
+              <div className="p-5 rounded-2xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <Cpu className="w-5 h-5" />
+                    <span className="text-xs font-black uppercase tracking-widest">Memória do Node</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-slate-800">{systemHealth.system.processMemoryMB} <span className="text-sm text-slate-500 font-bold">MB</span></p>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (systemHealth.system.processMemoryMB / 2048) * 100)}%` }} />
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-2">Uso no servidor (Limite Sugerido: 2GB)</p>
+                </div>
+              </div>
+
+              {/* Server Overall */}
+              <div className="p-5 rounded-2xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <Server className="w-5 h-5" />
+                    <span className="text-xs font-black uppercase tracking-widest">Servidor Host</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-slate-800">
+                    {Math.floor(systemHealth.system.uptimeSeconds / 3600)}h {Math.floor((systemHealth.system.uptimeSeconds % 3600) / 60)}m
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Tempo de Atividade (Uptime)</p>
+                  <p className="text-[10px] text-slate-500 font-bold mt-2 pt-2 border-t border-slate-200">
+                    RAM Livre: {systemHealth.system.freeMemoryMB} MB / {systemHealth.system.totalMemoryMB} MB
+                  </p>
+                </div>
+              </div>
+
+            </div>
+          )}
         </div>
       )}
 

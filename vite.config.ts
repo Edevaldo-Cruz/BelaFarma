@@ -13,12 +13,20 @@ export default defineConfig(({ mode }) => {
             target: 'http://localhost:3001',
             changeOrigin: true,
           },
+          '/uploads': {
+            target: 'http://localhost:3001',
+            changeOrigin: true,
+          },
         }
       },
       preview: {
         port: 4173,
         proxy: {
           '/api': {
+            target: 'http://localhost:3001',
+            changeOrigin: true,
+          },
+          '/uploads': {
             target: 'http://localhost:3001',
             changeOrigin: true,
           },

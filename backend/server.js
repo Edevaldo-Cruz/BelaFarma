@@ -18,6 +18,7 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Redirecionar logs para arquivo persistente (volume Docker /data)
 const LOG_DIR = process.platform === 'win32' 
@@ -3337,10 +3338,14 @@ console.log('💊 Módulo IA de Medicamentos inicializado.');
 // ============================================================================
 const purchasingEndpoints = require('./purchasing-endpoints.js');
 const filesEndpoints = require('./files-endpoints.js');
+const recipeEndpoints = require('./recipe-endpoints.js');
+const systemEndpoints = require('./system-endpoints.js');
 
 app.use('/api/purchasing', purchasingEndpoints(db));
 app.use('/api/files', filesEndpoints(db));
-console.log('🤖 Agente de Compras e Central de Arquivos inicializados.');
+app.use('/api/recipes', recipeEndpoints(db));
+app.use('/api/system', systemEndpoints(db));
+console.log('🤖 Agente de Compras, Central de Arquivos, Receituários e Sistema inicializados.');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BACKUP AUTOMÁTICO — Cópia local do banco + log

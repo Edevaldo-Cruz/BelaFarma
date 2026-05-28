@@ -251,6 +251,19 @@ try {
       );
     `;
 
+    const createCustomerRecipesTable = `
+      CREATE TABLE IF NOT EXISTS customer_recipes (
+        id TEXT PRIMARY KEY,
+        customer_id TEXT NOT NULL,
+        doctor_name TEXT,
+        medication_name TEXT,
+        recipe_image_url TEXT NOT NULL,
+        expiry_date TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+      );
+    `;
+
     // Safe Entries Table
     const createSafeEntriesTable = `
       CREATE TABLE IF NOT EXISTS safe_entries (
@@ -360,6 +373,7 @@ try {
     db.exec(createPixConfirmationsTable);
     db.exec(createCustomersTable);
     db.exec(createCustomerDebtsTable);
+    db.exec(createCustomerRecipesTable);
     db.exec(createStockProductsTable);
     db.exec(createLabelPrintQueueTable);
 
