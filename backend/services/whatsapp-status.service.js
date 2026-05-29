@@ -100,26 +100,8 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
       let mediaType = 'image';
 
       if (offer.mediaPath) {
-        // Enviar imagem como Base64 é o método mais seguro caso a URL local não esteja exposta
-        const uploadDir = path.join(__dirname, '..', 'public');
-        // O banco tem "/uploads/imagem.jpg", mas o caminho real é "../public/uploads/imagem.jpg"
-        const absoluteMediaPath = path.join(uploadDir, path.basename(offer.mediaPath)); 
-        
-        try {
-          if (fs.existsSync(absoluteMediaPath)) {
-            const imageBuffer = fs.readFileSync(absoluteMediaPath);
-            const base64Image = imageBuffer.toString('base64');
-            const mimeType = absoluteMediaPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-            content = `data:${mimeType};base64,${base64Image}`;
-          } else {
-             console.warn(`[WhatsAppStatus] ⚠️ Arquivo de imagem não encontrado: ${absoluteMediaPath}`);
-             // Pode tentar postar como texto se quiser
-             continue; // Pulando status sem imagem por enquanto
-          }
-        } catch (fileErr) {
-           console.error('[WhatsAppStatus] Erro ao ler imagem local:', fileErr.message);
-           continue;
-        }
+        const backendUrl = process.env.BACKEND_URL || 'http://192.168.1.70:3001';
+        content = `${backendUrl}${offer.mediaPath}`;
       } else {
         // Se a oferta não tiver imagem (raro, mas pode ocorrer)
         mediaType = 'text';
@@ -143,13 +125,17 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
       }
 
       try {
+        const payload = {
+            statusMessage: requestBody
+        };
+
         const response = await fetch(`${EVOLUTION_URL}/message/sendStatus/${EVOLUTION_INSTANCE}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'apikey': EVOLUTION_KEY
           },
-          body: JSON.stringify(requestBody)
+          body: JSON.stringify(payload)
         });
 
         if (response.ok) {
