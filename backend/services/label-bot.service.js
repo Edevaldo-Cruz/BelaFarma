@@ -397,7 +397,8 @@ class LabelBotService {
       'com': ['com'], 'c/': ['com'], 'c': ['com'], 'contem': ['com'],
       'para': ['para'], 'p/': ['para'], 'p': ['para', 'p_size'],
       'injetavel': ['injetavel'], 'inj': ['injetavel'], 'injet': ['injetavel'],
-      'desodorante': ['desodorante'], 'des': ['desodorante'], 'desod': ['desodorante'],
+      'desodorante': ['desodorante'], 'des': ['desodorante'], 'desod': ['desodorante'], 'antitranspirante': ['desodorante'],
+      'aerossol': ['aerossol'], 'aer': ['aerossol'], 'aerosol': ['aerossol'],
       'protetor': ['protetor'], 'prot': ['protetor'],
       // Controle / Queda
       'controle': ['controle'], 'control': ['controle'], 'cont': ['controle'],
