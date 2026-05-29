@@ -40,6 +40,7 @@ import SalesChart from './SalesChart';
 import ExpensesChart from './ExpensesChart';
 import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
+import { OrderStatusModal } from './OrderStatusModal';
 import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount } from '../types';
 
 interface DashboardProps {
@@ -50,9 +51,11 @@ interface DashboardProps {
   boletos: Boleto[];
   fixedAccounts: FixedAccount[];
   onNavigate: (view: any) => void;
+  onUpdateOrder: (order: Order) => void;
+  onUpdateBoletos: (orderId: string, boletos: Boleto[]) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate, onUpdateOrder, onUpdateBoletos }) => {
   const { addToast } = useToast();
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
@@ -61,6 +64,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
   
+  const [statusModalOrder, setStatusModalOrder] = React.useState<Order | null>(null);
+
   const [showGoalPopup, setShowGoalPopup] = React.useState(() => {
     return !sessionStorage.getItem('hasSeenGoalPopup');
   });
@@ -514,7 +519,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
                const isDelayed = order.status === OrderStatus.PENDENTE && forecast < now;
 
                return (
-                <div key={order.id} className={`flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700 ${isDelayed ? 'bg-red-50/30 dark:bg-red-900/10' : ''}`}>
+                <div 
+                  key={order.id} 
+                  onClick={() => setStatusModalOrder(order)}
+                  className={`flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700 cursor-pointer ${isDelayed ? 'bg-red-50/30 dark:bg-red-900/10' : ''}`}
+                >
                   <div className="flex items-center gap-3">
                     <div className={`w-2.5 h-2.5 rounded-full ${
                       order.status === OrderStatus.ENTREGUE ? 'bg-emerald-500' :
@@ -523,7 +532,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
                     }`} />
                     <div>
                       <p className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter truncate max-w-[120px]">{order.distributor}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">{order.orderDate}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Previsão: {new Date(order.arrivalForecast).toLocaleDateString('pt-BR')}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -544,6 +553,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           </div>
         </div>
       </div>
+      
+      {statusModalOrder && (
+        <OrderStatusModal
+          user={user}
+          order={statusModalOrder}
+          onClose={() => setStatusModalOrder(null)}
+          onUpdate={onUpdateOrder}
+          onUpdateBoletos={onUpdateBoletos}
+        />
+      )}
 
       {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">

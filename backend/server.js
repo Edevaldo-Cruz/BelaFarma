@@ -932,8 +932,8 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
 
   const deleteStmt = db.prepare('DELETE FROM boletos WHERE order_id = ?');
   const insertStmt = db.prepare(`
-    INSERT INTO boletos (id, order_id, due_date, value, status, installment_number, invoice_number)
-    VALUES (@id, @order_id, @due_date, @value, @status, @installment_number, @invoice_number)
+    INSERT INTO boletos (id, order_id, due_date, value, status, invoice_number)
+    VALUES (@id, @order_id, @due_date, @value, @status, @invoice_number)
   `);
 
   try {
@@ -941,8 +941,12 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
       deleteStmt.run(order_id);
       for (const boleto of boletos) {
         insertStmt.run({
-          ...boleto,
+          id: boleto.id,
           order_id: order_id,
+          due_date: boleto.due_date,
+          value: boleto.value,
+          status: boleto.status,
+          invoice_number: boleto.invoice_number || null
         });
       }
     })();
