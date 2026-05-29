@@ -333,8 +333,17 @@ class LabelBotService {
     // 1. Busca por código de barras direto se foi fornecido
     if (searchBarcode) {
       const cleanBarcode = searchBarcode.toString().trim();
-      const directMatch = this.db.prepare('SELECT * FROM stock_products WHERE code = ?').get(cleanBarcode);
-      if (directMatch) return directMatch;
+      let directMatch = this.db.prepare('SELECT * FROM stock_products WHERE code = ?').get(cleanBarcode);
+      
+      // Fallback: busca por substring no código de barras (útil para variações com/sem zero à esquerda)
+      if (!directMatch && cleanBarcode.length >= 6) {
+        directMatch = this.db.prepare('SELECT * FROM stock_products WHERE code LIKE ?').get(`%${cleanBarcode}%`);
+      }
+      
+      if (directMatch) {
+        console.log(`[LabelBot] 🎯 Correspondência de código de barras encontrada: ${directMatch.code}`);
+        return directMatch;
+      }
     }
 
     // 2. Busca por aproximação textual inteligente
@@ -536,7 +545,19 @@ class LabelBotService {
     const threshold = 0.45;
     const validMatches = scoredCandidates.filter(c => c.score >= threshold);
 
-    if (validMatches.length === 0) return null;
+    if (validMatches.length === 0) {
+      console.log(`[LabelBot] ⚠️ Nenhuma correspondência determinística forte para "${searchName}". Tentando IA semântica como fallback...`);
+      // Usa os top 15 candidatos (mesmo com score baixo) para a IA avaliar
+      const topCandidates = scoredCandidates.sort((a,b) => b.score - a.score).slice(0, 15).map(c => c.product);
+      if (topCandidates.length > 0) {
+        const aiMatch = await this.findBestStockMatchWithAI(searchName, topCandidates);
+        if (aiMatch) {
+           console.log(`[LabelBot] 🤖 Correspondência semântica via IA encontrada: "${aiMatch.name}"`);
+           return aiMatch;
+        }
+      }
+      return null;
+    }
 
     // Classifica por score desc, diferença de comprimento do nome e quantidade em estoque
     validMatches.sort((a, b) => {
