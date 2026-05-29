@@ -118,7 +118,7 @@ class LabelBotService {
       console.log('[LabelBot] 🔍 Dados extraídos pela IA:', extractedData);
 
       // 4. AUTOCOMPLETAR DADOS VIA BANCO DE DADOS (Pesquisa no Estoque do PDF)
-      const matchedProduct = await this.lookupProductInStock(extractedData.name, extractedData.barcode);
+      const matchedProduct = await this.lookupProductInStock(extractedData.name, extractedData.barcode, extractedData.search_keywords);
 
       let finalName = extractedData.name;
       let finalPrice = extractedData.price;
@@ -258,11 +258,12 @@ class LabelBotService {
       "${text}"
 
       REGRAS DE EXTRAÇÃO:
-      1. name: Nome comercial do produto, dosagem, fabricante e apresentação (ex: "Dipirona 500mg Medley 10 CP"). Tente deduzir e corrigir erros de digitação comuns de farmácia.
+      1. name: Nome comercial do produto, dosagem, fabricante e apresentação.
       2. price: Preço de venda ao consumidor. Se não for especificado, retorne nulo.
-      3. original_price: Se for mencionado um preço promocional ("De R$ X por R$ Y"), extraia o preço antigo X como original_price e o preço de venda Y como price.
-      4. barcode: Código de barras EAN-13 (13 dígitos) se mencionado de alguma forma no texto.
-      5. quantity: Quantidade de cópias de etiqueta pedida. Padrão é 1 se não for mencionado ("me faz 3 etiquetas do X" -> quantity = 3).
+      3. original_price: Se for mencionado um preço promocional, extraia o preço antigo.
+      4. barcode: Código de barras EAN-13 (se mencionado).
+      5. quantity: Quantidade de cópias de etiqueta pedida. Padrão é 1.
+      6. search_keywords: Array de strings contendo palavras-chave para busca no banco de dados. Isole a marca, linha, peso/volume (ex: "150ML") e sempre gere ativamente abreviações comerciais comuns para a apresentação (ex: "Aerossol" -> "AER", "Comprimido" -> "CPR" ou "CP", "Gotas" -> "GTS", "Desodorante" -> "DES").
 
       Responda EXATAMENTE no formato JSON plano abaixo (sem markdown, sem textos extras):
       {
@@ -270,7 +271,8 @@ class LabelBotService {
         "price": 0.0 || null,
         "original_price": 0.0 || null,
         "barcode": "..." || null,
-        "quantity": 1
+        "quantity": 1,
+        "search_keywords": ["..."]
       }
     `;
 
@@ -297,9 +299,10 @@ class LabelBotService {
       Extraia os detalhes para gerar uma nova etiqueta de preço.
 
       DADOS A BUSCAR NA IMAGEM:
-      1. Nome comercial do produto, dosagem, marca e quantidade de comprimidos/ML (ex: "Dorflex 10 Comprimidos", "Tylenol Gotas 15ml").
-      2. Preço: Se houver uma etiqueta antiga com preço colada, ou preço sugerido impresso na caixa, extraia-o. Caso contrário, retorne null.
-      3. Código de barras EAN: Se o código de barras de 13 dígitos estiver visível de frente, leia os números na base das barras pretas e coloque em barcode. Caso contrário, retorne null.
+      1. Nome comercial do produto, dosagem, marca e quantidade (ex: "Dorflex 10 Comprimidos").
+      2. Preço: Se houver uma etiqueta com preço colada, ou preço sugerido impresso, extraia-o. Caso contrário, retorne null.
+      3. Código de barras EAN: Se visível, leia os números. Caso contrário, retorne null.
+      4. search_keywords: Array de palavras-chave curtas extraídas da embalagem para busca no sistema. Inclua a marca principal, linha, volume/peso (ex: "150ML", "10G") e adicione abreviações comuns de farmácia para o tipo de produto (ex: Aerossol/Antitranspirante adicione "AER" e "DES", comprimido adicione "CPR" ou "CP", gotas "GTS").
 
       Responda EXATAMENTE no formato JSON plano abaixo (sem markdown, sem textos extras):
       {
@@ -307,7 +310,8 @@ class LabelBotService {
         "price": 0.0 || null,
         "original_price": null,
         "barcode": "789..." || null,
-        "quantity": 1
+        "quantity": 1,
+        "search_keywords": ["..."]
       }
     `;
 
@@ -329,7 +333,7 @@ class LabelBotService {
   /**
    * Busca no catálogo SQLite o melhor produto correspondente
    */
-  async lookupProductInStock(searchName, searchBarcode) {
+  async lookupProductInStock(searchName, searchBarcode, searchKeywords = []) {
     // 1. Busca por código de barras direto se foi fornecido
     if (searchBarcode) {
       const cleanBarcode = searchBarcode.toString().trim();
@@ -517,18 +521,28 @@ class LabelBotService {
     };
 
     const queryTokens = tokenize(searchName);
+    
+    // Incorpora as palavras-chave (search_keywords) geradas pela IA aos tokens
+    const aiKeywords = (searchKeywords || []).map(k => k.toLowerCase().trim()).filter(k => k.length > 1);
+    for (const kw of aiKeywords) {
+      if (!queryTokens.includes(kw)) {
+        queryTokens.push(kw);
+      }
+    }
+
     if (queryTokens.length === 0) return null;
 
-    // 3. Busca no SQLite usando os principais termos significativos ordenados por relevância
-    const sigTokens = queryTokens.filter(t => t.length >= 3 && !STOP_WORDS.has(t));
+    // 3. Busca no SQLite usando os termos combinados (IA + extraídos do nome)
+    const sigTokens = queryTokens.filter(t => t.length >= 2 && !STOP_WORDS.has(t));
     sigTokens.sort((a, b) => b.length - a.length);
 
     let candidates = [];
     if (sigTokens.length > 0) {
-      // Usa até os 6 termos mais longos para ampliar o recall da busca
-      const topTokens = sigTokens.slice(0, 6);
-      const conditions = topTokens.map(() => 'name LIKE ?').join(' OR ');
-      const params = topTokens.map(t => `%${t}%`);
+      // Mescla as palavras-chave da IA com os maiores termos do nome para garantir recall amplo
+      const searchTerms = Array.from(new Set([...aiKeywords, ...sigTokens.slice(0, 6)]));
+      
+      const conditions = searchTerms.map(() => 'name LIKE ?').join(' OR ');
+      const params = searchTerms.map(t => `%${t}%`);
       candidates = this.db.prepare(`SELECT * FROM stock_products WHERE ${conditions}`).all(...params);
     }
 

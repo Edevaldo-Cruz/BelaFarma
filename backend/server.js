@@ -3274,14 +3274,22 @@ initializeMarketingEndpoints(app, db);
 const { initializeWhatsAppGroupEndpoints, escolherEPostarOfertaInteligente } = require('./whatsapp-group-endpoints.js');
 initializeWhatsAppGroupEndpoints(app, db);
 
+// Módulo Status de WhatsApp
+const { postarStatusDiario } = require('./services/whatsapp-status.service.js');
+
 // ============================================================================
-// CRON: ROBÔ DE OFERTAS (JIT)
+// CRON: ROBÔ DE OFERTAS (JIT) E STATUS
 // ============================================================================
 // Roda a cada hora, nos 10 minutos (08:10, 09:10, ..., 20:10) de Seg a Sex
 cron.schedule('10 8-20 * * 1-6', () => {
   escolherEPostarOfertaInteligente();
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON] 🤖 Robô de Ofertas JIT agendado para rodar a cada hora (:10) das 08h às 20h, Seg-Sáb.');
+
+cron.schedule('0 8 * * 1-6', () => {
+  postarStatusDiario();
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON] 🤖 Robô de Status agendado para rodar às 08h00, Seg-Sáb.');
 
 // Endpoint para disparar o JIT manualmente (para testes)
 app.post('/api/whatsapp/offers-bank/trigger-jit', async (req, res) => {
@@ -3291,6 +3299,19 @@ app.post('/api/whatsapp/offers-bank/trigger-jit', async (req, res) => {
     res.json({ success: true, message: 'JIT executado! Verifique o histórico.' });
   } catch (err) {
     console.error('[RoboOfertas JIT] Erro no disparo manual:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para disparar o Status manualmente (para testes)
+app.post('/api/whatsapp/offers-bank/trigger-status', async (req, res) => {
+  try {
+    console.log('[WhatsAppStatus] Disparo manual solicitado via API...');
+    // Roda em background para não travar a requisição
+    postarStatusDiario().catch(console.error);
+    res.json({ success: true, message: 'Rotina de Status iniciada em segundo plano! Verifique o WhatsApp da farmácia.' });
+  } catch (err) {
+    console.error('[WhatsAppStatus] Erro no disparo manual:', err);
     res.status(500).json({ error: err.message });
   }
 });
