@@ -378,11 +378,42 @@ async function listGroups() {
   }));
 }
 
+// ──────────────────────────────────────────────────────────
+// SEND STATUS — posta no status do WhatsApp (My Status)
+// ──────────────────────────────────────────────────────────
+async function sendStatus(imagePath, caption = '') {
+  if (!isConnected || !sock) {
+    throw new Error('Baileys não está conectado ao WhatsApp.');
+  }
+
+  if (!fs.existsSync(imagePath)) {
+    throw new Error(`Imagem não encontrada: ${imagePath}`);
+  }
+
+  const imageBuffer = fs.readFileSync(imagePath);
+
+  // Enviar para o status@broadcast
+  await sock.sendMessage('status@broadcast', {
+    image: imageBuffer,
+    caption: caption || undefined,
+    mimetype: imagePath.endsWith('.png') ? 'image/png' : 'image/jpeg'
+  }, {
+    statusJidList: [
+      // Envia para o próprio número também para aparecer no celular
+      sock.user.id.split(':')[0] + '@s.whatsapp.net'
+    ]
+  });
+
+  console.log(`[Baileys] ✅ Status postado com sucesso.`);
+  return { success: true };
+}
+
 module.exports = {
   connect,
   disconnect,
   getStatus,
   sendTextToGroup,
   sendImageToGroup,
+  sendStatus,
   listGroups
 };

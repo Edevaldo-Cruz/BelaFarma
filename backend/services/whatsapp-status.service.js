@@ -82,8 +82,15 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
 
     console.log(`[WhatsAppStatus] IA selecionou ${selectedList.length} ofertas para o Status.`);
 
-    // 4. Loop de Envio para a Evolution API
+    // 4. Loop de Envio via Baileys
     let sucessoCount = 0;
+    const baileys = require('./baileys-service');
+    const status = baileys.getStatus();
+    
+    if (!status.connected) {
+       console.error('[WhatsAppStatus] ❌ Baileys não está conectado. Abortando.');
+       return;
+    }
     
     for (let i = 0; i < selectedList.length; i++) {
       const item = selectedList[i];
@@ -94,59 +101,23 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
         continue;
       }
 
-      console.log(`[WhatsAppStatus] Postando ${i + 1}/${selectedList.length}: ${offer.productName}`);
+      console.log(`[WhatsAppStatus Baileys] Postando ${i + 1}/${selectedList.length}: ${offer.productName}`);
 
-      let content = item.shortCaption;
-      let mediaType = 'image';
+      let caption = item.shortCaption;
 
-      if (offer.mediaPath) {
-        const backendUrl = process.env.BACKEND_URL || 'http://192.168.1.70:3001';
-        content = `${backendUrl}${offer.mediaPath}`;
-      } else {
-        // Se a oferta não tiver imagem (raro, mas pode ocorrer)
-        mediaType = 'text';
+      if (!offer.mediaPath) {
+        console.warn(`[WhatsAppStatus Baileys] ⚠️ Oferta sem imagem. Pulando...`);
+        continue;
       }
 
-      // Prepara o Body para a Evolution API
-      const requestBody = {
-        type: mediaType,
-        content: content,
-        allContacts: true // Envia para todos os contatos que podem ver Status
-      };
-
-      if (mediaType === 'image') {
-         // Para imagens, a legenda vai no "caption" em algumas versões da API, ou no text (a verificar versão Evolution)
-         // O padrão Evolution geralmente é colocar no caption se for media
-         requestBody.caption = item.shortCaption; 
-      } else {
-         // Para texto, precisa de um fundo
-         requestBody.backgroundColor = '#008000';
-         requestBody.font = 1;
-      }
+      const fullPath = path.join(__dirname, '..', 'public', offer.mediaPath);
 
       try {
-        const payload = {
-            statusMessage: requestBody
-        };
-
-        const response = await fetch(`${EVOLUTION_URL}/message/sendStatus/${EVOLUTION_INSTANCE}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': EVOLUTION_KEY
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-           sucessoCount++;
-           console.log(`[WhatsAppStatus] ✅ Status ${i + 1} postado com sucesso!`);
-        } else {
-           const errText = await response.text();
-           console.error(`[WhatsAppStatus] ❌ Erro da Evolution API ao postar status: ${response.status} - ${errText}`);
-        }
+        await baileys.sendStatus(fullPath, caption);
+        sucessoCount++;
+        console.log(`[WhatsAppStatus Baileys] ✅ Status ${i + 1} postado com sucesso!`);
       } catch (reqErr) {
-        console.error(`[WhatsAppStatus] ❌ Falha de rede ao conectar à Evolution:`, reqErr.message);
+        console.error(`[WhatsAppStatus Baileys] ❌ Falha ao postar status:`, reqErr.message);
       }
 
       // Adiciona um delay de 5 a 8 segundos entre os envios para ser humanizado e não sobrecarregar

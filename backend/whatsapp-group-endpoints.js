@@ -717,7 +717,7 @@ Responda apenas com o JSON.`;
     }
   });
 
-  // Disparar uma única oferta para o Status
+  // Disparar uma única oferta para o Status via Baileys
   app.post('/api/whatsapp/offers-bank/:id/status', async (req, res) => {
     try {
       const offerId = req.params.id;
@@ -727,49 +727,24 @@ Responda apenas com o JSON.`;
         return res.status(404).json({ error: 'Oferta não encontrada.' });
       }
 
-      const EVOLUTION_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-      const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
-      const EVOLUTION_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belaFarma';
-
-      let content = offer.aiCaption || `Oferta: ${offer.productName} por R$${offer.price.toFixed(2)}!`;
-      let mediaType = 'image';
-
-      if (offer.mediaPath) {
-        const backendUrl = process.env.BACKEND_URL || 'http://192.168.1.70:3001';
-        content = `${backendUrl}${offer.mediaPath}`;
-      } else {
-        mediaType = 'text';
+      const baileys = require('./baileys-service');
+      const status = baileys.getStatus();
+      if (!status.connected) {
+         return res.status(500).json({ error: 'WhatsApp via Baileys não está conectado no backend.' });
       }
 
-      const requestBody = {
-        type: mediaType,
-        content: content,
-        allContacts: true
-      };
-
-      if (mediaType === 'image') {
-         requestBody.caption = offer.aiCaption || `Oferta: ${offer.productName} por apenas R$${offer.price.toFixed(2)}!`;
-      } else {
-         requestBody.backgroundColor = '#008000';
-         requestBody.font = 1;
+      if (!offer.mediaPath) {
+         return res.status(400).json({ error: 'A oferta precisa de uma imagem para ser postada no Status.' });
       }
 
-      const fetch = require('node-fetch');
-      const response = await fetch(`${EVOLUTION_URL}/message/sendStatus/${EVOLUTION_INSTANCE}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
-        body: JSON.stringify({ statusMessage: requestBody })
-      });
+      const fullPath = path.join(__dirname, 'public', offer.mediaPath);
+      let caption = offer.aiCaption || `Oferta: ${offer.productName} por R$${offer.price.toFixed(2)}!`;
 
-      if (response.ok) {
-         res.json({ success: true, message: 'Status postado com sucesso!' });
-      } else {
-         const errText = await response.text();
-         console.error('[RoboOfertas] Erro da Evolution API ao postar status:', response.status, errText);
-         res.status(500).json({ error: 'Falha ao postar status: ' + errText });
-      }
+      await baileys.sendStatus(fullPath, caption);
+
+      res.json({ success: true, message: 'Status postado com sucesso via Baileys!' });
     } catch (err) {
-      console.error('[RoboOfertas] Erro de rede:', err.message);
+      console.error('[RoboOfertas Baileys] Erro:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
