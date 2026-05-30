@@ -38,6 +38,7 @@ import {
 } from 'recharts';
 import SalesChart from './SalesChart';
 import ExpensesChart from './ExpensesChart';
+import FinancialEvolutionChart from './FinancialEvolutionChart';
 import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
 import { OrderStatusModal } from './OrderStatusModal';
@@ -490,8 +491,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       </div>
 
       {user.role !== UserRole.OPERADOR && (
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px]">
-          <ExpensesChart orders={orders} boletos={boletos} cashClosings={cashClosings} fixedAccounts={fixedAccounts} />
+        <div className="space-y-8">
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[450px]">
+            <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={cashClosings} fixedAccounts={fixedAccounts} />
+          </div>
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px]">
+            <ExpensesChart orders={orders} boletos={boletos} cashClosings={cashClosings} fixedAccounts={fixedAccounts} />
+          </div>
         </div>
       )}
 
