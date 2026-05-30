@@ -29,6 +29,8 @@ services:
       - ./mensagens:/usr/src/app/mensagens
       # Sessão do Baileys (persistente entre restarts e deploys)
       - ./data/baileys-session:/usr/src/app/data/baileys-session
+      # Pasta de uploads (persistente para salvar as imagens do banco de ofertas)
+      - ./uploads:/usr/src/app/uploads
 
     depends_on:
       - evolution-api
