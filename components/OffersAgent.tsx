@@ -75,6 +75,25 @@ export default function OffersAgent() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [submittingOffer, setSubmittingOffer] = useState(false);
   const [openingFolder, setOpeningFolder] = useState(false);
+  const [triggeringStatus, setTriggeringStatus] = useState(false);
+
+  const handleTriggerStatus = async () => {
+    if (!confirm('Deseja iniciar a postagem diária de 15 ofertas no Status do WhatsApp principal agora?')) return;
+    setTriggeringStatus(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank/trigger-status`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(data.message || 'Rotina iniciada com sucesso!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao iniciar rotina.', 'error');
+      }
+    } catch {
+      addToast('Erro de conexão ao disparar rotina.', 'error');
+    } finally {
+      setTriggeringStatus(false);
+    }
+  };
 
   const fetchBaileysStatus = useCallback(async () => {
     try {
@@ -368,7 +387,17 @@ export default function OffersAgent() {
             </div>
             <div>
               <h1 className="text-2xl font-black">Robô de Ofertas (Automático)</h1>
-              <p className="text-indigo-100 text-sm font-medium">Agendamento Inteligente Just-In-Time</p>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mt-1">
+                <p className="text-indigo-100 text-sm font-medium">Agendamento Inteligente Just-In-Time</p>
+                <button 
+                  onClick={handleTriggerStatus}
+                  disabled={triggeringStatus}
+                  className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 border border-white/10"
+                >
+                  {triggeringStatus ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  Testar Disparo no Status
+                </button>
+              </div>
             </div>
           </div>
           <span className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest flex items-center gap-2 border ${
