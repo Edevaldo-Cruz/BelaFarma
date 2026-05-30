@@ -160,6 +160,7 @@ async function connect(db) {
           }
 
           const cleanText = text ? text.toLowerCase().trim() : '';
+
           const isLabelTrigger = cleanText.startsWith('etiqueta') || 
                                  cleanText.startsWith('#etiqueta') || 
                                  cleanText.startsWith('etq') || 
@@ -168,9 +169,12 @@ async function connect(db) {
                                  cleanText.startsWith('imprimir etiqueta');
 
           // Verifica se é imagem ou documento com imagem
-          const isImage = messageType === 'imageMessage' || 
-                         (messageType === 'documentMessage' && msg.message.documentMessage.mimetype.startsWith('image/')) ||
-                         (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.mimetype?.startsWith('image/'));
+          const isImage = !!(
+            messageType === 'imageMessage' || 
+            (messageType === 'documentMessage' && msg.message.documentMessage?.mimetype?.startsWith('image/')) ||
+            (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage?.message?.documentMessage?.mimetype?.startsWith('image/')) ||
+            Object.keys(msg.message || {}).some(key => key.endsWith('Message') && msg.message[key]?.mimetype?.startsWith('image/'))
+          );
 
           const isAudio = messageType === 'audioMessage';
 

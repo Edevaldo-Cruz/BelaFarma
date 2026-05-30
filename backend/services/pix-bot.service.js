@@ -122,8 +122,12 @@ class PixBotService {
         temperature: 0.0 // 0.0 para ser estritamente analítico e sem alucinações
       });
 
-      // Limpar resposta da IA (remover markdown de JSON se houver)
-      const cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      // Limpar resposta da IA (extrair apenas o bloco JSON caso haja texto extra do Gemini)
+      let cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
       const result = JSON.parse(cleanJson);
 
       console.log(`[PixBot] 🤖 Auditoria IA para ${phone}:`, result);
@@ -203,7 +207,11 @@ class PixBotService {
         temperature: 0.0
       });
 
-      const cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      let cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
       const result = JSON.parse(cleanJson);
 
       console.log(`[PixBot-Baileys] 🤖 Auditoria IA para ${phone}:`, result);

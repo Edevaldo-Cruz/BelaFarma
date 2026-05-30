@@ -561,6 +561,14 @@ try {
       console.log('Added dueDay column to customers table.');
     }
 
+    // CRM: Add preferences column to customers table if it doesn't exist
+    try {
+      db.prepare('SELECT preferences FROM customers LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE customers ADD COLUMN preferences TEXT');
+      console.log('Added preferences column to customers table.');
+    }
+
     // Create bugs table for system bug tracking
     db.exec(`
       CREATE TABLE IF NOT EXISTS bugs (

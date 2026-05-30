@@ -129,7 +129,7 @@ async function connect(db) {
         try {
           if (m.type !== 'notify') return;
           const msg = m.messages[0];
-          if (!msg.message || msg.key.fromMe) return;
+          if (!msg.message) return;
 
           const remoteJid = msg.key.remoteJid;
           if (remoteJid.endsWith('@g.us')) return; // Ignora mensagens de grupos
@@ -150,6 +150,15 @@ async function connect(db) {
           }
 
           const cleanText = text ? text.toLowerCase().trim() : '';
+
+          // 1.5. Acionar o Triage Agent (que precisa saber tanto mensagens recebidas quanto enviadas)
+          const triageAgentService = require('./services/triage-agent.service.js');
+          const pushName = msg.pushName || '';
+          triageAgentService.onMessageReceived(phone, pushName, cleanText, msg.key.fromMe, sock);
+
+          // Se a mensagem foi enviada por nós (fromMe), não processa para o LabelBot
+          if (msg.key.fromMe) return;
+
           const isPriceResponse = cleanText.startsWith('preço') || cleanText.startsWith('preco');
           const isLabelTrigger = cleanText.startsWith('etiqueta') || 
                                  cleanText.startsWith('#etiqueta') || 
