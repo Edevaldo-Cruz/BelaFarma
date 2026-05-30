@@ -717,6 +717,64 @@ Responda apenas com o JSON.`;
     }
   });
 
+  // Disparar uma única oferta para o Status
+  app.post('/api/whatsapp/offers-bank/:id/status', async (req, res) => {
+    try {
+      const offerId = req.params.id;
+      const offer = await db.prepare('SELECT * FROM whatsapp_offers_bank WHERE id = ?').get(offerId);
+
+      if (!offer) {
+        return res.status(404).json({ error: 'Oferta não encontrada.' });
+      }
+
+      const EVOLUTION_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+      const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+      const EVOLUTION_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belaFarma';
+
+      let content = offer.aiCaption || `Oferta: ${offer.productName} por R$${offer.price.toFixed(2)}!`;
+      let mediaType = 'image';
+
+      if (offer.mediaPath) {
+        const backendUrl = process.env.BACKEND_URL || 'http://192.168.1.70:3001';
+        content = `${backendUrl}${offer.mediaPath}`;
+      } else {
+        mediaType = 'text';
+      }
+
+      const requestBody = {
+        type: mediaType,
+        content: content,
+        allContacts: true
+      };
+
+      if (mediaType === 'image') {
+         requestBody.caption = offer.aiCaption || `Oferta: ${offer.productName} por apenas R$${offer.price.toFixed(2)}!`;
+      } else {
+         requestBody.backgroundColor = '#008000';
+         requestBody.font = 1;
+      }
+
+      const fetch = require('node-fetch');
+      const response = await fetch(`${EVOLUTION_URL}/message/sendStatus/${EVOLUTION_INSTANCE}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
+        body: JSON.stringify({ statusMessage: requestBody })
+      });
+
+      if (response.ok) {
+         res.json({ success: true, message: 'Status postado com sucesso!' });
+      } else {
+         const errText = await response.text();
+         console.error('[RoboOfertas] Erro da Evolution API ao postar status:', response.status, errText);
+         res.status(500).json({ error: 'Falha ao postar status: ' + errText });
+      }
+    } catch (err) {
+      console.error('[RoboOfertas] Erro de rede:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   // 4. Gerar Cronograma Inteligente com IA Baseado no Clima e Semana (Slots de :10)
   app.post('/api/whatsapp/offers-bank/generate-schedule', async (req, res) => {
     try {

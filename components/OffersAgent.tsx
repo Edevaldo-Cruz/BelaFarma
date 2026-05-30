@@ -642,8 +642,16 @@ export default function OffersAgent() {
                   ) : (
                     <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-slate-300" /></div>
                   )}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button onClick={() => handleSendImmediate(offer)} className="p-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600" title="Disparar Agora"><Send className="w-3.5 h-3.5"/></button>
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-wrap items-center justify-center gap-2 p-2">
+                    <button onClick={() => handleSendImmediate(offer)} className="p-1.5 bg-indigo-500 text-white rounded-md hover:bg-indigo-600" title="Disparar Grupos Agora"><Send className="w-3.5 h-3.5"/></button>
+                    <button onClick={async () => {
+                      if(!confirm('Deseja postar esta oferta no Status do WhatsApp principal agora?')) return;
+                      try {
+                        const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank/${offer.id}/status`, { method: 'POST' });
+                        if(res.ok) addToast('Status postado!', 'success');
+                        else addToast('Erro ao postar status.', 'error');
+                      } catch { addToast('Erro de rede.', 'error'); }
+                    }} className="p-1.5 bg-emerald-500 text-white rounded-md hover:bg-emerald-600" title="Postar no Status"><ImageIcon className="w-3.5 h-3.5"/></button>
                     <button onClick={() => handleOpenEditModal(offer)} className="p-1.5 bg-amber-500 text-white rounded-md hover:bg-amber-600" title="Editar"><Edit className="w-3.5 h-3.5"/></button>
                     <button onClick={() => handleDeleteOffer(offer.id)} className="p-1.5 bg-red-500 text-white rounded-md hover:bg-red-600" title="Excluir"><Trash2 className="w-3.5 h-3.5"/></button>
                   </div>
