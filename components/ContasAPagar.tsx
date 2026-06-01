@@ -222,26 +222,39 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
 
         if (yDue === selectedYear && mDue === selectedMonth) {
           if (c.totalSales >= dailyGoal) {
-            let provisionValue = 50;
             const surplus = c.totalSales - dailyGoal;
             let bonusValue = 0;
             if (surplus > 0) {
               bonusValue = Math.floor(surplus / 100) * 10;
-              provisionValue += bonusValue;
             }
             
-            // Salvamos a data original do caixa (c.date) para identificar nos paidProvisionsDates
-            const isPaid = paidProvisionsDates.includes(c.date);
+            // Salvamos a data original do caixa para identificar nos paidProvisionsDates
+            const isBasePaid = paidProvisionsDates.includes(`base-${c.date}`) || paidProvisionsDates.includes(c.date);
             
+            // Lançamento da Base
             list.push({
-              id: `provision-${c.date}`,
+              id: `provision-base-${c.date}`,
               type: 'provision',
-              supplierName: `Provisão Prolabore (Fechamento: ${c.date.split('-').reverse().join('/')})`,
+              supplierName: `Provisão Prolabore - Base (Fechamento: ${c.date.split('-').reverse().join('/')})`,
               dueDate: dueDateStr,
-              value: provisionValue,
-              status: isPaid ? 'Pago' : 'Pendente',
-              provisionDetails: `Cálculo: R$ 50,00 (Meta) + R$ ${bonusValue.toFixed(2)} (Excedente)`
+              value: 50,
+              status: isBasePaid ? 'Pago' : 'Pendente',
+              provisionDetails: `Cálculo: R$ 50,00 (Meta)`
             });
+
+            // Lançamento da Bonificação
+            if (bonusValue > 0) {
+              const isBonusPaid = paidProvisionsDates.includes(`bonus-${c.date}`) || paidProvisionsDates.includes(c.date);
+              list.push({
+                id: `provision-bonus-${c.date}`,
+                type: 'provision',
+                supplierName: `Provisão Prolabore - Bonificação (Fechamento: ${c.date.split('-').reverse().join('/')})`,
+                dueDate: dueDateStr,
+                value: bonusValue,
+                status: isBonusPaid ? 'Pago' : 'Pendente',
+                provisionDetails: `Cálculo: R$ ${bonusValue.toFixed(2)} (Excedente)`
+              });
+            }
           }
         }
       });
@@ -274,6 +287,12 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   const totalOfMonth = useMemo(() => {
     return filteredList.reduce((acc, b) => acc + b.value, 0);
   }, [filteredList]);
+
+  const totalProvisionedThisMonth = useMemo(() => {
+    return unifiedList
+      .filter(item => item.type === 'provision')
+      .reduce((acc, item) => acc + item.value, 0);
+  }, [unifiedList]);
 
   const currentMonthLimit = useMemo(() => {
     const limit = monthlyLimits.find(l => l.month === selectedMonth + 1 && l.year === selectedYear);
@@ -357,13 +376,13 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       }
     }
     else if (item.type === 'provision') {
-      // O ID da provisão é `provision-${c.date}`, extraímos a data original do caixa
-      const dateStr = item.id.replace('provision-', ''); 
+      // O ID da provisão é `provision-base-${c.date}` ou `provision-bonus-${c.date}`
+      const provisionKey = item.id.replace('provision-', ''); 
       let newDates = [...paidProvisionsDates];
       if (item.status === 'Pago') {
-         newDates = newDates.filter(d => d !== dateStr);
+         newDates = newDates.filter(d => d !== provisionKey);
       } else {
-         newDates.push(dateStr);
+         newDates.push(provisionKey);
       }
       setPaidProvisionsDates(newDates);
       try {
@@ -414,17 +433,27 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-right w-full">
-            <div className="flex justify-between items-center">
-              <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Previsão de Saída do Mês</p>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Teto Compras: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentMonthLimit)}</p>
-            </div>
-            <p className="text-2xl font-black text-slate-800 tracking-tighter mt-1">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalOfMonth)}
-            </p>
+      <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-right w-full">
+              <div className="flex justify-between items-center">
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Previsão de Saída do Mês</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Teto Compras: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentMonthLimit)}</p>
+              </div>
+              <p className="text-2xl font-black text-slate-800 tracking-tighter mt-1">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalOfMonth)}
+              </p>
+          </div>
+          <div className="p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl text-right w-full">
+              <div className="flex justify-end items-center">
+                <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Total Provisionado (Mês)</p>
+              </div>
+              <p className="text-2xl font-black text-emerald-800 tracking-tighter mt-1">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalProvisionedThisMonth)}
+              </p>
+          </div>
         </div>
-        <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4 items-center justify-end bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <div className="relative w-full md:w-48">
             <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <select 
