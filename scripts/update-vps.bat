@@ -18,7 +18,7 @@ echo Digite a senha (2494) novamente se solicitado.
 echo Isso pode demorar alguns minutos (reconstruindo o frontend)...
 echo.
 
-ssh -t %PROD_USER%@%PROD_IP% "cd %REMOTE_DIR% && git fetch origin && git reset --hard origin/main && docker-compose up -d --build"
+ssh -t %PROD_USER%@%PROD_IP% "cd %REMOTE_DIR% && git fetch origin && git reset --hard origin/main && docker-compose build --no-cache && docker-compose up -d"
 
 echo.
 echo ===============================================

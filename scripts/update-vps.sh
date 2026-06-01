@@ -24,7 +24,7 @@ fi
 echo ""
 echo "2. Corrigindo permissões e atualizando código via Git..."
 echo "Isso pode levar alguns minutos..."
-ssh -t "$PROD_USER@$PROD_IP" "cd $REMOTE_DIR && sudo chown -R ed:ed mensagens/ 2>/dev/null || true && git fetch origin && git reset --hard origin/main && docker-compose up -d --build"
+ssh -t "$PROD_USER@$PROD_IP" "cd $REMOTE_DIR && sudo chown -R ed:ed mensagens/ 2>/dev/null || true && git fetch origin && git reset --hard origin/main && docker-compose build --no-cache && docker-compose up -d"
 
 if [ $? -eq 0 ]; then
     echo ""
