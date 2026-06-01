@@ -1068,9 +1068,9 @@ async function escolherEPostarOfertaInteligente() {
       return;
     }
 
-    // 3. Buscar histórico recente (últimas 10 postagens para não repetir)
+    // 3. Buscar histórico recente (últimas 24 horas para não repetir produtos no mesmo dia)
     const recentPosts = db.prepare(
-      'SELECT content FROM whatsapp_group_posts WHERE status = ? ORDER BY scheduledAt DESC LIMIT 10'
+      "SELECT content FROM whatsapp_group_posts WHERE status = ? AND scheduledAt >= datetime('now', '-24 hours') ORDER BY scheduledAt DESC"
     ).all('Enviado');
 
     // 4. Buscar contexto atual (Hora, Clima)
