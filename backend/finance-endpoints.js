@@ -127,10 +127,8 @@ module.exports = function (db) {
         queryDigifarma(sqlPagamentos)
       ]);
 
-      let totalSales = 0;
       let qtdVendas = 0;
       if (vendasResult && vendasResult.length > 0) {
-        totalSales = vendasResult[0].TOTAL_VENDAS || 0;
         qtdVendas = vendasResult[0].QTD_VENDAS || 0;
       }
 
@@ -160,6 +158,9 @@ module.exports = function (db) {
           }
         }
       }
+
+      // O valor líquido real é a soma de todos os recebimentos reais de hoje
+      const totalSales = dinheiro + credit + debit + pix + crediario + outros;
 
       res.json({
         totalSales,
