@@ -342,7 +342,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
             </select>
           </div>
 
-          {/* Inatividade (Dias sem giro) */}
+          {/* Giro / Inatividade */}
           <div>
             <select
               value={daysWithoutSales}
@@ -352,11 +352,18 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
               }}
               className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
             >
-              <option value="0">Qualquer inatividade</option>
-              <option value="30">Sem venda (+30 dias)</option>
-              <option value="60">Sem venda (+60 dias)</option>
-              <option value="90">Sem venda (+90 dias)</option>
-              <option value="120">Sem venda (+120 dias)</option>
+              <option value="0">Qualquer giro / inatividade</option>
+              <optgroup label="Produtos Vendendo (Com Giro)">
+                <option value="-30">Com venda nos últimos 30 dias</option>
+                <option value="-60">Com venda nos últimos 60 dias</option>
+                <option value="-90">Com venda nos últimos 90 dias</option>
+              </optgroup>
+              <optgroup label="Produtos Parados (Sem Giro)">
+                <option value="30">Sem venda (+30 dias)</option>
+                <option value="60">Sem venda (+60 dias)</option>
+                <option value="90">Sem venda (+90 dias)</option>
+                <option value="120">Sem venda (+120 dias)</option>
+              </optgroup>
             </select>
           </div>
 

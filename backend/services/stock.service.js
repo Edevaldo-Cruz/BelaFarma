@@ -101,17 +101,30 @@ async function listarProdutosEstoque(params = {}) {
     sqlParams.push(parseInt(categoryId));
   }
 
-  // Filtro de dias sem venda (usando NOT EXISTS indexado super rápido)
-  if (!isNaN(daysWithoutSales) && daysWithoutSales > 0) {
-    whereClause += ` AND NOT EXISTS (
-      SELECT FIRST 1 1 
-      FROM ITEM_VENDAS iv2
-      JOIN CAB_VENDAS v2 ON iv2.VENDA_NOTA_ID = v2.VENDA_NOTA_ID
-      WHERE iv2.PRODUTO_ID = p.PRODUTO_ID 
-        AND v2.CANCELADO <> 'S'
-        AND v2.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - CAST(? AS INTEGER)
-    )`;
-    sqlParams.push(daysWithoutSales);
+  // Filtro de giro / inatividade (positivo = sem venda, negativo = com venda)
+  if (!isNaN(daysWithoutSales) && daysWithoutSales !== 0) {
+    if (daysWithoutSales > 0) {
+      whereClause += ` AND NOT EXISTS (
+        SELECT FIRST 1 1 
+        FROM ITEM_VENDAS iv2
+        JOIN CAB_VENDAS v2 ON iv2.VENDA_NOTA_ID = v2.VENDA_NOTA_ID
+        WHERE iv2.PRODUTO_ID = p.PRODUTO_ID 
+          AND v2.CANCELADO <> 'S'
+          AND v2.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - CAST(? AS INTEGER)
+      )`;
+      sqlParams.push(daysWithoutSales);
+    } else {
+      const days = Math.abs(daysWithoutSales);
+      whereClause += ` AND EXISTS (
+        SELECT FIRST 1 1 
+        FROM ITEM_VENDAS iv2
+        JOIN CAB_VENDAS v2 ON iv2.VENDA_NOTA_ID = v2.VENDA_NOTA_ID
+        WHERE iv2.PRODUTO_ID = p.PRODUTO_ID 
+          AND v2.CANCELADO <> 'S'
+          AND v2.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - CAST(? AS INTEGER)
+      )`;
+      sqlParams.push(days);
+    }
   }
 
   // Ordenação
