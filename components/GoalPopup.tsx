@@ -27,7 +27,7 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
 
         // Buscar faturamento de hoje em tempo real
         try {
-          const resLive = await fetch('/api/finance/live-closing');
+          const resLive = await fetch('/api/finance-agent/live-closing');
           if (resLive.ok) {
             const liveData = await resLive.json();
             setTodaySales(liveData.totalSales || 0);
