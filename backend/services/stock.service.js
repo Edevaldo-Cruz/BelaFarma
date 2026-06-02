@@ -1,6 +1,15 @@
 const { queryDigifarma } = require('./digifarma.service');
 
 /**
+ * Formata data para o padrão de timestamp do Firebird (YYYY-MM-DD HH:mm:ss)
+ */
+function formatarDataFirebird(date) {
+  const pad = (num) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+
+/**
  * Obtém o resumo consolidador do estoque (cards estatísticos)
  * @returns {Promise<Object>}
  */
@@ -11,13 +20,17 @@ async function obterResumoEstoque() {
     WHERE PROD_ATIVO = 'S' AND PROD_SALDO > 0
   `;
   
+  const agora = new Date();
+  const inicioMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0));
+  const fimMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59));
+
   const sqlSaidasMes = `
     SELECT COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as TOTAL_SAIDAS
     FROM ITEM_VENDAS iv
     JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
     WHERE v.CANCELADO <> 'S'
-      AND EXTRACT(MONTH FROM v.VENDA_DATA_HORA) = EXTRACT(MONTH FROM CURRENT_TIMESTAMP)
-      AND EXTRACT(YEAR FROM v.VENDA_DATA_HORA) = EXTRACT(YEAR FROM CURRENT_TIMESTAMP)
+      AND v.VENDA_DATA_HORA >= ?
+      AND v.VENDA_DATA_HORA <= ?
   `;
 
   const sqlParados = `
@@ -25,23 +38,21 @@ async function obterResumoEstoque() {
       COUNT(*) as QTD_PARADA,
       COALESCE(SUM(p.PROD_SALDO * COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0)), 0) as VALOR_PARADO
     FROM PRODUTOS p
-    LEFT JOIN (
-      SELECT 
-        iv.PRODUTO_ID, 
-        MAX(v.VENDA_DATA_HORA) as ULTIMA_VENDA 
-      FROM ITEM_VENDAS iv
-      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-      WHERE v.CANCELADO <> 'S'
-      GROUP BY iv.PRODUTO_ID
-    ) uv ON p.PRODUTO_ID = uv.PRODUTO_ID
     WHERE p.PROD_ATIVO = 'S'
       AND p.PROD_SALDO > 0
-      AND (uv.ULTIMA_VENDA IS NULL OR uv.ULTIMA_VENDA < CAST('NOW' AS TIMESTAMP) - 90)
+      AND NOT EXISTS (
+        SELECT FIRST 1 1 
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
+          AND v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 90
+      )
   `;
 
   const [ativosResult, saidasResult, paradosResult] = await Promise.all([
     queryDigifarma(sqlAtivos),
-    queryDigifarma(sqlSaidasMes),
+    queryDigifarma(sqlSaidasMes, [inicioMes, fimMes]),
     queryDigifarma(sqlParados)
   ]);
 
@@ -66,6 +77,7 @@ async function listarProdutosEstoque(params = {}) {
   const stockStatus = params.stockStatus || 'positivo'; // 'todos', 'positivo', 'zerado'
   const categoryId = params.categoryId;
   const sort = params.sort || 'nome_asc';
+  const sortKey = sort.split(':')[0]; // Trata modificadores como "tempo_sem_venda:1"
 
   let whereClause = `p.PROD_ATIVO = 'S'`;
   const sqlParams = [];
@@ -89,25 +101,32 @@ async function listarProdutosEstoque(params = {}) {
     sqlParams.push(parseInt(categoryId));
   }
 
-  // Filtro de dias sem venda
+  // Filtro de dias sem venda (usando NOT EXISTS indexado super rápido)
   if (!isNaN(daysWithoutSales) && daysWithoutSales > 0) {
-    whereClause += ` AND (uv.ULTIMA_VENDA IS NULL OR uv.ULTIMA_VENDA < CAST('NOW' AS TIMESTAMP) - CAST(? AS INTEGER))`;
+    whereClause += ` AND NOT EXISTS (
+      SELECT FIRST 1 1 
+      FROM ITEM_VENDAS iv2
+      JOIN CAB_VENDAS v2 ON iv2.VENDA_NOTA_ID = v2.VENDA_NOTA_ID
+      WHERE iv2.PRODUTO_ID = p.PRODUTO_ID 
+        AND v2.CANCELADO <> 'S'
+        AND v2.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - CAST(? AS INTEGER)
+    )`;
     sqlParams.push(daysWithoutSales);
   }
 
   // Ordenação
   let orderBy = 'p.PRODUTO ASC';
-  if (sort === 'tempo_sem_venda') {
-    orderBy = 'uv.ULTIMA_VENDA ASC NULLS FIRST, p.PRODUTO ASC';
-  } else if (sort === 'saldo_desc') {
+  if (sortKey === 'tempo_sem_venda') {
+    orderBy = '9 ASC NULLS FIRST, p.PRODUTO ASC';
+  } else if (sortKey === 'saldo_desc') {
     orderBy = 'p.PROD_SALDO DESC, p.PRODUTO ASC';
-  } else if (sort === 'saldo_asc') {
+  } else if (sortKey === 'saldo_asc') {
     orderBy = 'p.PROD_SALDO ASC, p.PRODUTO ASC';
-  } else if (sort === 'preco_desc') {
+  } else if (sortKey === 'preco_desc') {
     orderBy = 'p.PROD_PRVENDA DESC, p.PRODUTO ASC';
-  } else if (sort === 'preco_asc') {
+  } else if (sortKey === 'preco_asc') {
     orderBy = 'p.PROD_PRVENDA ASC, p.PRODUTO ASC';
-  } else if (sort === 'nome_desc') {
+  } else if (sortKey === 'nome_desc') {
     orderBy = 'p.PRODUTO DESC';
   }
 
@@ -115,19 +134,10 @@ async function listarProdutosEstoque(params = {}) {
   const sqlCount = `
     SELECT COUNT(*) as TOTAL_COUNT
     FROM PRODUTOS p
-    LEFT JOIN (
-      SELECT 
-        iv.PRODUTO_ID, 
-        MAX(v.VENDA_DATA_HORA) as ULTIMA_VENDA 
-      FROM ITEM_VENDAS iv
-      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-      WHERE v.CANCELADO <> 'S'
-      GROUP BY iv.PRODUTO_ID
-    ) uv ON p.PRODUTO_ID = uv.PRODUTO_ID
     WHERE ${whereClause}
   `;
 
-  // 2. Query de dados paginados (sem o join pesado de saídas globais)
+  // 2. Query de dados paginados (com subquery correlacionada indexada rápida)
   const sqlData = `
     SELECT FIRST ${limit} SKIP ${offset}
       p.PRODUTO_ID,
@@ -138,18 +148,16 @@ async function listarProdutosEstoque(params = {}) {
       p.PROD_PRVENDA,
       COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
       c.CATEGORIA as CATEGORIA_NOME,
-      uv.ULTIMA_VENDA
+      (
+        SELECT FIRST 1 v.VENDA_DATA_HORA 
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
+          AND v.CANCELADO <> 'S'
+        ORDER BY v.VENDA_DATA_HORA DESC
+      ) as ULTIMA_VENDA
     FROM PRODUTOS p
     LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
-    LEFT JOIN (
-      SELECT 
-        iv.PRODUTO_ID, 
-        MAX(v.VENDA_DATA_HORA) as ULTIMA_VENDA 
-      FROM ITEM_VENDAS iv
-      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-      WHERE v.CANCELADO <> 'S'
-      GROUP BY iv.PRODUTO_ID
-    ) uv ON p.PRODUTO_ID = uv.PRODUTO_ID
     WHERE ${whereClause}
     ORDER BY ${orderBy}
   `;
@@ -167,6 +175,10 @@ async function listarProdutosEstoque(params = {}) {
     const productIds = dataResult.map(r => r.PRODUTO_ID);
     const placeholders = productIds.map(() => '?').join(', ');
     
+    const agora = new Date();
+    const inicioMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0));
+    const fimMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59));
+
     const sqlSaidas = `
       SELECT 
         iv.PRODUTO_ID,
@@ -175,13 +187,13 @@ async function listarProdutosEstoque(params = {}) {
       JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
       WHERE v.CANCELADO <> 'S'
         AND iv.PRODUTO_ID IN (${placeholders})
-        AND EXTRACT(MONTH FROM v.VENDA_DATA_HORA) = EXTRACT(MONTH FROM CURRENT_TIMESTAMP)
-        AND EXTRACT(YEAR FROM v.VENDA_DATA_HORA) = EXTRACT(YEAR FROM CURRENT_TIMESTAMP)
+        AND v.VENDA_DATA_HORA >= ?
+        AND v.VENDA_DATA_HORA <= ?
       GROUP BY iv.PRODUTO_ID
     `;
 
     try {
-      const saidasResult = await queryDigifarma(sqlSaidas, productIds);
+      const saidasResult = await queryDigifarma(sqlSaidas, [...productIds, inicioMes, fimMes]);
       if (saidasResult && saidasResult.length > 0) {
         saidasResult.forEach(row => {
           saidasMap[row.PRODUTO_ID] = row.SAIDAS_MES || 0;
