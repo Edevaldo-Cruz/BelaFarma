@@ -180,5 +180,88 @@ module.exports = function (db) {
     }
   });
 
+  // 6. Sincronizar Crediário do Digifarma → SQLite local
+  // Apaga todos os customer_debts locais e reimporta do FICHARIO do Digifarma
+  const syncCrediarioFromDigifarma = async () => {
+    const crypto = require('crypto');
+    const { listarCrediarioAtivo } = require('./services/crediario.service');
+
+    console.log('[Crediário] 🔄 Iniciando sincronização do Digifarma...');
+    const crediarios = await listarCrediarioAtivo();
+    console.log(`[Crediário] Encontrados ${crediarios.length} registros em aberto.`);
+
+    // Limpa dívidas locais antigas
+    db.prepare('DELETE FROM customer_debts').run();
+
+    const insertCustomer = db.prepare(`
+      INSERT OR IGNORE INTO customers (id, name, phone, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const insertDebt = db.prepare(`
+      INSERT INTO customer_debts (id, customerId, purchaseDate, description, totalValue, status, userName)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    let newCustomers = 0;
+    let newDebts = 0;
+
+    db.transaction(() => {
+      for (const cred of crediarios) {
+        if (!cred.clientId) continue;
+        const customerId = String(cred.clientId);
+
+        const exists = db.prepare('SELECT id FROM customers WHERE id = ?').get(customerId);
+        if (!exists) {
+          insertCustomer.run(
+            customerId,
+            cred.clientName || 'Desconhecido',
+            cred.phone || '',
+            new Date().toISOString(),
+            new Date().toISOString()
+          );
+          newCustomers++;
+        }
+
+        const debtId = String(cred.id || crypto.randomUUID());
+        const purchaseDate = cred.purchaseDate ? new Date(cred.purchaseDate).toISOString() : new Date().toISOString();
+        const dueDate = cred.dueDate ? new Date(cred.dueDate).toLocaleDateString('pt-BR') : 'N/D';
+        const description = `Fiado Digifarma - Venda #${cred.saleId || '?'} (Venc. ${dueDate})`;
+
+        insertDebt.run(
+          debtId,
+          customerId,
+          purchaseDate,
+          description,
+          cred.balance,
+          'Pendente',
+          'SISTEMA (Digifarma)'
+        );
+        newDebts++;
+      }
+    })();
+
+    console.log(`[Crediário] ✅ Sincronização concluída! Clientes novos: ${newCustomers}, Títulos: ${newDebts}`);
+    return { newCustomers, newDebts, total: crediarios.length };
+  };
+
+  // Endpoint manual para sincronizar
+  router.post('/sync-crediario', async (req, res) => {
+    try {
+      const result = await syncCrediarioFromDigifarma();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Crediário] Erro na sincronização:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Auto-sync no boot (com delay de 10s para o Digifarma estar disponível)
+  setTimeout(() => {
+    syncCrediarioFromDigifarma().catch(err => {
+      console.warn('[Crediário] ⚠️ Sync automático falhou (Digifarma pode estar offline):', err.message);
+    });
+  }, 10000);
+
   return router;
 };
