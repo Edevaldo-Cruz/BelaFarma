@@ -94,42 +94,88 @@ module.exports = function (db) {
   });
 
   // 5. Fechamento de Caixa em Tempo Real (Direto do Digifarma)
+  // Tabela real: CAB_VENDAS (vendas) + CAB_VENDAS_FPAGTOS (formas de pagamento)
+  // TIPO_PAGAMENTO_ID: 1=Dinheiro, 2=Cheque, 3=ChequePré, 4=Cartão, 5=Crediário, 6=Parcelamento, 8=Pix
+  // Para Cartão (id=4), a coluna BANDEIRA contém "DEBITO" ou "CREDITO"
   router.get('/live-closing', async (req, res) => {
     try {
-      const sql = `
+      // Total de vendas do dia
+      const sqlVendas = `
         SELECT 
-          SUM(CAIXA_FECHAMENTO_TVENDA) as TotalSales,
-          SUM(CAIXA_FECHAMENTO_TCRED) as TotalCredit,
-          SUM(CAIXA_FECHAMENTO_TDEB) as TotalDebit,
-          SUM(CAIXA_FECHAMENTO_TCREDIARIO) as TotalCrediario,
-          SUM(CAIXA_FECHAMENTO_TPIX) as TotalPix
-        FROM CAIXA_FECHAMENTO
-        WHERE CAST(CAIXA_FECHAMENTO_DATA AS DATE) = CURRENT_DATE
+          COUNT(*) as QTD_VENDAS,
+          COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS
+        FROM CAB_VENDAS 
+        WHERE CAST(VENDA_DATA_HORA AS DATE) = CURRENT_DATE
+          AND CANCELADO <> 'S'
       `;
-      const result = await queryDigifarma(sql);
-      
-      let liveTotals = {
-        totalSales: 0,
-        credit: 0,
-        debit: 0,
-        pix: 0,
-        crediario: 0
-      };
 
-      if (result && result.length > 0 && result[0].TOTALSALES != null) {
-        liveTotals = {
-          totalSales: result[0].TOTALSALES || 0,
-          credit: result[0].TOTALCREDIT || 0,
-          debit: result[0].TOTALDEBIT || 0,
-          pix: result[0].TOTALPIX || 0,
-          crediario: result[0].TOTALCREDIARIO || 0
-        };
+      // Breakdown por forma de pagamento
+      const sqlPagamentos = `
+        SELECT 
+          fp.TIPO_PAGAMENTO_ID,
+          fp.BANDEIRA,
+          COALESCE(SUM(fp.VALOR), 0) as TOTAL
+        FROM CAB_VENDAS_FPAGTOS fp
+        JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE CAST(v.VENDA_DATA_HORA AS DATE) = CURRENT_DATE
+          AND v.CANCELADO <> 'S'
+        GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
+      `;
+
+      const [vendasResult, pagResult] = await Promise.all([
+        queryDigifarma(sqlVendas),
+        queryDigifarma(sqlPagamentos)
+      ]);
+
+      let totalSales = 0;
+      let qtdVendas = 0;
+      if (vendasResult && vendasResult.length > 0) {
+        totalSales = vendasResult[0].TOTAL_VENDAS || 0;
+        qtdVendas = vendasResult[0].QTD_VENDAS || 0;
       }
-      res.json(liveTotals);
+
+      let dinheiro = 0, credit = 0, debit = 0, pix = 0, crediario = 0, outros = 0;
+
+      if (pagResult && pagResult.length > 0) {
+        for (const row of pagResult) {
+          const tipo = row.TIPO_PAGAMENTO_ID;
+          const bandeira = (row.BANDEIRA || '').toUpperCase();
+          const valor = row.TOTAL || 0;
+
+          if (tipo === 1) {
+            dinheiro += valor;
+          } else if (tipo === 4) {
+            // Cartão: separar débito e crédito pela BANDEIRA
+            if (bandeira.includes('DEBITO')) {
+              debit += valor;
+            } else {
+              credit += valor;
+            }
+          } else if (tipo === 5) {
+            crediario += valor;
+          } else if (tipo === 8 || tipo === 15) {
+            pix += valor;
+          } else {
+            outros += valor;
+          }
+        }
+      }
+
+      res.json({
+        totalSales,
+        qtdVendas,
+        dinheiro,
+        credit,
+        debit,
+        pix,
+        crediario,
+        outros
+      });
     } catch (err) {
-      if (err.message.includes('Offline')) {
+      if (err.message && err.message.includes('Offline')) {
         return res.status(503).json({ error: 'Servidor do Digifarma Offline' });
       }
+      console.error('[Finance] Erro no live-closing:', err);
       res.status(500).json({ error: err.message });
     }
   });

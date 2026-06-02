@@ -98,9 +98,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       if (!response.ok) throw new Error('Erro na API');
       const data = await response.json();
       
-      setTotalSales(data.total);
-      setCredit(data.card); // Assumimos Cartão em Crédito
-      setPix(data.pix);
+      setTotalSales(data.totalSales || 0);
+      setCredit(data.credit || 0);
+      setDebit(data.debit || 0);
+      setPix(data.pix || 0);
       
       addToast('Valores sincronizados com o Digifarma!', 'success');
     } catch(err) {
