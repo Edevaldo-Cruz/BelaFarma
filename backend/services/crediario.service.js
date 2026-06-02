@@ -1,7 +1,7 @@
 const { queryDigifarma } = require('./digifarma.service');
 
 async function listarCrediarioAtivo() {
-  const sql = \`
+  const sql = `
     SELECT 
       c.CREDIARIO_ID as id,
       c.CLIENTE_ID as clientId,
@@ -15,7 +15,7 @@ async function listarCrediarioAtivo() {
     LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
     WHERE (c.CREDIARIO_VALOR - COALESCE(c.CREDIARIO_CREDITO, 0)) > 0
     ORDER BY c.CREDIARIO_VENCIMENTO ASC
-  \`;
+  `;
   const result = await queryDigifarma(sql);
   
   return result.map(r => ({
@@ -36,11 +36,11 @@ async function receberCrediario(crediarioId, valorPago) {
   // geralmente atualiza o CREDIARIO_CREDITO ou insere na CAIXA_RECEB_FPAGTOS.
   // Para simplicidade e segurança sem quebrar a integridade referencial:
   // Vamos atualizar o CREDIARIO_CREDITO.
-  const sql = \`
+  const sql = `
     UPDATE CREDIARIO 
     SET CREDIARIO_CREDITO = COALESCE(CREDIARIO_CREDITO, 0) + ? 
     WHERE CREDIARIO_ID = ?
-  \`;
+  `;
   await queryDigifarma(sql, [valorPago, crediarioId]);
   return { success: true, message: 'Baixa realizada com sucesso no Digifarma' };
 }

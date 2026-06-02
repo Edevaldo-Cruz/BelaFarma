@@ -96,30 +96,36 @@ module.exports = function (db) {
   // 5. Fechamento de Caixa em Tempo Real (Direto do Digifarma)
   router.get('/live-closing', async (req, res) => {
     try {
-      // Pega o sumário de vendas do dia atual no Digifarma
-      const sql = \`
+      const sql = `
         SELECT 
-          SUM(VENDA_TOTAL) as total,
-          SUM(DINHEIRO) as cash,
-          SUM(CARTAO) as card,
-          SUM(CREDIARIO) as credit,
-          SUM(OUTROS) as pix_or_others
-        FROM CAB_VENDAS 
-        WHERE CAST(VENDA_DATA_HORA AS DATE) = CURRENT_DATE
-          AND CANCELADO = 'N'
-      \`;
-
+          SUM(CAIXA_FECHAMENTO_TVENDA) as TotalSales,
+          SUM(CAIXA_FECHAMENTO_TCRED) as TotalCredit,
+          SUM(CAIXA_FECHAMENTO_TDEB) as TotalDebit,
+          SUM(CAIXA_FECHAMENTO_TCREDIARIO) as TotalCrediario,
+          SUM(CAIXA_FECHAMENTO_TPIX) as TotalPix
+        FROM CAIXA_FECHAMENTO
+        WHERE CAST(CAIXA_FECHAMENTO_DATA AS DATE) = CURRENT_DATE
+      `;
       const result = await queryDigifarma(sql);
-      const data = result[0] || {};
       
-      res.json({
-        total: data.TOTAL || 0,
-        cash: data.CASH || 0,
-        card: data.CARD || 0,
-        credit: data.CREDIT || 0,
-        pix: data.PIX_OR_OTHERS || 0, // Assumindo OUTROS como Pix
-        timestamp: new Date().toISOString()
-      });
+      let liveTotals = {
+        totalSales: 0,
+        credit: 0,
+        debit: 0,
+        pix: 0,
+        crediario: 0
+      };
+
+      if (result && result.length > 0 && result[0].TOTALSALES != null) {
+        liveTotals = {
+          totalSales: result[0].TOTALSALES || 0,
+          credit: result[0].TOTALCREDIT || 0,
+          debit: result[0].TOTALDEBIT || 0,
+          pix: result[0].TOTALPIX || 0,
+          crediario: result[0].TOTALCREDIARIO || 0
+        };
+      }
+      res.json(liveTotals);
     } catch (err) {
       if (err.message.includes('Offline')) {
         return res.status(503).json({ error: 'Servidor do Digifarma Offline' });

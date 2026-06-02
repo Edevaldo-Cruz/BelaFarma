@@ -102,7 +102,7 @@ module.exports = (db) => {
       // Filtra produtos com estoque baixo ou zerado (onde o estoque atual é menor que o mínimo, ou menor que 2)
       // Excluímos inativos ou serviços dependendo das flags do banco, mas para iniciar pegamos todos os ativos.
       // EAN também seria bom, mas para simplicidade focamos no nome.
-      const sql = \`
+      const sql = `
         SELECT 
           p.PRODUTO_ID as id,
           TRIM(p.PRODUTO) as name,
@@ -123,7 +123,7 @@ module.exports = (db) => {
           AND p.PROD_ATIVO = 'S'
         ORDER BY p.PRODUTO ASC
         ROWS 1 TO 200
-      \`;
+      `;
 
       const products = await queryDigifarma(sql);
       
