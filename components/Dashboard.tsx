@@ -173,7 +173,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     
     const fetchLiveSales = async () => {
       try {
-        const response = await fetch('/api/finance/live-closing');
+        const response = await fetch('/api/finance-agent/live-closing');
         if (response.ok) {
            const data = await response.json();
            setLiveSales(data.totalSales || 0);
