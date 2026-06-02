@@ -58,6 +58,10 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [loadingSummary, setLoadingSummary] = useState(true);
 
+  // Estados para Lazy Loading de dados de Vendas (Última venda e Saídas do Mês)
+  const [salesInfoMap, setSalesInfoMap] = useState<Record<number, { saidasMes: number, lastSale: string | null }>>({});
+  const [loadingSales, setLoadingSales] = useState(false);
+
   // Estados de Filtros
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -87,10 +91,11 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
   }, []);
 
   // Buscar resumo de estoque (cards)
-  const fetchSummary = useCallback(async () => {
+  const fetchSummary = useCallback(async (bypassCache = false) => {
     setLoadingSummary(true);
     try {
-      const res = await fetch('/api/stock/summary');
+      const url = bypassCache ? '/api/stock/summary?bypassCache=true' : '/api/stock/summary';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setSummary(data);
@@ -106,8 +111,11 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
   }, [addToast]);
 
   // Buscar produtos com filtros e paginação
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (bypassCache = false) => {
     setLoading(true);
+    if (bypassCache) {
+      setSalesInfoMap({}); // Reseta cache local ao forçar atualização
+    }
     try {
       const offset = (page - 1) * limit;
       const queryParams = new URLSearchParams({
@@ -119,6 +127,9 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
         categoryId: selectedCategory,
         sort
       });
+      if (bypassCache) {
+        queryParams.append('bypassCache', 'true');
+      }
 
       const res = await fetch(`/api/stock/products?${queryParams.toString()}`);
       if (res.ok) {
@@ -136,6 +147,27 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
     }
   }, [page, search, selectedCategory, daysWithoutSales, stockStatus, sort, addToast]);
 
+  // Buscar dados adicionais de vendas em lote (Lazy Loading)
+  const fetchSalesInfo = useCallback(async (productIds: number[]) => {
+    if (productIds.length === 0) return;
+    setLoadingSales(true);
+    try {
+      const res = await fetch('/api/stock/products/sales-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSalesInfoMap(prev => ({ ...prev, ...data }));
+      }
+    } catch (err) {
+      console.error('Erro ao buscar informações de vendas em lote:', err);
+    } finally {
+      setLoadingSales(false);
+    }
+  }, []);
+
   // Efeito para carregar produtos quando mudam os filtros ou página
   useEffect(() => {
     fetchProducts();
@@ -146,6 +178,19 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
     fetchSummary();
   }, [fetchSummary]);
 
+  // Efeito para buscar informações extras de vendas quando a lista de produtos muda
+  useEffect(() => {
+    if (products.length > 0) {
+      const idsToFetch = products
+        .map(p => p.id)
+        .filter(id => salesInfoMap[id] === undefined);
+
+      if (idsToFetch.length > 0) {
+        fetchSalesInfo(idsToFetch);
+      }
+    }
+  }, [products, salesInfoMap, fetchSalesInfo]);
+
   // Resetar filtros para o padrão
   const handleResetFilters = () => {
     setSearch('');
@@ -154,6 +199,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
     setStockStatus('positivo');
     setSort('tempo_sem_venda');
     setPage(1);
+    setSalesInfoMap({});
     addToast('Filtros limpos!', 'info');
   };
 
@@ -220,13 +266,13 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
 
           <button
             onClick={() => {
-              fetchProducts();
-              fetchSummary();
+              fetchProducts(true);
+              fetchSummary(true);
             }}
             className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 shadow-sm hover:shadow transition-all"
             title="Atualizar Dados"
           >
-            <Loader2 className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <Loader2 className={`w-5 h-5 ${loading || loadingSales ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>
@@ -452,8 +498,14 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
                     {products.map((p) => {
                       const totalParado = p.saldo * p.priceCompra;
-                      const diffDays = p.lastSale ? getDaysWithoutSales(p.lastSale) : 'N/D';
-                      const isStagnant = p.lastSale ? (new Date().getTime() - new Date(p.lastSale).getTime()) / (1000 * 3600 * 24) >= 90 : true;
+                      
+                      // Lazy loading status para este produto
+                      const hasSales = salesInfoMap[p.id] !== undefined;
+                      const saidasMes = hasSales ? salesInfoMap[p.id].saidasMes : p.saidasMes;
+                      const lastSale = hasSales ? salesInfoMap[p.id].lastSale : p.lastSale;
+
+                      const diffDays = lastSale ? getDaysWithoutSales(lastSale) : 'N/D';
+                      const isStagnant = lastSale ? (new Date().getTime() - new Date(lastSale).getTime()) / (1000 * 3600 * 24) >= 90 : true;
 
                       return (
                         <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/10 transition-colors">
@@ -486,25 +538,37 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalParado)}
                           </td>
                           <td className="py-3 px-6 text-center">
-                            <span className={`px-2 py-0.5 rounded font-black ${
-                              p.saidasMes > 0 
-                                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-650 border border-emerald-250/20' 
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                            }`}>
-                              {p.saidasMes}
-                            </span>
+                            {!hasSales && loadingSales ? (
+                              <div className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-10 mx-auto" />
+                            ) : (
+                              <span className={`px-2 py-0.5 rounded font-black ${
+                                (saidasMes || 0) > 0 
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-650 border border-emerald-250/20' 
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                              }`}>
+                                {saidasMes || 0}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-6 text-center text-slate-500 font-bold">
-                            {formatDate(p.lastSale)}
+                            {!hasSales && loadingSales ? (
+                              <div className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-20 mx-auto" />
+                            ) : (
+                              formatDate(lastSale)
+                            )}
                           </td>
                           <td className="py-3 px-6 text-center">
-                            <span className={`px-2 py-1 rounded-full text-[10px] font-black ${
-                              isStagnant 
-                                ? 'bg-red-50 dark:bg-red-950/20 text-red-600' 
-                                : 'bg-green-50 dark:bg-green-950/20 text-green-600'
-                            }`}>
-                              {diffDays}
-                            </span>
+                            {!hasSales && loadingSales ? (
+                              <div className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-16 mx-auto" />
+                            ) : (
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-black ${
+                                isStagnant 
+                                  ? 'bg-red-50 dark:bg-red-950/20 text-red-600' 
+                                  : 'bg-green-50 dark:bg-green-950/20 text-green-600'
+                              }`}>
+                                {diffDays}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -518,8 +582,13 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
               {products.map((p) => {
                 const totalParado = p.saldo * p.priceCompra;
-                const diffDays = p.lastSale ? getDaysWithoutSales(p.lastSale) : 'N/D';
-                const isStagnant = p.lastSale ? (new Date().getTime() - new Date(p.lastSale).getTime()) / (1000 * 3600 * 24) >= 90 : true;
+                
+                const hasSales = salesInfoMap[p.id] !== undefined;
+                const saidasMes = hasSales ? salesInfoMap[p.id].saidasMes : p.saidasMes;
+                const lastSale = hasSales ? salesInfoMap[p.id].lastSale : p.lastSale;
+
+                const diffDays = lastSale ? getDaysWithoutSales(lastSale) : 'N/D';
+                const isStagnant = lastSale ? (new Date().getTime() - new Date(lastSale).getTime()) / (1000 * 3600 * 24) >= 90 : true;
 
                 return (
                   <div 
@@ -529,13 +598,17 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
                     <div className="space-y-2">
                       <div className="flex justify-between items-start gap-2">
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID {p.id}</span>
-                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black ${
-                          isStagnant 
-                            ? 'bg-red-50 dark:bg-red-950/20 text-red-600' 
-                            : 'bg-green-50 dark:bg-green-950/20 text-green-600'
-                        }`}>
-                          ⏳ {diffDays} sem giro
-                        </span>
+                        {!hasSales && loadingSales ? (
+                          <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-24" />
+                        ) : (
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black ${
+                            isStagnant 
+                              ? 'bg-red-50 dark:bg-red-950/20 text-red-600' 
+                              : 'bg-green-50 dark:bg-green-950/20 text-green-600'
+                          }`}>
+                            ⏳ {diffDays} sem giro
+                          </span>
+                        )}
                       </div>
                       
                       <div>
@@ -550,11 +623,15 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
                         <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest rounded-lg">
                           🏷️ {p.categoryName}
                         </span>
-                        {p.saidasMes > 0 && (
-                          <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-950/20 text-[9px] font-black text-emerald-600 dark:text-emerald-450 uppercase tracking-widest rounded-lg flex items-center gap-1">
-                            <TrendingUp className="w-3 h-3" />
-                            {p.saidasMes} saídas
-                          </span>
+                        {!hasSales && loadingSales ? (
+                          <div className="h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-16" />
+                        ) : (
+                          (saidasMes || 0) > 0 && (
+                            <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-950/20 text-[9px] font-black text-emerald-600 dark:text-emerald-450 uppercase tracking-widest rounded-lg flex items-center gap-1">
+                              <TrendingUp className="w-3 h-3" />
+                              {saidasMes} saídas
+                            </span>
+                          )
                         )}
                       </div>
                     </div>
@@ -583,32 +660,135 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
             </div>
           )}
 
-          {/* Paginação */}
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-6 py-4 rounded-3xl shadow-sm">
+          {/* Paginação Premium Numérica e Dropdown de Página */}
+          <div className="flex flex-col lg:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-6 py-4 rounded-3xl shadow-sm">
             <span className="text-xs font-bold text-slate-500">
               Mostrando <strong className="text-slate-800 dark:text-slate-200">{(page - 1) * limit + 1}</strong> a <strong className="text-slate-800 dark:text-slate-200">{Math.min(page * limit, totalProducts)}</strong> de <strong className="text-slate-800 dark:text-slate-200">{totalProducts}</strong> produtos
             </span>
             
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
                 disabled={page === 1}
                 className="p-2 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:hover:bg-transparent font-bold cursor-pointer transition-colors"
+                title="Página Anterior"
               >
-                <ChevronLeft className="w-5 h-5" />
+                <ChevronLeft className="w-4 h-4" />
               </button>
-              
-              <span className="text-xs font-black px-4 text-slate-700 dark:text-slate-350">
-                Página {page} de {totalPages}
-              </span>
-              
+
+              <div className="flex items-center gap-1.5">
+                {(() => {
+                  const buttons = [];
+                  
+                  // Sempre exibe o botão da primeira página
+                  if (totalPages >= 1) {
+                    buttons.push(
+                      <button
+                        key={1}
+                        onClick={() => setPage(1)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                          page === 1
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        1
+                      </button>
+                    );
+                  }
+
+                  let startPage = Math.max(2, page - 1);
+                  let endPage = Math.min(totalPages - 1, page + 1);
+
+                  // Ajustes para sempre mostrar 3 páginas intermediárias quando possível
+                  if (page <= 3) {
+                    endPage = Math.min(totalPages - 1, 4);
+                  } else if (page >= totalPages - 2) {
+                    startPage = Math.max(2, totalPages - 3);
+                  }
+
+                  // Reticências esquerdas
+                  if (startPage > 2) {
+                    buttons.push(
+                      <span key="dots-left" className="px-1.5 text-slate-400 dark:text-slate-650 text-xs font-black">
+                        ...
+                      </span>
+                    );
+                  }
+
+                  // Páginas intermediárias
+                  for (let i = startPage; i <= endPage; i++) {
+                    buttons.push(
+                      <button
+                        key={i}
+                        onClick={() => setPage(i)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                          page === i
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {i}
+                      </button>
+                    );
+                  }
+
+                  // Reticências direitas
+                  if (endPage < totalPages - 1) {
+                    buttons.push(
+                      <span key="dots-right" className="px-1.5 text-slate-400 dark:text-slate-650 text-xs font-black">
+                        ...
+                      </span>
+                    );
+                  }
+
+                  // Sempre exibe a última página
+                  if (totalPages > 1) {
+                    buttons.push(
+                      <button
+                        key={totalPages}
+                        onClick={() => setPage(totalPages)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                          page === totalPages
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {totalPages}
+                      </button>
+                    );
+                  }
+
+                  return buttons;
+                })()}
+              </div>
+
               <button
                 onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
                 disabled={page === totalPages}
                 className="p-2 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:hover:bg-transparent font-bold cursor-pointer transition-colors"
+                title="Próxima Página"
               >
-                <ChevronRight className="w-5 h-5" />
+                <ChevronRight className="w-4 h-4" />
               </button>
+
+              {/* Seletor rápido de Página Dropdown */}
+              {totalPages > 5 && (
+                <div className="flex items-center gap-1.5 ml-4 border-l border-slate-200 dark:border-slate-800 pl-4">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ir para:</span>
+                  <select
+                    value={page}
+                    onChange={(e) => setPage(Number(e.target.value))}
+                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-500 font-black cursor-pointer"
+                  >
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((pNum) => (
+                      <option key={pNum} value={pNum}>
+                        Pág. {pNum}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
         </section>

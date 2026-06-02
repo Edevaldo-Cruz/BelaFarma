@@ -1,19 +1,41 @@
 const { queryDigifarma } = require('./digifarma.service');
 
 /**
- * Formata data para o padrão de timestamp do Firebird (YYYY-MM-DD HH:mm:ss)
+ * Cache em memória simples para as consultas pesadas de estoque
  */
+const cacheStorage = {
+  resumo: { data: null, expireAt: 0 },
+  categorias: { data: null, expireAt: 0 },
+  produtos: new Map() // chave: string de params, valor: { data, expireAt }
+};
+
 function formatarDataFirebird(date) {
   const pad = (num) => String(num).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/**
+ * Limpa todo o cache em memória
+ */
+function limparCacheEstoque() {
+  console.log('[Stock Cache] Limpando todo o cache em memória do estoque.');
+  cacheStorage.resumo = { data: null, expireAt: 0 };
+  cacheStorage.categorias = { data: null, expireAt: 0 };
+  cacheStorage.produtos.clear();
+  return true;
+}
 
 /**
  * Obtém o resumo consolidador do estoque (cards estatísticos)
+ * @param {boolean} bypassCache 
  * @returns {Promise<Object>}
  */
-async function obterResumoEstoque() {
+async function obterResumoEstoque(bypassCache = false) {
+  if (!bypassCache && cacheStorage.resumo.data && Date.now() < cacheStorage.resumo.expireAt) {
+    console.log('[Stock Service] Devolvendo resumo de estoque do cache.');
+    return cacheStorage.resumo.data;
+  }
+
   const sqlAtivos = `
     SELECT COUNT(*) as TOTAL_ATIVOS
     FROM PRODUTOS
@@ -56,12 +78,17 @@ async function obterResumoEstoque() {
     queryDigifarma(sqlParados)
   ]);
 
-  return {
+  const result = {
     totalAtivos: ativosResult[0].TOTAL_ATIVOS || 0,
     totalSaidasMes: saidasResult[0].TOTAL_SAIDAS || 0,
     qtdParados: paradosResult[0].QTD_PARADA || 0,
     valorParado: paradosResult[0].VALOR_PARADO || 0
   };
+
+  // Salva no cache por 5 minutos
+  cacheStorage.resumo = { data: result, expireAt: Date.now() + 300000 };
+
+  return result;
 }
 
 /**
@@ -78,6 +105,17 @@ async function listarProdutosEstoque(params = {}) {
   const categoryId = params.categoryId;
   const sort = params.sort || 'nome_asc';
   const sortKey = sort.split(':')[0]; // Trata modificadores como "tempo_sem_venda:1"
+  const bypassCache = params.bypassCache === 'true' || params.bypassCache === true;
+
+  // Se não for forçada atualização, verifica cache
+  const cacheKey = JSON.stringify({ limit, offset, search, daysWithoutSales, stockStatus, categoryId, sortKey });
+  if (!bypassCache) {
+    const cachedItem = cacheStorage.produtos.get(cacheKey);
+    if (cachedItem && Date.now() < cachedItem.expireAt) {
+      console.log('[Stock Service] Devolvendo listagem de produtos do cache.');
+      return cachedItem.data;
+    }
+  }
 
   let whereClause = `p.PROD_ATIVO = 'S'`;
   const sqlParams = [];
@@ -129,6 +167,8 @@ async function listarProdutosEstoque(params = {}) {
 
   // Ordenação
   let orderBy = 'p.PRODUTO ASC';
+  const needsUltimaVenda = sortKey === 'tempo_sem_venda';
+
   if (sortKey === 'tempo_sem_venda') {
     orderBy = '9 ASC NULLS FIRST, p.PRODUTO ASC';
   } else if (sortKey === 'saldo_desc') {
@@ -150,7 +190,7 @@ async function listarProdutosEstoque(params = {}) {
     WHERE ${whereClause}
   `;
 
-  // 2. Query de dados paginados (com subquery correlacionada indexada rápida)
+  // 2. Query de dados paginados (Otimização Suprema: remove subquery pesada de ULTIMA_VENDA se não for ordenar por ela)
   const sqlData = `
     SELECT FIRST ${limit} SKIP ${offset}
       p.PRODUTO_ID,
@@ -160,15 +200,15 @@ async function listarProdutosEstoque(params = {}) {
       p.PROD_SALDO,
       p.PROD_PRVENDA,
       COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
-      c.CATEGORIA as CATEGORIA_NOME,
-      (
+      c.CATEGORIA as CATEGORIA_NOME
+      ${needsUltimaVenda ? `, (
         SELECT FIRST 1 v.VENDA_DATA_HORA 
         FROM ITEM_VENDAS iv
         JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
         WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
           AND v.CANCELADO <> 'S'
         ORDER BY v.VENDA_DATA_HORA DESC
-      ) as ULTIMA_VENDA
+      ) as ULTIMA_VENDA` : ''}
     FROM PRODUTOS p
     LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
     WHERE ${whereClause}
@@ -182,41 +222,6 @@ async function listarProdutosEstoque(params = {}) {
 
   const total = countResult[0].TOTAL_COUNT || 0;
 
-  // Busca saídas no mês apenas para os produtos da página atual (muito mais rápido e indexado)
-  const saidasMap = {};
-  if (dataResult.length > 0) {
-    const productIds = dataResult.map(r => r.PRODUTO_ID);
-    const placeholders = productIds.map(() => '?').join(', ');
-    
-    const agora = new Date();
-    const inicioMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0));
-    const fimMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59));
-
-    const sqlSaidas = `
-      SELECT 
-        iv.PRODUTO_ID,
-        SUM(iv.ITEMVEND_QUANT) as SAIDAS_MES
-      FROM ITEM_VENDAS iv
-      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-      WHERE v.CANCELADO <> 'S'
-        AND iv.PRODUTO_ID IN (${placeholders})
-        AND v.VENDA_DATA_HORA >= ?
-        AND v.VENDA_DATA_HORA <= ?
-      GROUP BY iv.PRODUTO_ID
-    `;
-
-    try {
-      const saidasResult = await queryDigifarma(sqlSaidas, [...productIds, inicioMes, fimMes]);
-      if (saidasResult && saidasResult.length > 0) {
-        saidasResult.forEach(row => {
-          saidasMap[row.PRODUTO_ID] = row.SAIDAS_MES || 0;
-        });
-      }
-    } catch (err) {
-      console.warn('[Stock Service] Erro ao buscar saídas mensais dos itens da página:', err.message);
-    }
-  }
-  
   const items = dataResult.map(r => ({
     id: r.PRODUTO_ID,
     name: r.PRODUTO ? r.PRODUTO.trim() : 'Sem Nome',
@@ -226,18 +231,102 @@ async function listarProdutosEstoque(params = {}) {
     priceVenda: r.PROD_PRVENDA || 0,
     priceCompra: r.PROD_PRCOMPRA || 0,
     categoryName: r.CATEGORIA_NOME ? r.CATEGORIA_NOME.trim() : 'Sem Categoria',
-    lastSale: r.ULTIMA_VENDA || null,
-    saidasMes: saidasMap[r.PRODUTO_ID] || 0
+    // Retorna lastSale apenas se veio no select, caso contrário nulo para o frontend preencher via lazy load
+    lastSale: needsUltimaVenda ? r.ULTIMA_VENDA : null,
+    saidasMes: null // Preenchido inteiramente via lazy load no frontend
   }));
 
-  return { total, items };
+  const response = { total, items };
+
+  // Cache da listagem por 2 minutos
+  cacheStorage.produtos.set(cacheKey, { data: response, expireAt: Date.now() + 120000 });
+
+  return response;
+}
+
+/**
+ * Busca as informações de vendas (última venda e saídas do mês) para uma lista de produtos específicos
+ * Método rápido que usa chaves primárias e agrupamento leve indexado.
+ * @param {Array<number>} productIds 
+ * @returns {Promise<Object>}
+ */
+async function obterInformacoesVendasProdutos(productIds) {
+  if (!productIds || productIds.length === 0) return {};
+
+  const placeholders = productIds.map(() => '?').join(', ');
+  
+  const agora = new Date();
+  const inicioMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0));
+  const fimMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59));
+
+  // Query 1: Saídas do mês em lote
+  const sqlSaidas = `
+    SELECT 
+      iv.PRODUTO_ID,
+      SUM(iv.ITEMVEND_QUANT) as SAIDAS_MES
+    FROM ITEM_VENDAS iv
+    JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+    WHERE v.CANCELADO <> 'S'
+      AND iv.PRODUTO_ID IN (${placeholders})
+      AND v.VENDA_DATA_HORA >= ?
+      AND v.VENDA_DATA_HORA <= ?
+    GROUP BY iv.PRODUTO_ID
+  `;
+
+  // Query 2: Última venda em lote
+  const sqlUltimasVendas = `
+    SELECT 
+      iv.PRODUTO_ID,
+      MAX(v.VENDA_DATA_HORA) as ULTIMA_VENDA
+    FROM ITEM_VENDAS iv
+    JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+    WHERE v.CANCELADO <> 'S'
+      AND iv.PRODUTO_ID IN (${placeholders})
+    GROUP BY iv.PRODUTO_ID
+  `;
+
+  const [saidasResult, ultimasResult] = await Promise.all([
+    queryDigifarma(sqlSaidas, [...productIds, inicioMes, fimMes]),
+    queryDigifarma(sqlUltimasVendas, productIds)
+  ]);
+
+  const result = {};
+  
+  // Inicializa o objeto de retorno
+  productIds.forEach(id => {
+    result[id] = { saidasMes: 0, lastSale: null };
+  });
+
+  if (saidasResult && saidasResult.length > 0) {
+    saidasResult.forEach(row => {
+      if (result[row.PRODUTO_ID]) {
+        result[row.PRODUTO_ID].saidasMes = row.SAIDAS_MES || 0;
+      }
+    });
+  }
+
+  if (ultimasResult && ultimasResult.length > 0) {
+    ultimasResult.forEach(row => {
+      if (result[row.PRODUTO_ID]) {
+        result[row.PRODUTO_ID].lastSale = row.ULTIMA_VENDA || null;
+      }
+    });
+  }
+
+  return result;
 }
 
 /**
  * Obtém a lista de categorias do Digifarma
+ * @param {boolean} bypassCache 
  * @returns {Promise<Array>}
  */
-async function obterCategorias() {
+async function obterCategorias(bypassCache = false) {
+  if (!bypassCache && cacheStorage.categorias.data && Date.now() < cacheStorage.categorias.expireAt) {
+    console.log('[Stock Service] Devolvendo categorias do cache.');
+    return cacheStorage.categorias.data;
+  }
+
   const sql = `
     SELECT CATEGORIA_ID, CATEGORIA 
     FROM CATEGORIA 
@@ -245,14 +334,21 @@ async function obterCategorias() {
     ORDER BY CATEGORIA ASC
   `;
   const result = await queryDigifarma(sql);
-  return result.map(r => ({
+  const data = result.map(r => ({
     id: r.CATEGORIA_ID,
     name: r.CATEGORIA ? r.CATEGORIA.trim() : ''
   }));
+
+  // Salva no cache por 1 hora
+  cacheStorage.categorias = { data, expireAt: Date.now() + 3600000 };
+
+  return data;
 }
 
 module.exports = {
   obterResumoEstoque,
   listarProdutosEstoque,
-  obterCategorias
+  obterInformacoesVendasProdutos,
+  obterCategorias,
+  limparCacheEstoque
 };
