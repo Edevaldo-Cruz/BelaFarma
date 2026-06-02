@@ -35,6 +35,7 @@ import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { PixGenerator } from "./components/PixGenerator";
 import { EtiquetasManager } from "./components/EtiquetasManager";
 import { ComprasLive } from "./components/ComprasLive";
+import { StockManagement } from "./components/StockManagement";
 import {
   Order,
   View,
@@ -801,6 +802,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'compras-live' && (
                 <ComprasLive />
+              )}
+              {currentView === 'stock' && user.role === UserRole.ADM && (
+                <StockManagement user={user} />
               )}
               {currentView === 'consignados' && user.role === UserRole.ADM && (
                 <ConsignadosManager 

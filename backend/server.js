@@ -3353,6 +3353,10 @@ const financeEndpoints = require('./finance-endpoints.js');
 app.use('/api/finance-agent', financeEndpoints(db));
 console.log('🤖 Agente Financeiro IA inicializado.');
 
+const stockEndpoints = require('./stock-endpoints.js');
+app.use('/api/stock', stockEndpoints());
+console.log('📦 Módulo Controle de Estoque inicializado.');
+
 // Módulo Saúde Financeira (diagnóstico via Gemini)
 require('./financial-health-endpoints.js')(app, db);
 console.log('💊 Módulo Saúde Financeira inicializado.');
