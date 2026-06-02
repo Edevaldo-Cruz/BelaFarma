@@ -64,6 +64,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
+  const [liveSales, setLiveSales] = React.useState<number | null>(null);
+  
   
   const [statusModalOrder, setStatusModalOrder] = React.useState<Order | null>(null);
 
@@ -168,7 +170,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         console.error('Erro ao buscar último backup:', e);
       }
     };
+    
+    const fetchLiveSales = async () => {
+      try {
+        const response = await fetch('/api/finance/live-closing');
+        if (response.ok) {
+           const data = await response.json();
+           setLiveSales(data.totalSales || 0);
+        }
+      } catch (e) {
+        console.error('Erro ao buscar vendas ao vivo:', e);
+      }
+    };
+
     fetchLastBackup();
+    fetchLiveSales();
+    
+    const interval = setInterval(fetchLiveSales, 60000); // 1 minuto
+    return () => clearInterval(interval);
   }, []);
 
   const handleIniciarRadio = async () => {
@@ -449,10 +468,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        
+        {/* Vendas Hoje (Live) Widget */}
+        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-3xl shadow-lg relative overflow-hidden text-white flex flex-col justify-between">
+          <div className="absolute top-0 right-0 p-4 opacity-20">
+             <TrendingUp className="w-24 h-24" />
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
+                <ShoppingCart className="w-6 h-6 text-white" />
+              </div>
+            </div>
+            <p className="text-[10px] font-black text-emerald-100 uppercase tracking-widest flex items-center gap-2">
+              Vendas de Hoje (Live)
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+              </span>
+            </p>
+            <p className="text-3xl font-black text-white mt-1">
+              {liveSales !== null 
+                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSales)
+                : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
+              }
+            </p>
+          </div>
+        </div>
+
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl w-fit mb-4">
-            {isAdmin ? <TrendingUp className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
+          <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl w-fit mb-4">
+            {isAdmin ? <Receipt className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
           </div>
           <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
             {isAdmin ? `Vencimentos em ${capitalize(currentMonthName)}` : 'Produtos em Falta'}

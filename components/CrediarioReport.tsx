@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { CreditCard, Calendar, Search, CheckCircle } from 'lucide-react';
-import { useToast } from '../hooks/useToast';
+import { useToast } from './ToastContext';
 
 interface CrediarioDigifarma {
   id: string;

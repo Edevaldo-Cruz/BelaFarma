@@ -56,7 +56,7 @@ export function ComprasLive() {
     if (selectedIds.size === 0) return;
 
     const selectedItems = suggestions.filter(s => selectedIds.has(s.id));
-    const listText = selectedItems.map(s => \`- \${s.name} (Qtd: \${s.suggestedQuantity})\`).join('\\n');
+    const listText = selectedItems.map(s => `- ${s.name} (Qtd: ${s.suggestedQuantity})`).join('\n');
 
     try {
       const response = await fetch('/api/purchasing/send-to-edevaldo', {
@@ -111,7 +111,7 @@ export function ComprasLive() {
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
           >
-            <RefreshCw className={\`w-4 h-4 \${loading ? 'animate-spin' : ''}\`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Atualizar
           </button>
           <button
@@ -186,7 +186,7 @@ export function ComprasLive() {
                       {item.turnover30d}
                     </td>
                     <td className="p-4 text-center">
-                      <span className={\`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-sm font-medium \${item.currentStock <= 0 ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'}\`}>
+                      <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-sm font-medium ${item.currentStock <= 0 ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
                         {item.currentStock}
                       </span>
                     </td>
