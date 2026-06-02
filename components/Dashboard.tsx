@@ -63,8 +63,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   now.setHours(0, 0, 0, 0);
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
+  const [liveSalesData, setLiveSalesData] = React.useState<{
+    totalSales: number;
+    qtdVendas: number;
+    dinheiro: number;
+    credit: number;
+    debit: number;
+    pix: number;
+    crediario: number;
+    outros: number;
+  } | null>(null);
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
-  const [liveSales, setLiveSales] = React.useState<number | null>(null);
   
   
   const [statusModalOrder, setStatusModalOrder] = React.useState<Order | null>(null);
@@ -176,7 +185,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         const response = await fetch('/api/finance-agent/live-closing');
         if (response.ok) {
            const data = await response.json();
-           setLiveSales(data.totalSales || 0);
+           setLiveSalesData(data);
         }
       } catch (e) {
         console.error('Erro ao buscar vendas ao vivo:', e);
@@ -189,6 +198,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     const interval = setInterval(fetchLiveSales, 60000); // 1 minuto
     return () => clearInterval(interval);
   }, []);
+
+  const enrichedCashClosings = React.useMemo(() => {
+    if (!liveSalesData) return cashClosings;
+
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const todayIndex = cashClosings.findIndex(c => c.date.startsWith(todayStr));
+
+    if (todayIndex !== -1) {
+      const updated = [...cashClosings];
+      updated[todayIndex] = {
+        ...updated[todayIndex],
+        totalSales: liveSalesData.totalSales,
+        credit: liveSalesData.credit,
+        debit: liveSalesData.debit,
+        pix: liveSalesData.pix,
+        totalCrediario: liveSalesData.crediario,
+      };
+      return updated;
+    } else {
+      const fakeTodayRecord: CashClosingRecord = {
+        id: 'live-today-simulated',
+        date: `${todayStr}T12:00:00.000Z`,
+        totalSales: liveSalesData.totalSales,
+        credit: liveSalesData.credit,
+        debit: liveSalesData.debit,
+        pix: liveSalesData.pix,
+        totalCrediario: liveSalesData.crediario,
+        pixDirect: 0,
+        notes: 'Simulação Live'
+      };
+      return [...cashClosings, fakeTodayRecord];
+    }
+  }, [cashClosings, liveSalesData]);
 
   const handleIniciarRadio = async () => {
     setIniciandoRadio(true);
@@ -489,8 +531,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
               </span>
             </p>
             <p className="text-3xl font-black text-white mt-1">
-              {liveSales !== null 
-                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSales)
+              {liveSalesData !== null 
+                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales)
                 : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
               }
             </p>
@@ -540,10 +582,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       {user.role !== UserRole.OPERADOR && (
         <div className="space-y-8">
           <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[450px]">
-            <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={cashClosings} fixedAccounts={fixedAccounts} />
+            <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
           </div>
           <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px]">
-            <ExpensesChart orders={orders} boletos={boletos} cashClosings={cashClosings} fixedAccounts={fixedAccounts} />
+            <ExpensesChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
           </div>
         </div>
       )}
@@ -552,10 +594,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         {user.role !== UserRole.OPERADOR && (
           <div className="lg:col-span-2 space-y-8">
             <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px]">
-              <SalesChart cashClosings={cashClosings} />
+              <SalesChart cashClosings={enrichedCashClosings} />
             </div>
             <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[450px]">
-              <PaymentMethodsChart cashClosings={cashClosings} />
+              <PaymentMethodsChart cashClosings={enrichedCashClosings} />
             </div>
           </div>
         )}
