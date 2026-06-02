@@ -312,13 +312,13 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* Card 3: Saídas no Mês */}
+        {/* Card 3: Saídas nos Últimos 30 Dias */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
           <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-2xl">
             <TrendingUp className="w-6 h-6" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">Saídas de Estoque no Mês</p>
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">Saídas (Últimos 30 Dias)</p>
             <p className="text-2xl font-black text-slate-900 dark:text-slate-50 mt-0.5">
               {loadingSummary 
                 ? <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
@@ -479,20 +479,20 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
           {/* Exibição em Tabela */}
           {viewMode === 'table' ? (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      <th className="py-4 px-6">ID</th>
-                      <th className="py-4 px-6">Produto</th>
-                      <th className="py-4 px-6">Categoria</th>
-                      <th className="py-4 px-6 text-center">Saldo</th>
-                      <th className="py-4 px-6 text-right">Preço Compra</th>
-                      <th className="py-4 px-6 text-right">Preço Venda</th>
-                      <th className="py-4 px-6 text-right">Total Parado</th>
-                      <th className="py-4 px-6 text-center">Saídas (Mês)</th>
-                      <th className="py-4 px-6 text-center">Última Venda</th>
-                      <th className="py-4 px-6 text-center">Inatividade</th>
+                      <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">ID</th>
+                      <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Produto</th>
+                      <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Categoria</th>
+                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Saldo</th>
+                      <th className="py-4 px-6 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Preço Compra</th>
+                      <th className="py-4 px-6 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Preço Venda</th>
+                      <th className="py-4 px-6 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Total Parado</th>
+                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Saídas (30d)</th>
+                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Última Venda</th>
+                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Inatividade</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">

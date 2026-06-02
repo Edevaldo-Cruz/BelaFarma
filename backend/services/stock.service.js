@@ -42,9 +42,10 @@ async function obterResumoEstoque(bypassCache = false) {
     WHERE PROD_ATIVO = 'S' AND PROD_SALDO > 0
   `;
   
-  const agora = new Date();
-  const inicioMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0));
-  const fimMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59));
+  const data30DiasAtras = new Date();
+  data30DiasAtras.setDate(data30DiasAtras.getDate() - 30);
+  data30DiasAtras.setHours(0, 0, 0, 0);
+  const inicio30Dias = formatarDataFirebird(data30DiasAtras);
 
   const sqlSaidasMes = `
     SELECT COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as TOTAL_SAIDAS
@@ -52,7 +53,6 @@ async function obterResumoEstoque(bypassCache = false) {
     JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
     WHERE v.CANCELADO <> 'S'
       AND v.VENDA_DATA_HORA >= ?
-      AND v.VENDA_DATA_HORA <= ?
   `;
 
   const sqlParados = `
@@ -74,7 +74,7 @@ async function obterResumoEstoque(bypassCache = false) {
 
   const [ativosResult, saidasResult, paradosResult] = await Promise.all([
     queryDigifarma(sqlAtivos),
-    queryDigifarma(sqlSaidasMes, [inicioMes, fimMes]),
+    queryDigifarma(sqlSaidasMes, [inicio30Dias]),
     queryDigifarma(sqlParados)
   ]);
 
@@ -255,11 +255,12 @@ async function obterInformacoesVendasProdutos(productIds) {
 
   const placeholders = productIds.map(() => '?').join(', ');
   
-  const agora = new Date();
-  const inicioMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0));
-  const fimMes = formatarDataFirebird(new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59));
+  const data30DiasAtras = new Date();
+  data30DiasAtras.setDate(data30DiasAtras.getDate() - 30);
+  data30DiasAtras.setHours(0, 0, 0, 0);
+  const inicio30Dias = formatarDataFirebird(data30DiasAtras);
 
-  // Query 1: Saídas do mês em lote
+  // Query 1: Saídas dos últimos 30 dias em lote
   const sqlSaidas = `
     SELECT 
       iv.PRODUTO_ID,
@@ -269,7 +270,6 @@ async function obterInformacoesVendasProdutos(productIds) {
     WHERE v.CANCELADO <> 'S'
       AND iv.PRODUTO_ID IN (${placeholders})
       AND v.VENDA_DATA_HORA >= ?
-      AND v.VENDA_DATA_HORA <= ?
     GROUP BY iv.PRODUTO_ID
   `;
 
@@ -286,7 +286,7 @@ async function obterInformacoesVendasProdutos(productIds) {
   `;
 
   const [saidasResult, ultimasResult] = await Promise.all([
-    queryDigifarma(sqlSaidas, [...productIds, inicioMes, fimMes]),
+    queryDigifarma(sqlSaidas, [...productIds, inicio30Dias]),
     queryDigifarma(sqlUltimasVendas, productIds)
   ]);
 
