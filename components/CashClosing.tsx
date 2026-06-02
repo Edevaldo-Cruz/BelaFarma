@@ -85,6 +85,30 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const [sangriaList, setSangriaList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
 
   const firstInputRef = useRef<HTMLInputElement>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchLiveClosing = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await fetch('/api/finance/live-closing');
+      if (response.status === 503) {
+        addToast('O Servidor do Digifarma está Offline.', 'error');
+        return;
+      }
+      if (!response.ok) throw new Error('Erro na API');
+      const data = await response.json();
+      
+      setTotalSales(data.total);
+      setCredit(data.card); // Assumimos Cartão em Crédito
+      setPix(data.pix);
+      
+      addToast('Valores sincronizados com o Digifarma!', 'success');
+    } catch(err) {
+      addToast('Falha ao buscar do Digifarma.', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Helper to format numbers to currency string R$ 0.00
   const formatCurrency = (value: number) => {
@@ -762,9 +786,17 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                       </div>
 
                       <div className="space-y-2">
-
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Venda Bruta do Dia*</label>
-
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Venda Bruta do Dia*</label>
+                          <button 
+                            onClick={fetchLiveClosing}
+                            disabled={isSyncing}
+                            className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 hover:underline"
+                          >
+                            <TrendingUp className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                            Puxar do Digifarma
+                          </button>
+                        </div>
                         <input 
                           type="text" step="0.01" 
                           value={formatCurrency(totalSales)} 

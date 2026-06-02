@@ -5,6 +5,7 @@ const {
   analisarFechamentoDeCaixa,
   analisarRelatorioDigifarma
 } = require('./services/finance-agent.service');
+const { queryDigifarma } = require('./services/digifarma.service');
 
 // Configuração de upload recebendo via memória/disco
 // Para preservar a leitura segura por FS, salvar numa temp dir segura
@@ -88,6 +89,41 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[IsaFinanceiro] Erro na análise central:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. Fechamento de Caixa em Tempo Real (Direto do Digifarma)
+  router.get('/live-closing', async (req, res) => {
+    try {
+      // Pega o sumário de vendas do dia atual no Digifarma
+      const sql = \`
+        SELECT 
+          SUM(VENDA_TOTAL) as total,
+          SUM(DINHEIRO) as cash,
+          SUM(CARTAO) as card,
+          SUM(CREDIARIO) as credit,
+          SUM(OUTROS) as pix_or_others
+        FROM CAB_VENDAS 
+        WHERE CAST(VENDA_DATA_HORA AS DATE) = CURRENT_DATE
+          AND CANCELADO = 'N'
+      \`;
+
+      const result = await queryDigifarma(sql);
+      const data = result[0] || {};
+      
+      res.json({
+        total: data.TOTAL || 0,
+        cash: data.CASH || 0,
+        card: data.CARD || 0,
+        credit: data.CREDIT || 0,
+        pix: data.PIX_OR_OTHERS || 0, // Assumindo OUTROS como Pix
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      if (err.message.includes('Offline')) {
+        return res.status(503).json({ error: 'Servidor do Digifarma Offline' });
+      }
       res.status(500).json({ error: err.message });
     }
   });

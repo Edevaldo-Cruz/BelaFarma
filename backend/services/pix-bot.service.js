@@ -108,11 +108,11 @@ class PixBotService {
           "isBelaFarma": boolean,
           "isValidStatus": boolean,
           "isTodayDate": boolean,
-          "value": number (use ponto para decimais),
+          "value": 15.50, // use APENAS números e ponto para decimais, sem R$ e sem aspas
           "senderName": string,
           "date": string (data extraída da imagem),
           "confidence": number (0 a 1),
-          "reason": "Se aprovado, escreva APENAS 'OK'. Se recusado, explique o motivo em NO MÁXIMO 10 palavras."
+          "reason": "Se aprovado, escreva APENAS 'OK'. Se recusado, explique o motivo."
         }
       `;
 
@@ -123,12 +123,25 @@ class PixBotService {
       });
 
       // Limpar resposta da IA (extrair apenas o bloco JSON caso haja texto extra do Gemini)
-      let cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      let cleanJson = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
       const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         cleanJson = jsonMatch[0];
       }
-      const result = JSON.parse(cleanJson);
+      
+      let result;
+      try {
+        result = JSON.parse(cleanJson);
+      } catch (parseError) {
+        console.error(`[PixBot] ❌ Erro no JSON.parse. Resposta bruta da IA: ${aiResponse}`);
+        return;
+      }
+
+      // Sanitizar o valor (remover R$, corrigir vírgulas)
+      if (typeof result.value === 'string') {
+         result.value = parseFloat(result.value.replace(/[^\d.,]/g, '').replace(',', '.'));
+      }
+      if (isNaN(result.value) || !result.value) result.value = 0;
 
       console.log(`[PixBot] 🤖 Auditoria IA para ${phone}:`, result);
 
@@ -193,11 +206,11 @@ class PixBotService {
           "isBelaFarma": boolean,
           "isValidStatus": boolean,
           "isTodayDate": boolean,
-          "value": number (use ponto para decimais),
+          "value": 15.50, // use APENAS números e ponto para decimais, sem R$ e sem aspas
           "senderName": string,
           "date": string (data extraída da imagem),
           "confidence": number (0 a 1),
-          "reason": "Se aprovado, escreva APENAS 'OK'. Se recusado, explique o motivo em NO MÁXIMO 10 palavras."
+          "reason": "Se aprovado, escreva APENAS 'OK'. Se recusado, explique o motivo."
         }
       `;
 
@@ -207,12 +220,24 @@ class PixBotService {
         temperature: 0.0
       });
 
-      let cleanJson = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      let cleanJson = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
       const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         cleanJson = jsonMatch[0];
       }
-      const result = JSON.parse(cleanJson);
+      
+      let result;
+      try {
+        result = JSON.parse(cleanJson);
+      } catch (parseError) {
+        console.error(`[PixBot-Baileys] ❌ Erro no JSON.parse. Resposta bruta da IA: ${aiResponse}`);
+        return false;
+      }
+
+      if (typeof result.value === 'string') {
+         result.value = parseFloat(result.value.replace(/[^\d.,]/g, '').replace(',', '.'));
+      }
+      if (isNaN(result.value) || !result.value) result.value = 0;
 
       console.log(`[PixBot-Baileys] 🤖 Auditoria IA para ${phone}:`, result);
 

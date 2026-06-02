@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { analisarRelatoriosDigifarma } = require('./services/purchasing-agent.service');
 const whatsappService = require('./services/whatsapp.service');
+const { queryDigifarma } = require('./services/digifarma.service');
 
 module.exports = (db) => {
   
@@ -90,6 +91,60 @@ module.exports = (db) => {
       const suggestion = await analisarRelatoriosDigifarma(filesToAnalyze);
       res.json({ suggestion });
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Sugestão de Compras (Tempo Real - Integração Direta Digifarma) ---
+
+  router.get('/live-suggestions', async (req, res) => {
+    try {
+      // Filtra produtos com estoque baixo ou zerado (onde o estoque atual é menor que o mínimo, ou menor que 2)
+      // Excluímos inativos ou serviços dependendo das flags do banco, mas para iniciar pegamos todos os ativos.
+      // EAN também seria bom, mas para simplicidade focamos no nome.
+      const sql = \`
+        SELECT 
+          p.PRODUTO_ID as id,
+          TRIM(p.PRODUTO) as name,
+          p.PROD_SALDO as stock,
+          p.PROD_ESTMINIMO as minStock,
+          p.PROD_PRVENDA as price,
+          COALESCE((
+            SELECT SUM(i.ITEMVEND_QUANT) 
+            FROM ITEM_VENDAS i
+            JOIN CAB_VENDAS c ON c.VENDA_NOTA_ID = i.VENDA_NOTA_ID
+            WHERE i.PRODUTO_ID = p.PRODUTO_ID
+              AND CAST(c.VENDA_DATA_HORA AS DATE) >= CURRENT_DATE - 30
+              AND c.CANCELADO = 'N'
+          ), 0) as giro30d
+        FROM PRODUTOS p
+        WHERE (p.PROD_SALDO <= p.PROD_ESTMINIMO OR p.PROD_SALDO <= 1)
+          AND p.PROD_SALDO >= 0
+          AND p.PROD_ATIVO = 'S'
+        ORDER BY p.PRODUTO ASC
+        ROWS 1 TO 200
+      \`;
+
+      const products = await queryDigifarma(sql);
+      
+      res.json({
+        source: 'digifarma_live',
+        timestamp: new Date().toISOString(),
+        items: products.map(p => ({
+          id: p.ID,
+          name: p.NAME,
+          currentStock: p.STOCK,
+          minStock: p.MINSTOCK,
+          price: p.PRICE,
+          turnover30d: p.GIRO30D,
+          suggestedQuantity: Math.max(1, (p.MINSTOCK || 2) - (p.STOCK || 0))
+        }))
+      });
+    } catch (err) {
+      // Retorna 503 Service Unavailable se o banco estiver offline
+      if (err.message.includes('Offline')) {
+        return res.status(503).json({ error: 'O servidor do Digifarma está desligado ou offline.' });
+      }
       res.status(500).json({ error: err.message });
     }
   });

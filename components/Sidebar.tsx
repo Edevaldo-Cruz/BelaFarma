@@ -139,6 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'whatsapp-crm', label: 'CRM WhatsApp', icon: ContactRound },
     { id: 'pix', label: 'Gerador Pix', icon: CreditCard },
     { id: 'labels', label: 'Etiquetas A4', icon: Printer },
+    { id: 'compras-live', label: 'Sugestão Compras', icon: ShoppingCart },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 

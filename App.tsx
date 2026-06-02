@@ -34,6 +34,7 @@ import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { PixGenerator } from "./components/PixGenerator";
 import { EtiquetasManager } from "./components/EtiquetasManager";
+import { ComprasLive } from "./components/ComprasLive";
 import {
   Order,
   View,
@@ -797,6 +798,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'invoices' && user.role === UserRole.ADM && (
                 <InvoiceList />
+              )}
+              {currentView === 'compras-live' && (
+                <ComprasLive />
               )}
               {currentView === 'consignados' && user.role === UserRole.ADM && (
                 <ConsignadosManager 

@@ -1644,31 +1644,37 @@ app.post('/api/cash-closings', (req, res) => {
   }
 });
 
-// --- Crediario Records CUD ---
-// GET all crediario records
-app.get('/api/crediario', (req, res) => {
+const crediarioService = require('./services/crediario.service');
+
+// GET all crediario records (Open debts from Digifarma)
+app.get('/api/crediario', async (req, res) => {
   try {
-    const records = db.prepare('SELECT * FROM crediario_records ORDER BY date DESC').all();
+    const records = await crediarioService.listarCrediarioAtivo();
     res.json(records);
   } catch (err) {
-    console.error('Error fetching crediario records:', err);
+    console.error('Error fetching crediario records from Digifarma:', err);
+    if (err.message.includes('Offline')) {
+      return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+    }
     res.status(500).json({ error: 'Failed to fetch crediario records.' });
   }
 });
 
-// CREATE crediario record
-app.post('/api/crediario', (req, res) => {
+// POST receive crediario payment
+app.post('/api/crediario/receber', async (req, res) => {
   try {
-    const record = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO crediario_records (id, date, client, value, userName)
-      VALUES (@id, @date, @client, @value, @userName)
-    `);
-    const result = stmt.run(record);
-    res.status(201).json({ id: result.lastInsertRowid });
+    const { crediarioId, valorPago } = req.body;
+    if (!crediarioId || !valorPago) {
+      return res.status(400).json({ error: 'Faltam dados para baixa.' });
+    }
+    const result = await crediarioService.receberCrediario(crediarioId, valorPago);
+    res.status(200).json(result);
   } catch (err) {
-    console.error('Error creating crediario record:', err);
-    res.status(500).json({ error: 'Failed to create crediario record.' });
+    console.error('Error receiving crediario in Digifarma:', err);
+    if (err.message.includes('Offline')) {
+      return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+    }
+    res.status(500).json({ error: 'Failed to receive crediario.' });
   }
 });
 
