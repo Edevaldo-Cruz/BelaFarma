@@ -11,6 +11,7 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   const [monthlyGoal, setMonthlyGoal] = useState<number>(40000);
   const [loading, setLoading] = useState(true);
   const [budgetStatus, setBudgetStatus] = useState<'ok' | 'busted'>('ok');
+  const [todaySales, setTodaySales] = useState<number>(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -22,6 +23,17 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
           if (setting && setting.value) {
             setMonthlyGoal(Number(setting.value));
           }
+        }
+
+        // Buscar faturamento de hoje em tempo real
+        try {
+          const resLive = await fetch('/api/finance/live-closing');
+          if (resLive.ok) {
+            const liveData = await resLive.json();
+            setTodaySales(liveData.totalSales || 0);
+          }
+        } catch (errLive) {
+          console.warn('[Goal Popup] Erro ao buscar vendas em tempo real de hoje:', errLive);
         }
 
         // Fetch limits and orders to calculate budget
@@ -77,7 +89,7 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
     return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
   });
 
-  const totalSalesThisMonth = monthClosings.reduce((acc, curr) => acc + (curr.totalSales || 0), 0);
+  const totalSalesThisMonth = monthClosings.reduce((acc, curr) => acc + (curr.totalSales || 0), 0) + todaySales;
   const monthlyProgressPercent = Math.min((totalSalesThisMonth / monthlyGoal) * 100, 100);
 
   // Vendas de ontem
@@ -110,6 +122,8 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   }
 
   const yesterdayProgressPercent = Math.min((yesterdaySales / dailyGoal) * 100, 100);
+  const hitGoalToday = todaySales >= dailyGoal;
+  const todayProgressPercent = Math.min((todaySales / dailyGoal) * 100, 100);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-300">
@@ -126,7 +140,7 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
           <p className="text-blue-100 font-medium text-sm mt-1">Acompanhamento rumo ao crescimento!</p>
         </div>
 
-        <div className="p-8 space-y-8">
+        <div className="p-8 space-y-6">
           {/* Mês Atual */}
           <div className="space-y-3">
             <div className="flex justify-between items-end">
@@ -150,26 +164,54 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
             </div>
           </div>
 
-          {/* Ontem */}
-          <div className="space-y-3 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
-            <div className="flex justify-between items-end">
+          {/* Ontem & Hoje */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Ontem */}
+            <div className="space-y-2.5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                   <TrendingUp className="w-3.5 h-3.5 text-emerald-500" /> Vendas de Ontem
                 </p>
-                <p className={`text-2xl font-black leading-none mt-1 ${hitGoalYesterday ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'}`}>
+                <p className={`text-xl font-black leading-none mt-1.5 ${hitGoalYesterday ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'}`}>
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(yesterdaySales)}
                 </p>
               </div>
-              <p className="text-xs font-bold text-slate-500">
-                Meta: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dailyGoal)}
-              </p>
+              <div className="space-y-2 mt-2">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
+                  <span>Meta Diária</span>
+                  <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dailyGoal)}</span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ease-out ${hitGoalYesterday ? 'bg-emerald-500' : 'bg-amber-500'}`} 
+                    style={{ width: `${yesterdayProgressPercent}%` }}
+                  />
+                </div>
+              </div>
             </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-              <div 
-                className={`h-full rounded-full transition-all duration-1000 ease-out ${hitGoalYesterday ? 'bg-emerald-500' : 'bg-amber-500'}`} 
-                style={{ width: `${yesterdayProgressPercent}%` }}
-              />
+
+            {/* Hoje */}
+            <div className="space-y-2.5 p-4 bg-blue-50/20 dark:bg-blue-950/10 rounded-2xl border border-blue-100/30 dark:border-blue-950/20 flex flex-col justify-between">
+              <div>
+                <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1.5 animate-pulse">
+                  <Target className="w-3.5 h-3.5 text-blue-500" /> Vendas de Hoje
+                </p>
+                <p className={`text-xl font-black leading-none mt-1.5 ${hitGoalToday ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(todaySales)}
+                </p>
+              </div>
+              <div className="space-y-2 mt-2">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
+                  <span>Meta Diária</span>
+                  <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dailyGoal)}</span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ease-out ${hitGoalToday ? 'bg-emerald-500' : 'bg-blue-500'}`} 
+                    style={{ width: `${todayProgressPercent}%` }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
