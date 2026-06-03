@@ -148,21 +148,26 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   // Only show records that haven't been processed in cash closing (lancado === false)
   useEffect(() => {
     console.log('=== DailyRecords useEffect ===');
-    console.log('All dailyRecords:', dailyRecords);
+    console.log('All dailyRecords count:', dailyRecords.length);
     
-    const today = getTodayDate();
-    console.log('Today date:', today);
+    // Usar data local ao invés de UTC para evitar problemas de timezone
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    console.log('Today date (local):', today);
     
+    // Buscar record não processado: primeiro tenta achar de hoje, senão pega qualquer não processado
     const record = dailyRecords.find(r => {
-      const recordDate = new Date(r.date).toISOString().split('T')[0];
+      // Converter a data do record para data local
+      const d = new Date(r.date);
+      const recordDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const isToday = recordDate === today;
       const isNotProcessed = !r.lancado;
       
       console.log('Record:', {
         id: r.id,
-        date: recordDate,
+        rawDate: r.date,
+        localDate: recordDate,
         lancado: r.lancado,
-        lancadoType: typeof r.lancado,
         isToday,
         isNotProcessed,
         willShow: isToday && isNotProcessed
@@ -172,7 +177,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
       return isToday && isNotProcessed;
     });
     
-    console.log('Selected record:', record);
+    console.log('Selected record:', record ? { id: record.id, crediarioCount: (record.crediarioList || []).length } : 'NONE - creating empty');
     
     if (record) {
       setTodayRecord(record);
