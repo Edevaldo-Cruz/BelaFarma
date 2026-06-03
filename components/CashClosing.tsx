@@ -87,12 +87,12 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const firstInputRef = useRef<HTMLInputElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const fetchLiveClosing = async () => {
-    setIsSyncing(true);
+  const fetchLiveClosing = async (silent = false) => {
+    if (!silent) setIsSyncing(true);
     try {
       const response = await fetch('/api/finance-agent/live-closing');
       if (response.status === 503) {
-        addToast('O Servidor do Digifarma está Offline.', 'error');
+        if (!silent) addToast('O Servidor do Digifarma está Offline.', 'error');
         return;
       }
       if (!response.ok) throw new Error('Erro na API');
@@ -103,11 +103,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       setDebit(data.debit || 0);
       setPix(data.pix || 0);
       
-      addToast('Valores sincronizados com o Digifarma!', 'success');
+      if (!silent) addToast('Valores sincronizados com o Digifarma!', 'success');
     } catch(err) {
-      addToast('Falha ao buscar do Digifarma.', 'error');
+      if (!silent) addToast('Falha ao buscar do Digifarma.', 'error');
     } finally {
-      setIsSyncing(false);
+      if (!silent) setIsSyncing(false);
     }
   };
 
@@ -125,22 +125,33 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   };
 
   useEffect(() => {
-    const fetchHistory = async () => {
+    const fetchHistoryAndInitial = async () => {
       try {
         const response = await fetch('/api/cash-closings');
         const data = await response.json();
         setHistory(data);
+        
+        // Se for um fechamento totalmente novo (sem estado de formulário nem troco no localStorage),
+        // inicializa o saldo inicial a partir do fechamento de caixa mais recente no banco
+        const savedFormState = localStorage.getItem('belinha_closing_form_state');
+        const savedNextInitial = localStorage.getItem('belinha_next_initial_balance');
+        if (!savedFormState && !savedNextInitial) {
+          if (data && data.length > 0) {
+            const lastClosing = data[0];
+            const calculatedInitial = (lastClosing.totalInDrawer || 0) - (lastClosing.safeDeposit || 0);
+            setInitialCash(Number(calculatedInitial.toFixed(2)));
+          }
+        }
       } catch (error) {
         console.error('Failed to fetch cash closing history:', error);
       }
     };
 
-    fetchHistory();
+    fetchHistoryAndInitial();
 
     const savedNextInitial = localStorage.getItem('belinha_next_initial_balance');
     if (savedNextInitial) {
-      localStorage.removeItem('belinha_next_initial_balance');
-      localStorage.removeItem('belafarma_next_initial_balance');
+      setInitialCash(JSON.parse(savedNextInitial));
     }
 
     // Carregar registros diários (sangrias, despesas, etc.) que ainda não foram processados.
@@ -219,10 +230,17 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       // Set activeTab to 'closing' if a state was loaded
       setActiveTab('closing');
     } else {
+      // Se não houver estado de formulário salvo, busca dados ao vivo do Digifarma de forma automática e silenciosa
+      fetchLiveClosing(true);
       // If no form state, but there are daily records, start a new closing
       if (todaysRecordEntries.length > 0) {
         setActiveTab('closing');
       }
+    }
+
+    if (savedNextInitial) {
+      localStorage.removeItem('belinha_next_initial_balance');
+      localStorage.removeItem('belafarma_next_initial_balance');
     }
   }, [dailyRecords]);
 
@@ -268,10 +286,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     const totalDigital = useMemo(() => credit + debit + pix + pixDirect + others, [credit, debit, pix, pixDirect, others]);
 
     // Expected Balance (Saldo Esperado): 
-    // Venda Bruta + Troco + Entradas Extras + Recebimentos de Dívida + Produtos não registrados
-    // MENOS Despesas, Vendas iFood (que não ficam na gaveta) e Vendas no Crediário (dívidas novas)
+    // Venda Bruta + Troco + Entradas Extras + Produtos não registrados
+    // MENOS Despesas, Vendas iFood (que não ficam na gaveta), Vendas no Crediário (dívidas novas) e Recebimentos de Crediário (pagos no dia)
     const subtotalSoma = useMemo(() => {
-      const val = totalSales + receivedExtra + initialCash + totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario;
+      const val = totalSales + receivedExtra + initialCash - totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario;
       return Number(val.toFixed(2));
     }, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalIfood, totalCrediario]);
 
@@ -953,7 +971,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
                             <li>+ Saldo Inicial: R$ {initialCash.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
-                            <li>+ Recebimento Crediário: R$ {totalCreditReceipts.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
+                            <li>- Recebimento Crediário: R$ {totalCreditReceipts.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
                             <li>+ Produto Não Cadastrado: R$ {totalNonRegistered.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
 
@@ -1037,7 +1055,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                             {creditReceiptsList.map((item, idx) => (
                               <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
                                 <span>{item.customer}</span>
-                                <span>+ {formatCurrency(item.val)}</span>
+                                <span>- {formatCurrency(item.val)}</span>
                               </li>
                             ))}
                           </ul>
