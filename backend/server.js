@@ -3169,7 +3169,8 @@ app.get('/api/settings/:key?', (req, res) => {
     if (req.params.key) {
       const setting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(req.params.key);
       if (!setting) {
-        return res.status(404).json({ error: 'Setting not found.' });
+        // Retorna a chave com valor null ao invés de 404 — permite o frontend tratar graciosamente
+        return res.json({ key: req.params.key, value: null, updated_at: null });
       }
       res.json(setting);
     } else {

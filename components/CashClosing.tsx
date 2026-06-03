@@ -211,15 +211,12 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     const savedFormState = localStorage.getItem('belinha_closing_form_state');
     if (savedFormState) {
       const state = JSON.parse(savedFormState);
-      setTotalSales(state.totalSales || 0);
+      // Restaura apenas campos que NÃO são digitais (esses serão sobrescritos pelo Digifarma)
       setReceivedExtra(state.receivedExtra || 0);
       if (!savedNextInitial) { // Only use saved initial cash if there's no "next day" value
         setInitialCash(state.initialCash || 0);
       }
       setCurrencyCount(state.currencyCount || denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {}));
-      setCredit(state.credit || 0);
-      setDebit(state.debit || 0);
-      setPix(state.pix || 0);
       // Only set pixDirect from saved state if it wasn't populated from daily records
       if (combinedPixDireto.length === 0) { // If no current pix direto entries from daily records, use saved state
         setPixDirect(state.pixDirect || 0);
@@ -230,13 +227,14 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       // Set activeTab to 'closing' if a state was loaded
       setActiveTab('closing');
     } else {
-      // Se não houver estado de formulário salvo, busca dados ao vivo do Digifarma de forma automática e silenciosa
-      fetchLiveClosing(true);
       // If no form state, but there are daily records, start a new closing
       if (todaysRecordEntries.length > 0) {
         setActiveTab('closing');
       }
     }
+
+    // Sempre buscar dados ao vivo do Digifarma (vendas, crédito, débito, pix) ao montar o componente
+    fetchLiveClosing(true);
 
     if (savedNextInitial) {
       localStorage.removeItem('belinha_next_initial_balance');
