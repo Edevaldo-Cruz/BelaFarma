@@ -354,21 +354,23 @@ A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma e
     try {
       let sql = `
         SELECT FIRST 10
-          COMPRA_DATA as dataCompra,
-          FORNECEDOR as fornecedor,
-          NOTA_FISCAL as notaFiscal,
-          ITEMCOMP_QUANTIDADE as quantidade,
-          ITEMCOMP_PRCOMPRA as precoCompra
-        FROM VIEW_ULT_COMPRAS
+          C.DATA_EMISSAO as dataCompra,
+          F.FORNECEDOR as fornecedor,
+          C.NOTA_FISCAL as notaFiscal,
+          I.ITEM_NOTAS_QUANT as quantidade,
+          I.ITEM_NOTAS_PRCOMPRA as precoCompra
+        FROM ITEM_NOTAS I
+        JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
+        LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
       `;
       let params = [];
       
       if (!isNaN(parseInt(productId)) && !productId.startsWith('sht_') && !productId.startsWith('sh_auto_')) {
-        sql += ` WHERE PRODUTO_ID = ? ORDER BY COMPRA_DATA DESC`;
+        sql += ` WHERE I.PRODUTO_ID = ? AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N' ORDER BY C.DATA_EMISSAO DESC`;
         params.push(productId);
       } else if (productName) {
         // Query by product name
-        sql += ` WHERE PRODUTO_ID = (SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS WHERE PRODUTO = ?) ORDER BY COMPRA_DATA DESC`;
+        sql += ` WHERE I.PRODUTO_ID = (SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS WHERE PRODUTO = ?) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N' ORDER BY C.DATA_EMISSAO DESC`;
         params.push(productName);
       } else {
         return res.json([]);
