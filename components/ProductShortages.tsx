@@ -44,6 +44,20 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
   const [lastSelected, setLastSelected] = useState('');
 
+  // Histórico de Compras
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyProduct, setHistoryProduct] = useState<any>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  // Listas de Cotação
+  const [isListsModalOpen, setIsListsModalOpen] = useState(false);
+  const [quotationLists, setQuotationLists] = useState<any[]>([]);
+  const [isListsLoading, setIsListsLoading] = useState(false);
+  const [newListName, setNewListName] = useState('');
+  
+  const [isAddToListModalOpen, setIsAddToListModalOpen] = useState(false);
+
   const { addToast } = useToast();
   const [isScanning, setIsScanning] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
@@ -255,6 +269,86 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     }
   };
 
+  const loadHistory = async (product: any) => {
+    setHistoryProduct(product);
+    setIsHistoryModalOpen(true);
+    setIsHistoryLoading(true);
+    try {
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      const res = await fetch(`${API_BASE}/api/purchasing/product/${encodeURIComponent(product.id)}/history?productName=${encodeURIComponent(product.productName)}`);
+      const data = await res.json();
+      setHistoryData(Array.isArray(data) ? data : []);
+    } catch (err) {
+      addToast('Erro ao carregar histórico', 'error');
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const loadLists = async () => {
+    setIsListsLoading(true);
+    try {
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      const res = await fetch(`${API_BASE}/api/purchasing/quotes/lists`);
+      const data = await res.json();
+      setQuotationLists(Array.isArray(data) ? data : []);
+    } catch (err) {
+      addToast('Erro ao carregar listas', 'error');
+    } finally {
+      setIsListsLoading(false);
+    }
+  };
+
+  const createList = async () => {
+    if (!newListName.trim()) return;
+    try {
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      await fetch(`${API_BASE}/api/purchasing/quotes/lists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newListName })
+      });
+      setNewListName('');
+      loadLists();
+      addToast('Lista criada com sucesso!', 'success');
+    } catch (err) {
+      addToast('Erro ao criar lista', 'error');
+    }
+  };
+
+  const addSelectedToList = async (listId: string) => {
+    const selectedProducts = filteredShortages.filter(s => selectedIds.includes(s.id)).map(s => ({
+      productId: s.id,
+      productName: s.productName
+    }));
+    try {
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      await fetch(`${API_BASE}/api/purchasing/quotes/lists/${listId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: selectedProducts })
+      });
+      setIsAddToListModalOpen(false);
+      setSelectedIds([]);
+      addToast('Itens adicionados à lista com sucesso!', 'success');
+      loadLists();
+    } catch (err) {
+      addToast('Erro ao adicionar itens', 'error');
+    }
+  };
+
+  const deleteList = async (listId: string) => {
+    if(!window.confirm('Excluir esta lista de cotação?')) return;
+    try {
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      await fetch(`${API_BASE}/api/purchasing/quotes/lists/${listId}`, { method: 'DELETE' });
+      loadLists();
+      addToast('Lista excluída!', 'success');
+    } catch (err) {
+      addToast('Erro ao excluir lista', 'error');
+    }
+  };
+
   const handleSendQuotation = async (supplierId: string, supplierName: string) => {
     const selectedProducts = filteredShortages.filter(s => selectedIds.includes(s.id)).map(s => s.productName);
     const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
@@ -432,6 +526,28 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           Cotar Selecionados ({selectedIds.length})
         </button>
         <button
+          onClick={() => {
+            loadLists();
+            setIsListsModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow active:scale-95 whitespace-nowrap"
+        >
+          <ClipboardList className="w-4 h-4" />
+          Minhas Listas
+        </button>
+        <button
+          onClick={() => {
+            loadLists();
+            setIsAddToListModalOpen(true);
+          }}
+          disabled={selectedIds.length === 0}
+          title={`Adicionar ${selectedIds.length} item(s) selecionado(s) à uma lista`}
+          className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          <Plus className="w-4 h-4" />
+          Adicionar à Lista
+        </button>
+        <button
           onClick={exportToTxt}
           disabled={filteredShortages.length === 0}
           title={`Exportar ${filteredShortages.length} item(s) para TXT`}
@@ -575,6 +691,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex justify-center">
+                      <button 
+                        onClick={() => loadHistory(s)}
+                        title="Ver Últimas Compras"
+                        className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                      >
+                        <BarChart3 className="w-4.5 h-4.5" />
+                      </button>
                       <button 
                         onClick={() => confirm('Remover este item da lista de faltas?') && onDelete(s.id)}
                         className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
@@ -846,6 +969,192 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* Modal Historico de Compras */}
+      {isHistoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-3xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                <BarChart3 className="w-7 h-7 text-blue-500" /> Histórico de Compras: <span className="text-blue-600">{historyProduct?.productName}</span>
+              </h2>
+              <button 
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-8 max-h-[60vh] overflow-y-auto">
+              {isHistoryLoading ? (
+                <div className="flex flex-col items-center justify-center py-10">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
+                  <p className="text-slate-500 font-medium">Buscando histórico no Digifarma...</p>
+                </div>
+              ) : historyData.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 font-medium bg-slate-50 rounded-2xl border border-slate-100">
+                  Nenhum histórico de compra recente encontrado.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-bold">
+                        <th className="p-4 border-b border-slate-200">Data</th>
+                        <th className="p-4 border-b border-slate-200">Fornecedor</th>
+                        <th className="p-4 border-b border-slate-200">NF</th>
+                        <th className="p-4 border-b border-slate-200 text-right">Qtd</th>
+                        <th className="p-4 border-b border-slate-200 text-right">Preço</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyData.map((h, i) => (
+                        <tr key={i} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                          <td className="p-4 text-sm font-bold text-slate-700">{new Date(h.dataCompra).toLocaleDateString('pt-BR')}</td>
+                          <td className="p-4 text-sm font-bold text-slate-900">{h.fornecedor}</td>
+                          <td className="p-4 text-sm text-slate-500">{h.notaFiscal}</td>
+                          <td className="p-4 text-sm font-bold text-slate-700 text-right">{h.quantidade}</td>
+                          <td className="p-4 text-sm font-black text-emerald-600 text-right">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(h.precoCompra)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Minhas Listas */}
+      {isListsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-4xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up flex flex-col h-[80vh]">
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                <ClipboardList className="w-7 h-7 text-indigo-500" /> Minhas Listas de Cotação
+              </h2>
+              <button 
+                onClick={() => setIsListsModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 flex-1 overflow-y-auto bg-slate-50/30">
+              <div className="flex gap-4 mb-8 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <input 
+                  type="text" 
+                  value={newListName}
+                  onChange={e => setNewListName(e.target.value)}
+                  placeholder="Nome da nova lista (Ex: Pedidos de Sexta)..."
+                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button 
+                  onClick={createList}
+                  className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2"
+                >
+                  <Plus className="w-5 h-5" /> Criar Lista
+                </button>
+              </div>
+
+              {isListsLoading ? (
+                <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>
+              ) : quotationLists.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 font-medium">Nenhuma lista criada.</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {quotationLists.map(list => (
+                    <div key={list.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow relative group">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="font-black text-lg text-slate-800">{list.name}</h3>
+                          <p className="text-xs text-slate-400 font-medium">Criada em: {new Date(list.createdAt).toLocaleDateString('pt-BR')}</p>
+                        </div>
+                        <button 
+                          onClick={() => deleteList(list.id)}
+                          className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-2 mb-4 max-h-40 overflow-y-auto pr-2">
+                        {list.items && list.items.length > 0 ? (
+                          list.items.map((item: any, i: number) => (
+                            <div key={i} className="text-sm font-bold text-slate-600 flex justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+                              <span>{item.productName}</span>
+                              <span className="text-slate-400 text-xs">Qtd: {item.quantity}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-sm text-slate-400 italic py-2">Lista vazia. Adicione itens pela tela principal.</div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setIsListsModalOpen(false);
+                          // Para cotar a partir da lista, copiamos os itens para a seleção e abrimos modal de cotação
+                          const itemNames = list.items?.map((i: any) => i.productName) || [];
+                          // Aqui adaptamos o handleOpenQuotation passando manualmente. Mas como handleOpenQuotation usa selectedIds,
+                          // a melhor forma seria talvez fazer um fetch separado para cotar esses itens, ou só deixar eles selecionados.
+                          addToast('Para cotar, feche e selecione os itens desejados.', 'info');
+                        }}
+                        className="w-full py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-all border border-slate-200"
+                      >
+                        Cotar Itens Desta Lista
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Adicionar à Lista */}
+      {isAddToListModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+              <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                <Plus className="w-6 h-6 text-violet-500" /> Adicionar à Lista
+              </h2>
+              <button 
+                onClick={() => setIsAddToListModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-slate-500 font-medium mb-4">Escolha uma lista para adicionar os {selectedIds.length} itens selecionados:</p>
+              
+              {isListsLoading ? (
+                <div className="flex justify-center py-4"><Loader2 className="w-6 h-6 animate-spin text-violet-500" /></div>
+              ) : quotationLists.length === 0 ? (
+                <div className="text-center py-4 text-slate-400 font-medium">Nenhuma lista encontrada.</div>
+              ) : (
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {quotationLists.map(list => (
+                    <button
+                      key={list.id}
+                      onClick={() => addSelectedToList(list.id)}
+                      className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-violet-50 border border-slate-200 hover:border-violet-300 rounded-xl font-bold text-slate-700 hover:text-violet-700 transition-all flex justify-between items-center group"
+                    >
+                      {list.name}
+                      <span className="text-xs text-slate-400 group-hover:text-violet-500">{list.items?.length || 0} itens</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

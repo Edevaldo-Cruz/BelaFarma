@@ -262,5 +262,124 @@ A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma e
     }
   });
 
+  // --- Listas de Cotações ---
+
+  router.get('/quotes/lists', (req, res) => {
+    try {
+      const lists = db.prepare('SELECT * FROM quotation_lists ORDER BY createdAt DESC').all();
+      const items = db.prepare('SELECT * FROM quotation_list_items').all();
+      
+      const listsWithItems = lists.map(list => {
+        return {
+          ...list,
+          items: items.filter(item => item.listId === list.id)
+        };
+      });
+      res.json(listsWithItems);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/quotes/lists', (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome da lista é obrigatório.' });
+
+    try {
+      const id = 'ql_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      const createdAt = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO quotation_lists (id, name, createdAt)
+        VALUES (?, ?, ?)
+      `).run(id, name, createdAt);
+      res.json({ success: true, id, name, createdAt });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/quotes/lists/:id/items', (req, res) => {
+    const listId = req.params.id;
+    const { products } = req.body; // Array de { productId, productName }
+
+    if (!products || !Array.isArray(products)) {
+      return res.status(400).json({ error: 'Produtos inválidos.' });
+    }
+
+    try {
+      const createdAt = new Date().toISOString();
+      const stmt = db.prepare(`
+        INSERT INTO quotation_list_items (id, listId, productId, productName, createdAt)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      db.transaction(() => {
+        for (const prod of products) {
+          const itemId = 'qli_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+          stmt.run(itemId, listId, prod.productId || prod.id, prod.productName, createdAt);
+        }
+      })();
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/quotes/lists/:id', (req, res) => {
+    const listId = req.params.id;
+    try {
+      db.prepare('DELETE FROM quotation_lists WHERE id = ?').run(listId);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Histórico de Compras ---
+
+  router.get('/product/:id/history', async (req, res) => {
+    const productId = req.params.id;
+    
+    // We need productId to be an integer/string that Digifarma understands.
+    // If it's a UUID (auto-generated shortage), it's not in Digifarma. We must extract original ID or handle it.
+    // However, shortages from Digifarma have PRODUTO_ID in their 'id' field originally, but AutoShortages creates 'sht_1234_...'
+    // Wait! AutoShortages uses PRODUTO_ID inside 'id'? No, AutoShortages uses random ID.
+    // Let's just assume we get the original ID or the product name to query.
+    // We will query by name if ID is an auto-generated one!
+    // But let's first try by PRODUTO_ID directly if it's numeric, otherwise by name.
+    
+    const { productName } = req.query; // Accept productName as fallback
+    
+    try {
+      let sql = `
+        SELECT FIRST 10
+          COMPRA_DATA as dataCompra,
+          FORNECEDOR as fornecedor,
+          NOTA_FISCAL as notaFiscal,
+          ITEMCOMP_QUANTIDADE as quantidade,
+          ITEMCOMP_PRCOMPRA as precoCompra
+        FROM VIEW_ULT_COMPRAS
+      `;
+      let params = [];
+      
+      if (!isNaN(parseInt(productId)) && !productId.startsWith('sht_') && !productId.startsWith('sh_auto_')) {
+        sql += ` WHERE PRODUTO_ID = ? ORDER BY COMPRA_DATA DESC`;
+        params.push(productId);
+      } else if (productName) {
+        // Query by product name
+        sql += ` WHERE PRODUTO_ID = (SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS WHERE PRODUTO = ?) ORDER BY COMPRA_DATA DESC`;
+        params.push(productName);
+      } else {
+        return res.json([]);
+      }
+      
+      const history = await queryDigifarma(sql, params);
+      res.json(history);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };

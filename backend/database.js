@@ -377,6 +377,27 @@ try {
       );
     `;
 
+    const createQuotationListsTable = `
+      CREATE TABLE IF NOT EXISTS quotation_lists (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        status TEXT DEFAULT 'Aberta',
+        createdAt TEXT NOT NULL
+      );
+    `;
+
+    const createQuotationListItemsTable = `
+      CREATE TABLE IF NOT EXISTS quotation_list_items (
+        id TEXT PRIMARY KEY,
+        listId TEXT NOT NULL,
+        productId TEXT NOT NULL,
+        productName TEXT NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (listId) REFERENCES quotation_lists(id) ON DELETE CASCADE
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -404,6 +425,8 @@ try {
     db.exec(createLabelPrintQueueTable);
     db.exec(createLocalSuppliersTable);
     db.exec(createQuotationsTable);
+    db.exec(createQuotationListsTable);
+    db.exec(createQuotationListItemsTable);
 
     // Create indexes for fast lookups
     try {
