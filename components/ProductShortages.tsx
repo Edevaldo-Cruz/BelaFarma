@@ -3,7 +3,7 @@ import {
   Plus, Search, Filter, Trash2, ClipboardList, 
   MessageCircle, Star, X, Save, User as UserIcon,
   Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3,
-  Truck, Check, Eye, EyeOff
+  Truck, Check, Eye, EyeOff, AlertTriangle, RefreshCw, Users
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
