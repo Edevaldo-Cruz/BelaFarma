@@ -354,11 +354,11 @@ A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma e
     try {
       let sql = `
         SELECT FIRST 10
-          C.DATA_EMISSAO as dataCompra,
-          F.FORNECEDOR as fornecedor,
-          C.NOTA_FISCAL as notaFiscal,
-          I.ITEM_NOTAS_QUANT as quantidade,
-          I.ITEM_NOTAS_PRCOMPRA as precoCompra
+          C.DATA_EMISSAO as "dataCompra",
+          F.FORNECEDOR as "fornecedor",
+          C.NOTA_FISCAL as "notaFiscal",
+          I.ITEM_NOTAS_QUANT as "quantidade",
+          I.ITEM_NOTAS_PRCOMPRA as "precoCompra"
         FROM ITEM_NOTAS I
         JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
         LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
