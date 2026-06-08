@@ -126,7 +126,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   }, [formData.productName, lastSelected]);
 
   const filteredShortages = shortages.filter(s => {
-    const isAttention = s.notes && s.notes.includes('Atenção: Resta 1 unidade no estoque.');
+    const isAttention = s.notes && (s.notes.includes('Atenção: Resta 1') || s.notes.includes('[ATENÇÃO: RESTA 1'));
     if (mainTab === 'faltas' && isAttention) return false;
     if (mainTab === 'atencao' && !isAttention) return false;
 
