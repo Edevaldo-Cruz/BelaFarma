@@ -159,6 +159,10 @@ async function connect(db) {
           // Se a mensagem foi enviada por nós (fromMe), não processa para o LabelBot
           if (msg.key.fromMe) return;
 
+          // NOVO: Fluxo de Cotações (Quotations)
+          const quotationService = require('./services/quotation.service.js');
+          await quotationService.processIncomingMessage(db, phone, cleanText, pushName, sock);
+
           const isPriceResponse = cleanText.startsWith('preço') || cleanText.startsWith('preco');
           const isLabelTrigger = cleanText.startsWith('etiqueta') || 
                                  cleanText.startsWith('#etiqueta') || 

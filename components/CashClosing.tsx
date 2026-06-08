@@ -102,6 +102,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       setCredit(data.credit || 0);
       setDebit(data.debit || 0);
       setPix(data.pix || 0);
+
+      // Preenche o fundo de caixa com o valor do Digifarma (se existir)
+      if (data.fundoCaixa !== undefined) {
+        setInitialCash(data.fundoCaixa);
+      }
       
       if (!silent) addToast('Valores sincronizados com o Digifarma!', 'success');
     } catch(err) {

@@ -12,6 +12,7 @@ import { CashClosing } from "./components/CashClosing";
 import { Safe } from "./components/Safe";
 import { DailyRecords } from "./components/DailyRecords";
 import { Logs } from "./components/Logs";
+import { Quotations } from "./components/Quotations";
 import { CheckingAccount } from "./components/CheckingAccount";
 import { ContasAPagar } from "./components/ContasAPagar";
 import { DaysInDebt } from "./components/DaysInDebt";
@@ -712,6 +713,7 @@ const App: React.FC = () => {
                   onRefresh={fetchData}
                 />
               )}
+              {currentView === "quotations" && <Quotations />}
               {currentView === "medication-search" && <MedicationSearch />}
               {currentView === "daily-records" && (
                 <DailyRecords

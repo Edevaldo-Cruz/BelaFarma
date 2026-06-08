@@ -22,6 +22,7 @@ interface ProductShortagesProps {
 export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete, onUpdate, onRefresh }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showComparator, setShowComparator] = useState(false);
+  const [mainTab, setMainTab] = useState<'faltas' | 'atencao'>('faltas');
   const [searchTerm, setSearchTerm] = useState('');
   const [hidePurchased, setHidePurchased] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -31,6 +32,12 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     clientInquiry: false,
     notes: ''
   });
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+  const [quoteStep, setQuoteStep] = useState<'selecting' | 'loading' | 'reviewing'>('selecting');
+  const [quoteText, setQuoteText] = useState('');
+  const [quoteSuppliers, setQuoteSuppliers] = useState<any[]>([]);
 
   // Estado para busca inteligente no formulário
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -119,6 +126,10 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   }, [formData.productName, lastSelected]);
 
   const filteredShortages = shortages.filter(s => {
+    const isAttention = s.notes && s.notes.includes('Atenção: Resta 1 unidade no estoque.');
+    if (mainTab === 'faltas' && isAttention) return false;
+    if (mainTab === 'atencao' && !isAttention) return false;
+
     const matchesSearch = s.productName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = typeFilter === 'all' || s.type === typeFilter;
     const matchesHidePurchased = !hidePurchased || !s.purchased;
@@ -186,6 +197,92 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     URL.revokeObjectURL(url);
   };
 
+  const toggleSelectAll = () => {
+    const exportable = filteredShortages.filter(s => !s.purchased);
+    if (selectedIds.length === exportable.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(exportable.map(s => s.id));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const handleOpenQuotation = async () => {
+    if (selectedIds.length === 0) return;
+    setIsQuoteModalOpen(true);
+    setQuoteStep('loading');
+
+    const selectedProducts = filteredShortages.filter(s => selectedIds.includes(s.id)).map(s => s.productName);
+
+    try {
+      // Buscar últimos fornecedores
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      const resSuppliers = await fetch(`${API_BASE}/api/purchasing/quotes/last-suppliers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: selectedProducts })
+      });
+      const suppliersData = await resSuppliers.json();
+      
+      // Agrupar e pegar os fornecedores únicos mais recentes
+      const uniqueSuppliers = new Map();
+      suppliersData.forEach((s: any) => {
+        if (!uniqueSuppliers.has(s.FORNECEDOR_ID)) {
+          uniqueSuppliers.set(s.FORNECEDOR_ID, s);
+        }
+      });
+      const suppliersList = Array.from(uniqueSuppliers.values()).slice(0, 5); // Limita a 5 fornecedores
+      setQuoteSuppliers(suppliersList);
+
+      if (suppliersList.length > 0) {
+        // Gerar texto
+        const resText = await fetch(`${API_BASE}/api/purchasing/quotes/generate-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: selectedProducts, supplierName: suppliersList[0]?.FORNECEDOR || 'Fornecedor' })
+        });
+        const textData = await resText.json();
+        setQuoteText(textData.text || '');
+      }
+      setQuoteStep('reviewing');
+    } catch (err) {
+      console.error(err);
+      addToast("Erro ao carregar dados da cotação", "error");
+      setIsQuoteModalOpen(false);
+    }
+  };
+
+  const handleSendQuotation = async (supplierId: string, supplierName: string) => {
+    const selectedProducts = filteredShortages.filter(s => selectedIds.includes(s.id)).map(s => s.productName);
+    const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+
+    try {
+      const res = await fetch(`${API_BASE}/api/purchasing/quotes/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierDigifarmaId: supplierId,
+          supplierName: supplierName,
+          message: quoteText,
+          products: selectedProducts
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Cotação enviada para ${supplierName}!`, "success");
+      } else {
+        addToast(`Erro: ${data.error}`, "error");
+      }
+    } catch (err) {
+      console.error(err);
+      addToast("Erro de conexão ao enviar cotação.", "error");
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.productName) return;
@@ -245,6 +342,12 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             {isScanning ? "Varrendo WhatsApp..." : "Varrer WhatsApp"}
           </button>
           <button 
+            onClick={onRefresh}
+            className="flex items-center gap-2 px-5 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95"
+          >
+            <RefreshCw className="w-4 h-4" /> Atualizar
+          </button>
+          <button 
             onClick={() => {
               setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
               setLastSelected('');
@@ -256,6 +359,32 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           </button>
         </div>
       </header>
+
+      {/* Tabs */}
+      <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-slate-100 max-w-fit">
+        <button
+          onClick={() => { setMainTab('faltas'); setSelectedIds([]); }}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${
+            mainTab === 'faltas' 
+              ? 'bg-slate-900 text-white shadow-md' 
+              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          Faltas (Zerados)
+        </button>
+        <button
+          onClick={() => { setMainTab('atencao'); setSelectedIds([]); }}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${
+            mainTab === 'atencao' 
+              ? 'bg-amber-500 text-white shadow-md' 
+              : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" />
+          Atenção (Baixo Estoque)
+        </button>
+      </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div className="relative flex-1 w-full">
@@ -294,6 +423,15 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           {hidePurchased ? "Mostrar Comprados" : "Ocultar Comprados"}
         </button>
         <button
+          onClick={handleOpenQuotation}
+          disabled={selectedIds.length === 0}
+          title={`Cotar ${selectedIds.length} item(s) selecionado(s)`}
+          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          <Users className="w-4 h-4" />
+          Cotar Selecionados ({selectedIds.length})
+        </button>
+        <button
           onClick={exportToTxt}
           disabled={filteredShortages.length === 0}
           title={`Exportar ${filteredShortages.length} item(s) para TXT`}
@@ -309,6 +447,14 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="px-6 py-4 text-center w-12">
+                  <input 
+                    type="checkbox" 
+                    onChange={toggleSelectAll}
+                    checked={selectedIds.length > 0 && selectedIds.length === filteredShortages.filter(s => !s.purchased).length}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produto / Item</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Procura de Cliente</th>
@@ -329,6 +475,16 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                         : 'hover:bg-red-50/20'
                   }`}
                 >
+                  <td className="px-6 py-4 text-center">
+                    {!s.purchased && (
+                      <input 
+                        type="checkbox" 
+                        checked={selectedIds.includes(s.id)}
+                        onChange={() => toggleSelect(s.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
                       <div className="flex items-center">
@@ -357,8 +513,8 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                         )}
                       </div>
                       {s.notes && (
-                        <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 mt-0.5">
-                          <MessageCircle className="w-3 h-3" /> {s.notes}
+                        <span className={`text-[10px] font-bold flex items-center gap-1 mt-0.5 ${s.notes.includes('Atenção: Resta 1') ? 'text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-flex w-fit' : 'text-slate-400'}`}>
+                          {s.notes.includes('Atenção: Resta 1') ? <AlertTriangle className="w-3 h-3" /> : <MessageCircle className="w-3 h-3" />} {s.notes}
                         </span>
                       )}
                     </div>
@@ -561,7 +717,6 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
               </p>
 
               <div className="space-y-4">
-                {/* Opção 1: Varredura de Rotina */}
                 <button
                   onClick={() => handleWhatsAppScan(false)}
                   className="w-full p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-emerald-50/20 hover:border-emerald-200 text-left transition-all active:scale-[0.98] group"
@@ -570,7 +725,6 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   <span className="block text-xs font-medium text-slate-400 mt-1">Busca conversas ativas recentemente. Rápido e ideal para o dia a dia.</span>
                 </button>
 
-                {/* Opção 2: Varredura Histórica */}
                 <button
                   onClick={() => handleWhatsAppScan(true)}
                   className="w-full p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-amber-50/20 hover:border-amber-200 text-left transition-all active:scale-[0.98] group"
@@ -581,7 +735,6 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   <span className="block text-xs font-medium text-slate-400 mt-1">Faz um mapeamento profundo das conversas de até 30 dias atrás (limitado aos 100 contatos mais ativos). Pode demorar mais tempo.</span>
                 </button>
 
-                {/* Opção 3: Varredura de Contato Específico */}
                 <div className="pt-4 border-t border-slate-100 space-y-3">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Varrer conversa específica por número</label>
                   <div className="flex gap-2">
@@ -616,6 +769,83 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Cotação */}
+      {isQuoteModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100 flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-blue-50/50">
+              <div>
+                <h2 className="text-xl font-black text-blue-800 tracking-tight uppercase flex items-center gap-2">
+                  <MessageCircle className="w-6 h-6 fill-blue-800/20 text-blue-800" />
+                  Cotar Produtos ({selectedIds.length})
+                </h2>
+              </div>
+              <button onClick={() => setIsQuoteModalOpen(false)} className="p-2 text-slate-400 hover:text-blue-800 transition-all">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-8 overflow-y-auto flex-1 space-y-6">
+              {quoteStep === 'loading' ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-500 space-y-4">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <p className="font-bold">Analisando histórico no Digifarma e gerando texto com IA...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">Fornecedores Encontrados</h3>
+                    {quoteSuppliers.length === 0 ? (
+                      <p className="text-sm text-amber-600 bg-amber-50 p-4 rounded-xl border border-amber-200">Nenhum fornecedor encontrado no histórico de compras para estes itens. Certifique-se de que eles já foram comprados antes.</p>
+                    ) : (
+                      <div className="grid gap-2">
+                        {quoteSuppliers.map((s, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-xl">
+                            <div>
+                              <span className="block font-bold text-slate-800">{s.FORNECEDOR}</span>
+                              <span className="block text-xs font-mono text-slate-400">ID: {s.FORNECEDOR_ID}</span>
+                            </div>
+                            <button
+                              onClick={() => handleSendQuotation(s.FORNECEDOR_ID, s.FORNECEDOR)}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-all flex items-center gap-2 shadow-md shadow-blue-500/20"
+                            >
+                              <Send className="w-3.5 h-3.5" /> Enviar Cotação
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-500" /> Texto Gerado pela IA
+                    </h3>
+                    <textarea
+                      value={quoteText}
+                      onChange={(e) => setQuoteText(e.target.value)}
+                      className="w-full h-48 p-4 bg-amber-50/50 border border-amber-200/50 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 text-sm text-slate-700 leading-relaxed resize-none"
+                    />
+                    <p className="text-xs text-slate-400 font-medium">Você pode editar este texto antes de clicar em "Enviar Cotação". A IA formatou com base nos itens selecionados.</p>
+                  </div>
+                </>
+              )}
+            </div>
+            
+            {quoteStep !== 'loading' && (
+              <div className="px-8 py-5 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setIsQuoteModalOpen(false)}
+                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-300 transition-all"
+                >
+                  Fechar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

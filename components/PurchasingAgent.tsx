@@ -21,11 +21,12 @@ import FileSelector from './FileSelector';
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
 
 interface Supplier {
-  id: string;
+  id: string | null;
+  digifarma_id: number;
   name: string;
-  whatsapp: string;
-  category: string;
-  createdAt: string;
+  representante: string;
+  telefone: string;
+  prazo_boletos: string;
 }
 
 export default function PurchasingAgent() {
@@ -35,7 +36,7 @@ export default function PurchasingAgent() {
   const [analyzing, setAnalyzing] = useState(false);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [newSupplier, setNewSupplier] = useState({ name: '', whatsapp: '', category: 'Medicamentos' });
+  const [newSupplier, setNewSupplier] = useState<Partial<Supplier>>({});
   const [sendingQuotes, setSendingQuotes] = useState(false);
   const [sendingToNayane, setSendingToNayane] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -54,35 +55,31 @@ export default function PurchasingAgent() {
     }
   };
 
-  const handleAddSupplier = async (e: React.FormEvent) => {
+  const handleSaveSupplierDetails = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newSupplier.digifarma_id) return;
+    
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/purchasing/suppliers`, {
+      const res = await fetch(`${API_BASE}/api/purchasing/suppliers/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSupplier)
       });
       if (res.ok) {
-        setNewSupplier({ name: '', whatsapp: '', category: 'Medicamentos' });
         setShowModal(false);
         fetchSuppliers();
       }
     } catch (err) {
-      console.error('Erro ao adicionar fornecedor:', err);
+      console.error('Erro ao salvar detalhes do fornecedor:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteSupplier = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este fornecedor?')) return;
-    try {
-      await fetch(`${API_BASE}/api/purchasing/suppliers/${id}`, { method: 'DELETE' });
-      fetchSuppliers();
-    } catch (err) {
-      console.error('Erro ao excluir fornecedor:', err);
-    }
+  const handleEditSupplier = (supplier: Supplier) => {
+    setNewSupplier(supplier);
+    setShowModal(true);
   };
 
   const handleAnalyzeReports = async () => {
@@ -326,46 +323,52 @@ export default function PurchasingAgent() {
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/50">
+                  <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">ID Digifarma</th>
                   <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Fornecedor</th>
-                  <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">WhatsApp</th>
-                  <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Categoria</th>
-                  <th className="px-8 py-4 text-right"></th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Representante</th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Telefone / WhatsApp</th>
+                  <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Prazo Boletos</th>
+                  <th className="px-8 py-4 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {suppliers.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-8 py-12 text-center text-slate-400 text-sm italic">
-                      Nenhum fornecedor cadastrado.
+                    <td colSpan={6} className="px-8 py-12 text-center text-slate-400 text-sm italic">
+                      Carregando fornecedores do Digifarma...
                     </td>
                   </tr>
                 ) : (
                   suppliers.map(s => (
-                    <tr key={s.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+                    <tr key={s.digifarma_id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+                      <td className="px-8 py-5">
+                        <span className="font-mono text-slate-400 text-xs">{s.digifarma_id}</span>
+                      </td>
                       <td className="px-8 py-5">
                         <span className="font-black text-slate-700 dark:text-slate-200">{s.name}</span>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="flex items-center gap-2 text-slate-500 font-medium">
-                          <Phone className="w-3.5 h-3.5" />
-                          {s.whatsapp}
-                        </div>
+                        <span className="text-slate-500 font-medium text-sm">{s.representante || '-'}</span>
                       </td>
                       <td className="px-8 py-5">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
-                          s.category === 'Medicamentos' 
-                          ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400' 
-                          : 'bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400'
-                        }`}>
-                          {s.category}
-                        </span>
+                        {s.telefone ? (
+                          <div className="flex items-center gap-2 text-slate-500 font-medium">
+                            <Phone className="w-3.5 h-3.5" />
+                            {s.telefone}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-sm italic">Sem telefone</span>
+                        )}
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-slate-500 font-medium text-sm">{s.prazo_boletos || '-'}</span>
                       </td>
                       <td className="px-8 py-5 text-right">
                         <button 
-                          onClick={() => handleDeleteSupplier(s.id)}
-                          className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          onClick={() => handleEditSupplier(s)}
+                          className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          Editar Detalhes
                         </button>
                       </td>
                     </tr>
@@ -382,47 +385,48 @@ export default function PurchasingAgent() {
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-md shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-8">
               <div className="flex items-center justify-between mb-8">
-                <h3 className="text-xl font-black text-slate-800 dark:text-slate-100">Novo Fornecedor</h3>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 dark:text-slate-100">Detalhes do Fornecedor</h3>
+                  <p className="text-sm font-medium text-amber-600">{newSupplier.name}</p>
+                </div>
                 <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
                   <XIcon className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleAddSupplier} className="space-y-6">
+              <form onSubmit={handleSaveSupplierDetails} className="space-y-6">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-2 block">Nome do Fornecedor</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-2 block">Nome do Representante</label>
                   <input 
                     type="text" 
-                    required
-                    value={newSupplier.name}
-                    onChange={e => setNewSupplier({...newSupplier, name: e.target.value})}
-                    placeholder="Ex: Santa Cruz"
+                    value={newSupplier.representante || ''}
+                    onChange={e => setNewSupplier({...newSupplier, representante: e.target.value})}
+                    placeholder="Ex: João Silva"
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 transition-all shadow-inner"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-2 block">WhatsApp (com DDD)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-2 block">Telefone / WhatsApp do Representante</label>
                   <input 
                     type="text" 
                     required
-                    value={newSupplier.whatsapp}
-                    onChange={e => setNewSupplier({...newSupplier, whatsapp: e.target.value})}
+                    value={newSupplier.telefone || ''}
+                    onChange={e => setNewSupplier({...newSupplier, telefone: e.target.value})}
                     placeholder="Ex: 553299999999"
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 transition-all shadow-inner"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-2 block">Categoria</label>
-                  <select 
-                    value={newSupplier.category}
-                    onChange={e => setNewSupplier({...newSupplier, category: e.target.value})}
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mb-2 block">Prazo de Boletos</label>
+                  <input 
+                    type="text" 
+                    value={newSupplier.prazo_boletos || ''}
+                    onChange={e => setNewSupplier({...newSupplier, prazo_boletos: e.target.value})}
+                    placeholder="Ex: 30/60/90 dias"
                     className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 transition-all shadow-inner"
-                  >
-                    <option value="Medicamentos">Medicamentos</option>
-                    <option value="Perfumaria">Perfumaria</option>
-                  </select>
+                  />
                 </div>
 
                 <div className="pt-4 flex gap-3">
@@ -438,7 +442,7 @@ export default function PurchasingAgent() {
                     disabled={loading}
                     className="flex-[2] py-4 bg-amber-600 text-white rounded-2xl text-sm font-black shadow-lg shadow-amber-600/20 flex items-center justify-center"
                   >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirmar Cadastro'}
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Dados'}
                   </button>
                 </div>
               </form>

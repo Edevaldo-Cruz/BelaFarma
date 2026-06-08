@@ -351,6 +351,32 @@ try {
       );
     `;
 
+    const createLocalSuppliersTable = `
+      CREATE TABLE IF NOT EXISTS local_suppliers (
+        id TEXT PRIMARY KEY,
+        digifarma_id INTEGER UNIQUE,
+        representante TEXT,
+        telefone TEXT,
+        prazo_boletos TEXT,
+        createdAt TEXT
+      );
+    `;
+
+    const createQuotationsTable = `
+      CREATE TABLE IF NOT EXISTS quotations (
+        id TEXT PRIMARY KEY,
+        productName TEXT NOT NULL,
+        supplierId TEXT,
+        supplierName TEXT NOT NULL,
+        supplierPhone TEXT,
+        status TEXT NOT NULL, -- 'Enviada', 'Respondida', 'Dúvida do Fornecedor', 'Ignorada'
+        quotedPrice REAL,
+        rawMessage TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -376,6 +402,8 @@ try {
     db.exec(createCustomerRecipesTable);
     db.exec(createStockProductsTable);
     db.exec(createLabelPrintQueueTable);
+    db.exec(createLocalSuppliersTable);
+    db.exec(createQuotationsTable);
 
     // Create indexes for fast lookups
     try {

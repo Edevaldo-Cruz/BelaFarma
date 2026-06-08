@@ -71,11 +71,32 @@ class PixBotService {
     try {
       const messageKey = messageData.key;
       
-      // 1. Obter o Base64 e o formato da mídia via Evolution API usando a instância dinâmica
-      const media = await this.getBase64FromEvolution(messageKey, messageData.message, instanceName);
-      if (!media || !media.base64) {
-        console.error('[PixBot] ❌ Não foi possível obter o base64 da imagem.');
-        return;
+      let base64 = null;
+      let mimeType = 'image/jpeg';
+      
+      // 1. Tentar pegar o base64 diretamente do payload (se o webhook estiver com base64: true)
+      if (messageData.message) {
+        if (messageData.message.base64) {
+          base64 = messageData.message.base64;
+        } else if (messageData.message.imageMessage?.base64) {
+          base64 = messageData.message.imageMessage.base64;
+        }
+        
+        if (messageData.message.imageMessage?.mimetype) {
+          mimeType = messageData.message.imageMessage.mimetype;
+        }
+      }
+
+      // 2. Se não veio no payload, tentar buscar via Evolution API
+      if (!base64) {
+        console.log(`[PixBot] Base64 não encontrado no payload do webhook, buscando da API da Evolution...`);
+        const media = await this.getBase64FromEvolution(messageKey, messageData.message, instanceName);
+        if (!media || !media.base64) {
+          console.error('[PixBot] ❌ Não foi possível obter o base64 da imagem.');
+          return;
+        }
+        base64 = media.base64;
+        mimeType = media.mimeType || mimeType;
       }
 
       const todayDateStr = new Intl.DateTimeFormat('pt-BR', {
@@ -117,8 +138,8 @@ class PixBotService {
       `;
 
       const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
-        imageData: media.base64,
-        mimeType: media.mimeType,
+        imageData: base64,
+        mimeType: mimeType,
         temperature: 0.0 // 0.0 para ser estritamente analítico e sem alucinações
       });
 

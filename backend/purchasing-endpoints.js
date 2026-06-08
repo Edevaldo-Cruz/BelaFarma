@@ -6,44 +6,71 @@ const crypto = require('crypto');
 const { analisarRelatoriosDigifarma } = require('./services/purchasing-agent.service');
 const whatsappService = require('./services/whatsapp.service');
 const { queryDigifarma } = require('./services/digifarma.service');
+const { callAI } = require('./services/ai.service');
+const baileysSecondaryService = require('./baileys-secondary-service');
 
 module.exports = (db) => {
   
   // --- Fornecedores ---
 
-  router.get('/suppliers', (req, res) => {
+  router.get('/suppliers', async (req, res) => {
     try {
-      const suppliers = db.prepare('SELECT * FROM suppliers ORDER BY name ASC').all();
-      res.json(suppliers);
+      const digifarmaSuppliers = await queryDigifarma(`
+        SELECT FORNECEDOR_ID, FORNECEDOR 
+        FROM FORNECEDORES 
+        ORDER BY FORNECEDOR ASC
+      `);
+
+      const localSuppliers = db.prepare('SELECT * FROM local_suppliers').all();
+      const localMap = {};
+      localSuppliers.forEach(ls => {
+        localMap[ls.digifarma_id] = ls;
+      });
+
+      const result = digifarmaSuppliers.map(ds => {
+        const local = localMap[ds.FORNECEDOR_ID] || {};
+        return {
+          id: local.id || null, // local id if exists
+          digifarma_id: ds.FORNECEDOR_ID,
+          name: ds.FORNECEDOR,
+          representante: local.representante || '',
+          telefone: local.telefone || '',
+          prazo_boletos: local.prazo_boletos || ''
+        };
+      });
+
+      res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/suppliers', (req, res) => {
-    const { name, whatsapp, category } = req.body;
-    if (!name || !whatsapp || !category) {
-      return res.status(400).json({ error: 'Nome, WhatsApp e Categoria são obrigatórios.' });
+  router.post('/suppliers/update', (req, res) => {
+    const { digifarma_id, representante, telefone, prazo_boletos } = req.body;
+    
+    if (!digifarma_id) {
+      return res.status(400).json({ error: 'ID do Digifarma é obrigatório.' });
     }
 
     try {
-      const id = crypto.randomUUID();
-      const createdAt = new Date().toISOString();
-      db.prepare(`
-        INSERT INTO suppliers (id, name, whatsapp, category, createdAt)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(id, name, whatsapp, category, createdAt);
+      const existing = db.prepare('SELECT id FROM local_suppliers WHERE digifarma_id = ?').get(digifarma_id);
       
-      res.json({ id, name, whatsapp, category, createdAt });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  router.delete('/suppliers/:id', (req, res) => {
-    try {
-      db.prepare('DELETE FROM suppliers WHERE id = ?').run(req.params.id);
-      res.json({ success: true });
+      if (existing) {
+        db.prepare(`
+          UPDATE local_suppliers 
+          SET representante = ?, telefone = ?, prazo_boletos = ?
+          WHERE digifarma_id = ?
+        `).run(representante, telefone, prazo_boletos, digifarma_id);
+        res.json({ success: true, id: existing.id });
+      } else {
+        const id = crypto.randomUUID();
+        const createdAt = new Date().toISOString();
+        db.prepare(`
+          INSERT INTO local_suppliers (id, digifarma_id, representante, telefone, prazo_boletos, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(id, digifarma_id, representante, telefone, prazo_boletos, createdAt);
+        res.json({ success: true, id });
+      }
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -149,48 +176,87 @@ module.exports = (db) => {
     }
   });
 
-  // --- Envio de Cotação ---
+  // --- Cotações (Quotations) ---
 
-  router.post('/send-quotes', async (req, res) => {
-    const { list, category } = req.body;
-    if (!list || !category) {
-      return res.status(400).json({ error: 'Lista e categoria são obrigatórios.' });
-    }
-
+  router.post('/quotes/last-suppliers', async (req, res) => {
+    const { products } = req.body;
+    if (!products || products.length === 0) return res.json([]);
+    
     try {
-      const suppliers = db.prepare('SELECT * FROM suppliers WHERE category = ?').all(category);
-      
-      if (suppliers.length === 0) {
-        return res.status(404).json({ error: `Nenhum fornecedor cadastrado para a categoria ${category}.` });
-      }
-
-      const results = [];
-      for (const supplier of suppliers) {
-        const message = `Olá ${supplier.name}, sou a Isa da Bela Farma Sul. Segue nossa lista de cotação para hoje:\n\n${list}\n\nFavor nos enviar o melhor preço e prazo. No aguardo!`;
-        try {
-          await whatsappService.sendMessage(supplier.whatsapp, message);
-          results.push({ name: supplier.name, status: 'sent' });
-        } catch (err) {
-          results.push({ name: supplier.name, status: 'failed', error: err.message });
-        }
-      }
-
-      res.json({ results });
+      const placeholders = products.map(() => '?').join(',');
+      // Usar a VIEW_ULT_COMPRAS para buscar os últimos fornecedores dos produtos selecionados
+      const sql = `
+        SELECT PRODUTO_ID, FORNECEDOR 
+        FROM VIEW_ULT_COMPRAS
+        WHERE PRODUTO_ID IN (${placeholders})
+        ORDER BY COMPRA_DATA DESC
+      `;
+      const result = await queryDigifarma(sql, products);
+      res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.post('/send-to-edevaldo', async (req, res) => {
-    const { list } = req.body;
-    const edevaldoWhatsApp = process.env.EDEVALDO_WHATSAPP || process.env.ADMIN_WHATSAPP || '5532988634755';
-
-    if (!list) return res.status(400).json({ error: 'Relatório vazio.' });
+  router.post('/quotes/generate-text', async (req, res) => {
+    const { items, supplierName } = req.body;
+    
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'Nenhum item selecionado.' });
+    }
 
     try {
-      const message = `Oi Edevaldo, aqui é a Isa. Segue o resumo de intenção de compra aprovado:\n\n${list}\n\nAtt, Isa-Compras 🛒`;
-      await whatsappService.sendMessage(edevaldoWhatsApp, message);
+      const prompt = `Gere uma mensagem profissional e amigável de WhatsApp solicitando cotação para o fornecedor ${supplierName}.
+A mensagem será enviada pela Bela Farma Sul.
+Itens para cotar:\n${items.map(i => '- ' + i).join('\n')}
+A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma educada.`;
+
+      const text = await callAI(prompt, 'Você é um assistente de compras de uma farmácia.', { temperature: 0.7 });
+      res.json({ text: text.trim() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/quotes/send', async (req, res) => {
+    const { supplierDigifarmaId, supplierName, message, products } = req.body;
+
+    if (!supplierDigifarmaId || !message) {
+      return res.status(400).json({ error: 'Faltam parâmetros obrigatórios.' });
+    }
+
+    try {
+      // Buscar o telefone do fornecedor na base local
+      const localSupplier = db.prepare('SELECT telefone FROM local_suppliers WHERE digifarma_id = ?').get(supplierDigifarmaId);
+      if (!localSupplier || !localSupplier.telefone) {
+        return res.status(400).json({ error: 'Fornecedor não possui telefone cadastrado localmente.' });
+      }
+
+      const phone = localSupplier.telefone.replace(/\D/g, '');
+      
+      // Enviar via Baileys Secundário
+      await baileysSecondaryService.sendTextToGroup(phone, message);
+
+      // Registrar a cotação no banco
+      const now = new Date().toISOString();
+      for (const prod of products) {
+        const id = 'qt_' + Date.now().toString() + '_' + Math.floor(Math.random() * 1000);
+        db.prepare(`
+          INSERT INTO quotations (id, productName, supplierId, supplierName, supplierPhone, status, rawMessage, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, 'Enviada', ?, ?, ?)
+        `).run(id, prod, supplierDigifarmaId, supplierName, phone, message, now, now);
+      }
+
       res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/quotes', (req, res) => {
+    try {
+      const quotes = db.prepare('SELECT * FROM quotations ORDER BY updatedAt DESC').all();
+      res.json(quotes);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

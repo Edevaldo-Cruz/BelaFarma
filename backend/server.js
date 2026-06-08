@@ -9,6 +9,7 @@ const multer = require('multer');
 const fs = require('fs');
 const fetch = require('node-fetch');
 const config = require('./config.js');
+const { queryDigifarma } = require('./services/digifarma.service');
 
 const app = express();
 const PORT = 3001;
@@ -1634,6 +1635,62 @@ app.post('/api/cash-closings', (req, res) => {
       }).catch(err => console.warn('[WhatsApp] Falha silenciosa no aviso de caixa:', err.message));
     } catch (waErr) {
       console.warn('[WhatsApp] Serviço indisponível:', waErr.message);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
+    // ── Verificação Automática de Faltas (Stock <= 1) ──────────
+    try {
+      (async () => {
+        try {
+          console.log('[AUTO-SHORTAGES] Verificando produtos vendidos hoje com estoque <= 1...');
+          const sqlFaltas = `
+            SELECT DISTINCT p.PRODUTO_ID, p.PRODUTO as PROD_NOME, p.PROD_SALDO
+            FROM ITEM_VENDAS iv
+            JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+            JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+            WHERE v.CANCELADO <> 'S'
+              AND v.VENDA_DATA_HORA >= CURRENT_DATE
+              AND p.PROD_SALDO <= 1
+          `;
+          const resultFaltas = await queryDigifarma(sqlFaltas);
+          
+          if (resultFaltas && resultFaltas.length > 0) {
+            console.log(`[AUTO-SHORTAGES] Encontrados ${resultFaltas.length} produtos com saldo <= 1.`);
+            const insertShortageStmt = db.prepare(`
+              INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered)
+              VALUES (@id, @productName, @type, @clientInquiry, @notes, @createdAt, @userName, @source, @purchased, @ordered)
+            `);
+            
+            for (const item of resultFaltas) {
+              const prodName = (item.PROD_NOME || '').trim();
+              const saldo = item.PROD_SALDO || 0;
+              
+              const existing = db.prepare(`SELECT id FROM shortages WHERE productName = ? AND purchased = 0 AND ordered = 0 LIMIT 1`).get(prodName);
+              
+              if (!existing) {
+                const notes = saldo === 1 ? 'Atenção: Resta 1 unidade no estoque.' : '';
+                insertShortageStmt.run({
+                  id: 'sht_' + Date.now().toString() + '_' + Math.floor(Math.random() * 1000),
+                  productName: prodName,
+                  type: 'Sistema',
+                  clientInquiry: '',
+                  notes: notes,
+                  createdAt: new Date().toISOString(),
+                  userName: 'Sistema (Fechamento)',
+                  source: 'auto',
+                  purchased: 0,
+                  ordered: 0
+                });
+                console.log(`[AUTO-SHORTAGES] Adicionado à lista de faltas: ${prodName} (Saldo: ${saldo})`);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[AUTO-SHORTAGES] Erro ao buscar/inserir faltas automáticas:', e);
+        }
+      })();
+    } catch (err) {
+      console.warn('[AUTO-SHORTAGES] Falha ao disparar rotina:', err.message);
     }
     // ────────────────────────────────────────────────────────────────────────
 
@@ -3604,6 +3661,12 @@ ${supplierBlocks}`;
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+  
+  // Roda silenciosamente a pesquisa de faltas e baixo estoque dos últimos 5 dias na inicialização
+  const autoShortages = require('./services/auto-shortages.service.js');
+  autoShortages.runAutoShortages(5).catch(err => {
+    console.error('[AutoShortages] Falha na rotina de inicialização:', err);
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════

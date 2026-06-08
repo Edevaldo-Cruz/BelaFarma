@@ -129,14 +129,27 @@ module.exports = function (db) {
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
 
-      const [vendasResult, pagResult] = await Promise.all([
+      // Fundo de Caixa: Pegar o valor do último caixa aberto
+      const sqlFundoCaixa = `
+        SELECT FIRST 1 VALOR_ABERTURA 
+        FROM CAIXA 
+        ORDER BY ABERTURA DESC
+      `;
+
+      const [vendasResult, pagResult, fundoCaixaResult] = await Promise.all([
         queryDigifarma(sqlVendas, [todayStart]),
-        queryDigifarma(sqlPagamentos, [todayStart])
+        queryDigifarma(sqlPagamentos, [todayStart]),
+        queryDigifarma(sqlFundoCaixa, [])
       ]);
 
       let qtdVendas = 0;
       if (vendasResult && vendasResult.length > 0) {
         qtdVendas = vendasResult[0].QTD_VENDAS || 0;
+      }
+
+      let fundoCaixa = 0;
+      if (fundoCaixaResult && fundoCaixaResult.length > 0) {
+        fundoCaixa = fundoCaixaResult[0].VALOR_ABERTURA || 0;
       }
 
       let dinheiro = 0, credit = 0, debit = 0, pix = 0, crediario = 0, outros = 0;
@@ -171,13 +184,14 @@ module.exports = function (db) {
 
       res.json({
         totalSales,
-        qtdVendas,
         dinheiro,
         credit,
         debit,
         pix,
         crediario,
-        outros
+        outros,
+        qtdVendas,
+        fundoCaixa
       });
     } catch (err) {
       if (err.message && err.message.includes('Offline')) {
