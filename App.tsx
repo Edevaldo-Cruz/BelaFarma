@@ -37,6 +37,7 @@ import { PixGenerator } from "./components/PixGenerator";
 import { EtiquetasManager } from "./components/EtiquetasManager";
 import { ComprasLive } from "./components/ComprasLive";
 import { StockManagement } from "./components/StockManagement";
+import SuppliersManager from "./components/SuppliersManager";
 import {
   Order,
   View,
@@ -801,6 +802,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'invoices' && user.role === UserRole.ADM && (
                 <InvoiceList />
+              )}
+              {currentView === 'suppliers' && user.role === UserRole.ADM && (
+                <SuppliersManager />
               )}
               {currentView === 'compras-live' && (
                 <ComprasLive />

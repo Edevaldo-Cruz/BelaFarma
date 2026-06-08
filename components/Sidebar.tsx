@@ -141,6 +141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'pix', label: 'Gerador Pix', icon: CreditCard },
     { id: 'labels', label: 'Etiquetas A4', icon: Printer },
     { id: 'compras-live', label: 'Sugestão Compras', icon: ShoppingCart },
+    { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
     { id: 'stock', label: 'Estoque', icon: Package },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
