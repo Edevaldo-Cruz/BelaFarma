@@ -691,13 +691,15 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex justify-center">
-                      <button 
-                        onClick={() => loadHistory(s)}
-                        title="Ver Últimas Compras"
-                        className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                      >
-                        <BarChart3 className="w-4.5 h-4.5" />
-                      </button>
+                      {s.id.startsWith('sh_auto_') && (
+                        <button 
+                          onClick={() => loadHistory(s)}
+                          title="Ver Últimas Compras"
+                          className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        >
+                          <BarChart3 className="w-4.5 h-4.5" />
+                        </button>
+                      )}
                       <button 
                         onClick={() => confirm('Remover este item da lista de faltas?') && onDelete(s.id)}
                         className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"

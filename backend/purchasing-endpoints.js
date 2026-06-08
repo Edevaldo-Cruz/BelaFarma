@@ -353,7 +353,7 @@ A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma e
     
     try {
       let sql = `
-        SELECT FIRST 10
+        SELECT FIRST 6
           C.DATA_EMISSAO as "dataCompra",
           F.FORNECEDOR as "fornecedor",
           C.NOTA_FISCAL as "notaFiscal",
