@@ -3659,14 +3659,18 @@ ${supplierBlocks}`;
   }
 });
 
+app.get('/api/run-5-days', async (req, res) => {
+  try {
+    const autoShortages = require('./services/auto-shortages.service.js');
+    const result = await autoShortages.runAutoShortages(5);
+    res.json({ success: true, message: 'Pesquisa dos últimos 5 dias concluída!', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
-  
-  // Roda silenciosamente a pesquisa de faltas e baixo estoque dos últimos 5 dias na inicialização
-  const autoShortages = require('./services/auto-shortages.service.js');
-  autoShortages.runAutoShortages(5).catch(err => {
-    console.error('[AutoShortages] Falha na rotina de inicialização:', err);
-  });
 });
 
 // ══════════════════════════════════════════════════════════════════════

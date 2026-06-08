@@ -53,13 +53,13 @@ async function runAutoShortages(daysAgo = 0) {
 
     // Prepare SQLite statement
     const insertShortage = db.prepare(`
-      INSERT INTO product_shortages (id, productName, ordered, purchased, userName, date, notes)
-      VALUES (?, ?, 0, 0, 'Sistema (Automático)', ?, ?)
+      INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered)
+      VALUES (?, ?, 'Sistema', 0, ?, ?, 'Sistema (Automático)', 'auto', 0, 0)
     `);
 
     // Check if product exists and is pending
     const checkExisting = db.prepare(`
-      SELECT id FROM product_shortages 
+      SELECT id FROM shortages 
       WHERE productName = ? AND purchased = 0 AND ordered = 0
     `);
 
@@ -79,7 +79,7 @@ async function runAutoShortages(daysAgo = 0) {
         const notes = isZero ? '' : '[ATENÇÃO: RESTA 1 NO ESTOQUE]';
         const id = 'sh_auto_' + Date.now().toString() + '_' + Math.floor(Math.random() * 1000);
         
-        insertShortage.run(id, productName, now, notes);
+        insertShortage.run(id, productName, notes, now);
         
         if (isZero) countZero++;
         else countOne++;
