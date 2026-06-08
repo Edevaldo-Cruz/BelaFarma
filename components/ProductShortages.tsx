@@ -26,6 +26,9 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [searchTerm, setSearchTerm] = useState('');
   const [hidePurchased, setHidePurchased] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [clientInquiryFilter, setClientInquiryFilter] = useState<'all' | 'urgent' | 'normal'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'ordered' | 'purchased'>('all');
+  const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'urgent_first' | 'status_pending' | 'alpha_asc' | 'alpha_desc'>('date_desc');
   const [formData, setFormData] = useState({
     productName: '',
     type: ProductType.GENERICO,
@@ -147,7 +150,44 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     const matchesSearch = s.productName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = typeFilter === 'all' || s.type === typeFilter;
     const matchesHidePurchased = !hidePurchased || !s.purchased;
-    return matchesSearch && matchesType && matchesHidePurchased;
+    
+    const matchesClientInquiry = clientInquiryFilter === 'all' 
+      ? true 
+      : clientInquiryFilter === 'urgent' ? s.clientInquiry : !s.clientInquiry;
+      
+    const matchesStatus = statusFilter === 'all' 
+      ? true 
+      : statusFilter === 'pending' ? (!s.purchased && !s.ordered)
+      : statusFilter === 'ordered' ? (s.ordered && !s.purchased)
+      : statusFilter === 'purchased' ? s.purchased : true;
+
+    return matchesSearch && matchesType && matchesHidePurchased && matchesClientInquiry && matchesStatus;
+  }).sort((a, b) => {
+    if (sortBy === 'date_desc') {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+    if (sortBy === 'date_asc') {
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    }
+    if (sortBy === 'alpha_asc') {
+      return a.productName.localeCompare(b.productName);
+    }
+    if (sortBy === 'alpha_desc') {
+      return b.productName.localeCompare(a.productName);
+    }
+    if (sortBy === 'urgent_first') {
+      if (a.clientInquiry === b.clientInquiry) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return a.clientInquiry ? -1 : 1;
+    }
+    if (sortBy === 'status_pending') {
+      // Pendente -> Pedido -> Comprado
+      const getStatusWeight = (item: any) => item.purchased ? 3 : item.ordered ? 2 : 1;
+      const weightA = getStatusWeight(a);
+      const weightB = getStatusWeight(b);
+      if (weightA === weightB) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return weightA - weightB;
+    }
+    return 0;
   });
 
   const exportToTxt = () => {
@@ -480,30 +520,74 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         </button>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="relative flex-1 w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Buscar produto em falta..."
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-red-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      <div className="flex flex-col gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4 items-center w-full">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Buscar produto em falta..."
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-red-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="relative w-full md:w-48">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select 
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-red-500"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+            >
+              <option value="all">Todas Categorias</option>
+              {Object.values(ProductType).map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div className="relative w-full md:w-48">
+            <Star className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select 
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-amber-500"
+              value={clientInquiryFilter}
+              onChange={(e) => setClientInquiryFilter(e.target.value as any)}
+            >
+              <option value="all">Todas Procuras</option>
+              <option value="urgent">Apenas Urgentes</option>
+              <option value="normal">Não Urgentes</option>
+            </select>
+          </div>
+          <div className="relative w-full md:w-48">
+            <Truck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select 
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+            >
+              <option value="all">Todos os Status</option>
+              <option value="pending">Apenas Pendentes</option>
+              <option value="ordered">Apenas Pedidos</option>
+              <option value="purchased">Apenas Comprados</option>
+            </select>
+          </div>
+          <div className="relative w-full md:w-56">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select 
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-slate-500"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+            >
+              <option value="date_desc">Mais Recentes Primeiro</option>
+              <option value="date_asc">Mais Antigos Primeiro</option>
+              <option value="urgent_first">Urgência Primeiro</option>
+              <option value="status_pending">Status (Pendentes Primeiro)</option>
+              <option value="alpha_asc">Ordem Alfabética (A-Z)</option>
+              <option value="alpha_desc">Ordem Alfabética (Z-A)</option>
+            </select>
+          </div>
         </div>
-        <div className="relative w-full md:w-56">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <select 
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-red-500"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-          >
-            <option value="all">Todos os Tipos</option>
-            {Object.values(ProductType).map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-        </div>
+        
+        <div className="flex flex-wrap gap-3 items-center">
         <button
           onClick={() => setHidePurchased(!hidePurchased)}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all shadow active:scale-95 whitespace-nowrap ${
@@ -511,7 +595,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
               ? 'bg-slate-700 text-white hover:bg-slate-800' 
               : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
           }`}
-          title={hidePurchased ? "Mostrar itens já comprados" : "Ocular itens já comprados"}
+          title={hidePurchased ? "Mostrar itens já comprados" : "Ocultar itens já comprados"}
         >
           {hidePurchased ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
           {hidePurchased ? "Mostrar Comprados" : "Ocultar Comprados"}
@@ -556,6 +640,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
           <FileDown className="w-4 h-4" />
           Exportar TXT ({filteredShortages.length})
         </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
