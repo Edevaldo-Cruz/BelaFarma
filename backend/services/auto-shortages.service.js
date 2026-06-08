@@ -10,6 +10,7 @@ async function runAutoShortages(daysAgo = 0) {
   try {
     console.log(`[AutoShortages] Buscando itens vendidos nos últimos ${daysAgo} dias com estoque crítico (<= 1)...`);
     
+    const days = Number(daysAgo) || 0;
     const sql = `
       SELECT DISTINCT
         P.PRODUTO_ID, 
@@ -19,7 +20,7 @@ async function runAutoShortages(daysAgo = 0) {
       JOIN ITEM_VENDAS I ON C.VENDA_NOTA_ID = I.VENDA_NOTA_ID
       JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
       WHERE 
-        CAST(C.VENDA_DATA_HORA AS DATE) >= DATEADD(-? DAY TO CURRENT_DATE)
+        CAST(C.VENDA_DATA_HORA AS DATE) >= DATEADD(-${days} DAY TO CURRENT_DATE)
         AND C.CANCELADO <> 'S'
         AND P.PROD_SALDO <= 1
     `;
@@ -27,7 +28,7 @@ async function runAutoShortages(daysAgo = 0) {
     // In Firebird, DATEADD is available. If it fails, we can use CURRENT_DATE - ?
     let results = [];
     try {
-      results = await queryDigifarma(sql, [daysAgo]);
+      results = await queryDigifarma(sql, []);
     } catch (fallbackErr) {
       // Fallback for older Firebird versions if DATEADD is not supported
       const sqlFallback = `
@@ -39,11 +40,11 @@ async function runAutoShortages(daysAgo = 0) {
         JOIN ITEM_VENDAS I ON C.VENDA_NOTA_ID = I.VENDA_NOTA_ID
         JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
         WHERE 
-          CAST(C.VENDA_DATA_HORA AS DATE) >= CURRENT_DATE - ?
+          CAST(C.VENDA_DATA_HORA AS DATE) >= CURRENT_DATE - ${days}
           AND C.CANCELADO <> 'S'
           AND P.PROD_SALDO <= 1
       `;
-      results = await queryDigifarma(sqlFallback, [daysAgo]);
+      results = await queryDigifarma(sqlFallback, []);
     }
 
     if (!results || results.length === 0) {
