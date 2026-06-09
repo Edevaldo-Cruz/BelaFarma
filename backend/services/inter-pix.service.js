@@ -19,7 +19,7 @@ class InterPixService {
     this.certPath = process.env.INTER_CERT_PATH || path.join(__dirname, '../certs/inter.crt');
     this.keyPath = process.env.INTER_KEY_PATH || path.join(__dirname, '../certs/inter.key');
     
-    this.chavePix = 'belafarmasul@gmail.com'; // Chave Pix cadastrada no Banco Inter
+    this.chavePix = process.env.INTER_CHAVE_PIX || 'belafarmasul@gmail.com'; // Chave Pix cadastrada no Banco Inter
 
     // Cache do Access Token OAuth2
     this.cachedToken = null;
@@ -91,10 +91,10 @@ class InterPixService {
     params.append('client_id', this.clientId);
     params.append('client_secret', this.clientSecret);
     params.append('grant_type', 'client_credentials');
-    params.append('scope', 'pix.write pix.read');
+    params.append('scope', 'cob.write cob.read');
 
     try {
-      const response = await fetch('https://cdg.bancointer.com.br/oauth/v2/token', {
+      const response = await fetch('https://cdpj.partners.bancointer.com.br/oauth/v2/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
@@ -125,11 +125,11 @@ class InterPixService {
 
   /**
    * Cria uma Cobrança Imediata Pix (Pix Dinâmico)
-   * @param {number} value Valor em Reais (BRL)
-   * @param {string} description Descrição opcional
    */
   async createPixCharge(value, description) {
-    const txid = 'belapix' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    // TxID deve ter entre 26 e 35 caracteres alfanuméricos segundo o Banco Central
+    const randomPart = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+    const txid = ('belapix' + Date.now().toString(36) + randomPart).substring(0, 32).toUpperCase();
     const amountStr = parseFloat(value).toFixed(2);
 
     // MODO SIMULADO
@@ -169,7 +169,7 @@ class InterPixService {
 
       console.log(`📡 [BANCO INTER PIX] Criando cobrança de R$ ${amountStr}...`);
 
-      const response = await fetch(`https://cdg.bancointer.com.br/pix/v2/cob/${txid}`, {
+      const response = await fetch(`https://cdpj.partners.bancointer.com.br/pix/v2/cob/${txid}`, {
         method: 'PUT', // A especificação do Bacen permite PUT com txid customizado
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -219,7 +219,7 @@ class InterPixService {
       const token = await this.getAccessToken();
       const agent = this.getHttpsAgent();
 
-      const response = await fetch(`https://cdg.bancointer.com.br/pix/v2/cob/${txid}`, {
+      const response = await fetch(`https://cdpj.partners.bancointer.com.br/pix/v2/cob/${txid}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`
