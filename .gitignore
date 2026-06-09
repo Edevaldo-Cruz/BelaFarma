@@ -51,3 +51,10 @@ mensagens/
 uploads/
 whatsapp-session-rpa/
 rpa-debug.log
+
+# Certificados Bancários
+bancoInter/
+*.crt
+*.key
+*.pem
+certs/

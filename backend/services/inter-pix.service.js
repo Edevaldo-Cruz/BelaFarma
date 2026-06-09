@@ -142,7 +142,8 @@ class InterPixService {
         description: description || 'Venda Gerador Pix (Simulado)',
         status: 'ATIVA', // status iniciais: ATIVA
         pixCopiaECola: payloadString,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isSimulatedMode: true
       };
 
       this.mockCharges.set(txid, chargeMock);
@@ -193,7 +194,8 @@ class InterPixService {
         description: description,
         status: data.status, // 'ATIVA'
         pixCopiaECola: data.pixCopiaECola,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isSimulatedMode: false
       };
     } catch (err) {
       console.error('❌ [BANCO INTER PIX] Erro ao criar cobrança dinâmica:', err.message);

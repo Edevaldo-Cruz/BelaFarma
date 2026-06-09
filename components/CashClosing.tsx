@@ -289,12 +289,12 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     const totalDigital = useMemo(() => credit + debit + pix + pixDirect + others, [credit, debit, pix, pixDirect, others]);
 
     // Expected Balance (Saldo Esperado): 
-    // Venda Bruta + Troco + Entradas Extras + Produtos não registrados
+    // Venda Bruta + Troco + Entradas Extras + Produtos não registrados + Pix Direto
     // MENOS Despesas, Vendas iFood (que não ficam na gaveta), Vendas no Crediário (dívidas novas) e Recebimentos de Crediário (pagos no dia)
     const subtotalSoma = useMemo(() => {
-      const val = totalSales + receivedExtra + initialCash - totalCreditReceipts + totalNonRegistered - totalExpenses - totalIfood - totalCrediario;
+      const val = totalSales + receivedExtra + initialCash - totalCreditReceipts + totalNonRegistered + pixDirect - totalExpenses - totalIfood - totalCrediario;
       return Number(val.toFixed(2));
-    }, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, totalExpenses, totalIfood, totalCrediario]);
+    }, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, pixDirect, totalExpenses, totalIfood, totalCrediario]);
 
     // Checked Total (Total Conferido): Drawer (Cash) + Sangrias + Digital
     const totalConferido = useMemo(() => {

@@ -108,7 +108,8 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
       
       setPixString(charge.pixCopiaECola);
       setTxid(charge.txid);
-      setIsSimulated(charge.isSimulatedMode || !process.env.INTER_CLIENT_ID);
+      // O backend agora deve enviar uma flag, ou assumimos false se não houver explicitamente
+      setIsSimulated(charge.isSimulatedMode || false);
       setIsGenerated(true);
       
       addToast('Cobrança Pix Dinâmica gerada!', 'success');
