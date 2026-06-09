@@ -355,9 +355,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
             <p className="text-slate-500 dark:text-slate-400 font-medium">Resumo operacional belinha.</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {isAdmin && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleIniciarRadio}
                 disabled={iniciandoRadio}
@@ -383,7 +383,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
               </button>
             </div>
           )}
-          <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
             <Calendar className="w-4 h-4" />
             {now.toLocaleDateString('pt-BR')}
           </div>
@@ -661,7 +661,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
 
       {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4 overflow-hidden">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-md shrink-0">
               <CheckCircle2 className="w-5 h-5 text-white animate-pulse" />
