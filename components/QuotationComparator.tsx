@@ -677,7 +677,7 @@ export const QuotationComparator: React.FC<QuotationComparatorProps> = ({ onBack
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left">
+                <table className="w-full text-left responsive-table">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest min-w-[200px]">

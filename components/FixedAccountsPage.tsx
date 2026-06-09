@@ -156,7 +156,7 @@ export const FixedAccountsPage: React.FC<FixedAccountsPageProps> = ({ user, onLo
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left responsive-table">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-800/50">
                 <th className="px-8 py-4 text-[10px] font-black uppercase">Nome</th>

@@ -333,7 +333,7 @@ export function InvoiceForm({ userId, userName }: InvoiceFormProps) {
 
           {items.length > 0 && (
             <div className="items-list">
-              <table className="items-table">
+              <table className="items-table responsive-table">
                 <thead>
                   <tr>
                     <th>Código</th>

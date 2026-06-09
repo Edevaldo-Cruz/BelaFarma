@@ -480,7 +480,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
           {viewMode === 'table' ? (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-collapse responsive-table">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                       <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">ID</th>

@@ -39,6 +39,7 @@ import { ComprasLive } from "./components/ComprasLive";
 import { StockManagement } from "./components/StockManagement";
 import SuppliersManager from "./components/SuppliersManager";
 import { PwaUpdater } from "./components/PwaUpdater";
+import { MobileHeader } from "./components/MobileHeader";
 import {
   Order,
   View,
@@ -657,7 +658,7 @@ const App: React.FC = () => {
     );
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
       <PwaUpdater />
       <Sidebar
         user={user}
@@ -674,6 +675,10 @@ const App: React.FC = () => {
         tasks={tasks}
         boletos={boletos}
         onOpenTeraModal={() => setIsTeraModalOpen(true)}
+      />
+      <MobileHeader 
+        onOpenSidebar={() => setIsSidebarOpen(true)} 
+        onSearch={() => handleNavigate("medication-search")} 
       />
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="max-w-7xl mx-auto pb-10">

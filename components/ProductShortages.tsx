@@ -645,7 +645,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse responsive-table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-6 py-4 text-center w-12">
@@ -676,7 +676,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                         : 'hover:bg-red-50/20'
                   }`}
                 >
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-6 py-4 text-center" data-label="Selecionar">
                     {!s.purchased && (
                       <input 
                         type="checkbox" 
@@ -686,7 +686,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                       />
                     )}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" data-label="Produto / Item">
                     <div className="flex flex-col">
                       <div className="flex items-center">
                         <span className={`font-black uppercase tracking-tighter transition-all ${
@@ -720,12 +720,12 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" data-label="Tipo">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getTypeColor(s.type)}`}>
                       {s.type}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" data-label="Procura de Cliente">
                     <div className="flex justify-center">
                       {s.clientInquiry ? (
                         <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-600 rounded-full border border-amber-100">
@@ -737,7 +737,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" data-label="Status de Aquisição">
                     <div className="flex items-center justify-center gap-2">
                       {/* Botão Pedido */}
                       <button
@@ -768,13 +768,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                       </button>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" data-label="Registrado por">
                     <div className="flex flex-col">
                       <span className="text-xs font-black text-slate-700 uppercase">{s.userName}</span>
                       <span className="text-[9px] font-bold text-slate-400">{new Date(s.createdAt).toLocaleDateString('pt-BR')}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" data-label="Ações">
                     <div className="flex justify-center">
                       {s.id.startsWith('sh_auto_') && (
                         <button 
@@ -1086,7 +1086,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse responsive-table">
                     <thead>
                       <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-bold">
                         <th className="p-4 border-b border-slate-200">Data</th>
@@ -1099,11 +1099,11 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                     <tbody>
                       {historyData.map((h, i) => (
                         <tr key={i} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                          <td className="p-4 text-sm font-bold text-slate-700">{new Date(h.dataCompra).toLocaleDateString('pt-BR')}</td>
-                          <td className="p-4 text-sm font-bold text-slate-900">{h.fornecedor}</td>
-                          <td className="p-4 text-sm text-slate-500">{h.notaFiscal}</td>
-                          <td className="p-4 text-sm font-bold text-slate-700 text-right">{h.quantidade}</td>
-                          <td className="p-4 text-sm font-black text-emerald-600 text-right">
+                          <td className="p-4 text-sm font-bold text-slate-700" data-label="Data">{new Date(h.dataCompra).toLocaleDateString('pt-BR')}</td>
+                          <td className="p-4 text-sm font-bold text-slate-900" data-label="Fornecedor">{h.fornecedor}</td>
+                          <td className="p-4 text-sm text-slate-500" data-label="NF">{h.notaFiscal}</td>
+                          <td className="p-4 text-sm font-bold text-slate-700 text-right" data-label="Qtd">{h.quantidade}</td>
+                          <td className="p-4 text-sm font-black text-emerald-600 text-right" data-label="Preço">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(h.precoCompra)}
                           </td>
                         </tr>

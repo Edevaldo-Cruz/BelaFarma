@@ -906,7 +906,7 @@ const LogTab: React.FC = () => {
 
       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm responsive-table">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-700/50">
                 <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Data</th>
@@ -1929,7 +1929,7 @@ const PostSalesTab: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[700px]">
+              <table className="w-full text-left border-collapse min-w-[700px] responsive-table">
                 <thead>
                   <tr className="border-b border-slate-150 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-850/50 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                     <th className="py-4 px-5 text-center w-12">
@@ -2561,7 +2561,7 @@ const CRMInactiveTab: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[750px]">
+              <table className="w-full text-left border-collapse min-w-[750px] responsive-table">
                 <thead>
                   <tr className="border-b border-slate-150 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-850/50 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                     <th className="py-4 px-5 text-center w-12">

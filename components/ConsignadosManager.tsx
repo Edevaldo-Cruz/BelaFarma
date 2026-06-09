@@ -258,7 +258,7 @@ export const ConsignadosManager: React.FC<ConsignadosManagerProps> = ({ user, on
 
                     {/* Products Table */}
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left">
+                        <table className="w-full text-left responsive-table">
                             <thead>
                                 <tr className="text-[10px] uppercase text-slate-400 font-black border-b border-slate-100 dark:border-slate-800">
                                     <th className="pb-4 pl-4">Produto</th>

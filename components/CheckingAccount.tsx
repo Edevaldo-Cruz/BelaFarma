@@ -97,7 +97,7 @@ export const CheckingAccount: React.FC<CheckingAccountProps> = ({ user }) => {
           {/* Add filter controls here if needed */}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left responsive-table">
             <thead>
               <tr className="bg-slate-50">
                 <th className="px-6 py-3 text-xs font-semibold text-slate-600 uppercase">Data</th>

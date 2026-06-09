@@ -310,7 +310,7 @@ export default function PurchasingAgent() {
           </div>
 
           <div className="p-0 overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left responsive-table">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/50">
                   <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">ID Digifarma</th>

@@ -141,7 +141,7 @@ export const Safe: React.FC<SafeProps> = ({ user, onLog }) => {
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="px-8 py-6 bg-slate-50/30 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between"><h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><History className="w-4 h-4" /> Movimentações</h3></div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left responsive-table">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-slate-500 font-black text-[10px] uppercase">
                 <th className="px-8 py-4">Data</th>

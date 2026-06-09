@@ -224,14 +224,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {!isOpen && (
-         <button 
-         onClick={() => setIsOpen(true)}
-         className="fixed top-4 left-4 z-50 p-2 bg-white dark:bg-slate-800 rounded-md shadow-md md:hidden border border-slate-200 dark:border-slate-700"
-       >
-         <Menu className="w-6 h-6 text-slate-600 dark:text-slate-300" />
-       </button>
-      )}
 
       <aside 
         className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transform transition-transform duration-300 ease-in-out ${

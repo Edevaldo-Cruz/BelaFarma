@@ -321,7 +321,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
       {/* Customers Table */}
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border-2 border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left responsive-table">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/50">
                 <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Nome</th>

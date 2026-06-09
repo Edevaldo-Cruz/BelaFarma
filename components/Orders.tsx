@@ -192,7 +192,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse responsive-table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Distribuidora</th>
@@ -207,7 +207,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                 const isDelayed = getEffectiveStatus(order) === OrderStatus.ATRASADO;
                 return (
                   <tr key={order.id} className={`transition-colors group ${isDelayed ? 'bg-red-50/20' : 'hover:bg-red-50/30'}`}>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4" data-label="Distribuidora">
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
                           <span className={`font-black uppercase group-hover:text-red-700 transition-colors tracking-tighter ${isDelayed ? 'text-red-700' : 'text-slate-900'}`}>{order.distributor}</span>
@@ -222,7 +222,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4" data-label="Cronograma">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-slate-700">{new Date(order.orderDate).toLocaleDateString('pt-BR')}</span>
                         <span className={`text-[10px] font-black uppercase ${isDelayed ? 'text-red-600' : 'text-slate-400'}`}>
@@ -230,7 +230,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 relative">
+                    <td className="px-6 py-4 relative" data-label="Situação">
                       <div className="flex items-center gap-2">
                         {getStatusBadge(order)}
                         <button 
@@ -242,7 +242,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right" data-label="Faturamento">
                       <div className="flex flex-col items-end">
                         <span className="font-black text-slate-900 text-base tracking-tighter">
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.totalValue)}
@@ -257,7 +257,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4" data-label="Ações">
                       <div className="flex items-center justify-center gap-1">
                         <button 
                           onClick={() => { setEditingOrder(order); setIsModalOpen(true); }}

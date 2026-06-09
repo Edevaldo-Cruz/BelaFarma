@@ -1066,7 +1066,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-sm">
+                  <table className="w-full text-left border-collapse text-sm responsive-table">
                     <thead>
                       <tr className="bg-slate-50/70 dark:bg-slate-900/50 border-b border-slate-50 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-wider">
                         <th className="py-4 px-6 w-12 text-center">Sel.</th>

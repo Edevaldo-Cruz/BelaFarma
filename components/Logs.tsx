@@ -69,7 +69,7 @@ export const Logs: React.FC<LogsProps> = ({ logs }) => {
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse responsive-table">
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Horário</th>

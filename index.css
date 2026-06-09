@@ -99,3 +99,59 @@ body {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+/* RESPONSIVE TABLES (Cards no mobile) */
+@media (max-width: 768px) {
+  .responsive-table {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .responsive-table thead {
+    display: none; /* Hide table headers */
+  }
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .responsive-table tr {
+    margin-bottom: 1rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    padding: 1rem;
+  }
+  .responsive-table td {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0.5rem 0 !important;
+    border-bottom: 1px solid var(--border-subtle);
+    text-align: right;
+  }
+  .responsive-table td[data-label] {
+    justify-content: space-between;
+  }
+  .responsive-table td:last-child {
+    border-bottom: none;
+  }
+  /* The ::before pseudo-element acts as the label */
+  .responsive-table td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    text-align: left;
+    color: var(--text-secondary);
+    padding-right: 1rem;
+    flex: 1;
+  }
+  .responsive-table td > * {
+    flex: 2;
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+

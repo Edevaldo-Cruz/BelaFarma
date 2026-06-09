@@ -61,7 +61,7 @@ export function InvoiceList() {
           </div>
         ) : (
           <div className="historico-table-container">
-            <table className="historico-table">
+            <table className="historico-table responsive-table">
               <thead>
                 <tr>
                   <th>Número NF</th>

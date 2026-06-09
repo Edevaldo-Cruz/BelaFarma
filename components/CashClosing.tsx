@@ -1109,7 +1109,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
             <div className="overflow-x-auto">
 
-               <table className="w-full text-left">
+               <table className="w-full text-left responsive-table">
 
                  <thead><tr className="bg-slate-50/50 dark:bg-slate-800/50"><th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400">Data</th><th className="px-8 py-4 text-right text-[10px] font-black uppercase text-slate-400">Venda</th><th className="px-8 py-4 text-center text-[10px] font-black uppercase text-slate-400">Diferença</th><th className="w-24 px-8 py-4 text-center text-[10px] font-black uppercase text-slate-400">Ações</th></tr></thead>
 

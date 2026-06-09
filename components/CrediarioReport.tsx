@@ -136,7 +136,7 @@ export const CrediarioReport: React.FC = () => {
             </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left responsive-table">
             <thead>
               <tr className="bg-slate-50/50">
                 <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400">Vencimento</th>
