@@ -1192,6 +1192,10 @@ try {
       }
     }
 
+    // Migration: adicionar colunas type e userName em pix_confirmations (extrato Pix)
+    try { db.exec('ALTER TABLE pix_confirmations ADD COLUMN type TEXT DEFAULT "entrada"'); } catch(e) {}
+    try { db.exec('ALTER TABLE pix_confirmations ADD COLUMN userName TEXT DEFAULT ""'); } catch(e) {}
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

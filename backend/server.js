@@ -1211,17 +1211,19 @@ app.post('/api/pix/generate-dynamic', async (req, res) => {
     
     // Salva na tabela local pix_confirmations como 'Pendente' para conciliação mútua
     db.prepare(`
-      INSERT OR REPLACE INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt, type, userName)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       charge.txid,
       'balcao',
       charge.value,
       charge.description || 'Venda Balcão Banco Inter PJ',
-      new Date().toISOString().split('T')[0],
+      new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
       'Pendente',
       'Pix Dinâmico Banco Inter',
-      new Date().toISOString()
+      new Date().toISOString(),
+      'entrada',
+      req.body.userName || 'Caixa'
     );
 
     res.status(200).json(charge);
@@ -1235,14 +1237,17 @@ app.post('/api/pix/generate-dynamic', async (req, res) => {
 app.get('/api/pix/status/:txid', async (req, res) => {
   try {
     const { txid } = req.params;
+    console.log(`[PIX STATUS] Consultando status do txid: ${txid}`);
     const status = await interPixService.getChargeStatus(txid);
+    console.log(`[PIX STATUS] Status retornado pela API Inter: ${status}`);
     
     // Se estiver paga/concluída nas APIs, garante que está lançada localmente de forma idempotente
     if (status === 'CONCLUIDA' || status === 'CONCLUIDO') {
       const localRecord = db.prepare('SELECT status, value, senderName FROM pix_confirmations WHERE id = ?').get(txid);
+      console.log(`[PIX STATUS] Registro local encontrado:`, localRecord);
       
       if (localRecord && localRecord.status === 'Pendente') {
-        console.log(`[BANCO INTER FAIL-SAFE] Pix pago detectado por consulta. Txid: ${txid}. Atualizando caixa...`);
+        console.log(`[PIX LANÇAMENTO] ✅ Pix PAGO detectado. Txid: ${txid}. Valor: R$ ${localRecord.value}. Lançando no caixa...`);
         
         // 1. Confirma o pagamento no banco local
         db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
@@ -1253,15 +1258,22 @@ app.get('/api/pix/status/:txid', async (req, res) => {
           year: 'numeric', month: '2-digit', day: '2-digit'
         }).format(new Date());
 
-        const PixBotService = require('./services/pix-bot.service');
-        const pixBot = new PixBotService(db);
-        pixBot.recordPixDirect(localRecord.value, localRecord.senderName || 'Venda Balcão Banco Inter PJ', today);
+        try {
+          const PixBotService = require('./services/pix-bot.service');
+          const pixBot = new PixBotService(db);
+          pixBot.recordPixDirect(localRecord.value, localRecord.senderName || 'Venda Balcão Banco Inter PJ', today);
+          console.log(`[PIX LANÇAMENTO] ✅ Valor R$ ${localRecord.value} lançado com sucesso no caixa diário de ${today}`);
+        } catch (launchErr) {
+          console.error(`[PIX LANÇAMENTO] ❌ ERRO ao lançar no caixa diário:`, launchErr.message);
+        }
+      } else if (localRecord && localRecord.status === 'Confirmado') {
+        console.log(`[PIX STATUS] Txid ${txid} já foi confirmado e lançado anteriormente. Ignorando.`);
       }
     }
 
     res.status(200).json({ status });
   } catch (err) {
-    console.error(`Error checking Pix status for txid ${txid}:`, err);
+    console.error(`[PIX STATUS] Erro ao consultar txid ${req.params.txid}:`, err);
     res.status(500).json({ error: 'Failed to fetch status.' });
   }
 });
@@ -1282,6 +1294,79 @@ app.post('/api/pix/mock-pay/:txid', (req, res) => {
   } catch (err) {
     console.error('Error processing mock payment:', err);
     res.status(500).json({ error: 'Failed to process mock payment.' });
+  }
+});
+
+// EXTRATO: Listar histórico de Pix (entradas e retiradas)
+app.get('/api/pix/history', (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = startDate || new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const end = endDate || start;
+
+    const records = db.prepare(`
+      SELECT id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt, 
+             COALESCE(type, 'entrada') as type, COALESCE(userName, '') as userName
+      FROM pix_confirmations 
+      WHERE pixDate >= ? AND pixDate <= ?
+      ORDER BY createdAt DESC
+    `).all(start, end);
+
+    // Calcula totais
+    const totalEntradas = records
+      .filter(r => (r.type === 'entrada') && r.status === 'Confirmado')
+      .reduce((sum, r) => sum + (r.value || 0), 0);
+    const totalRetiradas = records
+      .filter(r => r.type === 'retirada')
+      .reduce((sum, r) => sum + (r.value || 0), 0);
+
+    res.json({
+      records,
+      totalEntradas: Number(totalEntradas.toFixed(2)),
+      totalRetiradas: Number(totalRetiradas.toFixed(2)),
+      saldo: Number((totalEntradas - totalRetiradas).toFixed(2))
+    });
+  } catch (err) {
+    console.error('[PIX HISTORY] Erro ao buscar histórico:', err);
+    res.status(500).json({ error: 'Erro ao buscar histórico de Pix.' });
+  }
+});
+
+// RETIRADA: Registrar uma retirada de Pix
+app.post('/api/pix/withdrawal', (req, res) => {
+  try {
+    const { value, description, userName } = req.body;
+    if (!value || isNaN(value) || parseFloat(value) <= 0) {
+      return res.status(400).json({ error: 'Valor inválido.' });
+    }
+
+    const id = 'retirada_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+    const today = new Intl.DateTimeFormat('fr-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+
+    db.prepare(`
+      INSERT INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt, type, userName)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      'balcao',
+      parseFloat(value),
+      description || 'Retirada de Pix',
+      today,
+      'Confirmado',
+      'Retirada manual via Gerador Pix',
+      new Date().toISOString(),
+      'retirada',
+      userName || 'Sistema'
+    );
+
+    console.log(`[PIX RETIRADA] R$ ${parseFloat(value).toFixed(2)} registrada por ${userName}. Desc: ${description}`);
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('[PIX RETIRADA] Erro:', err);
+    res.status(500).json({ error: 'Erro ao registrar retirada.' });
   }
 });
 

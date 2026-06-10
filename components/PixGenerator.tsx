@@ -11,7 +11,12 @@ import {
   ArrowRight,
   Sparkles,
   RefreshCw,
-  Play
+  Play,
+  List,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Calendar,
+  Search
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { User } from '../types';
@@ -34,6 +39,18 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
   const [isPaid, setIsPaid] = useState<boolean>(false);
   const [isSimulated, setIsSimulated] = useState<boolean>(false);
   const [isSimulatingPayment, setIsSimulatingPayment] = useState<boolean>(false);
+
+  // Estados do Extrato
+  const [showExtrato, setShowExtrato] = useState<boolean>(false);
+  const [extratoStartDate, setExtratoStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [extratoEndDate, setExtratoEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [extratoRecords, setExtratoRecords] = useState<any[]>([]);
+  const [extratoTotals, setExtratoTotals] = useState<{totalEntradas: number; totalRetiradas: number; saldo: number}>({totalEntradas: 0, totalRetiradas: 0, saldo: 0});
+  const [isLoadingExtrato, setIsLoadingExtrato] = useState<boolean>(false);
+  // Estados do formulário de retirada
+  const [withdrawalValue, setWithdrawalValue] = useState<string>('');
+  const [withdrawalDesc, setWithdrawalDesc] = useState<string>('');
+  const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState<boolean>(false);
 
   // Ref para guardar a referência do Polling
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -96,7 +113,8 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           value: amount,
-          description: description.trim() || `Venda Balcão Belinha - ${user.name}`
+          description: description.trim() || `Venda Balcão Belinha - ${user.name}`,
+          userName: user.name
         })
       });
 
@@ -240,6 +258,61 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
     setDescription('');
     setIsPaid(false);
     setIsSimulated(false);
+  };
+
+  // Busca o histórico de Pix
+  const fetchExtrato = async () => {
+    setIsLoadingExtrato(true);
+    try {
+      const response = await fetch(`/api/pix/history?startDate=${extratoStartDate}&endDate=${extratoEndDate}`);
+      if (response.ok) {
+        const data = await response.json();
+        setExtratoRecords(data.records || []);
+        setExtratoTotals({
+          totalEntradas: data.totalEntradas || 0,
+          totalRetiradas: data.totalRetiradas || 0,
+          saldo: data.saldo || 0
+        });
+      }
+    } catch (e) {
+      console.error('Erro ao buscar extrato:', e);
+      addToast('Erro ao buscar extrato de Pix.', 'error');
+    } finally {
+      setIsLoadingExtrato(false);
+    }
+  };
+
+  // Registra uma retirada
+  const handleWithdrawal = async () => {
+    const val = parseFloat(withdrawalValue.replace(',', '.'));
+    if (!val || val <= 0) {
+      addToast('Digite um valor válido para a retirada.', 'warning');
+      return;
+    }
+    setIsSubmittingWithdrawal(true);
+    try {
+      const response = await fetch('/api/pix/withdrawal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          value: val,
+          description: withdrawalDesc.trim() || 'Retirada de Pix',
+          userName: user.name
+        })
+      });
+      if (response.ok) {
+        addToast(`Retirada de R$ ${val.toFixed(2)} registrada com sucesso!`, 'success');
+        setWithdrawalValue('');
+        setWithdrawalDesc('');
+        fetchExtrato(); // Atualiza a lista
+      } else {
+        throw new Error('Falha ao registrar retirada.');
+      }
+    } catch (e) {
+      addToast('Erro ao registrar retirada.', 'error');
+    } finally {
+      setIsSubmittingWithdrawal(false);
+    }
   };
 
   return (
@@ -511,6 +584,133 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
 
         </div>
 
+      </div>
+
+      {/* EXTRATO DE PIX */}
+      <div className="w-full max-w-2xl mt-8 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+        {/* Cabeçalho do Extrato com toggle */}
+        <button
+          onClick={() => { setShowExtrato(!showExtrato); if (!showExtrato) fetchExtrato(); }}
+          className="w-full p-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-500/10 dark:bg-emerald-500/5 rounded-xl flex items-center justify-center">
+              <List className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="text-left">
+              <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-wide">Extrato Pix Inter</h3>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Entradas, retiradas e saldo</p>
+            </div>
+          </div>
+          <ArrowRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${showExtrato ? 'rotate-90' : ''}`} />
+        </button>
+
+        {showExtrato && (
+          <div className="border-t border-slate-100 dark:border-slate-800 p-5 space-y-5 animate-in slide-in-from-top-2 duration-300">
+            
+            {/* Filtros de Data */}
+            <div className="flex flex-col sm:flex-row items-end gap-3">
+              <div className="flex-1 w-full">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data Início</label>
+                <input type="date" value={extratoStartDate} onChange={(e) => setExtratoStartDate(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-1 focus:ring-emerald-500" />
+              </div>
+              <div className="flex-1 w-full">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data Fim</label>
+                <input type="date" value={extratoEndDate} onChange={(e) => setExtratoEndDate(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-1 focus:ring-emerald-500" />
+              </div>
+              <button onClick={fetchExtrato} disabled={isLoadingExtrato}
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 disabled:opacity-50 cursor-pointer active:scale-95 transition-all whitespace-nowrap">
+                {isLoadingExtrato ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                Consultar
+              </button>
+            </div>
+
+            {/* Formulário de Retirada */}
+            <div className="bg-red-50/50 dark:bg-red-950/10 border border-red-200/50 dark:border-red-900/30 rounded-2xl p-4 space-y-3">
+              <span className="text-[9px] font-black text-red-500 dark:text-red-400 uppercase tracking-widest flex items-center gap-1.5">
+                <ArrowDownCircle className="w-3.5 h-3.5" />
+                Registrar Retirada
+              </span>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input type="text" placeholder="Descrição da retirada..." value={withdrawalDesc} onChange={(e) => setWithdrawalDesc(e.target.value)}
+                  className="flex-1 bg-white dark:bg-slate-900 border border-red-200/50 dark:border-red-900/30 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-1 focus:ring-red-400 text-slate-800 dark:text-slate-100 font-medium" />
+                <input type="text" placeholder="R$ 0,00" value={withdrawalValue} onChange={(e) => setWithdrawalValue(e.target.value)}
+                  className="w-28 bg-white dark:bg-slate-900 border border-red-200/50 dark:border-red-900/30 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-1 focus:ring-red-400 text-slate-800 dark:text-slate-100 font-bold text-right" />
+                <button onClick={handleWithdrawal} disabled={isSubmittingWithdrawal}
+                  className="px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-wider disabled:opacity-50 cursor-pointer active:scale-95 transition-all whitespace-nowrap">
+                  {isSubmittingWithdrawal ? '...' : 'Retirar'}
+                </button>
+              </div>
+            </div>
+
+            {/* Cards de Totais */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl p-3 text-center">
+                <ArrowUpCircle className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
+                <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block">Entradas</span>
+                <span className="text-lg font-black text-emerald-700 dark:text-emerald-300">R$ {extratoTotals.totalEntradas.toFixed(2)}</span>
+              </div>
+              <div className="bg-red-50 dark:bg-red-950/20 border border-red-200/50 dark:border-red-900/30 rounded-2xl p-3 text-center">
+                <ArrowDownCircle className="w-4 h-4 text-red-500 mx-auto mb-1" />
+                <span className="text-[9px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest block">Retiradas</span>
+                <span className="text-lg font-black text-red-700 dark:text-red-300">R$ {extratoTotals.totalRetiradas.toFixed(2)}</span>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/30 rounded-2xl p-3 text-center">
+                <Coins className="w-4 h-4 text-blue-500 mx-auto mb-1" />
+                <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block">Saldo</span>
+                <span className="text-lg font-black text-blue-700 dark:text-blue-300">R$ {extratoTotals.saldo.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Lista de Registros */}
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {extratoRecords.length === 0 ? (
+                <p className="text-center text-xs text-slate-400 dark:text-slate-500 py-8 font-medium">Nenhum registro encontrado no período.</p>
+              ) : (
+                extratoRecords.map((record: any) => (
+                  <div key={record.id} className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+                    record.type === 'retirada' 
+                      ? 'bg-red-50/50 dark:bg-red-950/10 border-red-200/30 dark:border-red-900/20' 
+                      : record.status === 'Confirmado'
+                        ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200/30 dark:border-emerald-900/20'
+                        : 'bg-slate-50 dark:bg-slate-800/30 border-slate-200/50 dark:border-slate-700/30'
+                  }`}>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        record.type === 'retirada' ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
+                      }`}>
+                        {record.type === 'retirada' ? <ArrowDownCircle className="w-4 h-4" /> : <ArrowUpCircle className="w-4 h-4" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{record.senderName || 'Pix'}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                            {new Date(record.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {record.userName && (
+                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">• {record.userName}</span>
+                          )}
+                          <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                            record.status === 'Confirmado' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : record.status === 'Pendente' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-slate-500/10 text-slate-500'
+                          }`}>{record.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <span className={`text-sm font-black shrink-0 ml-3 ${
+                      record.type === 'retirada' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
+                    }`}>
+                      {record.type === 'retirada' ? '-' : '+'}R$ {(record.value || 0).toFixed(2)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
     </div>
