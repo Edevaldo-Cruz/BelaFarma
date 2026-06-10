@@ -22,6 +22,13 @@ services:
       - GPT_MODEL=${GPT_MODEL:-gpt-4o-mini}
       - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
       - BACKEND_URL=http://backend:3001
+      # Configurações do Pix (Banco Inter)
+      - INTER_CLIENT_ID=${INTER_CLIENT_ID}
+      - INTER_CLIENT_SECRET=${INTER_CLIENT_SECRET}
+      - INTER_CHAVE_PIX=${INTER_CHAVE_PIX}
+      # Caminhos forçados para o Linux/Docker (ignora o path do Windows no .env)
+      - INTER_CERT_PATH=/usr/src/app/bancoInter/Inter API_Certificado.crt
+      - INTER_KEY_PATH=/usr/src/app/bancoInter/Inter API_Chave.key
     volumes:
       # Monta diretório de dados (não apenas o arquivo)
       # Isso garante que o SQLite possa criar arquivos -wal e -shm
@@ -32,6 +39,8 @@ services:
       - ./data/baileys-session:/usr/src/app/data/baileys-session
       # Pasta de uploads (persistente para salvar as imagens do banco de ofertas)
       - ./uploads:/usr/src/app/uploads
+      # Certificados mTLS do Banco Inter
+      - ./bancoInter:/usr/src/app/bancoInter
 
     depends_on:
       - evolution-api
