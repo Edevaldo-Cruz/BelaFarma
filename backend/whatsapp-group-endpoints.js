@@ -1069,9 +1069,12 @@ async function escolherEPostarOfertaInteligente() {
     }
 
     // 3. Buscar histórico recente (últimas 24 horas para não repetir produtos no mesmo dia)
+    // Ajustado para converter scheduledAt para formato compatível com SQLite (removendo o T e o Z)
     const recentPosts = db.prepare(
-      "SELECT content FROM whatsapp_group_posts WHERE status = ? AND scheduledAt >= datetime('now', '-24 hours') ORDER BY scheduledAt DESC"
+      "SELECT content, mediaPath FROM whatsapp_group_posts WHERE status = ? AND replace(replace(scheduledAt, 'T', ' '), 'Z', '') >= datetime('now', '-24 hours') ORDER BY scheduledAt DESC"
     ).all('Enviado');
+
+    const recentMediaPaths = recentPosts.map(p => p.mediaPath).filter(Boolean);
 
     // 4. Buscar contexto atual (Hora, Clima)
     const horaAtual = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
@@ -1083,6 +1086,17 @@ async function escolherEPostarOfertaInteligente() {
       console.log('[RoboOfertas JIT] Falha ao buscar clima, usando fallback.');
     }
 
+    // Filtrar ofertas disponíveis que não foram postadas recentemente (por mediaPath ou conteúdo)
+    let nonRepeatedOffers = availableOffers.filter(o => 
+      !(o.mediaPath && recentMediaPaths.includes(o.mediaPath)) && 
+      !recentPosts.some(p => p.content.includes(o.productName))
+    );
+
+    if (nonRepeatedOffers.length === 0) {
+      console.log('[RoboOfertas JIT] Todas as ofertas já foram postadas nas últimas 24h. Reciclando a lista completa.');
+      nonRepeatedOffers = availableOffers; // recycle if all used
+    }
+
     // 5. Preparar prompt para o Gemini
     const prompt = `
 Você é a IA estratégica da Bela Farma (Drogaria Bela Farma). Seu papel é escolher a MELHOR oferta para postar AGORA num grupo de clientes no WhatsApp.
@@ -1092,10 +1106,10 @@ Contexto Atual:
 - Clima em Juiz de Fora: ${clima}
 
 Últimas postagens feitas recentemente (EVITE REPETIR OS MESMOS PRODUTOS):
-${recentPosts.map(p => `- ${p.content.substring(0, 50)}...`).join('\n')}
+${recentPosts.slice(0, 5).map(p => `- ${p.content.substring(0, 50)}...`).join('\n')}
 
 Banco de Ofertas Disponíveis (ID | Produto | Legenda):
-${availableOffers.map(o => `${o.id} | ${o.productName} | ${o.aiCaption.substring(0, 50).replace(/\n/g, ' ')}...`).join('\n')}
+${nonRepeatedOffers.map(o => `${o.id} | ${o.productName} | ${o.aiCaption.substring(0, 50).replace(/\n/g, ' ')}...`).join('\n')}
 
 TAREFA:
 Analise o contexto atual. Se estiver frio/chuva, priorize remédios para gripe ou vitamina C. Se estiver sol, priorize protetor solar, hidratação. Se for horário de almoço, priorize energéticos ou produtos de uso rápido. Sempre prefira produtos que NÃO foram postados recentemente.
@@ -1122,12 +1136,10 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
     // Fallback inicial se a IA falhou
     let currentOffer = null;
     if (chosenOfferId) {
-      currentOffer = availableOffers.find(o => o.id === chosenOfferId);
+      currentOffer = nonRepeatedOffers.find(o => o.id === chosenOfferId);
     }
     if (!currentOffer) {
-      // Pega qualquer uma que não esteja no histórico recente
-      const freeOffers = availableOffers.filter(o => !recentPosts.some(p => p.content.includes(o.productName)));
-      currentOffer = freeOffers.length > 0 ? freeOffers[0] : availableOffers[0];
+      currentOffer = nonRepeatedOffers[0];
       console.log(`[RoboOfertas JIT] Usando fallback de produto sem IA: ${currentOffer.productName}`);
     }
 
@@ -1192,10 +1204,7 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
           failedOfferIds.push(attemptOffer.id);
           
           // Selecionar uma oferta alternativa do banco que não tenha falhado e não seja recente
-          const alternative = availableOffers.find(o => 
-            !failedOfferIds.includes(o.id) && 
-            !recentPosts.some(p => p.content.includes(o.productName))
-          ) || availableOffers.find(o => !failedOfferIds.includes(o.id));
+          const alternative = nonRepeatedOffers.find(o => !failedOfferIds.includes(o.id));
 
           if (alternative) {
             console.log(`[RoboOfertas JIT] 🔄 Selecionado produto alternativo de fallback: "${alternative.productName}"`);
