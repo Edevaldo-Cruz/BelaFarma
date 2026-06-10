@@ -93,12 +93,23 @@ module.exports = function (db) {
     }
   });
 
+  // Variáveis globais para cache de vendas live
+  let liveClosingCache = null;
+  let liveClosingCacheTime = 0;
+  const CACHE_TTL_MS = 120000; // 2 minutos de cache (120.000 ms)
+
   // 5. Fechamento de Caixa em Tempo Real (Direto do Digifarma)
   // Tabela real: CAB_VENDAS (vendas) + CAB_VENDAS_FPAGTOS (formas de pagamento)
   // TIPO_PAGAMENTO_ID: 1=Dinheiro, 2=Cheque, 3=ChequePré, 4=Cartão, 5=Crediário, 6=Parcelamento, 8=Pix
   // Para Cartão (id=4), a coluna BANDEIRA contém "DEBITO" ou "CREDITO"
   router.get('/live-closing', async (req, res) => {
     try {
+      const nowMs = Date.now();
+      if (liveClosingCache && (nowMs - liveClosingCacheTime < CACHE_TTL_MS)) {
+        console.log('[Finance] ⚡ Retornando fechamento de hoje via cache (TTL 2m)');
+        return res.json(liveClosingCache);
+      }
+
       // Obter o início do dia de hoje (YYYY-MM-DD 00:00:00) para usar o índice do banco de dados
       const today = new Date();
       const year = today.getFullYear();
@@ -182,7 +193,7 @@ module.exports = function (db) {
       // O valor líquido real é a soma de todos os recebimentos reais de hoje
       const totalSales = dinheiro + credit + debit + pix + crediario + outros;
 
-      res.json({
+      const payload = {
         totalSales,
         dinheiro,
         credit,
@@ -192,7 +203,13 @@ module.exports = function (db) {
         outros,
         qtdVendas,
         fundoCaixa
-      });
+      };
+
+      // Atualiza o cache e o timestamp do cache
+      liveClosingCache = payload;
+      liveClosingCacheTime = Date.now();
+
+      res.json(payload);
     } catch (err) {
       if (err.message && err.message.includes('Offline')) {
         return res.status(503).json({ error: 'Servidor do Digifarma Offline' });

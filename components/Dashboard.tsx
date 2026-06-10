@@ -72,7 +72,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     pix: number;
     crediario: number;
     outros: number;
-  } | null>(null);
+  } | null>(() => {
+    try {
+      const saved = localStorage.getItem('belafarma_live_sales_cache');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [lastBackup, setLastBackup] = React.useState<string | null>(null);
   
   
@@ -186,6 +193,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         if (response.ok) {
            const data = await response.json();
            setLiveSalesData(data);
+           try {
+             localStorage.setItem('belafarma_live_sales_cache', JSON.stringify(data));
+           } catch (err) {
+             console.error('Erro ao salvar cache de live sales:', err);
+           }
         }
       } catch (e) {
         console.error('Erro ao buscar vendas ao vivo:', e);
