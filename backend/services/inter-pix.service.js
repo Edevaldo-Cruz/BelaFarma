@@ -19,7 +19,7 @@ class InterPixService {
     this.certPath = process.env.INTER_CERT_PATH || path.join(__dirname, '../certs/inter.crt');
     this.keyPath = process.env.INTER_KEY_PATH || path.join(__dirname, '../certs/inter.key');
     
-    this.chavePix = process.env.INTER_CHAVE_PIX || 'belafarmasul@gmail.com'; // Chave Pix cadastrada no Banco Inter
+    this.chavePix = process.env.INTER_CHAVE_PIX || 'b8cc6610-255c-416d-9024-a7e5b6ed0bd1'; // Chave Pix EVP cadastrada na conta PJ do Banco Inter
 
     // Cache do Access Token OAuth2
     this.cachedToken = null;
