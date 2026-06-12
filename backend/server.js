@@ -3487,6 +3487,25 @@ app.post('/api/whatsapp/test-send', express.json(), async (req, res) => {
 const { initializeWhatsAppCRMEndpoints } = require('./whatsapp-crm-endpoints.js');
 initializeWhatsAppCRMEndpoints(app, db);
 
+// Módulo WhatsApp Vendas (Chat + Estoque + Imagens do Site)
+const { initializeWhatsAppVendasEndpoints } = require('./whatsapp-vendas-endpoints.js');
+initializeWhatsAppVendasEndpoints(app, db);
+
+// Sincronização de Fotos do Módulo WhatsApp Vendas (Cron & Inicialização)
+const whatsappVendasSync = require('./services/whatsapp-vendas-sync.js');
+whatsappVendasSync.initSyncCron();
+setTimeout(async () => {
+  try {
+    const syncRes = await whatsappVendasSync.syncScrapedImages();
+    if (syncRes.success) {
+      console.log(`[BOOT] Sincronização inicial de fotos concluída. Sincronizados: ${syncRes.synchronized}`);
+    } else {
+      console.warn(`[BOOT] Sincronização inicial de fotos com alerta: ${syncRes.error}`);
+    }
+  } catch (err) {
+    console.error('[BOOT] Erro na sincronização inicial de fotos:', err.message);
+  }
+}, 30000); // 30 segundos após o boot
 
 // Inicia o scheduler de marketing (relatório toda segunda-feira às 08:00)
 marketingScheduler.iniciarScheduler(db);
@@ -3765,7 +3784,7 @@ let baileys = null;
 try {
   baileys = require('./baileys-service.js');
   console.log('[Baileys] 🚀 Iniciando conexão WhatsApp em background...');
-  baileys.connect().catch(err => {
+  baileys.connect(db).catch(err => {
     console.error('[Baileys] ⚠️ Falha na inicialização (continuando sem Baileys):', err.message);
   });
 } catch (e) {
@@ -3794,7 +3813,7 @@ app.post('/api/whatsapp/baileys/reconnect', async (req, res) => {
   try {
     await baileys.disconnect();
     await new Promise(r => setTimeout(r, 1000));
-    baileys.connect().catch(e => console.error('[Baileys] Erro ao reconectar:', e.message));
+    baileys.connect(db).catch(e => console.error('[Baileys] Erro ao reconectar:', e.message));
     res.json({ success: true, message: 'Reconexão iniciada! Aguarde o QR Code.' });
   } catch (err) {
     res.status(500).json({ error: err.message });

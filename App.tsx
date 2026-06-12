@@ -32,6 +32,7 @@ import AIPortal from "./components/AIPortal";
 import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
 import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
+import { WhatsAppVendas } from "./components/WhatsAppVendas";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { PixGenerator } from "./components/PixGenerator";
 import { EtiquetasManager } from "./components/EtiquetasManager";
@@ -63,7 +64,28 @@ import { trackViewUsage } from "./utils";
 const LOGOUT_TIME = 15 * 60 * 1000;
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem("belinha_session_user");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Erro ao carregar usuário da sessão", e);
+      }
+    }
+    return null;
+  });
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkIfMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkIfMobile();
+    window.addEventListener('resize', checkIfMobile);
+    return () => window.removeEventListener('resize', checkIfMobile);
+  }, []);
+
   const [currentView, setCurrentView] = useState<View>("dashboard");
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -86,6 +108,12 @@ const App: React.FC = () => {
   const { addToast } = useToast();
 
   const logoutTimerRef = useRef<number | null>(null);
+  const currentViewRef = useRef<View>("dashboard");
+
+  useEffect(() => {
+    currentViewRef.current = currentView;
+    resetLogoutTimer();
+  }, [currentView]);
 
   const handleLogout = () => {
     setUser(null);
@@ -101,7 +129,8 @@ const App: React.FC = () => {
 
   const resetLogoutTimer = () => {
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
-    if (user) {
+    if (isMobile) return; // Se for mobile, não desloga por inatividade
+    if (user && currentViewRef.current !== "whatsapp-vendas") {
       logoutTimerRef.current = window.setTimeout(() => {
         handleLogout();
         addToast("Sessão expirada por inatividade.", "warning");
@@ -119,7 +148,7 @@ const App: React.FC = () => {
       resetLogoutTimer();
 
       // --- Lógica de Auto-exibição Diária do VW Tera para a Nayane ---
-      if (user.name.toLowerCase().includes("nayane")) {
+      if (user.name.toLowerCase().includes("nayane") && !isMobile) {
         const hoje = new Date().toISOString().slice(0, 10); // Formato YYYY-MM-DD
         const ultimaDataExibida = localStorage.getItem("tera_popup_last_date");
         if (ultimaDataExibida !== hoje) {
@@ -133,7 +162,7 @@ const App: React.FC = () => {
         if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
       };
     }
-  }, [user]);
+  }, [user, isMobile]);
 
   useEffect(() => {
     localStorage.setItem('belinha_theme', theme);
@@ -157,7 +186,9 @@ const App: React.FC = () => {
         // Debounce de 15 segundos
         if (now - lastNotificationTime > 15000) {
           lastNotificationTime = now;
-          // tocarSino(); // Desativado a pedido do usuário: notificação sonora agora ocorre apenas na rádio física da loja, não no PC.
+          if (document.hidden || !document.hasFocus()) {
+            tocarSino();
+          }
         }
       }
     };
@@ -652,10 +683,20 @@ const App: React.FC = () => {
       <Auth
         onLogin={(u) => {
           setUser(u);
+          localStorage.setItem("belinha_session_user", JSON.stringify(u));
           createLog("Sistema", "Login", "Acesso efetuado");
         }}
       />
     );
+
+  if (user && currentView === 'whatsapp-vendas') {
+    return (
+      <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden p-0 m-0">
+        <PwaUpdater />
+        <WhatsAppVendas onClose={() => handleNavigate('dashboard')} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
@@ -699,6 +740,7 @@ const App: React.FC = () => {
                   onNavigate={handleNavigate} 
                   onUpdateOrder={updateOrder}
                   onUpdateBoletos={handleUpdateBoletos}
+                  isMobile={isMobile}
                 />
               )}
               {currentView === "orders" && (
@@ -858,10 +900,20 @@ const App: React.FC = () => {
               {currentView === 'whatsapp-crm' && user.role === UserRole.ADM && (
                 <WhatsAppCRM />
               )}
+              {currentView === 'whatsapp-vendas' && (
+                <WhatsAppVendas />
+              )}
               {currentView === 'pix' && (
                 <PixGenerator 
                   user={user}
                   onNavigate={handleNavigate}
+                />
+              )}
+              {currentView === 'pix-history' && (
+                <PixGenerator 
+                  user={user}
+                  onNavigate={handleNavigate}
+                  defaultShowExtrato={true}
                 />
               )}
               {currentView === 'labels' && <EtiquetasManager user={user} />}
@@ -875,7 +927,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
-      <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />
+      {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
     </div>
   );
 };

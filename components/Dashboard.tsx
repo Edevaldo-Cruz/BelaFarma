@@ -54,9 +54,10 @@ interface DashboardProps {
   onNavigate: (view: any) => void;
   onUpdateOrder: (order: Order) => void;
   onUpdateBoletos: (orderId: string, boletos: Boleto[]) => void;
+  isMobile?: boolean;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate, onUpdateOrder, onUpdateBoletos }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate, onUpdateOrder, onUpdateBoletos, isMobile = false }) => {
   const { addToast } = useToast();
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
@@ -349,7 +350,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {showGoalPopup && (
+      {!isMobile && showGoalPopup && (
         <GoalPopup 
           cashClosings={cashClosings} 
           onClose={handleCloseGoalPopup} 

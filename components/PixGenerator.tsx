@@ -24,9 +24,10 @@ import { User } from '../types';
 interface PixGeneratorProps {
   user: User;
   onNavigate: (view: any) => void;
+  defaultShowExtrato?: boolean;
 }
 
-export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) => {
+export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate, defaultShowExtrato = false }) => {
   const { addToast } = useToast();
   
   // Estados da Aplicação
@@ -41,7 +42,7 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
   const [isSimulatingPayment, setIsSimulatingPayment] = useState<boolean>(false);
 
   // Estados do Extrato
-  const [showExtrato, setShowExtrato] = useState<boolean>(false);
+  const [showExtrato, setShowExtrato] = useState<boolean>(defaultShowExtrato);
   const [extratoStartDate, setExtratoStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [extratoEndDate, setExtratoEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [extratoRecords, setExtratoRecords] = useState<any[]>([]);
@@ -175,6 +176,16 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate }) 
       }
     };
   }, [isGenerated, txid, isPaid]);
+
+  useEffect(() => {
+    setShowExtrato(defaultShowExtrato);
+  }, [defaultShowExtrato]);
+
+  useEffect(() => {
+    if (showExtrato) {
+      fetchExtrato();
+    }
+  }, [showExtrato]);
 
   // Sintetizador Web Audio API para tocar um "Ding" suave de sucesso ao confirmar o pagamento
   const tocarSomSucesso = () => {

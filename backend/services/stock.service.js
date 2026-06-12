@@ -198,7 +198,13 @@ async function listarProdutosEstoque(params = {}) {
       p.APRESENTACAO,
       p.COD_BARRAS,
       p.PROD_SALDO,
-      p.PROD_PRVENDA,
+      CASE 
+        WHEN p.PROD_PRPROMOCAO > 0 
+             AND (p.INICIO_PROMOCAO IS NULL OR p.INICIO_PROMOCAO <= CURRENT_DATE) 
+             AND (p.TERMINO_PROMOCAO IS NULL OR p.TERMINO_PROMOCAO >= CURRENT_DATE)
+        THEN p.PROD_PRPROMOCAO
+        ELSE p.PROD_PRVENDA
+      END as PROD_PRVENDA,
       COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
       c.CATEGORIA as CATEGORIA_NOME
       ${needsUltimaVenda ? `, (

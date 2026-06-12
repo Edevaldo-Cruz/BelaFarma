@@ -21,19 +21,46 @@ const options = {
  */
 async function queryDigifarma(sql, params = []) {
     return new Promise((resolve, reject) => {
+        let finished = false;
+
+        const timer = setTimeout(() => {
+            if (!finished) {
+                finished = true;
+                console.error('[Digifarma DB] Query Timeout (5000ms exceeded) for SQL:', sql);
+                reject(new Error('Timeout de 5000ms excedido na consulta ao Digifarma.'));
+            }
+        }, 5000);
+
         firebird.attach(options, function(err, db) {
+            if (finished) {
+                if (db) {
+                    try { db.detach(); } catch (e) {}
+                }
+                return;
+            }
+
             if (err) {
+                finished = true;
+                clearTimeout(timer);
                 console.error('[Digifarma DB] Connection Error:', err.message);
                 return reject(new Error('Servidor do Digifarma Offline ou Inacessível.'));
             }
 
             db.query(sql, params, function(err, result) {
+                if (finished) {
+                    try { db.detach(); } catch (e) {}
+                    return;
+                }
+
+                finished = true;
+                clearTimeout(timer);
+
                 if (err) {
                     console.error('[Digifarma DB] Query Error:', err.message);
                     db.detach();
                     return reject(err);
                 }
-                
+
                 db.detach();
                 resolve(result);
             });

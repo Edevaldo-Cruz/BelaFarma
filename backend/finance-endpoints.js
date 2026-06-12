@@ -110,24 +110,17 @@ module.exports = function (db) {
         return res.json(liveClosingCache);
       }
 
-      // Obter o início do dia de hoje (YYYY-MM-DD 00:00:00) para usar o índice do banco de dados
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      const todayStart = `${year}-${month}-${day} 00:00:00`;
-
-      // Total de vendas do dia - Otimizado para usar o índice de VENDA_DATA_HORA
+      // Total de vendas do dia - Otimizado para usar o índice de CAST(VENDA_DATA_HORA AS DATE)
       const sqlVendas = `
         SELECT 
           COUNT(*) as QTD_VENDAS,
           COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS
         FROM CAB_VENDAS 
-        WHERE VENDA_DATA_HORA >= ?
+        WHERE CAST(VENDA_DATA_HORA AS DATE) = CURRENT_DATE
           AND CANCELADO <> 'S'
       `;
 
-      // Breakdown por forma de pagamento - Otimizado para usar o índice de VENDA_DATA_HORA
+      // Breakdown por forma de pagamento - Otimizado com CAST
       const sqlPagamentos = `
         SELECT 
           fp.TIPO_PAGAMENTO_ID,
@@ -135,7 +128,7 @@ module.exports = function (db) {
           COALESCE(SUM(fp.VALOR), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-        WHERE v.VENDA_DATA_HORA >= ?
+        WHERE CAST(v.VENDA_DATA_HORA AS DATE) = CURRENT_DATE
           AND v.CANCELADO <> 'S'
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
@@ -148,8 +141,8 @@ module.exports = function (db) {
       `;
 
       const [vendasResult, pagResult, fundoCaixaResult] = await Promise.all([
-        queryDigifarma(sqlVendas, [todayStart]),
-        queryDigifarma(sqlPagamentos, [todayStart]),
+        queryDigifarma(sqlVendas, []),
+        queryDigifarma(sqlPagamentos, []),
         queryDigifarma(sqlFundoCaixa, [])
       ]);
 

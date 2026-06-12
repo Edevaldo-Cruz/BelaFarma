@@ -1196,6 +1196,29 @@ try {
     try { db.exec('ALTER TABLE pix_confirmations ADD COLUMN type TEXT DEFAULT "entrada"'); } catch(e) {}
     try { db.exec('ALTER TABLE pix_confirmations ADD COLUMN userName TEXT DEFAULT ""'); } catch(e) {}
 
+    // Criar tabela scraped_images para o módulo WhatsApp Vendas
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scraped_images (
+        ean TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        image_url TEXT NOT NULL,
+        category TEXT,
+        brand TEXT,
+        last_updated TEXT
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_scraped_images_ean ON scraped_images(ean)');
+    } catch(e) {}
+    console.log('✅ WhatsApp Vendas: Tabela scraped_images criada/verificada!');
+
+    // Migration: adicionar coluna whatsapp_lid na tabela customers
+    try {
+      db.exec('ALTER TABLE customers ADD COLUMN whatsapp_lid TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_customers_lid ON customers(whatsapp_lid)');
+      console.log('✅ CRM WhatsApp: Coluna whatsapp_lid e índice idx_customers_lid criados!');
+    } catch(e) {}
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

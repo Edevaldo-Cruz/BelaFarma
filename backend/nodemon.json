@@ -1,0 +1,24 @@
+{
+  "ignore": [
+    "baileys-session/*",
+    "baileys-session-secondary/*",
+    "whatsapp-session-rpa/*",
+    "belafarma.db*",
+    "database.db*",
+    "bela_farma.db*",
+    "*.log",
+    "uploads/*",
+    "uploadsfinance_temp/*",
+    "mensagens/*",
+    "last_financial_analysis.json"
+  ],
+  "watch": [
+    "server.js",
+    "finance-endpoints.js",
+    "whatsapp-vendas-endpoints.js",
+    "whatsapp-group-endpoints.js",
+    "marketing-endpoints.js",
+    "services/**/*.js"
+  ],
+  "ext": "js,json"
+}

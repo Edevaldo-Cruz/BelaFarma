@@ -97,6 +97,37 @@ async function connect(db) {
         lastQR       = null;
         lastError    = null;
         console.log('[Baileys-Secondary] ✅ WhatsApp Secundário conectado com sucesso!');
+
+        // --- Verificação de nova conexão para importação de histórico ---
+        if (db && sock && sock.user && sock.user.id) {
+          try {
+            const myPhone = sock.user.id.split(':')[0].split('@')[0];
+            let lastPhone = null;
+            const row = db.prepare("SELECT value FROM system_settings WHERE key = ?").get("baileys_secondary_last_phone");
+            if (row) {
+              lastPhone = row.value;
+            }
+            
+            console.log(`[Baileys-Secondary] Número conectado: ${myPhone}. Último número registrado: ${lastPhone}`);
+            
+            if (!lastPhone || lastPhone !== myPhone) {
+              console.log(`[Baileys-Secondary] 🆕 Nova conexão detectada (ou nova sessão)! Ativando importação das últimas 10 conversas...`);
+              sock.importHistory = true;
+              
+              const now = new Date().toISOString();
+              if (row) {
+                db.prepare("UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?").run(myPhone, now, "baileys_secondary_last_phone");
+              } else {
+                db.prepare("INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)").run("baileys_secondary_last_phone", myPhone, now);
+              }
+            } else {
+              console.log(`[Baileys-Secondary] Conexão mantida com o mesmo número (${myPhone}). Não importa o histórico.`);
+              sock.importHistory = false;
+            }
+          } catch (err) {
+            console.error('[Baileys-Secondary] Erro ao gerenciar baileys_secondary_last_phone:', err.message);
+          }
+        }
       }
 
       if (connection === 'close') {
@@ -125,8 +156,104 @@ async function connect(db) {
       const LabelBotService = require('./services/label-bot.service.js');
       const labelBot = new LabelBotService(db);
 
+      // ── Histórico de mensagens (Importação em nova conexão) ────────────
+      sock.ev.on('messaging-history.set', async (history) => {
+        if (!sock.importHistory) {
+          console.log('[Baileys-Secondary] Histórico recebido, mas não é uma nova conexão. Ignorando importação de histórico antigo.');
+          return;
+        }
+
+        const { messages } = history;
+        if (!messages || messages.length === 0) {
+          console.log('[Baileys-Secondary] Nenhum histórico de mensagens recebido.');
+          return;
+        }
+
+        console.log(`[Baileys-Secondary] Processando histórico para nova conexão. Total de mensagens no histórico: ${messages.length}`);
+
+        // Filtrar e agrupar mensagens por remoteJid (ignorando grupos e broadcasts)
+        const messagesByJid = {};
+        for (const msg of messages) {
+          if (!msg.message || !msg.key || !msg.key.remoteJid) continue;
+          
+          const remoteJid = msg.key.remoteJid;
+          if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.includes(':')) continue;
+
+          if (!messagesByJid[remoteJid]) {
+            messagesByJid[remoteJid] = [];
+          }
+          messagesByJid[remoteJid].push(msg);
+        }
+
+        // Para cada remoteJid, ordenar as mensagens do mais antigo ao mais recente
+        const chatsList = [];
+        for (const jid in messagesByJid) {
+          const chatMsgs = messagesByJid[jid];
+          chatMsgs.sort((a, b) => {
+            const tsA = a.messageTimestamp || 0;
+            const tsB = b.messageTimestamp || 0;
+            return tsB - tsA;
+          });
+          
+          chatsList.push({
+            jid,
+            phone: jid.split('@')[0],
+            latestTimestamp: chatMsgs[0].messageTimestamp || 0,
+            msgs: chatMsgs
+          });
+        }
+
+        // Ordenar os chats pelo timestamp mais recente
+        chatsList.sort((a, b) => b.latestTimestamp - a.latestTimestamp);
+
+        // Pegar os 10 chats mais recentes
+        const recentChats = chatsList.slice(0, 10);
+        console.log(`[Baileys-Secondary] Salvando histórico dos ${recentChats.length} chats mais recentes no SQLite...`);
+
+        // Para cada um dos chats selecionados, salvar as últimas 10 mensagens deles
+        let totalSaved = 0;
+        for (const chat of recentChats) {
+          const msgsToSave = chat.msgs.slice(0, 10);
+          
+          for (const msg of msgsToSave) {
+            try {
+              const messageType = Object.keys(msg.message)[0];
+              let text = null;
+              if (messageType === 'conversation') {
+                text = msg.message.conversation;
+              } else if (messageType === 'extendedTextMessage') {
+                text = msg.message.extendedTextMessage.text;
+              } else if (messageType === 'imageMessage' && msg.message.imageMessage.caption) {
+                text = msg.message.imageMessage.caption;
+              } else if (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.caption) {
+                text = msg.message.documentWithCaptionMessage.message.documentMessage.caption;
+              }
+
+              const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : messageType === 'imageMessage' ? '[📷 Imagem]' : '[Outra mídia]');
+              const timestampMs = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
+              const fromMeVal = msg.key.fromMe ? 1 : 0;
+
+              db.prepare(`
+                INSERT OR IGNORE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(msg.key.id, chat.phone, fromMeVal, textContent, timestampMs);
+              
+              totalSaved++;
+            } catch (err) {
+              // Ignorar erros
+            }
+          }
+        }
+
+        console.log(`[Baileys-Secondary] Importação de histórico concluída: ${recentChats.length} chats e ${totalSaved} mensagens gravadas.`);
+        
+        // Desativar a flag para não importar novamente nesta sessão
+        sock.importHistory = false;
+      });
+
       sock.ev.on('messages.upsert', async (m) => {
         try {
+          console.log(`[Baileys-Secondary] 📨 messages.upsert: tipo=${m.type}, msgId=${m.messages?.[0]?.key?.id}, fromMe=${m.messages?.[0]?.key?.fromMe}`);
           if (m.type !== 'notify') return;
           const msg = m.messages[0];
           if (!msg.message) return;
@@ -150,6 +277,21 @@ async function connect(db) {
           }
 
           const cleanText = text ? text.toLowerCase().trim() : '';
+
+          // Salva no SQLite local para a plataforma de vendas (histórico)
+          if (db) {
+            try {
+              const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : messageType === 'imageMessage' ? '[📷 Imagem]' : '[Outra mídia]');
+              const timestampMs = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
+              const fromMeVal = msg.key.fromMe ? 1 : 0;
+              db.prepare(`
+                INSERT OR IGNORE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(msg.key.id, phone, fromMeVal, textContent, timestampMs);
+            } catch (dbErr) {
+              console.warn('[Baileys-Secondary] Falha ao salvar mensagem no SQLite:', dbErr.message);
+            }
+          }
 
           // 1.5. Acionar o Triage Agent (que precisa saber tanto mensagens recebidas quanto enviadas)
           const triageAgentService = require('./services/triage-agent.service.js');

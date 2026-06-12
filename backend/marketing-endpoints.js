@@ -432,14 +432,82 @@ function initializeMarketingEndpoints(app, db) {
       // ─── CADASTRO AUTOMÁTICO DE CLIENTE DO WHATSAPP ───────────────────
       try {
         const pushName = payload.data.pushName || 'Cliente WhatsApp';
-        const existingCustomer = db.prepare('SELECT id FROM customers WHERE phone = ?').get(phone);
-        if (!existingCustomer) {
+        
+        let targetPhone = phone;
+        let finalLid = null;
+        let isLid = phone.length > 13;
+
+        if (isLid) {
+          finalLid = phone;
+          
+          // 1. Tentar achar o telefone real no payload (ex: payload.data.remoteJidAlt ou payload.data.key.remoteJidAlt)
+          let realPhone = null;
+          if (payload.data && payload.data.remoteJidAlt && !payload.data.remoteJidAlt.includes('@lid') && !payload.data.remoteJidAlt.includes('@g.us')) {
+            realPhone = payload.data.remoteJidAlt.split('@')[0];
+          } else if (payload.data && payload.data.key && payload.data.key.remoteJidAlt && !payload.data.key.remoteJidAlt.includes('@lid') && !payload.data.key.remoteJidAlt.includes('@g.us')) {
+            realPhone = payload.data.key.remoteJidAlt.split('@')[0];
+          }
+
+          if (realPhone) {
+            console.log(`[IsaMarketing] 🔗 Encontrado telefone real no payload para o LID ${phone}: ${realPhone}`);
+            targetPhone = realPhone;
+          } else {
+            // 2. Tentar pushName matching se o nome não for genérico
+            const isGenericName = pushName.toLowerCase() === 'cliente whatsapp' || pushName.toLowerCase() === 'whatsapp';
+            if (!isGenericName) {
+              // Buscar se existe exatamente 1 cliente no banco com o mesmo nome e sem LID associado
+              const potentialMatches = db.prepare(`
+                SELECT id, phone, name FROM customers 
+                WHERE (name = ? OR name LIKE ? OR nickname = ?) AND whatsapp_lid IS NULL
+              `).all(pushName, `%${pushName}%`, pushName);
+
+              if (potentialMatches.length === 1) {
+                const matchedCust = potentialMatches[0];
+                console.log(`[IsaMarketing] 👤 Encontrado cliente único no CRM com nome '${pushName}': ID ${matchedCust.id}, Telefone ${matchedCust.phone}. Associando LID ${finalLid} automaticamente.`);
+                
+                db.prepare(`
+                  UPDATE customers 
+                  SET whatsapp_lid = ?, updatedAt = datetime('now')
+                  WHERE id = ?
+                `).run(finalLid, matchedCust.id);
+                
+                // Mapeado com sucesso!
+                targetPhone = matchedCust.phone;
+              } else if (potentialMatches.length > 1) {
+                console.log(`[IsaMarketing] ⚠️ Múltiplos clientes encontrados com o nome '${pushName}'. Não associando automaticamente para evitar erros.`);
+              }
+            }
+          }
+        }
+
+        // Agora verificamos se o cliente já existe (usando targetPhone ou o LID finalLid)
+        let existingCustomer = null;
+        if (isLid && finalLid) {
+          existingCustomer = db.prepare('SELECT id, phone, whatsapp_lid FROM customers WHERE phone = ? OR whatsapp_lid = ?').get(targetPhone, finalLid);
+        } else {
+          existingCustomer = db.prepare('SELECT id FROM customers WHERE phone = ?').get(targetPhone);
+        }
+
+        if (existingCustomer) {
+          // Se o cliente existe mas ainda não tem o whatsapp_lid mapeado e o JID do webhook era um LID, salvamos agora
+          if (isLid && finalLid && !existingCustomer.whatsapp_lid) {
+            db.prepare(`
+              UPDATE customers 
+              SET whatsapp_lid = ?, updatedAt = datetime('now')
+              WHERE id = ?
+            `).run(finalLid, existingCustomer.id);
+            console.log(`[IsaMarketing] 🔗 Associado whatsapp_lid = ${finalLid} ao cliente existente ID: ${existingCustomer.id} (${existingCustomer.phone})`);
+          }
+        } else {
+          // Se realmente não existe, criamos o cliente
           const customerId = 'cust_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+          
           db.prepare(`
-            INSERT INTO customers (id, name, phone, createdAt, updatedAt, source)
-            VALUES (?, ?, ?, datetime('now'), datetime('now'), 'WhatsApp')
-          `).run(customerId, pushName, phone);
-          console.log(`[IsaMarketing] 👤 Novo cliente cadastrado automaticamente via WhatsApp: ${pushName} (${phone})`);
+            INSERT INTO customers (id, name, phone, whatsapp_lid, createdAt, updatedAt, source)
+            VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), 'WhatsApp')
+          `).run(customerId, pushName, targetPhone, finalLid);
+          
+          console.log(`[IsaMarketing] 👤 Novo cliente cadastrado automaticamente via WhatsApp: ${pushName} (Telefone: ${targetPhone}, LID: ${finalLid || 'N/A'})`);
         }
       } catch (custErr) {
         console.error('[IsaMarketing] ❌ Erro ao cadastrar cliente automático via webhook:', custErr.message);
