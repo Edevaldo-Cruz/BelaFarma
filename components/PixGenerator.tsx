@@ -16,7 +16,8 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   Calendar,
-  Search
+  Search,
+  LogOut
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { User } from '../types';
@@ -25,9 +26,11 @@ interface PixGeneratorProps {
   user: User;
   onNavigate: (view: any) => void;
   defaultShowExtrato?: boolean;
+  isPixOnly?: boolean;
+  onLogout?: () => void;
 }
 
-export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate, defaultShowExtrato = false }) => {
+export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate, defaultShowExtrato = false, isPixOnly = false, onLogout }) => {
   const { addToast } = useToast();
   
   // Estados da Aplicação
@@ -338,15 +341,28 @@ export const PixGenerator: React.FC<PixGeneratorProps> = ({ user, onNavigate, de
             ? 'bg-emerald-500/10 dark:bg-emerald-950/20 border-emerald-500/20' 
             : 'bg-gradient-to-r from-emerald-500/5 to-teal-500/5 dark:from-emerald-950/10 dark:to-teal-950/10 border-slate-100 dark:border-slate-800/80'
         }`}>
-          <button 
-            onClick={() => {
-              if (pollingRef.current) clearInterval(pollingRef.current);
-              onNavigate('dashboard');
-            }}
-            className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm hover:shadow transition-all text-slate-600 dark:text-slate-300 hover:scale-105 active:scale-95 cursor-pointer"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          {isPixOnly ? (
+            <button 
+              onClick={() => {
+                if (pollingRef.current) clearInterval(pollingRef.current);
+                if (onLogout) onLogout();
+              }}
+              title="Sair do Sistema"
+              className="p-3 bg-red-50 dark:bg-red-950/20 rounded-2xl shadow-sm hover:shadow transition-all text-red-650 hover:scale-105 active:scale-95 cursor-pointer"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          ) : (
+            <button 
+              onClick={() => {
+                if (pollingRef.current) clearInterval(pollingRef.current);
+                onNavigate('dashboard');
+              }}
+              className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm hover:shadow transition-all text-slate-600 dark:text-slate-300 hover:scale-105 active:scale-95 cursor-pointer"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           
           <div className="flex flex-col items-center leading-none text-center">
             <span className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-1 transition-all ${

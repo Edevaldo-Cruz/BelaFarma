@@ -86,7 +86,10 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', checkIfMobile);
   }, []);
 
-  const [currentView, setCurrentView] = useState<View>("dashboard");
+  const [currentView, setCurrentView] = useState<View>(() => {
+    const isPixOnly = new URLSearchParams(window.location.search).get('app') === 'pix';
+    return isPixOnly ? 'pix' : 'dashboard';
+  });
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [shortages, setShortages] = useState<ProductShortage[]>([]);
@@ -109,6 +112,7 @@ const App: React.FC = () => {
 
   const logoutTimerRef = useRef<number | null>(null);
   const currentViewRef = useRef<View>("dashboard");
+  const isPixOnly = new URLSearchParams(window.location.search).get('app') === 'pix';
 
   useEffect(() => {
     currentViewRef.current = currentView;
@@ -694,6 +698,22 @@ const App: React.FC = () => {
       <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden p-0 m-0">
         <PwaUpdater />
         <WhatsAppVendas onClose={() => handleNavigate('dashboard')} />
+      </div>
+    );
+  }
+
+  if (user && isPixOnly) {
+    return (
+      <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden p-0 m-0">
+        <PwaUpdater />
+        <main className="h-full w-full overflow-y-auto overflow-x-hidden p-2 md:p-6">
+          <PixGenerator 
+            user={user}
+            onNavigate={handleNavigate}
+            isPixOnly={true}
+            onLogout={handleLogout}
+          />
+        </main>
       </div>
     );
   }
