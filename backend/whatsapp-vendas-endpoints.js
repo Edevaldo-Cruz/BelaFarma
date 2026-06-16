@@ -564,16 +564,17 @@ function initializeWhatsAppVendasEndpoints(app, db) {
 
   // 3. GET /api/whatsapp-vendas/search-products — Pesquisa no Digifarma (Firebird) e anexa fotos do SQLite
   app.get('/api/whatsapp-vendas/search-products', async (req, res) => {
-    const { q } = req.query;
+    const { q, hideOutOfStock } = req.query;
     
     if (!q || q.length < 2) {
       return res.json({ success: true, products: [] });
     }
 
     try {
-      console.log(`[WhatsAppVendas] Buscando produtos no Digifarma por: ${q}`);
+      const filterOutOfStock = hideOutOfStock === 'true';
+      console.log(`[WhatsAppVendas] Buscando produtos no Digifarma por: ${q} (ocultar sem estoque: ${filterOutOfStock})`);
       
-      // Query no Digifarma (Firebird) por nome ou código de barras com cálculo de preço promocional ativo
+      // Query no Digifarma (Firebird) por nome ou código de barras com preço promocional ativo
       const query = `
         SELECT FIRST 40 
           PRODUTO_ID as ID, 
@@ -588,7 +589,9 @@ function initializeWhatsAppVendasEndpoints(app, db) {
           END as PRICE, 
           PROD_SALDO as STOCK 
         FROM PRODUTOS 
-        WHERE PROD_ATIVO = 'S' AND (PRODUTO LIKE ? OR COD_BARRAS = ?)
+        WHERE PROD_ATIVO = 'S' 
+              AND (PRODUTO LIKE ? OR COD_BARRAS = ?)
+              ${filterOutOfStock ? 'AND PROD_SALDO > 0' : ''}
         ORDER BY CASE WHEN PROD_SALDO > 0 THEN 0 ELSE 1 END, PRODUTO
       `;
       

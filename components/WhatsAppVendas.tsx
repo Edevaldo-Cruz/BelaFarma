@@ -46,6 +46,7 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [searchingProducts, setSearchingProducts] = useState(false);
   const [copyingProductId, setCopyingProductId] = useState<number | null>(null);
+  const [hideOutOfStock, setHideOutOfStock] = useState(true);
   
   // Carrinho / Lista de Envio
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
@@ -117,6 +118,13 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     return () => clearTimeout(delayDebounce);
   }, [productQuery]);
 
+  // Se mudar o filtro sem estoque, executa imediatamente
+  useEffect(() => {
+    if (productQuery.length >= 2) {
+      searchProducts(productQuery);
+    }
+  }, [hideOutOfStock]);
+
   // 1. Pesquisa produtos no Digifarma
   const searchProducts = async (queryStr: string) => {
     if (queryStr.length < 2) {
@@ -125,7 +133,7 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     }
     setSearchingProducts(true);
     try {
-      const res = await fetch(`/api/whatsapp-vendas/search-products?q=${encodeURIComponent(queryStr)}`);
+      const res = await fetch(`/api/whatsapp-vendas/search-products?q=${encodeURIComponent(queryStr)}&hideOutOfStock=${hideOutOfStock}`);
       const data = await res.json();
       if (data.success) {
         const sortedProducts = (data.products || []).sort((a: Product, b: Product) => {
@@ -465,8 +473,8 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
             {/* Coluna Principal da Busca de Produtos */}
             <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               {/* Campo de Busca */}
-              <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-                <div className="relative">
+              <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="relative flex-1 w-full">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                   <input
                     type="text"
@@ -475,6 +483,22 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                     onChange={e => setProductQuery(e.target.value)}
                     className="w-full pl-12 pr-6 py-3.5 text-base rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-650 focus:bg-white dark:focus:bg-slate-850 transition-all shadow-inner"
                   />
+                </div>
+                
+                {/* Toggle para ocultar sem estoque */}
+                <div className="flex items-center gap-2.5 flex-shrink-0 self-start md:self-center">
+                  <button
+                    type="button"
+                    onClick={() => setHideOutOfStock(prev => !prev)}
+                    className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+                      hideOutOfStock
+                        ? 'bg-red-50 border-red-200 text-red-750 dark:bg-red-950/20 dark:border-red-900 dark:text-red-400'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-750'
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full ${hideOutOfStock ? 'bg-red-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-650'}`} />
+                    Ocultar Sem Estoque
+                  </button>
                 </div>
               </div>
 
