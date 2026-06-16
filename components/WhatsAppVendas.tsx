@@ -214,12 +214,13 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     }
     setCopyingProductId(prod.id);
     try {
-      const response = await fetch(prod.imageUrl);
+      const proxyUrl = `/api/whatsapp-vendas/proxy-image?url=${encodeURIComponent(prod.imageUrl)}`;
+      const response = await fetch(proxyUrl);
       const blob = await response.blob();
       
       let pngBlob = blob;
       if (blob.type !== 'image/png') {
-        pngBlob = await convertToPngBlob(prod.imageUrl);
+        pngBlob = await convertToPngBlob(proxyUrl);
       }
       
       await navigator.clipboard.write([
@@ -231,13 +232,14 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     } catch (err) {
       console.error('Erro ao copiar imagem:', err);
       try {
-        const pngBlob = await convertToPngBlob(prod.imageUrl);
+        const proxyUrl = `/api/whatsapp-vendas/proxy-image?url=${encodeURIComponent(prod.imageUrl)}`;
+        const pngBlob = await convertToPngBlob(proxyUrl);
         await navigator.clipboard.write([
           new ClipboardItem({
             'image/png': pngBlob
           })
         ]);
-        addToast('📷 Imagem do produto copiada (via canvas)!', 'success');
+        addToast('📷 Imagem do produto copiada!', 'success');
       } catch (canvasErr) {
         console.error('Erro no fallback do canvas:', canvasErr);
         addToast('Erro ao copiar imagem. Verifique o suporte do navegador.', 'error');

@@ -1167,6 +1167,35 @@ function initializeWhatsAppVendasEndpoints(app, db) {
       res.status(500).json({ error: 'Erro interno ao buscar clientes.' });
     }
   });
+
+  // 9. GET /api/whatsapp-vendas/proxy-image — Proxy para evitar erros de CORS ao copiar imagens
+  app.get('/api/whatsapp-vendas/proxy-image', async (req, res) => {
+    const { url } = req.query;
+    if (!url) {
+      return res.status(400).send('URL da imagem é obrigatória.');
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Erro ao buscar imagem externa: ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      }
+      
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+
+      const buffer = await response.buffer();
+      res.send(buffer);
+    } catch (err) {
+      console.error('[WhatsAppVendas] Erro no proxy de imagem:', err.message);
+      res.status(500).send('Erro ao obter imagem através do proxy.');
+    }
+  });
 }
 
 module.exports = {
