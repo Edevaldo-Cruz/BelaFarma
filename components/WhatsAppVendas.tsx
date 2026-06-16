@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, CheckCircle, X, Phone,
   ShoppingBag, Pill, Image as ImageIcon, Loader2, Sparkles,
-  User, Copy, Plus, ClipboardCopy
+  User, Copy, Plus, ClipboardCopy, PlusCircle, MinusCircle
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -51,6 +51,20 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
   
   // Carrinho / Lista de Envio
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
+  
+  const budgetText = useMemo(() => {
+    if (selectedProducts.length === 0) return '';
+    let textMsg = `*Orçamento - BelaFarma*\n\n`;
+    selectedProducts.forEach((item) => {
+      const priceFormatted = parseFloat(item.product.price as any).toFixed(2).replace('.', ',');
+      textMsg += `• *${item.product.name}*\n💵 Preço: *R$ ${priceFormatted}*\n\n`;
+    });
+    const total = selectedProducts.reduce((sum, item) => sum + item.product.price, 0);
+    const totalFormatted = total.toFixed(2).replace('.', ',');
+    textMsg += `-------------------------\n💰 *Total: R$ ${totalFormatted}*`;
+    return textMsg;
+  }, [selectedProducts]);
+
   const [crmStatus, setCrmStatus] = useState<'pesquisado' | 'comprado'>('pesquisado');
 
   // Ficha do Cliente
@@ -272,7 +286,7 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     let textMsg = `*Orçamento - BelaFarma*\n\n`;
     selectedProducts.forEach((item) => {
       const priceFormatted = parseFloat(item.product.price as any).toFixed(2).replace('.', ',');
-      textMsg += `• *${item.product.name}*\n💵 Preço: *R$ ${priceFormatted}* (${item.status === 'comprado' ? 'Levar' : 'Orçado'})\n\n`;
+      textMsg += `• *${item.product.name}*\n💵 Preço: *R$ ${priceFormatted}*\n\n`;
     });
     const total = selectedProducts.reduce((sum, item) => sum + item.product.price, 0);
     const totalFormatted = total.toFixed(2).replace('.', ',');
@@ -443,7 +457,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
             BF
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800 dark:text-white leading-tight">WhatsApp Vendas</h1>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-white leading-tight">Assistente de Vendas</h1>
             <p className="text-xs text-slate-500 font-medium">Ferramenta de Consulta e Cópia Manual</p>
           </div>
         </div>
@@ -559,19 +573,6 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                           key={prod.id}
                           className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition duration-200 flex flex-col overflow-hidden relative group"
                         >
-                          {/* Botão de Seleção (carrinho) */}
-                          <button
-                            onClick={() => toggleProductSelection(prod)}
-                            className={`absolute top-3 right-3 p-1.5 rounded-full transition-all duration-200 z-10 ${
-                              isProductSelected(prod.id)
-                                ? 'bg-red-600 text-white shadow-sm'
-                                : 'bg-white/80 hover:bg-white dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-400 hover:text-red-600 shadow-sm'
-                            }`}
-                            title={isProductSelected(prod.id) ? "Remover da lista de orçamento" : "Adicionar à lista de orçamento"}
-                          >
-                            <CheckCircle className={`w-5 h-5 ${isProductSelected(prod.id) ? 'fill-current text-white' : ''}`} />
-                          </button>
-
                           <div className="p-4 flex gap-4">
                             {/* Imagem do Produto */}
                             <div className="w-32 h-32 bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-700">
@@ -601,7 +602,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                               </div>
                               
                               <div className="flex items-center justify-between mt-2">
-                                <span className="text-base font-extrabold text-red-600 dark:text-red-400">
+                                <span className="text-base font-extrabold text-red-650 dark:text-red-400">
                                   R$ {prod.price.toFixed(2).replace('.', ',')}
                                 </span>
                                 
@@ -618,29 +619,52 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                             </div>
                           </div>
 
-                          {/* Ações de Cópia */}
-                          <div className="px-4 pb-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex gap-2">
-                            <button
-                              onClick={() => copyProductText(prod)}
-                              className="flex-1 py-2 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-700 shadow-sm"
-                            >
-                              <Copy className="w-3.5 h-3.5 text-red-500" />
-                              Copiar Texto
-                            </button>
-                            {prod.imageUrl && (
+                          {/* Ações de Cópia e Orçamento */}
+                          <div className="px-4 pb-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+                            <div className="flex gap-2">
                               <button
-                                onClick={() => copyProductImage(prod)}
-                                disabled={isCopying}
-                                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs disabled:opacity-50 transition flex items-center justify-center gap-1.5 shadow-sm"
+                                onClick={() => copyProductText(prod)}
+                                className="flex-1 py-2 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-700 shadow-sm"
                               >
-                                {isCopying ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <ImageIcon className="w-3.5 h-3.5" />
-                                )}
-                                Copiar Foto
+                                <Copy className="w-3.5 h-3.5 text-red-500" />
+                                Copiar Texto
                               </button>
-                            )}
+                              {prod.imageUrl && (
+                                <button
+                                  onClick={() => copyProductImage(prod)}
+                                  disabled={isCopying}
+                                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs disabled:opacity-50 transition flex items-center justify-center gap-1.5 shadow-sm"
+                                >
+                                  {isCopying ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <ImageIcon className="w-3.5 h-3.5" />
+                                  )}
+                                  Copiar Foto
+                                </button>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={() => toggleProductSelection(prod)}
+                              className={`w-full py-2 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 border shadow-sm ${
+                                isProductSelected(prod.id)
+                                  ? 'bg-red-50 dark:bg-red-950/30 text-red-650 border-red-200 dark:border-red-900/40 hover:bg-red-100'
+                                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-750 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {isProductSelected(prod.id) ? (
+                                <>
+                                  <MinusCircle className="w-3.5 h-3.5 text-red-500" />
+                                  Remover do Orçamento
+                                </>
+                              ) : (
+                                <>
+                                  <PlusCircle className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                                  Adicionar ao Orçamento
+                                </>
+                              )}
+                            </button>
                           </div>
                         </div>
                       );
@@ -651,73 +675,84 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
             </div>
 
             {/* Painel do Orçamento (Carrinho) no Lado Direito */}
-            {selectedProducts.length > 0 && (
-              <div className="w-[340px] flex-shrink-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in slide-in-from-right duration-300">
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                  <span className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-                    <ShoppingBag className="w-4 h-4 text-red-650" />
-                    Lista de Orçamento ({selectedProducts.length})
-                  </span>
+            <div className="w-[340px] flex-shrink-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <span className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-red-655" />
+                  Lista de Orçamento ({selectedProducts.length})
+                </span>
+                {selectedProducts.length > 0 && (
                   <button 
                     onClick={() => setSelectedProducts([])}
-                    className="text-xs text-red-600 hover:text-red-800 font-bold transition"
+                    className="text-xs text-red-600 hover:text-red-850 font-bold transition"
                   >
                     Limpar
                   </button>
+                )}
+              </div>
+              
+              {selectedProducts.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-400 dark:text-slate-500">
+                  <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <ShoppingBag className="w-8 h-8 text-slate-350 dark:text-slate-650" />
+                  </div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Orçamento Vazio</h3>
+                  <p className="text-[11px] mt-2 leading-relaxed text-slate-400 dark:text-slate-500 max-w-[200px]">
+                    Adicione produtos clicando em <strong className="text-red-650 dark:text-red-400">+ Adicionar ao Orçamento</strong> nos cards ao lado.
+                  </p>
                 </div>
-                
-                <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                  {selectedProducts.map(item => (
-                    <div key={item.product.id} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/30 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
-                      <div className="min-w-0 pr-2">
-                        <span className="truncate font-bold text-slate-850 dark:text-slate-100 block" title={item.product.name}>
-                          {item.product.name}
-                        </span>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">
-                          R$ {item.product.price.toFixed(2).replace('.', ',')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleCartItemStatus(item.product.id)}
-                          className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase transition border ${
-                            item.status === 'comprado'
-                              ? 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400 border-green-250/20'
-                              : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-450 border-blue-250/20'
-                          }`}
-                        >
-                          {item.status === 'comprado' ? 'Levar' : 'Orçado'}
-                        </button>
+              ) : (
+                <>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                    {selectedProducts.map(item => (
+                      <div key={item.product.id} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/30 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                        <div className="min-w-0 pr-2">
+                          <span className="truncate font-bold text-slate-850 dark:text-slate-100 block" title={item.product.name}>
+                            {item.product.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400 mt-0.5 block">
+                            R$ {item.product.price.toFixed(2).replace('.', ',')}
+                          </span>
+                        </div>
                         <button 
                           onClick={() => toggleProductSelection(item.product)}
-                          className="text-slate-400 hover:text-red-500 transition p-1"
+                          className="text-slate-400 hover:text-red-500 transition p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
                         >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Resumo e Ação */}
-                <div className="p-4 border-t border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 space-y-3">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500 font-medium">Total Estimado:</span>
-                    <span className="text-base font-extrabold text-red-650 dark:text-red-400">
-                      R$ {selectedProducts.reduce((sum, item) => sum + item.product.price, 0).toFixed(2).replace('.', ',')}
-                    </span>
+                    ))}
                   </div>
-                  <button
-                    onClick={copyBudget}
-                    className="w-full py-3 bg-red-650 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-sm"
-                  >
-                    <ClipboardCopy className="w-4 h-4" />
-                    Copiar Orçamento (Texto)
-                  </button>
-                </div>
-              </div>
-            )}
+
+                  {/* Pré-visualização do Texto do Orçamento */}
+                  <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      Pré-visualização da Mensagem:
+                    </span>
+                    <div className="bg-slate-100 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-400 max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed select-all">
+                      {budgetText}
+                    </div>
+                  </div>
+
+                  {/* Resumo e Ação */}
+                  <div className="p-4 border-t border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-500 font-medium">Total Estimado:</span>
+                      <span className="text-base font-extrabold text-red-650 dark:text-red-400">
+                        R$ {selectedProducts.reduce((sum, item) => sum + item.product.price, 0).toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                    <button
+                      onClick={copyBudget}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-sm animate-pulse"
+                    >
+                      <ClipboardCopy className="w-4 h-4" />
+                      Copiar Orçamento (Texto)
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         ) : (
           /* Aba Clientes (CRM) */
