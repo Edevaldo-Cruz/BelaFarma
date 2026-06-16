@@ -775,7 +775,7 @@ function initializeWhatsAppVendasEndpoints(app, db) {
 
   // 5. POST /api/whatsapp-vendas/send-product — Envia foto do produto + detalhes descritivos e salva no CRM
   app.post('/api/whatsapp-vendas/send-product', async (req, res) => {
-    const { phone, productId, productName, price, stock, imageUrl, status } = req.body;
+    const { phone, productId, productName, price, stock, imageUrl, status, skipWhatsApp } = req.body;
     
     if (!phone || !productName) {
       return res.status(400).json({ error: 'Parâmetros "phone" e "productName" são obrigatórios.' });
@@ -800,8 +800,14 @@ function initializeWhatsAppVendasEndpoints(app, db) {
 
       let sentMediaSuccess = false;
 
+      // Se skipWhatsApp estiver ativado (caso de execução no wrapper do Electron)
+      if (skipWhatsApp) {
+        sentMediaSuccess = !!imageUrl;
+        console.log(`[WhatsAppVendas] Gravando produto no CRM (envio real feito localmente via Electron): ${productName}`);
+      }
+
       // 1. Enviar Foto do Produto com legenda completa (se houver correspondência no site e a URL for válida)
-      if (imageUrl) {
+      if (imageUrl && !skipWhatsApp) {
         console.log(`[WhatsAppVendas] Enviando imagem do produto para ${jid}: ${imageUrl}`);
         
         // Converter URL relativa em absoluta
@@ -841,7 +847,7 @@ function initializeWhatsAppVendasEndpoints(app, db) {
       }
 
       // 2. Se não havia imagem ou se o envio da imagem falhou, enviamos o texto descritivo isolado (fallback resiliente)
-      if (!sentMediaSuccess) {
+      if (!sentMediaSuccess && !skipWhatsApp) {
         console.log(`[WhatsAppVendas] Enviando texto informativo isolado do produto para ${jid}`);
         const payloadText = {
           number: phoneNoSuffix,
@@ -936,7 +942,7 @@ function initializeWhatsAppVendasEndpoints(app, db) {
 
   // 6. POST /api/whatsapp-vendas/send-cart — Envia orçamento consolidado e grava múltiplos produtos no CRM
   app.post('/api/whatsapp-vendas/send-cart', async (req, res) => {
-    const { phone, text, items } = req.body;
+    const { phone, text, items, skipWhatsApp } = req.body;
     
     if (!phone || !text || !Array.isArray(items)) {
       return res.status(400).json({ error: 'Parâmetros "phone", "text" e "items" são obrigatórios.' });
@@ -957,8 +963,9 @@ function initializeWhatsAppVendasEndpoints(app, db) {
     try {
       console.log(`[WhatsAppVendas] Enviando orçamento do carrinho para ${jid} (${items.length} itens)...`);
       
-      // 1. Enviar texto consolidado
-      const payloadText = {
+      if (!skipWhatsApp) {
+        // 1. Enviar texto consolidado
+        const payloadText = {
         number: phoneNoSuffix,
         options: { delay: 500, linkPreview: false },
         textMessage: {
@@ -988,6 +995,7 @@ function initializeWhatsAppVendasEndpoints(app, db) {
         }
         return res.status(400).json({ error: errorMsg });
       }
+      } // Fim do if (!skipWhatsApp)
 
       // 2. Garantir que o cliente existe na tabela customers
       let customer = db.prepare('SELECT id FROM customers WHERE phone = ? OR phone LIKE ?').get(cleanPhoneNum, `%${cleanPhoneNum.slice(-8)}%`);

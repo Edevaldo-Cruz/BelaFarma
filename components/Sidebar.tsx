@@ -138,7 +138,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'ai-portal', label: 'Central de IAs', icon: BrainCircuit },
     { id: 'radio-manager', label: 'Rádio Bela Farma', icon: Radio },
     { id: 'whatsapp-crm', label: 'CRM WhatsApp', icon: ContactRound },
-    { id: 'whatsapp-vendas', label: 'WhatsApp Vendas', icon: MessageSquare },
     { id: 'pix', label: 'Gerador Pix', icon: CreditCard },
     { id: 'pix-history', label: 'Extrato Pix', icon: Landmark },
     { id: 'labels', label: 'Etiquetas A4', icon: Printer },

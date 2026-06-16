@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "BelaFarma - WhatsApp Vendas Integrador",
+  "version": "1.0.0",
+  "description": "Integração do WhatsApp Web oficial com o painel de CRM da BelaFarma.",
+  "permissions": [
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}

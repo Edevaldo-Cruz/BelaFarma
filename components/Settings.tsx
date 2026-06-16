@@ -39,6 +39,10 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const [ifoodFeeOriginal, setIfoodFeeOriginal] = React.useState('6.5');
   const [ifoodFeeSaving, setIfoodFeeSaving] = React.useState(false);
 
+  // --- Triage Bot States ---
+  const [triageBotEnabled, setTriageBotEnabled] = React.useState<boolean>(true);
+  const [triageBotLoading, setTriageBotLoading] = React.useState<boolean>(false);
+
   // --- WhatsApp Baileys Status & Reconnect (Principal & Secundário) ---
   const [baileysStatus, setBaileysStatus] = React.useState<any>(null);
   const [baileysReconnecting, setBaileysReconnecting] = React.useState(false);
@@ -194,6 +198,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
 
   React.useEffect(() => {
     if (user.role === UserRole.ADM) {
+      // Buscar taxa iFood
       fetch('/api/settings/ifood_fee_percent')
         .then(res => res.ok ? res.json() : null)
         .then(data => {
@@ -203,8 +208,37 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
           }
         })
         .catch(err => console.error('Error fetching iFood fee:', err));
+
+      // Buscar status do chatbot de triagem
+      fetch('/api/settings/triage_bot_enabled')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data && data.value !== null) {
+            setTriageBotEnabled(data.value === 'true');
+          }
+        })
+        .catch(err => console.error('Error fetching triage bot status:', err));
     }
   }, [user.role]);
+
+  const handleToggleTriageBot = async (checked: boolean) => {
+    setTriageBotLoading(true);
+    try {
+      const res = await fetch('/api/settings/triage_bot_enabled', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: String(checked) }),
+      });
+      if (!res.ok) throw new Error('Failed to save triage bot status');
+      setTriageBotEnabled(checked);
+      addToast(`Chatbot de Triagem ${checked ? 'ativado' : 'desativado'} com sucesso!`, 'success');
+    } catch (err) {
+      console.error('Error saving triage bot status:', err);
+      addToast('Erro ao atualizar status do chatbot.', 'error');
+    } finally {
+      setTriageBotLoading(false);
+    }
+  };
 
   const saveIfoodFee = async () => {
     const numVal = parseFloat(ifoodFee);
@@ -519,6 +553,50 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* 🤖 CONFIGURAÇÃO CHATBOT DE TRIAGEM ── */}
+      {user.role === UserRole.ADM && (
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-violet-50 text-violet-600 rounded-xl shadow-sm">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Chatbot de Atendimento (Triagem)</h3>
+                <p className="text-[10px] text-slate-400 font-medium leading-tight">Respostas Automáticas de Ausência e Triagem de Mensagens</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {triageBotLoading && <RefreshCw className="w-4 h-4 text-violet-500 animate-spin" />}
+              <button
+                onClick={() => handleToggleTriageBot(!triageBotEnabled)}
+                disabled={triageBotLoading}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none ${
+                  triageBotEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+                } disabled:opacity-50`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    triageBotEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+          <div className="pt-4 border-t border-slate-50 text-xs text-slate-500 leading-relaxed space-y-2">
+            <p>
+              O robô de triagem responde automaticamente no <strong>WhatsApp Secundário</strong> quando os atendentes não respondem em até <strong>2 minutos</strong> (durante o horário de funcionamento), além de avisar que a drogaria está fechada fora do horário comercial e realizar a triagem de fornecedores.
+            </p>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${triageBotEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span className="font-bold text-[10px] uppercase tracking-wider">
+                Status Atual: {triageBotEnabled ? '🤖 Bot Respondendo Ativamente' : '🚫 Bot Desativado (Apenas atendimento manual)'}
+              </span>
+            </div>
           </div>
         </div>
       )}

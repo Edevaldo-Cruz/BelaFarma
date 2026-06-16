@@ -143,6 +143,19 @@ Responda APENAS com a palavra SIM se for fornecedor, e NAO se for cliente ou qua
   }
 
   async handleTimeout(phone, name, originalMessage, sock) {
+    // Verificar se o robô de triagem está ativo
+    try {
+      const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'triage_bot_enabled'").get();
+      const isEnabled = setting ? setting.value === 'true' : true;
+      if (!isEnabled) {
+        console.log(`[TriageAgent] Bot de triagem desativado nas configurações. Abortando timeout para ${phone}`);
+        this.waitingClients.delete(phone);
+        return;
+      }
+    } catch (err) {
+      console.error('[TriageAgent] Erro ao verificar status do bot no timeout:', err.message);
+    }
+
     console.log(`[TriageAgent] Timeout de 2 min atingido para ${phone}`);
     this.waitingClients.delete(phone);
 
@@ -218,6 +231,22 @@ Responda no formato: "Produto: [nome]". Se não for possível identificar, respo
   }
 
   onMessageReceived(phone, name, messageText, fromMe, sock) {
+    // Verificar se o robô de triagem está ativo
+    try {
+      const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'triage_bot_enabled'").get();
+      const isEnabled = setting ? setting.value === 'true' : true;
+      if (!isEnabled) {
+        // Se estiver desativado, cancelamos qualquer timer ativo para este cliente e saímos
+        if (this.waitingClients.has(phone)) {
+          clearTimeout(this.waitingClients.get(phone));
+          this.waitingClients.delete(phone);
+        }
+        return;
+      }
+    } catch (err) {
+      console.error('[TriageAgent] Erro ao verificar status do bot no onMessageReceived:', err.message);
+    }
+
     if (fromMe) {
       // Atendente respondeu! Cancela o timer.
       if (this.waitingClients.has(phone)) {

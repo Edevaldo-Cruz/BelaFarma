@@ -38,8 +38,30 @@ interface Product {
   brand: string | null;
 }
 
-export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
+async function imageUrlToBase64(url: string): Promise<string> {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export function WhatsAppVendas({ onClose, isWidget = false }: { onClose?: () => void; isWidget?: boolean }) {
   const { addToast } = useToast();
+
+  const postMessageToWhatsApp = (payload: any) => {
+    if (isWidget) {
+      window.parent.postMessage(payload, '*');
+    } else {
+      const iframe = document.getElementById('wa-iframe') as HTMLIFrameElement;
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(payload, '*');
+      }
+    }
+  };
 
   // Estados dos Chats e Mensagens
   const [chats, setChats] = useState<Chat[]>([]);
@@ -282,11 +304,20 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
             productName: item.product.name,
             price: item.product.price,
             status: item.status
-          }))
+          })),
+          skipWhatsApp: true
         })
       });
 
       if (res.ok) {
+        postMessageToWhatsApp({
+          source: 'belafarma-crm',
+          type: 'send-product-media',
+          text: textMsg,
+          imageUrl: null,
+          imageBase64: null
+        });
+
         addToast(`✅ Lista com ${selectedProducts.length} produtos enviada e salva no CRM!`, 'success');
         
         setMessages(prev => [...prev, {
@@ -591,6 +622,9 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
 
     setSendingProduct(product.id);
     try {
+      const priceFormatted = parseFloat(product.price as any).toFixed(2).replace('.', ',');
+      const textMsg = `*${product.name}*\n💵 Preço: *R$ ${priceFormatted}*`;
+
       const res = await fetch('/api/whatsapp-vendas/send-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -601,11 +635,29 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
           price: product.price,
           stock: product.stock,
           imageUrl: sendImage ? product.imageUrl : null,
-          status: crmStatus
+          status: crmStatus,
+          skipWhatsApp: true
         })
       });
 
       if (res.ok) {
+        let imageBase64: string | null = null;
+        if (sendImage && product.imageUrl) {
+          try {
+            imageBase64 = await imageUrlToBase64(product.imageUrl);
+          } catch (err) {
+            console.error('Erro ao converter imagem para base64:', err);
+          }
+        }
+
+        postMessageToWhatsApp({
+          source: 'belafarma-crm',
+          type: 'send-product-media',
+          text: textMsg,
+          imageUrl: sendImage ? product.imageUrl : null,
+          imageBase64: imageBase64
+        });
+
         addToast(`✅ Produto "${product.name}" enviado com sucesso!`, 'success');
         
         // Recarregar histórico de mensagens
@@ -743,7 +795,8 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     <div className="flex h-full w-full gap-0 overflow-hidden bg-red-50/15 dark:bg-slate-950 p-0 m-0 border-none animate-in fade-in duration-300">
       
       {/* ── COLUNA 1: Lista de Conversas ──────────────────────────────────────── */}
-      <div className="w-[360px] lg:w-[420px] flex-shrink-0 flex flex-col h-full bg-white dark:bg-slate-900 border-r border-red-100/40 dark:border-red-950/45">
+      {!isWidget && (
+        <div className="w-[360px] lg:w-[420px] flex-shrink-0 flex flex-col h-full bg-white dark:bg-slate-900 border-r border-red-100/40 dark:border-red-950/45">
         
         {/* Header do Painel Esquerdo */}
         <div className="h-24 bg-red-50/40 dark:bg-red-950/20 border-b border-red-100/40 dark:border-red-950/45 px-6 flex items-center justify-between flex-shrink-0">
@@ -849,9 +902,11 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
           )}
         </div>
       </div>
+      )}
 
       {/* ── COLUNA 2: Janela de Conversa ──────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col h-full bg-[#fff8f8] dark:bg-[#0e0707]">
+      {!isWidget && (
+        <div className="flex-1 flex flex-col h-full bg-[#fff8f8] dark:bg-[#0e0707]">
         {activeChat ? (
           <>
             {/* Header do Chat Ativo */}
@@ -1008,9 +1063,10 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
           </div>
         )}
       </div>
+      )}
 
       {/* ── COLUNA 3: Painel Lateral (Estoque ou Ficha do Cliente) ─────────────── */}
-      <div className="w-[440px] lg:w-[500px] flex-shrink-0 flex flex-col h-full bg-white dark:bg-slate-900 border-l border-red-100/40 dark:border-red-950/45">
+      <div className={`${isWidget ? 'w-full' : 'w-[440px] lg:w-[500px]'} flex-shrink-0 flex flex-col h-full bg-white dark:bg-slate-900 border-l border-red-100/40 dark:border-red-950/45`}>
         
         {/* Header da Coluna 3 com Abas */}
         <div className="h-24 bg-red-50/40 dark:bg-red-950/20 border-b border-red-100/40 dark:border-red-950/45 px-6 flex items-center justify-between flex-shrink-0">
