@@ -9,7 +9,7 @@ const options = {
     lowercase_keys: false,
     role: null,
     pageSize: 4096,
-    timeout: 5000 // 5 seconds timeout for offline server
+    timeout: 20000 // 20 seconds timeout for offline server
 };
 
 /**
@@ -26,10 +26,10 @@ async function queryDigifarma(sql, params = []) {
         const timer = setTimeout(() => {
             if (!finished) {
                 finished = true;
-                console.error('[Digifarma DB] Query Timeout (5000ms exceeded) for SQL:', sql);
-                reject(new Error('Timeout de 5000ms excedido na consulta ao Digifarma.'));
+                console.error('[Digifarma DB] Query Timeout (20000ms exceeded) for SQL:', sql);
+                reject(new Error('Timeout de 20000ms excedido na consulta ao Digifarma.'));
             }
-        }, 5000);
+        }, 20000);
 
         firebird.attach(options, function(err, db) {
             if (finished) {

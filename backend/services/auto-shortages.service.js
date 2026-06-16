@@ -76,7 +76,7 @@ async function runAutoShortages(daysAgo = 0) {
         const existing = checkExisting.get(productName);
         if (existing) continue; // Already in shortages and not handled
 
-        const isZero = row.ESTOQUE === 0;
+        const isZero = row.ESTOQUE <= 0;
         const notes = isZero ? '' : '[ATENÇÃO: RESTA 1 NO ESTOQUE]';
         const id = 'sh_auto_' + Date.now().toString() + '_' + Math.random().toString(36).substring(2, 10);
         

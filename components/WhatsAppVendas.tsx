@@ -565,7 +565,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
 
                           <div className="p-4 flex gap-4">
                             {/* Imagem do Produto */}
-                            <div className="w-20 h-20 bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-700">
+                            <div className="w-32 h-32 bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-700">
                               {prod.imageUrl ? (
                                 <img 
                                   src={prod.imageUrl} 
@@ -576,7 +576,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                                   }}
                                 />
                               ) : (
-                                <Pill className="w-10 h-10 text-slate-300 dark:text-slate-600" />
+                                <Pill className="w-14 h-14 text-slate-300 dark:text-slate-600" />
                               )}
                             </div>
 

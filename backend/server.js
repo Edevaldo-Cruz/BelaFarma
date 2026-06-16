@@ -1753,12 +1753,12 @@ app.post('/api/cash-closings', (req, res) => {
               const existing = db.prepare(`SELECT id FROM shortages WHERE productName = ? AND purchased = 0 AND ordered = 0 LIMIT 1`).get(prodName);
               
               if (!existing) {
-                const notes = saldo === 1 ? 'Atenção: Resta 1 unidade no estoque.' : '';
+                const notes = saldo === 1 ? '[ATENÇÃO: RESTA 1 NO ESTOQUE]' : '';
                 insertShortageStmt.run({
                   id: 'sht_' + Date.now().toString() + '_' + Math.floor(Math.random() * 1000),
                   productName: prodName,
                   type: 'Sistema',
-                  clientInquiry: '',
+                  clientInquiry: 0,
                   notes: notes,
                   createdAt: new Date().toISOString(),
                   userName: 'Sistema (Fechamento)',
@@ -3689,6 +3689,22 @@ cron.schedule('30 8 * * *',  dispararNoticiasAutomatico, { timezone: 'America/Sa
 cron.schedule('30 14 * * *', dispararNoticiasAutomatico, { timezone: 'America/Sao_Paulo' });
 cron.schedule('30 19 * * *', dispararNoticiasAutomatico, { timezone: 'America/Sao_Paulo' });
 console.log('[RADIO CRON] 📻 Notícias agendadas: 08:30, 14:30 e 19:30.');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CRON: ROBÔ DE FALTAS AUTOMÁTICAS (AUTO-SHORTAGES)
+// Roda diariamente às 23:30 (Brasília) buscando vendas do dia (daysAgo = 0)
+// ─────────────────────────────────────────────────────────────────────────────
+cron.schedule('30 23 * * *', async () => {
+  try {
+    console.log('[CRON-AUTO-SHORTAGES] Iniciando verificação diária de faltas automáticas...');
+    const autoShortages = require('./services/auto-shortages.service.js');
+    const result = await autoShortages.runAutoShortages(0);
+    console.log('[CRON-AUTO-SHORTAGES] Verificação concluída:', result);
+  } catch (err) {
+    console.error('[CRON-AUTO-SHORTAGES] Erro ao executar rotina:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON-AUTO-SHORTAGES] 🤖 Robô de faltas automáticas agendado para rodar às 23:30 diariamente.');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARADOR DE COTAÇÕES — /api/quotation/analyze
