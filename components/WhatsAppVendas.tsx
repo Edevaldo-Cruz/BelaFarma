@@ -47,6 +47,7 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
   const [searchingProducts, setSearchingProducts] = useState(false);
   const [copyingProductId, setCopyingProductId] = useState<number | null>(null);
   const [hideOutOfStock, setHideOutOfStock] = useState(true);
+  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
   
   // Carrinho / Lista de Envio
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
@@ -255,6 +256,14 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
     } finally {
       setCopyingProductId(null);
     }
+  };
+
+  const getProductImageSrc = (imageUrl: string | null) => {
+    if (!imageUrl) return '';
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return `/api/whatsapp-vendas/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+    }
+    return imageUrl;
   };
 
   // Copiar Orçamento Consolidadado (Texto)
@@ -566,13 +575,13 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                           <div className="p-4 flex gap-4">
                             {/* Imagem do Produto */}
                             <div className="w-32 h-32 bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-700">
-                              {prod.imageUrl ? (
+                              {prod.imageUrl && !imageErrors[prod.id] ? (
                                 <img 
-                                  src={prod.imageUrl} 
+                                  src={getProductImageSrc(prod.imageUrl)} 
                                   alt={prod.name}
                                   className="w-full h-full object-contain group-hover:scale-105 transition duration-300"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = 'none';
+                                  onError={() => {
+                                    setImageErrors(prev => ({ ...prev, [prod.id]: true }));
                                   }}
                                 />
                               ) : (
