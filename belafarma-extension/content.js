@@ -107,7 +107,7 @@ function injectBelaFarmaSidebar() {
 
   // Função para testar a conexão antes de exibir o iframe
   function checkConnection() {
-    console.log('[BelaFarma-Extension] Testando conexão com o servidor de produção CRM...');
+    console.log('[BelaFarma-Extension] Solicitando teste de conexão ao background...');
     
     // Altera o botão de reteste temporariamente para indicar carregamento
     if (btnRetestar) {
@@ -116,31 +116,34 @@ function injectBelaFarmaSidebar() {
       btnRetestar.style.backgroundColor = '#6b7280';
     }
 
-    fetch('https://app.drogariabelafarma.com.br/favicon.ico', { mode: 'no-cors', cache: 'no-store' })
-      .then(() => {
-        console.log('[BelaFarma-Extension] ✅ Conexão bem-sucedida! Exibindo painel CRM.');
-        diagnostics.style.display = 'none';
-        iframe.style.display = 'block';
-        // Recarrega o iframe para garantir que ele carregue o conteúdo fresco
-        iframe.src = 'https://app.drogariabelafarma.com.br/?widget=whatsapp';
-        
-        if (btnRetestar) {
-          btnRetestar.disabled = false;
-          btnRetestar.innerText = '2. Tentar Novamente / Recarregar';
-          btnRetestar.style.backgroundColor = '#10b981';
+    chrome.runtime.sendMessage(
+      { type: 'check-connection', url: 'https://app.drogariabelafarma.com.br/favicon.ico' },
+      (response) => {
+        if (response && response.success) {
+          console.log('[BelaFarma-Extension] ✅ Conexão bem-sucedida! Exibindo painel CRM.');
+          diagnostics.style.display = 'none';
+          iframe.style.display = 'block';
+          // Recarrega o iframe para garantir que ele carregue o conteúdo fresco
+          iframe.src = 'https://app.drogariabelafarma.com.br/?widget=whatsapp';
+          
+          if (btnRetestar) {
+            btnRetestar.disabled = false;
+            btnRetestar.innerText = '2. Tentar Novamente / Recarregar';
+            btnRetestar.style.backgroundColor = '#10b981';
+          }
+        } else {
+          console.warn('[BelaFarma-Extension] ❌ Conexão falhou. Exibindo instruções de diagnóstico.', response ? response.error : 'Sem resposta');
+          iframe.style.display = 'none';
+          diagnostics.style.display = 'block';
+          
+          if (btnRetestar) {
+            btnRetestar.disabled = false;
+            btnRetestar.innerText = '2. Tentar Novamente / Recarregar';
+            btnRetestar.style.backgroundColor = '#10b981';
+          }
         }
-      })
-      .catch((err) => {
-        console.warn('[BelaFarma-Extension] ❌ Conexão falhou. Exibindo instruções de diagnóstico.', err);
-        iframe.style.display = 'none';
-        diagnostics.style.display = 'block';
-        
-        if (btnRetestar) {
-          btnRetestar.disabled = false;
-          btnRetestar.innerText = '2. Tentar Novamente / Recarregar';
-          btnRetestar.style.backgroundColor = '#10b981';
-        }
-      });
+      }
+    );
   }
 
   // Executa o teste de conexão inicial

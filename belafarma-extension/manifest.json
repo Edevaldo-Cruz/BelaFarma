@@ -7,7 +7,10 @@
     "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://web.whatsapp.com/*"
+    "https://web.whatsapp.com/*",
+    "https://app.drogariabelafarma.com.br/*",
+    "https://127.0.0.1/*",
+    "https://localhost/*"
   ],
   "declarative_net_request": {
     "rule_resources": [
