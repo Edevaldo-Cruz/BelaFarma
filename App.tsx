@@ -693,25 +693,7 @@ const App: React.FC = () => {
       />
     );
 
-  const isWidgetOnly = new URLSearchParams(window.location.search).get('widget') === 'whatsapp';
 
-  if (user && isWidgetOnly) {
-    return (
-      <div className="h-screen w-screen bg-white dark:bg-slate-900 overflow-hidden p-0 m-0">
-        <PwaUpdater />
-        <WhatsAppVendas isWidget={true} />
-      </div>
-    );
-  }
-
-  if (user && currentView === 'whatsapp-vendas') {
-    return (
-      <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden p-0 m-0">
-        <PwaUpdater />
-        <WhatsAppVendas onClose={() => handleNavigate('dashboard')} />
-      </div>
-    );
-  }
 
   if (user && isPixOnly) {
     return (
