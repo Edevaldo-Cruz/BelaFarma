@@ -3,7 +3,7 @@ const path = require('path');
 const cron = require('node-cron');
 const db = require('../database');
 
-const JSON_PATH = 'f:\\Documentos\\Desenvolvimento\\siteBelaFarmaSul\\js\\scraped_products.json';
+const JSON_PATH = path.join(__dirname, '../scraped_products.json');
 
 /**
  * Extrai o código de barras (EAN-13 brasileiro) da URL da imagem ou do nome.
