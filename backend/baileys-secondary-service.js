@@ -151,10 +151,8 @@ async function connect(db) {
       }
     });
 
-    // Evento de mensagens recebidas (Exclusivo para o Robô de Etiquetas)
+    // Evento de mensagens recebidas
     if (db) {
-      const LabelBotService = require('./services/label-bot.service.js');
-      const labelBot = new LabelBotService(db);
 
       // ── Histórico de mensagens (Importação em nova conexão) ────────────
       sock.ev.on('messaging-history.set', async (history) => {
@@ -293,96 +291,13 @@ async function connect(db) {
             }
           }
 
-          // 1.5. Acionar o Triage Agent (que precisa saber tanto mensagens recebidas quanto enviadas)
-          const triageAgentService = require('./services/triage-agent.service.js');
-          const pushName = msg.pushName || '';
-          triageAgentService.onMessageReceived(phone, pushName, cleanText, msg.key.fromMe, sock);
 
-          // Se a mensagem foi enviada por nós (fromMe), não processa para o LabelBot
+          // Se a mensagem foi enviada por nós (fromMe), não processa
           if (msg.key.fromMe) return;
 
           // NOVO: Fluxo de Cotações (Quotations)
           const quotationService = require('./services/quotation.service.js');
           await quotationService.processIncomingMessage(db, phone, cleanText, pushName, sock);
-
-          const isPriceResponse = cleanText.startsWith('preço') || cleanText.startsWith('preco');
-          const isLabelTrigger = cleanText.startsWith('etiqueta') || 
-                                 cleanText.startsWith('#etiqueta') || 
-                                 cleanText.startsWith('etq') || 
-                                 cleanText.startsWith('criar etiqueta') || 
-                                 cleanText.startsWith('gerar etiqueta') || 
-                                 cleanText.startsWith('imprimir etiqueta') ||
-                                 isPriceResponse;
-
-          const isImage = messageType === 'imageMessage' || 
-                         (messageType === 'documentMessage' && msg.message.documentMessage.mimetype.startsWith('image/')) ||
-                         (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.mimetype?.startsWith('image/'));
-
-          const isAudio = messageType === 'audioMessage';
-
-          // 🎙️ FLUXO DE ÁUDIO (ETIQUETAS)
-          if (isAudio) {
-            console.log(`[Baileys-Secondary] 🎙️ Áudio recebido de ${phone}. Processando com LabelBot...`);
-            const buffer = await downloadMediaMessage(
-              msg,
-              'buffer',
-              { },
-              { 
-                logger: sock.logger,
-                reuploadRequest: sock.updateMediaMessage
-              }
-            );
-
-            const result = await labelBot.processWhatsAppInput({
-              phone,
-              audioBuffer: buffer
-            });
-
-            if (result && result.replyText) {
-              await sock.sendMessage(remoteJid, { text: result.replyText });
-            }
-          }
-          // 📸 FLUXO DE IMAGEM (ETIQUETAS)
-          else if (isImage) {
-            console.log(`[Baileys-Secondary] 📸 Imagem recebida de ${phone}. Enviando ao LabelBot...`);
-            const buffer = await downloadMediaMessage(
-              msg,
-              'buffer',
-              { },
-              { 
-                logger: sock.logger,
-                reuploadRequest: sock.updateMediaMessage
-              }
-            );
-
-            const base64Image = buffer.toString('base64');
-            const mimeType = msg.message?.imageMessage?.mimetype || 
-                            msg.message?.documentMessage?.mimetype || 
-                            'image/jpeg';
-
-            const result = await labelBot.processWhatsAppInput({
-              phone,
-              imageBase64: base64Image,
-              imageMime: mimeType,
-              text: text
-            });
-
-            if (result && result.replyText) {
-              await sock.sendMessage(remoteJid, { text: result.replyText });
-            }
-          }
-          // 💬 FLUXO DE TEXTO (ETIQUETAS)
-          else if (isLabelTrigger) {
-            console.log(`[Baileys-Secondary] 💬 Texto de etiqueta de ${phone}. Enviando ao LabelBot...`);
-            const result = await labelBot.processWhatsAppInput({
-              phone,
-              text: text
-            });
-
-            if (result && result.replyText) {
-              await sock.sendMessage(remoteJid, { text: result.replyText });
-            }
-          }
         } catch (err) {
           console.error('[Baileys-Secondary] Erro ao processar mensagem recebida:', err.message);
         }

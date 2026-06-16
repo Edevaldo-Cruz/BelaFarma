@@ -158,13 +158,10 @@ async function connect(db) {
       }
     });
 
-    // ── Mensagens (Integração PixBot & LabelBot) ──────────────────────
+    // ── Mensagens (Integração PixBot) ─────────────────────────────────
     if (db) {
       const PixBotService = require('./services/pix-bot.service.js');
       const pixBot = new PixBotService(db);
-
-      const LabelBotService = require('./services/label-bot.service.js');
-      const labelBot = new LabelBotService(db);
 
       // ── Histórico de mensagens (Importação em nova conexão) ────────────
       sock.ev.on('messaging-history.set', async (history) => {
@@ -303,15 +300,8 @@ async function connect(db) {
             }
           }
 
-          // Se a mensagem foi enviada por nós (fromMe), não processa para PixBot/LabelBot
+          // Se a mensagem foi enviada por nós (fromMe), não processa para PixBot
           if (msg.key.fromMe) return;
-
-          const isLabelTrigger = cleanText.startsWith('etiqueta') || 
-                                 cleanText.startsWith('#etiqueta') || 
-                                 cleanText.startsWith('etq') || 
-                                 cleanText.startsWith('criar etiqueta') || 
-                                 cleanText.startsWith('gerar etiqueta') || 
-                                 cleanText.startsWith('imprimir etiqueta');
 
           // Verifica se é imagem ou documento com imagem
           const isImage = !!(
@@ -321,33 +311,9 @@ async function connect(db) {
             Object.keys(msg.message || {}).some(key => key.endsWith('Message') && msg.message[key]?.mimetype?.startsWith('image/'))
           );
 
-          const isAudio = messageType === 'audioMessage';
-
-          // ── FLUXO DE ÁUDIO ──────────────────────────────────
-          if (isAudio) {
-            console.log(`[Baileys] 🎙️ Áudio recebido de ${phone}. Baixando mídia...`);
-            const buffer = await downloadMediaMessage(
-              msg,
-              'buffer',
-              { },
-              { 
-                logger: sock.logger,
-                reuploadRequest: sock.updateMediaMessage
-              }
-            );
-
-            const result = await labelBot.processWhatsAppInput({
-              phone,
-              audioBuffer: buffer
-            });
-
-            if (result && result.replyText) {
-              await sock.sendMessage(remoteJid, { text: result.replyText });
-            }
-          }
-          // ── FLUXO DE IMAGEM ─────────────────────────────────
-          else if (isImage) {
-            console.log(`[Baileys] 📸 Imagem recebida de ${phone}. Analisando...`);
+          // ── FLUXO DE IMAGEM (AUDITORIA PIX) ──────────────────
+          if (isImage) {
+            console.log(`[Baileys] 📸 Imagem recebida de ${phone}. Analisando se é PIX...`);
             
             const buffer = await downloadMediaMessage(
               msg,
@@ -364,47 +330,8 @@ async function connect(db) {
                             msg.message?.documentMessage?.mimetype || 
                             'image/jpeg';
             
-            // Se tiver legenda contendo gatilho de etiqueta
-            if (isLabelTrigger) {
-              console.log(`[Baileys] 🏷️ Legenda explícita de etiqueta detectada. Roteando para LabelBot...`);
-              const result = await labelBot.processWhatsAppInput({
-                phone,
-                imageBase64: base64Image,
-                imageMime: mimeType,
-                text: text
-              });
-              if (result && result.replyText) {
-                await sock.sendMessage(remoteJid, { text: result.replyText });
-              }
-            } else {
-              // Caso contrário, tenta o PixBot primeiro
-              console.log(`[Baileys] 🔍 Tentando auditoria PIX via PixBot...`);
-              const isPix = await pixBot.processBaileysImage(base64Image, mimeType, phone, msg.key.id);
-              
-              // Se não for um PIX, faz o fallback automático para o LabelBot!
-              if (isPix === false) {
-                console.log(`[Baileys] 🏷️ Não é comprovante PIX. Fazendo fallback de imagem para o LabelBot...`);
-                const result = await labelBot.processWhatsAppInput({
-                  phone,
-                  imageBase64: base64Image,
-                  imageMime: mimeType
-                });
-                if (result && result.replyText) {
-                  await sock.sendMessage(remoteJid, { text: result.replyText });
-                }
-              }
-            }
-          }
-          // ── FLUXO DE TEXTO ──────────────────────────────────
-          else if (isLabelTrigger) {
-            console.log(`[Baileys] 💬 Texto de gatilho de etiqueta recebido de ${phone}. Enviando ao LabelBot...`);
-            const result = await labelBot.processWhatsAppInput({
-              phone,
-              text: text
-            });
-            if (result && result.replyText) {
-              await sock.sendMessage(remoteJid, { text: result.replyText });
-            }
+            console.log(`[Baileys] 🔍 Tentando auditoria PIX via PixBot...`);
+            await pixBot.processBaileysImage(base64Image, mimeType, phone, msg.key.id);
           }
         } catch (err) {
           console.error('[Baileys] Erro ao processar mensagem recebida:', err.message);

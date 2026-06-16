@@ -910,13 +910,6 @@ try {
       console.log('Default iFood fee (6.5%) inserted.');
     }
 
-    // Inserir valor padrão para bot de triagem do WhatsApp se não existir
-    const existingTriageBot = db.prepare("SELECT * FROM system_settings WHERE key = 'triage_bot_enabled'").get();
-    if (!existingTriageBot) {
-      db.prepare("INSERT INTO system_settings (key, value, updated_at) VALUES ('triage_bot_enabled', 'true', ?)").run(new Date().toISOString());
-      console.log('Default triage_bot_enabled (true) inserted.');
-    }
-
     console.log('✅ Sistema Foguete Amarelo: Todas as tabelas criadas com sucesso!');
 
     // ========================================================================
