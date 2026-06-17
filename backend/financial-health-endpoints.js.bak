@@ -6,7 +6,6 @@
 const path = require('path');
 const fs = require('fs');
 const { callAI } = require('./services/ai.service');
-const { queryDigifarma } = require('./services/digifarma.service');
 
 const LAST_ANALYSIS_FILE = path.join(__dirname, 'last_financial_analysis.json');
 
@@ -15,10 +14,10 @@ module.exports = function (app, db) {
   // ─────────────────────────────────────────────────────────────────────────
   // GET /api/financial-health/snapshot
   // ─────────────────────────────────────────────────────────────────────────
-  app.get('/api/financial-health/snapshot', async (req, res) => {
+  app.get('/api/financial-health/snapshot', (req, res) => {
     try {
       const days = parseInt(req.query.days) || 30;
-      const snapshot = await buildSnapshot(db, days);
+      const snapshot = buildSnapshot(db, days);
       res.json(snapshot);
     } catch (err) {
       console.error('[FinancialHealth] Erro no snapshot:', err);
@@ -34,7 +33,7 @@ module.exports = function (app, db) {
       const days = parseInt(req.body?.days) || 30;
 
       // 1. Agrega dados
-      const snapshot = await buildSnapshot(db, days);
+      const snapshot = buildSnapshot(db, days);
 
       // 2. Monta prompt
       const prompt = buildPrompt(snapshot, days);
@@ -127,7 +126,7 @@ Responda de forma clara, curta, usando emojis e seja focado em ajudar a gestão 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildSnapshot
 // ─────────────────────────────────────────────────────────────────────────────
-async function buildSnapshot(db, days) {
+function buildSnapshot(db, days) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   const cutoffStr = cutoff.toISOString().split('T')[0];
@@ -227,46 +226,10 @@ async function buildSnapshot(db, days) {
     compraPorDistribuidora[key] = (compraPorDistribuidora[key] || 0) + (o.totalValue || 0);
   }
 
-  // 5.5. Busca CMV Real e Vendas do Digifarma para comparar e ter a margem real
-  let totalCMVReal = 0;
-  let totalVendaDigifarma = 0;
-  let usouCMVReal = false;
-  try {
-    const cmvResult = await queryDigifarma(`
-      SELECT 
-        SUM(COALESCE(iv.ITEMVEND_CMV, iv.ITEMVEND_ULT_COMPRA, 0) * iv.ITEMVEND_QUANT) AS TOTAL_CMV,
-        SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) AS TOTAL_VENDA
-      FROM ITEM_VENDAS iv
-      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-      WHERE v.CANCELADO <> 'S'
-        AND CAST(v.VENDA_DATA_HORA AS DATE) >= ?
-    `, [cutoffStr]);
-    
-    if (cmvResult && cmvResult.length > 0) {
-      totalCMVReal = cmvResult[0].TOTAL_CMV || 0;
-      totalVendaDigifarma = cmvResult[0].TOTAL_VENDA || 0;
-      usouCMVReal = true;
-    }
-  } catch (err) {
-    console.warn('[FinancialHealth] Erro ao buscar CMV do Digifarma (usando fallback de margem estimada):', err.message);
-  }
-
   // KPIs
-  let margemBruta = 0;
-  if (usouCMVReal && totalVendaDigifarma > 0) {
-    margemBruta = ((totalVendaDigifarma - totalCMVReal) / totalVendaDigifarma) * 100;
-  } else {
-    margemBruta = totalFaturamento > 0 ? ((totalFaturamento - totalCompras) / totalFaturamento) * 100 : 0;
-  }
-
-  if (margemBruta < 0) margemBruta = 0;
-  if (margemBruta > 100) margemBruta = 100;
-
+  const margemBruta     = totalFaturamento > 0 ? ((totalFaturamento - totalCompras) / totalFaturamento) * 100 : 0;
   const totalDespesasTotal = totalContasFixas + totalBoletosVencidos + totalBoletosAVencer + totalFoguete;
   const pontoEquilibrio = margemBruta > 0 ? totalContasFixas / (margemBruta / 100) : 0;
-  
-  const cmvProporcional = totalFaturamento * (1 - (margemBruta / 100));
-  const saldoEstimado = totalFaturamento - cmvProporcional - totalContasFixas - totalExpenses;
 
   return {
     periodo: { days, cutoffStr, currentMonth },
@@ -290,10 +253,7 @@ async function buildSnapshot(db, days) {
       margemBrutaPercent: margemBruta,
       pontoEquilibrio,
       totalDespesasTotal,
-      saldoEstimado,
-      totalCMVReal,
-      totalVendaDigifarma,
-      usouCMVReal,
+      saldoEstimado: totalFaturamento - totalDespesasTotal,
     },
   };
 }
