@@ -17,7 +17,18 @@ const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#64748b'
 
 export const PaymentMethodsChart: React.FC<PaymentMethodsChartProps> = ({ cashClosings }) => {
   const data = useMemo(() => {
-    const totals = cashClosings.reduce((acc, curr) => {
+    const today = new Date();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentYear = today.getFullYear();
+
+    const currentMonthClosings = cashClosings.filter(c => {
+      if (!c.date) return false;
+      const datePart = c.date.split('T')[0];
+      const [yearStr, monthStr] = datePart.split('-');
+      return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
+    });
+
+    const totals = currentMonthClosings.reduce((acc, curr) => {
       const credit = curr.credit || 0;
       const debit = curr.debit || 0;
       const pix = curr.pix || 0;
@@ -64,7 +75,7 @@ export const PaymentMethodsChart: React.FC<PaymentMethodsChartProps> = ({ cashCl
             <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
             Distribuição de Pagamentos
           </h2>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 italic">Consolidado histórico de vendas.</p>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 italic">Vendas do mês atual.</p>
         </div>
       </div>
 
@@ -72,13 +83,13 @@ export const PaymentMethodsChart: React.FC<PaymentMethodsChartProps> = ({ cashCl
         <ResponsiveContainer width="100%" height={250} minHeight={250}>
           <PieChart>
             <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={80}
-              paddingAngle={5}
-              dataKey="value"
+               data={data}
+               cx="50%"
+               cy="50%"
+               innerRadius={60}
+               outerRadius={80}
+               paddingAngle={5}
+               dataKey="value"
             >
               {data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
@@ -106,7 +117,7 @@ export const PaymentMethodsChart: React.FC<PaymentMethodsChartProps> = ({ cashCl
       </div>
       
       <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Consolidado</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total do Mês Atual</p>
         <p className="text-xl font-black text-slate-900 dark:text-slate-100">
           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}
         </p>
