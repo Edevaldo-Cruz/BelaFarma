@@ -7,6 +7,8 @@ interface ProvisionsPanelProps {
   fixedAccounts: FixedAccount[];
 }
 
+const formatBRL = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+
 export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, fixedAccounts }) => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -236,7 +238,6 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
     return 'bg-red-500 shadow-red-200';
   };
 
-  const formatBRL = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500 pb-12">
