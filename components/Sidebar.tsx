@@ -54,6 +54,7 @@ interface SidebarProps {
   tasks?: Task[];
   boletos?: Boleto[]; // ADDED
   onOpenTeraModal?: () => void; // ADDED
+  isBudgetBusted?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -67,7 +68,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsOpen,
   tasks = [],
   boletos = [], // ADDED
-  onOpenTeraModal
+  onOpenTeraModal,
+  isBudgetBusted = false
 }) => {
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
@@ -229,9 +231,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <>
 
       <aside 
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transform transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 border-r transform transition-transform duration-300 ease-in-out transition-colors duration-500 md:relative md:translate-x-0 shadow-2xl md:shadow-none ${
+          isBudgetBusted 
+            ? 'bg-red-950 border-red-900 text-red-100' 
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+        } ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:relative md:translate-x-0 shadow-2xl md:shadow-none`}
+        }`}
       >
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-6 py-8">
@@ -248,7 +254,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="relative" ref={notificationRef}>
                 <button 
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
-                  className={`p-2.5 rounded-xl transition-all ${hasNotifications ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600'}`}
+                  className={`p-2.5 rounded-xl transition-all ${
+                    isBudgetBusted
+                      ? hasNotifications ? 'bg-amber-500/20 text-amber-300' : 'bg-red-900/40 text-red-300 hover:text-white'
+                      : hasNotifications ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
+                  }`}
                 >
                   <Bell size={20} className={hasNotifications ? 'animate-bounce' : ''} />
                   {hasNotifications && (
@@ -282,22 +292,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="px-6 mb-8 flex flex-col gap-4">
-            <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
-              <div className={`p-2 rounded-xl ${isAdmin ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+            <div className={`flex items-center gap-3 p-3 rounded-2xl border ${
+              isBudgetBusted
+                ? 'bg-red-900/40 border-red-800/60 text-red-100'
+                : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'
+            }`}>
+              <div className={`p-2 rounded-xl ${
+                isBudgetBusted
+                  ? 'bg-red-900 text-red-200'
+                  : isAdmin ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              }`}>
                 {isAdmin ? <ShieldCheck className="w-4 h-4" /> : <UserIcon className="w-4 h-4" />}
               </div>
               <div className="flex flex-col overflow-hidden">
-                <span className="text-xs font-black text-slate-900 dark:text-slate-100 truncate uppercase tracking-tighter">{user.name}</span>
-                <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">{user.role}</span>
+                <span className={`text-xs font-black truncate uppercase tracking-tighter ${isBudgetBusted ? 'text-red-200' : 'text-slate-900 dark:text-slate-100'}`}>{user.name}</span>
+                <span className={`text-[9px] font-bold uppercase tracking-widest ${isBudgetBusted ? 'text-red-400/80' : 'text-slate-400 dark:text-slate-500'}`}>{user.role}</span>
               </div>
             </div>
 
             <button 
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 group transition-all hover:bg-slate-100 dark:hover:bg-slate-800"
+              className={`flex items-center justify-between p-3 rounded-2xl border group transition-all ${
+                isBudgetBusted
+                  ? 'bg-red-900/40 border-red-800/60 hover:bg-red-900/60 text-red-200'
+                  : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
             >
-              <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Modo {theme === 'light' ? 'Escuro' : 'Claro'}</span>
-              <div className="p-1.5 bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-400 transition-colors">
+              <span className={`text-[10px] font-black uppercase tracking-widest ml-1 ${isBudgetBusted ? 'text-red-300' : 'text-slate-400 dark:text-slate-500'}`}>Modo {theme === 'light' ? 'Escuro' : 'Claro'}</span>
+              <div className={`p-1.5 rounded-lg shadow-sm border text-slate-500 dark:text-slate-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-400 transition-colors ${
+                isBudgetBusted ? 'bg-red-900 border-red-800' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-700'
+              }`}>
                 {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </div>
             </button>
@@ -329,11 +353,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   className={`flex items-center w-full gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
                     isActive 
-                      ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 shadow-sm' 
-                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
+                      ? isBudgetBusted 
+                        ? 'bg-red-900 text-white shadow-sm'
+                        : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 shadow-sm' 
+                      : isBudgetBusted
+                        ? 'text-red-300 hover:bg-red-900/40 hover:text-white'
+                        : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 ${isActive ? 'text-red-600 dark:text-red-500' : 'text-slate-400 dark:text-slate-600'}`} />
+                  <Icon className={`w-5 h-5 ${
+                    isActive 
+                      ? isBudgetBusted ? 'text-white' : 'text-red-600 dark:text-red-500' 
+                      : isBudgetBusted ? 'text-red-400' : 'text-slate-400 dark:text-slate-600'
+                  }`} />
                   <span className="truncate">{item.label}</span>
                   {item.id === 'debtors-report' && hasOverdue && (
                     <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
@@ -343,10 +375,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </nav>
 
-          <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+          <div className={`p-4 border-t transition-colors ${
+            isBudgetBusted 
+              ? 'border-red-900/50 bg-red-950/85' 
+              : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50'
+          }`}>
             <button
               onClick={onLogout}
-              className="flex items-center w-full gap-3 px-4 py-3 text-sm font-bold text-slate-400 dark:text-slate-500 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-all"
+              className={`flex items-center w-full gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all ${
+                isBudgetBusted
+                  ? 'text-red-300 hover:bg-red-900/40 hover:text-white'
+                  : 'text-slate-400 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400'
+              }`}
             >
               <LogOut className="w-5 h-5" />
               Sair do Sistema

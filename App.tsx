@@ -110,14 +110,55 @@ const App: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const { addToast } = useToast();
-  const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(() => {
-    return !sessionStorage.getItem('hasSeenBudgetSummary');
-  });
+  const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
 
   const handleCloseBudgetSummary = () => {
-    sessionStorage.setItem('hasSeenBudgetSummary', 'true');
     setIsBudgetSummaryOpen(false);
   };
+
+  // Cálculos do Orçamento do Mês Atual para o Botão Flutuante e Tema
+  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus } = useMemo(() => {
+    const today = new Date();
+    const currentMonthIndex = today.getMonth(); // 0-11
+    const currentYear = today.getFullYear();
+
+    const currentMonthBoletos = boletos.filter(b => {
+      const d = new Date(b.due_date + 'T00:00:00');
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonthIndex;
+    });
+
+    const currentMonthBoletosTotal = currentMonthBoletos.reduce((sum, b) => sum + b.value, 0);
+    
+    const currentMonthLimitObj = monthlyLimits.find(
+      l => l.month === (currentMonthIndex + 1) && l.year === currentYear
+    );
+    const currentMonthBudgetLimit = currentMonthLimitObj ? currentMonthLimitObj.limit : 0;
+
+    let status: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
+    let emoji = '🤍';
+    let isBusted = false;
+
+    if (currentMonthBudgetLimit > 0) {
+      const percentUsed = (currentMonthBoletosTotal / currentMonthBudgetLimit) * 100;
+      isBusted = percentUsed > 100;
+      if (percentUsed < 80) {
+        status = 'safe';
+        emoji = '💚';
+      } else if (percentUsed <= 100) {
+        status = 'warning';
+        emoji = '💛';
+      } else {
+        status = 'danger';
+        emoji = '💔';
+      }
+    }
+
+    return {
+      isBudgetBusted: isBusted,
+      budgetEmoji: emoji,
+      currentMonthBudgetStatus: status
+    };
+  }, [boletos, monthlyLimits]);
 
   const logoutTimerRef = useRef<number | null>(null);
   const currentViewRef = useRef<View>("dashboard");
@@ -738,10 +779,12 @@ const App: React.FC = () => {
         tasks={tasks}
         boletos={boletos}
         onOpenTeraModal={() => setIsTeraModalOpen(true)}
+        isBudgetBusted={isBudgetBusted}
       />
       <MobileHeader 
         onOpenSidebar={() => setIsSidebarOpen(true)} 
         onSearch={() => handleNavigate("medication-search")} 
+        isBudgetBusted={isBudgetBusted}
       />
       <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
         <div className="max-w-7xl mx-auto pb-10">
@@ -951,6 +994,20 @@ const App: React.FC = () => {
 
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
+
+      {/* Botão Flutuante do Status de Orçamento (Canto Inferior Esquerdo) */}
+      <button
+        onClick={() => setIsBudgetSummaryOpen(true)}
+        className={`fixed bottom-6 left-6 z-[90] flex items-center justify-center w-14 h-14 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group`}
+        title="Ver Painel de Orçamentos"
+      >
+        <span className="text-2xl relative select-none flex items-center justify-center">
+          {budgetEmoji}
+          {(currentMonthBudgetStatus === 'warning' || currentMonthBudgetStatus === 'danger') && (
+            <span className={`absolute -inset-1 rounded-full animate-ping border-2 ${currentMonthBudgetStatus === 'danger' ? 'border-red-500' : 'border-amber-500'} opacity-75`} />
+          )}
+        </span>
+      </button>
 
       {/* Pop-up de Somas de Boletos e Orçamentos por Mês */}
       {isBudgetSummaryOpen && (
