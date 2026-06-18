@@ -132,10 +132,13 @@ export const SalesReport: React.FC = () => {
 
   // KPI calculations
   const kpis = useMemo(() => {
-    if (!data) return { totalVendas: 0, peakHour: 'N/D', topCategory: 'N/D', totalItems: 0 };
+    if (!data) return { totalVendas: 0, peakHour: 'N/D', topCategory: 'N/D', totalItems: 0, ticketMedio: 0 };
 
     const totalVendas = data.categorias.reduce((sum, c) => sum + c.total, 0);
     const totalItems = data.categorias.reduce((sum, c) => sum + c.quantidade, 0);
+    
+    const totalCupons = data.horarios.reduce((sum, h) => sum + h.vendas, 0);
+    const ticketMedio = totalCupons > 0 ? totalVendas / totalCupons : 0;
 
     let maxHora = -1;
     let maxHoraVendas = 0;
@@ -153,7 +156,8 @@ export const SalesReport: React.FC = () => {
       totalVendas,
       peakHour,
       topCategory,
-      totalItems
+      totalItems,
+      ticketMedio
     };
   }, [data]);
 
@@ -289,7 +293,7 @@ export const SalesReport: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <div className="bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800/80 rounded-[2rem] p-6 shadow-sm flex items-center gap-4">
               <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center">
                 <DollarSign className="w-6 h-6" />
@@ -297,6 +301,16 @@ export const SalesReport: React.FC = () => {
               <div>
                 <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Faturamento</p>
                 <p className="text-2xl font-black text-slate-900 dark:text-slate-100">{formatCurrency(kpis.totalVendas)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800/80 rounded-[2rem] p-6 shadow-sm flex items-center gap-4">
+              <div className="w-12 h-12 bg-rose-100 dark:bg-rose-950/30 text-rose-650 dark:text-rose-400 rounded-2xl flex items-center justify-center">
+                <DollarSign className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Ticket Médio</p>
+                <p className="text-2xl font-black text-slate-900 dark:text-slate-100">{formatCurrency(kpis.ticketMedio)}</p>
               </div>
             </div>
 
