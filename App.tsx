@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Auth } from "./components/Auth";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
