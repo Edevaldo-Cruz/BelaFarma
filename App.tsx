@@ -42,6 +42,8 @@ import { StockManagement } from "./components/StockManagement";
 import SuppliersManager from "./components/SuppliersManager";
 import { PwaUpdater } from "./components/PwaUpdater";
 import { MobileHeader } from "./components/MobileHeader";
+import { SalesReport } from "./components/SalesReport";
+import { CriticalStockManager } from "./components/CriticalStockManager";
 import {
   Order,
   View,
@@ -959,6 +961,12 @@ const App: React.FC = () => {
               )}
               {currentView === 'financial-health' && user.role === UserRole.ADM && (
                 <FinancialHealthAdvisor />
+              )}
+              {currentView === 'sales-report' && user.role === UserRole.ADM && (
+                <SalesReport />
+              )}
+              {currentView === 'critical-stock' && user.role === UserRole.ADM && (
+                <CriticalStockManager />
               )}
               {currentView === 'radio-manager' && user.role === UserRole.ADM && (
                 <RadioManager />

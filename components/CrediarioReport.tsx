@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { CreditCard, Calendar, Search, CheckCircle } from 'lucide-react';
+import { CreditCard, Calendar, Search, CheckCircle, MessageSquare } from 'lucide-react';
 import { useToast } from './ToastContext';
 
 interface CrediarioDigifarma {
@@ -25,6 +25,17 @@ export const CrediarioReport: React.FC = () => {
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // States para cobrança via WhatsApp
+  const [isCobrancaModalOpen, setIsCobrancaModalOpen] = useState(false);
+  const [cobrancaMessage, setCobrancaMessage] = useState('');
+  const [cobrancaTargetPhone, setCobrancaTargetPhone] = useState('');
+  const [isSendingCobranca, setIsSendingCobranca] = useState(false);
+  
+  // States para cobrança em lote (batch)
+  const [selectedRecordsForBatch, setSelectedRecordsForBatch] = useState<CrediarioDigifarma[]>([]);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchIndex, setBatchIndex] = useState(0);
 
   const formatCurrency = (value: number) => {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -101,6 +112,122 @@ export const CrediarioReport: React.FC = () => {
     }
   };
 
+  // Abre modal de cobrança para cliente individual
+  const handleOpenCobranca = (record: CrediarioDigifarma) => {
+    if (!record.phone) {
+      addToast('Este cliente não possui telefone celular cadastrado no Digifarma.', 'warning');
+      return;
+    }
+    setSelectedRecord(record);
+    setIsBatchMode(false);
+    setCobrancaTargetPhone(record.phone);
+    
+    const dateFormatted = record.dueDate ? new Date(record.dueDate).toLocaleDateString('pt-BR') : 'N/D';
+    const msg = `Olá, *${(record.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(record.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
+    
+    setCobrancaMessage(msg);
+    setIsCobrancaModalOpen(true);
+  };
+
+  // Abre modal de cobrança em lote para todos os vencidos da lista atual com telefone
+  const handleOpenBatchCobranca = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const overdueWithPhone = filteredRecords.filter(r => {
+      if (!r.phone || !r.dueDate) return false;
+      const d = new Date(r.dueDate);
+      return d < today;
+    });
+
+    if (overdueWithPhone.length === 0) {
+      addToast('Não há crediários vencidos com celular cadastrado para cobrar nesta lista.', 'info');
+      return;
+    }
+
+    setSelectedRecordsForBatch(overdueWithPhone);
+    setIsBatchMode(true);
+    setBatchIndex(0);
+
+    const first = overdueWithPhone[0];
+    setCobrancaTargetPhone(first.phone);
+    
+    const dateFormatted = first.dueDate ? new Date(first.dueDate).toLocaleDateString('pt-BR') : 'N/D';
+    const msg = `Olá, *${(first.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(first.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
+
+    setCobrancaMessage(msg);
+    setIsCobrancaModalOpen(true);
+  };
+
+  // Dispara a cobrança via API
+  const handleSendCobranca = async () => {
+    if (!cobrancaTargetPhone || !cobrancaMessage.trim()) {
+      addToast('Telefone ou mensagem inválidos.', 'warning');
+      return;
+    }
+
+    setIsSendingCobranca(true);
+    try {
+      const response = await fetch('/api/crediario/enviar-cobranca', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: cobrancaTargetPhone,
+          messageText: cobrancaMessage
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Erro ao enviar mensagem.');
+      }
+
+      addToast('Cobrança enviada com sucesso no WhatsApp!', 'success');
+
+      if (isBatchMode) {
+        const nextIdx = batchIndex + 1;
+        if (nextIdx < selectedRecordsForBatch.length) {
+          setBatchIndex(nextIdx);
+          const nextRecord = selectedRecordsForBatch[nextIdx];
+          setCobrancaTargetPhone(nextRecord.phone);
+          
+          const dateFormatted = nextRecord.dueDate ? new Date(nextRecord.dueDate).toLocaleDateString('pt-BR') : 'N/D';
+          const msg = `Olá, *${(nextRecord.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(nextRecord.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
+          
+          setCobrancaMessage(msg);
+        } else {
+          setIsCobrancaModalOpen(false);
+          addToast('Lote de cobranças concluído!', 'success');
+        }
+      } else {
+        setIsCobrancaModalOpen(false);
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast(err.message || 'Erro ao enviar cobrança.', 'error');
+    } finally {
+      setIsSendingCobranca(false);
+    }
+  };
+
+  // Pula cliente no lote
+  const handleSkipCobranca = () => {
+    const nextIdx = batchIndex + 1;
+    if (nextIdx < selectedRecordsForBatch.length) {
+      setBatchIndex(nextIdx);
+      const nextRecord = selectedRecordsForBatch[nextIdx];
+      setCobrancaTargetPhone(nextRecord.phone);
+      
+      const dateFormatted = nextRecord.dueDate ? new Date(nextRecord.dueDate).toLocaleDateString('pt-BR') : 'N/D';
+      const msg = `Olá, *${(nextRecord.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(nextRecord.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
+      
+      setCobrancaMessage(msg);
+    } else {
+      setIsCobrancaModalOpen(false);
+      addToast('Lote de cobranças concluído!', 'success');
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -112,6 +239,10 @@ export const CrediarioReport: React.FC = () => {
           <p className="text-slate-500 font-bold italic text-sm">Vendas em aberto no Digifarma.</p>
         </div>
         <div className="flex items-center gap-2">
+            <button onClick={handleOpenBatchCobranca} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2 transition-colors">
+              <MessageSquare className="w-4 h-4" />
+              Cobrar Vencidos
+            </button>
             <button onClick={fetchCrediarioRecords} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold text-sm shadow-md">
               Atualizar
             </button>
@@ -165,10 +296,18 @@ export const CrediarioReport: React.FC = () => {
                     <td className="px-8 py-4 text-right font-bold text-slate-400">{formatCurrency(record.amount)}</td>
                     <td className="px-8 py-4 text-right font-black text-red-600 text-lg">{formatCurrency(record.balance)}</td>
                     <td className="px-8 py-4 text-center">
-                       <button onClick={() => handleOpenReceive(record)} className="inline-flex items-center gap-1 px-4 py-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg font-bold text-xs transition-colors">
-                         <CheckCircle className="w-3.5 h-3.5" />
-                         Dar Baixa
-                       </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button onClick={() => handleOpenReceive(record)} className="inline-flex items-center gap-1 px-4 py-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg font-bold text-xs transition-colors">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Dar Baixa
+                        </button>
+                        {record.phone && (
+                          <button onClick={() => handleOpenCobranca(record)} className="inline-flex items-center gap-1 px-4 py-2 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg font-bold text-xs transition-colors">
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            Cobrar
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -177,7 +316,7 @@ export const CrediarioReport: React.FC = () => {
           </table>
         </div>
       </div>
-
+ 
       {isModalOpen && selectedRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onKeyDown={(e) => e.key === 'Escape' && setIsModalOpen(false)}>
            <div className="bg-white w-full max-w-md rounded-[2rem] p-8 space-y-6 shadow-2xl">
@@ -190,7 +329,7 @@ export const CrediarioReport: React.FC = () => {
                  <span className="text-xs font-black text-slate-400 uppercase">Total Pendente</span>
                  <span className="text-xl font-black text-slate-900">{formatCurrency(selectedRecord.balance)}</span>
               </div>
-
+ 
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Valor a Receber (R$)*</label>
                 <input 
@@ -201,14 +340,73 @@ export const CrediarioReport: React.FC = () => {
                   className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black text-3xl text-center outline-none focus:border-amber-500"
                 />
               </div>
-
+ 
               <div className="grid grid-cols-2 gap-4 pt-4">
-                 <button disabled={isProcessing} onClick={() => setIsModalOpen(false)} className="py-4 bg-slate-100 text-slate-600 rounded-xl font-black uppercase text-sm">Cancelar</button>
+                 <button disabled={isProcessing} onClick={() => setIsModalOpen(false)} className="py-4 bg-slate-100 text-slate-650 rounded-xl font-black uppercase text-sm">Cancelar</button>
                  <button disabled={isProcessing || paymentAmount <= 0 || paymentAmount > selectedRecord.balance} onClick={handleReceive} className="py-4 bg-emerald-600 text-white rounded-xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-lg disabled:opacity-50">
                     {isProcessing ? 'Baixando...' : 'Confirmar'}
                  </button>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* Modal de Cobrança WhatsApp (Preview/Aprovação) */}
+      {isCobrancaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-[2rem] p-8 space-y-6 shadow-2xl">
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-black text-slate-900 uppercase">
+                {isBatchMode ? `Cobrança em Lote (${batchIndex + 1}/${selectedRecordsForBatch.length})` : 'Enviar Cobrança'}
+              </h2>
+              <p className="text-sm font-bold text-slate-500">
+                Cliente: <span className="text-slate-950 font-black">{isBatchMode ? selectedRecordsForBatch[batchIndex].clientName : selectedRecord?.clientName}</span>
+              </p>
+              <p className="text-xs text-slate-400 font-bold">
+                WhatsApp: {cobrancaTargetPhone}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Mensagem de Cobrança (Pode editar)*</label>
+              <textarea
+                value={cobrancaMessage}
+                onChange={e => setCobrancaMessage(e.target.value)}
+                rows={6}
+                className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-medium text-sm text-slate-800 outline-none focus:border-emerald-500 resize-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-4">
+              <button
+                disabled={isSendingCobranca}
+                onClick={() => setIsCobrancaModalOpen(false)}
+                className="py-4 bg-slate-100 text-slate-600 rounded-xl font-black uppercase text-xs"
+              >
+                Cancelar
+              </button>
+
+              {isBatchMode && (
+                <button
+                  disabled={isSendingCobranca}
+                  onClick={handleSkipCobranca}
+                  className="py-4 bg-amber-105 text-amber-700 rounded-xl font-black uppercase text-xs hover:bg-amber-200 transition-colors"
+                >
+                  Pular
+                </button>
+              )}
+
+              <button
+                disabled={isSendingCobranca}
+                onClick={handleSendCobranca}
+                className={`py-4 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 shadow-lg hover:bg-emerald-700 transition-colors ${
+                  isBatchMode ? 'col-span-1' : 'col-span-2'
+                }`}
+              >
+                {isSendingCobranca ? 'Enviando...' : 'Enviar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

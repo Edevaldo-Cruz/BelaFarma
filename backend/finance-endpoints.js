@@ -277,6 +277,106 @@ module.exports = function (db) {
     return { newCustomers, newDebts, total: crediarios.length };
   };
 
+  // Rota de pagamentos do mês atual do Digifarma (Real-time)
+  router.get('/monthly-payments', async (req, res) => {
+    try {
+      const sql = `
+        SELECT 
+          fp.TIPO_PAGAMENTO_ID,
+          fp.BANDEIRA,
+          COALESCE(SUM(fp.VALOR), 0) as TOTAL
+        FROM CAB_VENDAS_FPAGTOS fp
+        JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE EXTRACT(MONTH FROM v.VENDA_DATA_HORA) = EXTRACT(MONTH FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM v.VENDA_DATA_HORA) = EXTRACT(YEAR FROM CURRENT_DATE)
+          AND v.CANCELADO <> 'S'
+        GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
+      `;
+      
+      const payments = await queryDigifarma(sql);
+      res.json(payments);
+    } catch (err) {
+      console.error('[Finance] Erro em /monthly-payments:', err.message);
+      if (err.message.includes('Offline')) {
+        return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Rota de relatório de vendas do Digifarma (Categorias e Horários)
+  router.get('/sales-report', async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      
+      let start = startDate;
+      let end = endDate;
+      
+      if (!start || !end) {
+        const today = new Date();
+        const past = new Date();
+        past.setDate(today.getDate() - 30);
+        
+        const pad = (num) => String(num).padStart(2, '0');
+        start = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+        end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+      }
+
+      // 1. Vendas por Categoria
+      const sqlCategorias = `
+        SELECT 
+          COALESCE(c.CATEGORIA, 'Sem Categoria') AS CATEGORIA_NOME,
+          SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) AS TOTAL_VENDA,
+          SUM(iv.ITEMVEND_QUANT) AS QTD_ITENS
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        WHERE v.CANCELADO <> 'S'
+          AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
+        GROUP BY c.CATEGORIA
+        ORDER BY TOTAL_VENDA DESC
+      `;
+
+      // 2. Vendas por Horário
+      const sqlHorarios = `
+        SELECT 
+          EXTRACT(HOUR FROM v.VENDA_DATA_HORA) AS HORA,
+          SUM(v.VENDA_TOTAL) AS TOTAL_VENDA,
+          COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS
+        FROM CAB_VENDAS v
+        WHERE v.CANCELADO <> 'S'
+          AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
+        GROUP BY EXTRACT(HOUR FROM v.VENDA_DATA_HORA)
+        ORDER BY HORA ASC
+      `;
+
+      const [categoriasResult, horariosResult] = await Promise.all([
+        queryDigifarma(sqlCategorias, [start, end]),
+        queryDigifarma(sqlHorarios, [start, end])
+      ]);
+
+      res.json({
+        categorias: (categoriasResult || []).map(r => ({
+          categoria: (r.CATEGORIA_NOME || '').trim(),
+          total: r.TOTAL_VENDA || 0,
+          quantidade: r.QTD_ITENS || 0
+        })),
+        horarios: (horariosResult || []).map(r => ({
+          hora: r.HORA,
+          total: r.TOTAL_VENDA || 0,
+          vendas: r.QTD_VENDAS || 0
+        }))
+      });
+    } catch (err) {
+      console.error('[Finance] Erro em /sales-report:', err.message);
+      if (err.message.includes('Offline')) {
+        return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Endpoint manual para sincronizar
   router.post('/sync-crediario', async (req, res) => {
     try {

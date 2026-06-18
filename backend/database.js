@@ -1212,12 +1212,16 @@ try {
     } catch(e) {}
     console.log('✅ WhatsApp Vendas: Tabela scraped_images criada/verificada!');
 
-    // Migration: adicionar coluna whatsapp_lid na tabela customers
-    try {
-      db.exec('ALTER TABLE customers ADD COLUMN whatsapp_lid TEXT');
-      db.exec('CREATE INDEX IF NOT EXISTS idx_customers_lid ON customers(whatsapp_lid)');
-      console.log('✅ CRM WhatsApp: Coluna whatsapp_lid e índice idx_customers_lid criados!');
-    } catch(e) {}
+    // Criar tabela critical_products para estoque crítico monitorado
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS critical_products (
+        id TEXT PRIMARY KEY,
+        produto_id INTEGER NOT NULL UNIQUE,
+        productName TEXT NOT NULL,
+        minStock INTEGER DEFAULT 0
+      )
+    `);
+    console.log('✅ Estoque Crítico: Tabela critical_products criada/verificada!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

@@ -1820,6 +1820,161 @@ app.post('/api/crediario/receber', async (req, res) => {
   }
 });
 
+// POST send crediario billing message via WhatsApp
+app.post('/api/crediario/enviar-cobranca', async (req, res) => {
+  try {
+    const { phone, messageText } = req.body;
+    if (!phone || !messageText) {
+      return res.status(400).json({ error: 'Faltam dados para envio (celular ou mensagem).' });
+    }
+
+    const messageSender = require('./services/message-sender.service');
+    const result = await messageSender.sendMessage(phone, messageText);
+    
+    if (result.success) {
+      res.json({ success: true, message: 'Cobrança enviada com sucesso!' });
+    } else {
+      res.status(500).json({ error: result.error || 'Erro ao enviar mensagem via WhatsApp.' });
+    }
+  } catch (err) {
+    console.error('Error sending WhatsApp debt alert:', err);
+    res.status(500).json({ error: 'Falha interna ao enviar cobrança.' });
+  }
+});
+
+// --- Critical Stock Endpoints (Tabela critical_products local) ---
+// GET all critical products
+app.get('/api/stock/critical', async (req, res) => {
+  try {
+    const products = db.prepare('SELECT * FROM critical_products ORDER BY productName ASC').all();
+    res.json(products);
+  } catch (err) {
+    console.error('Error fetching critical products:', err);
+    res.status(500).json({ error: 'Erro ao listar produtos críticos.' });
+  }
+});
+
+// POST add new critical product
+app.post('/api/stock/critical', async (req, res) => {
+  try {
+    const { produto_id, productName, minStock } = req.body;
+    if (!produto_id || !productName) {
+      return res.status(400).json({ error: 'ID e nome do produto são obrigatórios.' });
+    }
+
+    const id = 'cp_' + Date.now().toString() + '_' + Math.random().toString(36).substring(2, 7);
+    const min = minStock !== undefined ? Number(minStock) : 0;
+
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO critical_products (id, produto_id, productName, minStock)
+      VALUES (?, ?, ?, ?)
+    `);
+    stmt.run(id, Number(produto_id), productName.trim(), min);
+
+    res.json({ success: true, product: { id, produto_id, productName, minStock: min } });
+  } catch (err) {
+    console.error('Error adding critical product:', err);
+    res.status(500).json({ error: 'Erro ao adicionar produto crítico.' });
+  }
+});
+
+// DELETE remove critical product
+app.delete('/api/stock/critical/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM critical_products WHERE id = ?').run(id);
+    res.json({ success: true, message: 'Produto crítico removido do monitoramento.' });
+  } catch (err) {
+    console.error('Error deleting critical product:', err);
+    res.status(500).json({ error: 'Erro ao remover produto crítico.' });
+  }
+});
+
+// GET/POST check critical products stock against Digifarma database
+app.get('/api/stock/critical/check', async (req, res) => {
+  try {
+    const criticalList = db.prepare('SELECT * FROM critical_products').all();
+    if (criticalList.length === 0) {
+      return res.json({ alerts: [], checkedCount: 0 });
+    }
+
+    // Busca no Digifarma o saldo real dos produtos cadastrados
+    const productIds = criticalList.map(p => p.produto_id);
+    const sql = `
+      SELECT PRODUTO_ID, PRODUTO, PROD_SALDO 
+      FROM PRODUTOS 
+      WHERE PRODUTO_ID IN (${productIds.join(',')})
+    `;
+    
+    const digiProducts = await queryDigifarma(sql);
+    
+    const alerts = [];
+    for (const cp of criticalList) {
+      const dp = (digiProducts || []).find(x => x.PRODUTO_ID === cp.produto_id);
+      const currentStock = dp ? dp.PROD_SALDO : 0;
+      
+      if (currentStock <= cp.minStock) {
+        alerts.push({
+          id: cp.id,
+          produto_id: cp.produto_id,
+          productName: cp.productName,
+          minStock: cp.minStock,
+          currentStock: currentStock,
+          isZero: currentStock <= 0
+        });
+      }
+    }
+
+    res.json({
+      alerts,
+      checkedCount: criticalList.length
+    });
+  } catch (err) {
+    console.error('Error checking critical stock alerts:', err);
+    if (err.message.includes('Offline')) {
+      return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+    }
+    res.status(500).json({ error: 'Erro ao verificar alertas de estoque crítico.' });
+  }
+});
+
+// POST send WhatsApp alert for critical stock to Admin
+app.post('/api/stock/critical/notify-admin', async (req, res) => {
+  try {
+    const { alerts } = req.body;
+    if (!alerts || alerts.length === 0) {
+      return res.status(400).json({ error: 'Nenhum alerta para enviar.' });
+    }
+
+    const messageSender = require('./services/message-sender.service');
+    const adminPhone = process.env.ADMIN_WHATSAPP;
+    if (!adminPhone) {
+      return res.status(400).json({ error: 'Celular do administrador não cadastrado no .env (ADMIN_WHATSAPP).' });
+    }
+
+    let msg = `⚠️ *ALERTA DE ESTOQUE CRÍTICO - BELAFARMA*\n\n`;
+    msg += `Os seguintes produtos monitorados estão com estoque baixo ou zerado:\n\n`;
+    
+    alerts.forEach((alt, idx) => {
+      msg += `${idx + 1}. *${alt.productName}*\n`;
+      msg += `   - Estoque Atual: *${alt.currentStock}*\n`;
+      msg += `   - Estoque Mínimo: *${alt.minStock}*\n\n`;
+    });
+    
+    msg += `Por favor, avalie a necessidade de reposição junto aos distribuidores.`;
+
+    const result = await messageSender.sendMessage(adminPhone, msg);
+    if (result.success) {
+      res.json({ success: true, message: 'Alerta enviado ao administrador!' });
+    } else {
+      res.status(500).json({ error: result.error || 'Erro ao enviar WhatsApp.' });
+    }
+  } catch (err) {
+    console.error('Error notifying admin about critical stock:', err);
+    res.status(500).json({ error: 'Erro ao processar notificação.' });
+  }
+});
+
 // --- Tasks CUD ---
 // CREATE Task
 app.post('/api/tasks', (req, res) => {
