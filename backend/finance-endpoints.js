@@ -338,16 +338,16 @@ module.exports = function (db) {
         ORDER BY TOTAL_VENDA DESC
       `;
 
-      // 2. Vendas por Horário
+      // 2. Vendas por Horário (com correção de -3 horas para fuso horário de Brasília)
       const sqlHorarios = `
         SELECT 
-          EXTRACT(HOUR FROM v.VENDA_DATA_HORA) AS HORA,
+          EXTRACT(HOUR FROM DATEADD(-3 HOUR TO v.VENDA_DATA_HORA)) AS HORA,
           SUM(v.VENDA_TOTAL) AS TOTAL_VENDA,
           COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS
         FROM CAB_VENDAS v
         WHERE v.CANCELADO <> 'S'
           AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
-        GROUP BY EXTRACT(HOUR FROM v.VENDA_DATA_HORA)
+        GROUP BY EXTRACT(HOUR FROM DATEADD(-3 HOUR TO v.VENDA_DATA_HORA))
         ORDER BY HORA ASC
       `;
 
