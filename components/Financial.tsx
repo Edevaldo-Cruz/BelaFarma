@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive } from 'lucide-react';
+import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign } from 'lucide-react';
 import { Order, OrderStatus, Installment, Boleto, BoletoStatus, FixedAccount, User, MonthlyLimit, CashClosingRecord } from '../types';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
 import { FinancialArchive } from './FinancialArchive';
@@ -20,6 +20,7 @@ interface FinancialProps {
   onDeleteBoleto: (id: string) => void;
   onLog: (action: string, details: string) => void;
   cashClosings: CashClosingRecord[];
+  onOpenBudgetSummary: () => void;
 }
 
 type Transaction = Order | Boleto | (FixedAccount & { isFixed: true, targetDate: string });
@@ -40,7 +41,8 @@ export const Financial: React.FC<FinancialProps> = ({
   onUpdateBoleto,
   onDeleteBoleto,
   onLog,
-  cashClosings
+  cashClosings,
+  onOpenBudgetSummary
 }) => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
@@ -193,6 +195,12 @@ export const Financial: React.FC<FinancialProps> = ({
             <p className="text-slate-500 font-medium italic">Visão consolidada e controle de obrigações.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button 
+            onClick={onOpenBudgetSummary} 
+            className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all shadow-md active:scale-95"
+          >
+              <DollarSign className="w-4 h-4" /> Orçamentos por Mês
+          </button>
           {activeTab === 'overview' && (
             <button onClick={() => setShowArchive(true)} className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-600 dark:text-slate-400 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all">
                 <Archive className="w-4 h-4" /> Arquivo

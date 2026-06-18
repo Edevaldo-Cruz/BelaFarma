@@ -15,6 +15,7 @@ import { Logs } from "./components/Logs";
 import { Quotations } from "./components/Quotations";
 import { CheckingAccount } from "./components/CheckingAccount";
 import { ContasAPagar } from "./components/ContasAPagar";
+import { BoletoBudgetSummaryModal } from "./components/BoletoBudgetSummaryModal";
 import { DaysInDebt } from "./components/DaysInDebt";
 import { CrediarioReport } from "./components/CrediarioReport";
 import { TaskManagementPage } from "./components/TaskManagementPage";
@@ -109,6 +110,14 @@ const App: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const { addToast } = useToast();
+  const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(() => {
+    return !sessionStorage.getItem('hasSeenBudgetSummary');
+  });
+
+  const handleCloseBudgetSummary = () => {
+    sessionStorage.setItem('hasSeenBudgetSummary', 'true');
+    setIsBudgetSummaryOpen(false);
+  };
 
   const logoutTimerRef = useRef<number | null>(null);
   const currentViewRef = useRef<View>("dashboard");
@@ -815,6 +824,7 @@ const App: React.FC = () => {
                   onDeleteBoleto={handleDeleteBoleto}
                   onLog={(act, det) => createLog("Financeiro", act, det)}
                   cashClosings={cashClosings}
+                  onOpenBudgetSummary={() => setIsBudgetSummaryOpen(true)}
                 />
               )}
               {currentView === "users" && user.role === UserRole.ADM && (
@@ -941,6 +951,15 @@ const App: React.FC = () => {
 
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
+
+      {/* Pop-up de Somas de Boletos e Orçamentos por Mês */}
+      {isBudgetSummaryOpen && (
+        <BoletoBudgetSummaryModal
+          boletos={boletos}
+          monthlyLimits={monthlyLimits}
+          onClose={handleCloseBudgetSummary}
+        />
+      )}
     </div>
   );
 };

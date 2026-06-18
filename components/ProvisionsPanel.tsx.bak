@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Target, Wallet, Calendar as CalendarIcon, Save, Info, AlertTriangle, CheckCircle2, DollarSign, Edit2, X, TrendingUp, Sliders, Calculator, Percent } from 'lucide-react';
+import { Target, Wallet, Calendar as CalendarIcon, Save, Info, AlertTriangle, CheckCircle2, DollarSign, Edit2, X, TrendingUp } from 'lucide-react';
 import { CashClosingRecord, FixedAccount } from '../types';
 
 interface ProvisionsPanelProps {
@@ -25,17 +25,8 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
   
   const [paidProvisionsDates, setPaidProvisionsDates] = useState<string[]>([]);
   const [showFixedDetails, setShowFixedDetails] = useState(false);
-  const [calcSales, setCalcSales] = useState<string>('');
-  const [calcMargin, setCalcMargin] = useState<number>(36.6);
-  const [calcTaxes, setCalcTaxes] = useState<number>(10);
-  const [calcExtraProvision, setCalcExtraProvision] = useState<number>(1500);
 
   const now = new Date();
-
-  // Sincroniza o faturamento simulado inicial com o faturamento do mês selecionado
-  useEffect(() => {
-    setCalcSales(currentMonthSales > 0 ? currentMonthSales.toString() : salesGoal.toString());
-  }, [currentMonthSales, salesGoal]);
 
   useEffect(() => {
     const fetchGoals = async () => {
@@ -177,52 +168,6 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
   // Se for o dia 1 (ou qualquer dia) e estivermos olhando para um mês anterior:
   const isPastMonth = selectedYear < now.getFullYear() || (selectedYear === now.getFullYear() && selectedMonth < now.getMonth());
   const partnerShare = (prolaboreGoal * salesProgressPercent) / 2;
-
-  // Lógica da Calculadora Open to Buy (Compra Segura) e Provisões
-  const simulatedSales = Number(calcSales) || 0;
-  const simulatedTaxesValue = simulatedSales * (calcTaxes / 100);
-  const simulatedCMVValue = simulatedSales * (1 - (calcMargin / 100));
-  const totalFixedCosts = fixedAccountsTotal + prolaboreGoal + vacationGoal;
-  const rawOTBMensal = simulatedSales - simulatedTaxesValue - totalFixedCosts - calcExtraProvision;
-  const otbMensal = Math.max(0, rawOTBMensal);
-  const otbSemanal = Math.max(0, otbMensal / 4);
-  const surplusBeforePurchasing = simulatedSales - simulatedTaxesValue - totalFixedCosts;
-
-  const getOTBAdvice = () => {
-    if (simulatedSales <= 0) {
-      return {
-        type: 'info',
-        bg: 'bg-blue-50 border-blue-100 text-blue-800 dark:bg-blue-950/20 dark:border-blue-900/30 dark:text-blue-400',
-        icon: <Info className="w-5 h-5 text-blue-600 shrink-0" />,
-        message: 'Insira um faturamento de referência para calcular seu orçamento de compras seguro.'
-      };
-    }
-    if (surplusBeforePurchasing < calcExtraProvision) {
-      const diff = calcExtraProvision - surplusBeforePurchasing;
-      return {
-        type: 'danger',
-        bg: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/20 dark:border-red-900/30 dark:text-red-400',
-        icon: <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 animate-pulse" />,
-        message: `Alerta Crítico: O faturamento de ${formatBRL(simulatedSales)} não cobre os impostos, custos fixos, pró-labore e a provisão extra desejada de ${formatBRL(calcExtraProvision)}. Faltam ${formatBRL(diff)} no caixa. Para realizar a provisão, você terá que reduzir drasticamente as compras ou queimar estoque antigo parado.`
-      };
-    }
-    if (rawOTBMensal < simulatedCMVValue) {
-      return {
-        type: 'warning',
-        bg: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-400',
-        icon: <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />,
-        message: `Compre menos que a reposição: Seu limite de compras seguro é de ${formatBRL(otbMensal)}, mas o custo teórico do que saiu foi de ${formatBRL(simulatedCMVValue)}. Você precisará frear suas compras de reposição em ${formatBRL(simulatedCMVValue - otbMensal)} neste mês para forçar o estoque parado a girar e liberar a provisão no caixa.`
-      };
-    }
-    return {
-      type: 'success',
-      bg: 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400',
-      icon: <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />,
-      message: `Caixa Saudável! Você pode comprar a reposição completa das mercadorias vendidas (${formatBRL(simulatedCMVValue)}) e ainda sobrará dinheiro suficiente no caixa para pagar as contas fixas, os pró-labores e guardar a provisão de ${formatBRL(calcExtraProvision)}.`
-    };
-  };
-
-  const advice = getOTBAdvice();
 
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(selectedYear, i, 1);
@@ -514,111 +459,6 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
         </div>
       </div>
       
-      {/* SEÇÃO CALCULADORA OPEN TO BUY (COMPRA SEGURA) */}
-      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div>
-          <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tighter flex items-center gap-2">
-            <Calculator className="w-5 h-5 text-indigo-600" />
-            Planejamento de Compras Seguro & Provisões (Open to Buy)
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Defina suas metas de provisão e simule o limite máximo que pode gastar em distribuidoras para sobrar dinheiro em caixa.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1 flex items-center gap-1">
-              Faturamento Base
-            </label>
-            <input 
-              type="number" 
-              value={calcSales} 
-              onChange={e => setCalcSales(e.target.value)} 
-              placeholder="Ex: 40000"
-              className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-            />
-            <span className="text-[9px] text-slate-400 block ml-1">Faturamento real do mês: {formatBRL(currentMonthSales)}</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1 flex items-center gap-1">
-              Margem Bruta %
-            </label>
-            <div className="relative">
-              <input 
-                type="number" 
-                step="0.1"
-                value={calcMargin} 
-                onChange={e => setCalcMargin(Number(e.target.value))} 
-                className="w-full p-3 pr-8 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-              <Percent className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            </div>
-            <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-bold block ml-1">Margem real do Digifarma: 36.6%</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">
-              Impostos + Taxas %
-            </label>
-            <div className="relative">
-              <input 
-                type="number" 
-                value={calcTaxes} 
-                onChange={e => setCalcTaxes(Number(e.target.value))} 
-                className="w-full p-3 pr-8 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-              <Percent className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            </div>
-            <span className="text-[9px] text-slate-400 block ml-1">Simples Nac. + Taxas maquininha</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">
-              Provisão Extra do Mês
-            </label>
-            <input 
-              type="number" 
-              value={calcExtraProvision} 
-              onChange={e => setCalcExtraProvision(Number(e.target.value))} 
-              className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-            />
-            <span className="text-[9px] text-slate-400 block ml-1">Fundo reserva que deseja guardar</span>
-          </div>
-        </div>
-
-        {/* RESULTADOS DA CALCULADORA */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="bg-indigo-50/50 dark:bg-indigo-950/10 p-5 rounded-2xl border border-indigo-100/50 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-indigo-400 dark:text-indigo-500 uppercase tracking-widest">Orçamento Mensal de Compras</p>
-            <p className="text-3xl font-black text-indigo-700 dark:text-indigo-400 tracking-tighter mt-1">{formatBRL(otbMensal)}</p>
-            <p className="text-[9px] text-slate-500 mt-2">Limite máximo de boletos para o mês fechar positivo.</p>
-          </div>
-
-          <div className="bg-emerald-50/50 dark:bg-emerald-950/10 p-5 rounded-2xl border border-emerald-100/50 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-emerald-500 dark:text-emerald-600 uppercase tracking-widest">Limite de Compras Semanal</p>
-            <p className="text-3xl font-black text-emerald-700 dark:text-emerald-400 tracking-tighter mt-1">{formatBRL(otbSemanal)}</p>
-            <p className="text-[9px] text-slate-500 mt-2">Limite ideal para dividir os pedidos semanais nas distribuidoras.</p>
-          </div>
-
-          <div className="bg-slate-50 dark:bg-slate-800/30 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Custo de Reposição Teórico (CMV)</p>
-            <p className="text-xl font-bold text-slate-600 dark:text-slate-400 mt-1">{formatBRL(simulatedCMVValue)}</p>
-            <p className="text-[9px] text-slate-500 mt-3">Soma das Contas Fixas + Pró-labore no período: <span className="font-bold text-slate-700 dark:text-slate-300">{formatBRL(totalFixedCosts)}</span></p>
-          </div>
-        </div>
-
-        {/* CARD DE AVISO TÁTICO */}
-        <div className={`p-5 rounded-2xl border flex items-start gap-3 text-xs font-bold transition-all ${advice.bg}`}>
-          {advice.icon}
-          <div>
-            <p className="uppercase tracking-widest text-[10px] font-black opacity-80 mb-0.5">Conselho Financeiro Tático</p>
-            <p className="leading-relaxed font-medium">{advice.message}</p>
-          </div>
-        </div>
-      </div>
-
       <div className="bg-slate-50 border-2 border-dashed border-slate-200 p-6 rounded-[2rem] flex items-center gap-4 text-slate-500 text-sm font-bold">
         <Info className="w-8 h-8 text-indigo-400 shrink-0" />
         <p>A matemática é simples: À medida que as vendas do mês aumentam e se aproximam da Meta de Faturamento, a porcentagem de conclusão é aplicada igualmente em todos os 3 Potes de Provisão.</p>
