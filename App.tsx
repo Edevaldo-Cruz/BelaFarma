@@ -995,13 +995,13 @@ const App: React.FC = () => {
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
 
-      {/* Botão Flutuante do Status de Orçamento (Canto Inferior Esquerdo) */}
+      {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
       <button
         onClick={() => setIsBudgetSummaryOpen(true)}
-        className={`fixed bottom-6 left-6 z-[90] flex items-center justify-center w-14 h-14 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group`}
+        className={`fixed bottom-8 right-8 z-[90] flex items-center justify-center w-20 h-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group`}
         title="Ver Painel de Orçamentos"
       >
-        <span className="text-2xl relative select-none flex items-center justify-center">
+        <span className="text-4xl relative select-none flex items-center justify-center">
           {budgetEmoji}
           {(currentMonthBudgetStatus === 'warning' || currentMonthBudgetStatus === 'danger') && (
             <span className={`absolute -inset-1 rounded-full animate-ping border-2 ${currentMonthBudgetStatus === 'danger' ? 'border-red-500' : 'border-amber-500'} opacity-75`} />
