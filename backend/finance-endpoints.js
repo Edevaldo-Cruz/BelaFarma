@@ -322,7 +322,7 @@ module.exports = function (db) {
         end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
       }
 
-      // 1. Vendas por Categoria (com fuso horário local no filtro)
+      // 1. Vendas por Categoria
       const sqlCategorias = `
         SELECT 
           COALESCE(c.CATEGORIA, 'Sem Categoria') AS CATEGORIA_NOME,
@@ -333,21 +333,21 @@ module.exports = function (db) {
         JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
         LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
         WHERE v.CANCELADO <> 'S'
-          AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) BETWEEN ? AND ?
+          AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
         GROUP BY c.CATEGORIA
         ORDER BY TOTAL_VENDA DESC
       `;
 
-      // 2. Vendas por Horário (com fuso horário local e compatível com todas as versões no filtro)
+      // 2. Vendas por Horário
       const sqlHorarios = `
         SELECT 
-          EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125)) AS HORA,
+          EXTRACT(HOUR FROM v.VENDA_DATA_HORA) AS HORA,
           SUM(v.VENDA_TOTAL) AS TOTAL_VENDA,
           COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS
         FROM CAB_VENDAS v
         WHERE v.CANCELADO <> 'S'
-          AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) BETWEEN ? AND ?
-        GROUP BY EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125))
+          AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
+        GROUP BY EXTRACT(HOUR FROM v.VENDA_DATA_HORA)
         ORDER BY HORA ASC
       `;
 
