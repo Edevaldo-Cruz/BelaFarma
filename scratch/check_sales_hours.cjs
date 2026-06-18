@@ -7,17 +7,16 @@ async function testTimezoneCorrection() {
     const pad = (num) => String(num).padStart(2, '0');
     const startStr = `${data30DiasAtras.getFullYear()}-${pad(data30DiasAtras.getMonth() + 1)}-${pad(data30DiasAtras.getDate())} 00:00:00`;
 
-    console.log('Testando query de horas com ajuste de fuso (-3 horas)...');
-
+    console.log('Testando query de horas com ajuste matemático de fuso (-0.125 dias = -3 horas)');
     const sql = `
       SELECT 
-        EXTRACT(HOUR FROM DATEADD(-3 HOUR TO v.VENDA_DATA_HORA)) AS HORA,
+        EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125)) AS HORA,
         COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS,
         SUM(v.VENDA_TOTAL) AS TOTAL_VENDA
       FROM CAB_VENDAS v
       WHERE v.CANCELADO <> 'S'
         AND v.VENDA_DATA_HORA >= ?
-      GROUP BY EXTRACT(HOUR FROM DATEADD(-3 HOUR TO v.VENDA_DATA_HORA))
+      GROUP BY EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125))
       ORDER BY HORA ASC
     `;
 
