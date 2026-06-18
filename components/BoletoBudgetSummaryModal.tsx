@@ -202,10 +202,16 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
         {/* Listagem de Meses */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-4">
           <div className="grid grid-cols-1 gap-4">
-            {monthlyStats.map(stat => {
-              const styles = getStatusStyles(stat.status);
-              const isExceeded = stat.status === 'danger';
-              const hasBudget = stat.status !== 'no-budget';
+            {monthlyStats
+              .filter(stat => {
+                const today = new Date();
+                if (currentYear !== today.getFullYear()) return true;
+                return stat.monthIndex >= today.getMonth() - 1;
+              })
+              .map(stat => {
+                const styles = getStatusStyles(stat.status);
+                const isExceeded = stat.status === 'danger';
+                const hasBudget = stat.status !== 'no-budget';
               
               // Calcula diferença absoluta
               const difference = Math.abs(stat.budgetLimit - stat.totalValue);
