@@ -405,16 +405,19 @@ module.exports = function (db) {
         ORDER BY TOTAL_VENDA DESC
       `;
 
-      // 2. Vendas por Horário (Otimizado para usar index)
+      // 2. Vendas por Horário
+      // NOTA: O node-firebird já converte os timestamps do Firebird para hora local (GMT-3).
+      // Portanto, usamos EXTRACT(HOUR FROM ...) diretamente sem subtrair offset algum.
+      // O offset -0.125 (3 horas) estava incorretamente deslocando vendas das 17h/18h para 14h/15h.
       const sqlHorarios = `
         SELECT 
-          EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125)) AS HORA,
+          EXTRACT(HOUR FROM v.VENDA_DATA_HORA) AS HORA,
           SUM(v.VENDA_TOTAL) AS TOTAL_VENDA,
           COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS
         FROM CAB_VENDAS v
         WHERE v.CANCELADO <> 'S'
           AND v.VENDA_DATA_HORA BETWEEN ? AND ?
-        GROUP BY EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125))
+        GROUP BY EXTRACT(HOUR FROM v.VENDA_DATA_HORA)
         ORDER BY HORA ASC
       `;
 
