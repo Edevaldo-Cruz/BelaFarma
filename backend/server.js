@@ -656,26 +656,58 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
       VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
     `);
     
-    const result = stmt.run({
-      id: order.id || null,
-      orderDate: order.orderDate || null,
-      distributor: order.distributor || null,
-      seller: order.seller || null,
-      totalValue: totalValue,
-      arrivalForecast: order.arrivalForecast || null,
-      status: order.status || null,
-      paymentMonth: order.paymentMonth || null,
-      invoiceNumber: order.invoiceNumber || null,
-      paymentMethod: order.paymentMethod || null,
-      receiptDate: order.receiptDate || null,
-      notes: order.notes || null,
-      installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
-      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
-      boletoPath: order.boletoPath || null
-    });
+    db.transaction(() => {
+      stmt.run({
+        id: order.id || null,
+        orderDate: order.orderDate || null,
+        distributor: order.distributor || null,
+        seller: order.seller || null,
+        totalValue: totalValue,
+        arrivalForecast: order.arrivalForecast || null,
+        status: order.status || null,
+        paymentMonth: order.paymentMonth || null,
+        invoiceNumber: order.invoiceNumber || null,
+        paymentMethod: order.paymentMethod || null,
+        receiptDate: order.receiptDate || null,
+        notes: order.notes || null,
+        installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+        isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
+        boletoPath: order.boletoPath || null
+      });
 
-    console.log('[ORDERS] Pedido salvo com sucesso. RowID:', result.lastInsertRowid);
-    res.status(201).json({ id: order.id, lastInsertRowid: result.lastInsertRowid });
+      // Sincronizar boletos se a forma de pagamento for Boleto e não for Foguete Amarelo
+      if (order.paymentMethod === 'Boleto' && !(order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1)) {
+        let installmentsList = [];
+        try {
+          installmentsList = typeof order.installments === 'string' ? JSON.parse(order.installments) : (order.installments || []);
+        } catch (parseErr) {
+          console.error('[ORDERS] Erro ao fazer parse de installments na criação:', parseErr);
+        }
+
+        if (installmentsList.length > 0) {
+          const insertStmt = db.prepare(`
+            INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
+            VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
+          `);
+
+          installmentsList.forEach((inst, index) => {
+            insertStmt.run({
+              id: `${order.id}-boleto-${index + 1}`,
+              supplierName: order.distributor || null,
+              order_id: order.id,
+              due_date: inst.dueDate,
+              value: parseFloat(inst.value),
+              status: 'Pendente',
+              invoice_number: order.invoiceNumber || null
+            });
+          });
+          console.log(`[ORDERS] ${installmentsList.length} boletos gerados e salvos para o pedido ${order.id}`);
+        }
+      }
+    })();
+
+    console.log('[ORDERS] Pedido salvo com sucesso.');
+    res.status(201).json({ id: order.id });
   } catch (err) {
     console.error('[ORDERS] Erro ao criar pedido:', err);
     res.status(500).json({ error: 'Failed to create order.', details: err.message });
@@ -706,23 +738,63 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
       WHERE id = @id
     `);
 
-    const result = stmt.run({
-      id,
-      orderDate: order.orderDate || null,
-      distributor: order.distributor || null,
-      seller: order.seller || null,
-      totalValue: totalValue,
-      arrivalForecast: order.arrivalForecast || null,
-      status: order.status || null,
-      paymentMonth: order.paymentMonth || null,
-      invoiceNumber: order.invoiceNumber || null,
-      paymentMethod: order.paymentMethod || null,
-      receiptDate: order.receiptDate || null,
-      notes: order.notes || null,
-      installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
-      isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
-      boletoPath: order.boletoPath || null
-    });
+    let result;
+    db.transaction(() => {
+      result = stmt.run({
+        id,
+        orderDate: order.orderDate || null,
+        distributor: order.distributor || null,
+        seller: order.seller || null,
+        totalValue: totalValue,
+        arrivalForecast: order.arrivalForecast || null,
+        status: order.status || null,
+        paymentMonth: order.paymentMonth || null,
+        invoiceNumber: order.invoiceNumber || null,
+        paymentMethod: order.paymentMethod || null,
+        receiptDate: order.receiptDate || null,
+        notes: order.notes || null,
+        installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+        isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
+        boletoPath: order.boletoPath || null
+      });
+
+      if (result.changes > 0) {
+        // Sincronizar boletos se a forma de pagamento for Boleto e não for Foguete Amarelo
+        if (order.paymentMethod === 'Boleto' && !(order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1)) {
+          let installmentsList = [];
+          try {
+            installmentsList = typeof order.installments === 'string' ? JSON.parse(order.installments) : (order.installments || []);
+          } catch (parseErr) {
+            console.error('[ORDERS] Erro ao fazer parse de installments na atualização:', parseErr);
+          }
+
+          const deleteStmt = db.prepare('DELETE FROM boletos WHERE order_id = ?');
+          const insertStmt = db.prepare(`
+            INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
+            VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
+          `);
+
+          deleteStmt.run(id);
+          installmentsList.forEach((inst, index) => {
+            insertStmt.run({
+              id: `${id}-boleto-${index + 1}`,
+              supplierName: order.distributor || null,
+              order_id: id,
+              due_date: inst.dueDate,
+              value: parseFloat(inst.value),
+              status: 'Pendente',
+              invoice_number: order.invoiceNumber || null
+            });
+          });
+          console.log(`[ORDERS] ${installmentsList.length} boletos sincronizados para o pedido ${id}`);
+        } else {
+          // Se mudou a forma de pagamento ou virou Foguete Amarelo, remove os boletos antigos associados
+          const deleteStmt = db.prepare('DELETE FROM boletos WHERE order_id = ?');
+          deleteStmt.run(id);
+          console.log(`[ORDERS] Boletos removidos para o pedido ${id} pois a forma de pagamento mudou`);
+        }
+      }
+    })();
 
     if (result.changes > 0) {
       console.log('[ORDERS] Pedido atualizado com sucesso:', id);
@@ -741,10 +813,14 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
 app.delete('/api/orders/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const stmt = db.prepare('DELETE FROM orders WHERE id = ?');
-    const result = stmt.run(id);
+    let result;
+    db.transaction(() => {
+      db.prepare('DELETE FROM boletos WHERE order_id = ?').run(id);
+      result = db.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    })();
+    
     if (result.changes > 0) {
-      res.status(200).json({ message: 'Order deleted successfully.' });
+      res.status(200).json({ message: 'Order and associated boletos deleted successfully.' });
     } else {
       res.status(404).json({ error: 'Order not found.' });
     }
@@ -933,23 +1009,40 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
 
   const deleteStmt = db.prepare('DELETE FROM boletos WHERE order_id = ?');
   const insertStmt = db.prepare(`
-    INSERT INTO boletos (id, order_id, due_date, value, status, invoice_number)
-    VALUES (@id, @order_id, @due_date, @value, @status, @invoice_number)
+    INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
+    VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
   `);
+  const updateOrderStmt = db.prepare('UPDATE orders SET installments = ? WHERE id = ?');
 
   try {
+    // Buscar o fornecedor (distributor) do pedido correspondente
+    const order = db.prepare('SELECT distributor FROM orders WHERE id = ?').get(order_id);
+    const supplierName = order ? order.distributor : null;
+
+    // Converter os boletos para o formato de installments do pedido
+    const newInstallments = boletos.map((b, index) => ({
+      id: b.id ? b.id.replace(`${order_id}-boleto-`, '') : Math.random().toString(36).substr(2, 5),
+      value: parseFloat(b.value),
+      dueDate: b.due_date
+    }));
+
     db.transaction(() => {
+      // 1. Atualizar os boletos
       deleteStmt.run(order_id);
       for (const boleto of boletos) {
         insertStmt.run({
           id: boleto.id,
+          supplierName: supplierName,
           order_id: order_id,
           due_date: boleto.due_date,
-          value: boleto.value,
+          value: parseFloat(boleto.value),
           status: boleto.status,
           invoice_number: boleto.invoice_number || null
         });
       }
+
+      // 2. Atualizar as parcelas no pedido
+      updateOrderStmt.run(JSON.stringify(newInstallments), order_id);
     })();
     res.status(201).json({ message: 'Boletos created/updated successfully.' });
   } catch (err) {

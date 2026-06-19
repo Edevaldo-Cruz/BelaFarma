@@ -1,38 +1,40 @@
 const net = require('net');
 
-const ip = '192.168.1.70';
-const ports = [22, 80, 443, 8080, 8085, 3001];
-
-console.log(`Verificando portas comuns na VPS (${ip})...`);
-
-const promises = ports.map(port => {
+function checkPort(port, host) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
-    socket.setTimeout(1000);
+    socket.setTimeout(2000);
     
-    socket.on('connect', () => {
-      console.log(`[+] Porta ${port} ABERTA`);
+    socket.connect(port, host, () => {
+      resolve({ port, status: 'OPEN' });
       socket.destroy();
-      resolve({ port, open: true });
     });
     
     socket.on('timeout', () => {
+      resolve({ port, status: 'TIMEOUT' });
       socket.destroy();
-      resolve({ port, open: false });
     });
     
-    socket.on('error', () => {
+    socket.on('error', (err) => {
+      resolve({ port, status: 'CLOSED', error: err.message });
       socket.destroy();
-      resolve({ port, open: false });
     });
-    
-    socket.connect(port, ip);
   });
-});
+}
 
-Promise.all(promises).then((results) => {
-  console.log('\nResumo:');
-  results.forEach(r => {
-    console.log(`Porta ${r.port}: ${r.open ? 'ABERTA' : 'fechada'}`);
-  });
-});
+async function run() {
+  const host = '192.168.1.70';
+  const ports = [22, 80, 443, 5005, 8080];
+  console.log(`Verificando portas no IP ${host}...`);
+  
+  for (const port of ports) {
+    const res = await checkPort(port, host);
+    if (res.status === 'OPEN') {
+      console.log(`✅ Porta ${res.port}: ABERTA`);
+    } else {
+      console.log(`❌ Porta ${res.port}: FECHADA (${res.status}) ${res.error || ''}`);
+    }
+  }
+}
+
+run();
