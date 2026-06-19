@@ -110,17 +110,17 @@ module.exports = function (db) {
         return res.json(liveClosingCache);
       }
 
-      // Total de vendas do dia - Otimizado para usar o índice de CAST(VENDA_DATA_HORA AS DATE)
+      // Total de vendas do dia - Otimizado com ajuste matemático de fuso para Brasília (-3h = -0.125 dia)
       const sqlVendas = `
         SELECT 
           COUNT(*) as QTD_VENDAS,
           COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS
         FROM CAB_VENDAS 
-        WHERE CAST(VENDA_DATA_HORA AS DATE) = CURRENT_DATE
+        WHERE CAST((VENDA_DATA_HORA - 0.125) AS DATE) = CURRENT_DATE
           AND CANCELADO <> 'S'
       `;
 
-      // Breakdown por forma de pagamento - Otimizado com CAST
+      // Breakdown por forma de pagamento - Otimizado com CAST e ajuste de fuso (-3h)
       const sqlPagamentos = `
         SELECT 
           fp.TIPO_PAGAMENTO_ID,
@@ -128,7 +128,7 @@ module.exports = function (db) {
           COALESCE(SUM(fp.VALOR), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-        WHERE CAST(v.VENDA_DATA_HORA AS DATE) = CURRENT_DATE
+        WHERE CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) = CURRENT_DATE
           AND v.CANCELADO <> 'S'
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
@@ -277,7 +277,7 @@ module.exports = function (db) {
     return { newCustomers, newDebts, total: crediarios.length };
   };
 
-  // Rota de pagamentos do mês atual do Digifarma (Real-time)
+  // Rota de pagamentos do mês atual do Digifarma (Real-time com fuso corrigido)
   router.get('/monthly-payments', async (req, res) => {
     try {
       const sql = `
@@ -287,8 +287,8 @@ module.exports = function (db) {
           COALESCE(SUM(fp.VALOR), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-        WHERE EXTRACT(MONTH FROM v.VENDA_DATA_HORA) = EXTRACT(MONTH FROM CURRENT_DATE)
-          AND EXTRACT(YEAR FROM v.VENDA_DATA_HORA) = EXTRACT(YEAR FROM CURRENT_DATE)
+        WHERE EXTRACT(MONTH FROM (v.VENDA_DATA_HORA - 0.125)) = EXTRACT(MONTH FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM (v.VENDA_DATA_HORA - 0.125)) = EXTRACT(YEAR FROM CURRENT_DATE)
           AND v.CANCELADO <> 'S'
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
@@ -322,7 +322,7 @@ module.exports = function (db) {
         end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
       }
 
-      // 1. Vendas por Categoria
+      // 1. Vendas por Categoria (Ajuste de fuso para Brasília -3h)
       const sqlCategorias = `
         SELECT 
           COALESCE(c.CATEGORIA, 'Sem Categoria') AS CATEGORIA_NOME,
@@ -333,21 +333,21 @@ module.exports = function (db) {
         JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
         LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
         WHERE v.CANCELADO <> 'S'
-          AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
+          AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) BETWEEN ? AND ?
         GROUP BY c.CATEGORIA
         ORDER BY TOTAL_VENDA DESC
       `;
 
-      // 2. Vendas por Horário
+      // 2. Vendas por Horário (Ajuste de fuso para Brasília -3h)
       const sqlHorarios = `
         SELECT 
-          EXTRACT(HOUR FROM v.VENDA_DATA_HORA) AS HORA,
+          EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125)) AS HORA,
           SUM(v.VENDA_TOTAL) AS TOTAL_VENDA,
           COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS
         FROM CAB_VENDAS v
         WHERE v.CANCELADO <> 'S'
-          AND CAST(v.VENDA_DATA_HORA AS DATE) BETWEEN ? AND ?
-        GROUP BY EXTRACT(HOUR FROM v.VENDA_DATA_HORA)
+          AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) BETWEEN ? AND ?
+        GROUP BY EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125))
         ORDER BY HORA ASC
       `;
 

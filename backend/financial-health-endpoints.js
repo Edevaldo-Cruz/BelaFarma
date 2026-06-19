@@ -239,7 +239,7 @@ async function buildSnapshot(db, days) {
       FROM ITEM_VENDAS iv
       JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
       WHERE v.CANCELADO <> 'S'
-        AND CAST(v.VENDA_DATA_HORA AS DATE) >= ?
+        AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) >= ?
     `, [cutoffStr]);
     
     if (cmvResult && cmvResult.length > 0) {
