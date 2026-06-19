@@ -73,11 +73,10 @@ async function obterResumoEstoque(bypassCache = false) {
       )
   `;
 
-  const [ativosResult, saidasResult, paradosResult] = await Promise.all([
-    queryDigifarma(sqlAtivos),
-    queryDigifarma(sqlSaidasMes, [inicio30Dias]),
-    queryDigifarma(sqlParados)
-  ]);
+  // Executa as consultas de forma sequencial para evitar concorrência no Firebird
+  const ativosResult = await queryDigifarma(sqlAtivos);
+  const saidasResult = await queryDigifarma(sqlSaidasMes, [inicio30Dias]);
+  const paradosResult = await queryDigifarma(sqlParados);
 
   const result = {
     totalAtivos: ativosResult[0].TOTAL_ATIVOS || 0,
@@ -352,15 +351,15 @@ async function obterCategorias(bypassCache = false) {
   return data;
 }
 
-async function obterProdutosParados90Dias() {
-  const cacheKey = 'produtos_parados_90_dias';
+async function obterProdutosParados90Dias(limit = 150) {
+  const cacheKey = `produtos_parados_90_dias_${limit}`;
   const now = new Date();
   
   if (db) {
     try {
       const cached = db.prepare('SELECT value, expires_at FROM ai_cache WHERE key = ?').get(cacheKey);
       if (cached && new Date(cached.expires_at) > now) {
-        console.log('[Stock Service] ⚡ Retornando produtos parados 90 dias via cache SQLite');
+        console.log(`[Stock Service] ⚡ Retornando produtos parados 90 dias (limite ${limit}) via cache SQLite`);
         return JSON.parse(cached.value);
       }
     } catch (e) {
@@ -368,11 +367,11 @@ async function obterProdutosParados90Dias() {
     }
   }
 
-  console.log('[Stock Service] 🔄 Cache expirado ou inexistente. Consultando Digifarma para produtos parados > 90 dias...');
+  console.log(`[Stock Service] 🔄 Cache expirado ou inexistente. Consultando Digifarma para produtos parados > 90 dias (limite ${limit})...`);
 
-  // Query buscando os 10 produtos inativos com saldo ordenados por valor financeiro parado
+  // Query buscando os produtos inativos com saldo ordenados por valor financeiro parado
   const sql = `
-    SELECT FIRST 10
+    SELECT FIRST ${limit}
       p.PRODUTO_ID,
       p.PRODUTO,
       p.APRESENTACAO,
@@ -458,19 +457,24 @@ async function obterProdutosParados90Dias() {
     };
   });
 
+  // Ordena para que os itens com imagem venham primeiro, mantendo a ordem de valor dentro de cada grupo
+  const itemsWithImages = items.filter(item => item.imageUrl !== null);
+  const itemsWithoutImages = items.filter(item => item.imageUrl === null);
+  const sortedItems = [...itemsWithImages, ...itemsWithoutImages];
+
   // Salva no cache por 7 dias (7 * 24 * 60 * 60 * 1000 = 604800000 ms)
   if (db) {
     try {
       const expiresAt = new Date(Date.now() + 604800000).toISOString();
       db.prepare('INSERT OR REPLACE INTO ai_cache (key, value, expires_at) VALUES (?, ?, ?)')
-        .run(cacheKey, JSON.stringify(items), expiresAt);
-      console.log('[Stock Service] ✅ Cache de produtos parados gravado no SQLite por 7 dias.');
+        .run(cacheKey, JSON.stringify(sortedItems), expiresAt);
+      console.log(`[Stock Service] ✅ Cache de produtos parados (limite ${limit}) gravado no SQLite por 7 dias.`);
     } catch (e) {
       console.error('[Stock Service] Falha ao salvar cache no SQLite:', e.message);
     }
   }
 
-  return items;
+  return sortedItems;
 }
 
 module.exports = {

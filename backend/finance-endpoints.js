@@ -11,6 +11,22 @@ const { queryDigifarma } = require('./services/digifarma.service');
 // Para preservar a leitura segura por FS, salvar numa temp dir segura
 const upload = multer({ dest: './uploads/finance_temp/' });
 
+// Função auxiliar para tratar erros do Digifarma
+const handleDigifarmaError = (err, res, route) => {
+  console.error(`[Finance] Erro em ${route}:`, err);
+  const msg = err && err.message ? err.message : String(err);
+  const isOffline = msg.includes('Offline') || 
+                    msg.includes('Inacessível') || 
+                    msg.includes('Timeout') || 
+                    msg.includes('ECONNREFUSED') || 
+                    msg.includes('connection') ||
+                    msg.includes('socket');
+  if (isOffline) {
+    return res.status(503).json({ error: 'O servidor do Digifarma está Offline ou Inacessível.' });
+  }
+  return res.status(500).json({ error: msg });
+};
+
 module.exports = function (db) {
   const router = express.Router();
 
@@ -140,11 +156,10 @@ module.exports = function (db) {
         ORDER BY ABERTURA DESC
       `;
 
-      const [vendasResult, pagResult, fundoCaixaResult] = await Promise.all([
-        queryDigifarma(sqlVendas, []),
-        queryDigifarma(sqlPagamentos, []),
-        queryDigifarma(sqlFundoCaixa, [])
-      ]);
+      // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
+      const vendasResult = await queryDigifarma(sqlVendas, []);
+      const pagResult = await queryDigifarma(sqlPagamentos, []);
+      const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, []);
 
       let qtdVendas = 0;
       if (vendasResult && vendasResult.length > 0) {
@@ -204,11 +219,7 @@ module.exports = function (db) {
 
       res.json(payload);
     } catch (err) {
-      if (err.message && err.message.includes('Offline')) {
-        return res.status(503).json({ error: 'Servidor do Digifarma Offline' });
-      }
-      console.error('[Finance] Erro no live-closing:', err);
-      res.status(500).json({ error: err.message });
+      return handleDigifarmaError(err, res, '/live-closing');
     }
   });
 
@@ -296,11 +307,7 @@ module.exports = function (db) {
       const payments = await queryDigifarma(sql);
       res.json(payments);
     } catch (err) {
-      console.error('[Finance] Erro em /monthly-payments:', err.message);
-      if (err.message.includes('Offline')) {
-        return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
-      }
-      res.status(500).json({ error: err.message });
+      return handleDigifarmaError(err, res, '/monthly-payments');
     }
   });
 
@@ -351,10 +358,9 @@ module.exports = function (db) {
         ORDER BY HORA ASC
       `;
 
-      const [categoriasResult, horariosResult] = await Promise.all([
-        queryDigifarma(sqlCategorias, [start, end]),
-        queryDigifarma(sqlHorarios, [start, end])
-      ]);
+      // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
+      const categoriasResult = await queryDigifarma(sqlCategorias, [start, end]);
+      const horariosResult = await queryDigifarma(sqlHorarios, [start, end]);
 
       res.json({
         categorias: (categoriasResult || []).map(r => ({
@@ -369,11 +375,7 @@ module.exports = function (db) {
         }))
       });
     } catch (err) {
-      console.error('[Finance] Erro em /sales-report:', err.message);
-      if (err.message.includes('Offline')) {
-        return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
-      }
-      res.status(500).json({ error: err.message });
+      return handleDigifarmaError(err, res, '/sales-report');
     }
   });
 

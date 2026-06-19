@@ -26,7 +26,10 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Search,
+  X,
+  List
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -104,6 +107,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const [isPaused, setIsPaused] = React.useState(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const inactiveContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Estados para o Modal de Todos os Produtos Parados
+  const [showAllInactiveModal, setShowAllInactiveModal] = React.useState(false);
+  const [allInactiveProducts, setAllInactiveProducts] = React.useState<any[]>([]);
+  const [loadingAllInactive, setLoadingAllInactive] = React.useState(false);
+  const [searchTerm, setSearchTerm] = React.useState('');
+
+  const handleOpenAllInactiveModal = async () => {
+    setShowAllInactiveModal(true);
+    setLoadingAllInactive(true);
+    try {
+      const response = await fetch('/api/stock/inactive-90-days?limit=1000');
+      if (response.ok) {
+        const data = await response.json();
+        setAllInactiveProducts(data || []);
+      }
+    } catch (e) {
+      console.error('Erro ao buscar todos os produtos parados:', e);
+      addToast('Erro ao buscar todos os produtos parados.', 'error');
+    } finally {
+      setLoadingAllInactive(false);
+    }
+  };
+
+  const filteredProducts = React.useMemo(() => {
+    return allInactiveProducts.filter(p => 
+      (p.name && p.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (p.barcode && p.barcode.includes(searchTerm)) ||
+      (p.presentation && p.presentation.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  }, [allInactiveProducts, searchTerm]);
 
   // Estados para o Widget de Pós-Venda no Dashboard
   const [newCustomers, setNewCustomers] = React.useState<any[]>([]);
@@ -476,8 +510,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
               </p>
             </div>
             
-            <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-3 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-              {inactiveProducts.length} produtos
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-3 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                {inactiveProducts.length} produtos
+              </div>
+              <button
+                onClick={handleOpenAllInactiveModal}
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-full uppercase tracking-wider shadow-sm transition-all cursor-pointer border-none"
+              >
+                <List className="w-3 h-3" />
+                Ver Todos
+              </button>
             </div>
           </div>
 
@@ -505,7 +548,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
             ref={inactiveContainerRef}
             className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
           >
-            {inactiveProducts.map((product) => {
+            {inactiveProducts.slice(0, 20).map((product) => {
               const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceVenda);
               const formattedCompra = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceCompra);
               
@@ -858,6 +901,144 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           onUpdate={onUpdateOrder}
           onUpdateBoletos={onUpdateBoletos}
         />
+      )}
+
+      {showAllInactiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/20">
+              <div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5 text-amber-500" />
+                  Todos os Produtos Parados (&gt; 90 dias)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Listagem completa de produtos inativos em estoque ordenados por investimento parado.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAllInactiveModal(false);
+                  setSearchTerm('');
+                }}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-350 rounded-full transition-colors cursor-pointer border-none bg-transparent"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Search Bar */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row gap-4 justify-between items-center">
+              <div className="relative w-full sm:max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar produto por nome ou código de barras..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-slate-800 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 text-xs font-bold text-slate-500 dark:text-slate-400">
+                <span>Total: {filteredProducts.length} de {allInactiveProducts.length} produtos</span>
+              </div>
+            </div>
+
+            {/* Modal Body / Table */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 dark:bg-slate-950/10">
+              {loadingAllInactive ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                  <span className="text-sm font-bold text-slate-500 dark:text-slate-400">Carregando listagem completa...</span>
+                </div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="text-center py-20">
+                  <ImageIcon className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                  <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Nenhum produto inativo encontrado.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200/50 dark:border-slate-800/80 bg-white dark:bg-slate-900 shadow-sm">
+                  <table className="w-full border-collapse text-left text-xs text-slate-600 dark:text-slate-300">
+                    <thead className="bg-slate-50 dark:bg-slate-950/50 text-[10px] font-black text-slate-450 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800/60">
+                      <tr>
+                        <th className="px-6 py-3.5 w-16">Foto</th>
+                        <th className="px-6 py-3.5">Produto</th>
+                        <th className="px-6 py-3.5">Dias Parado</th>
+                        <th className="px-6 py-3.5 text-center">Estoque</th>
+                        <th className="px-6 py-3.5 text-right">Valor Venda</th>
+                        {isAdmin && <th className="px-6 py-3.5 text-right">Valor Compra</th>}
+                        <th className="px-6 py-3.5 text-right">Total Parado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {filteredProducts.map((p) => {
+                        const totalParado = p.saldo * p.priceVenda;
+                        
+                        const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.priceVenda);
+                        const formattedCompra = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.priceCompra);
+                        const formattedTotal = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalParado);
+
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
+                            {/* Imagem */}
+                            <td className="px-6 py-3">
+                              <div className="h-10 w-10 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/60 rounded-xl flex items-center justify-center overflow-hidden">
+                                {p.imageUrl ? (
+                                  <img src={p.imageUrl} alt={p.name} className="h-full w-full object-contain p-1" />
+                                ) : (
+                                  <ImageIcon className="w-5 h-5 text-slate-300 dark:text-slate-700" />
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Informações */}
+                            <td className="px-6 py-3">
+                              <div className="font-black text-slate-800 dark:text-slate-200 uppercase">{p.name}</div>
+                              <div className="text-[10px] text-slate-400 dark:text-slate-500 uppercase mt-0.5">{p.presentation || 'Sem apresentação'}</div>
+                              {p.barcode && <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">EAN: {p.barcode}</div>}
+                            </td>
+
+                            {/* Dias Parado */}
+                            <td className="px-6 py-3">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400">
+                                <Clock className="w-3 h-3" />
+                                {p.inactivityDays ? `${p.inactivityDays} dias` : 'Nunca vendido'}
+                              </span>
+                            </td>
+
+                            {/* Saldo */}
+                            <td className="px-6 py-3 text-center font-black text-slate-700 dark:text-slate-300">
+                              {p.saldo} un
+                            </td>
+
+                            {/* Preço de Venda */}
+                            <td className="px-6 py-3 text-right font-bold text-slate-755 dark:text-slate-350">
+                              {formattedVenda}
+                            </td>
+
+                            {/* Preço de Compra (Se Admin) */}
+                            {isAdmin && (
+                              <td className="px-6 py-3 text-right font-bold text-rose-600 dark:text-rose-400">
+                                {formattedCompra}
+                              </td>
+                            )}
+
+                            {/* Total Parado */}
+                            <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
+                              {formattedTotal}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
