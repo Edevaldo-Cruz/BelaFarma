@@ -98,6 +98,11 @@ export const SalesReport: React.FC = () => {
       if (!response.ok) throw new Error('Falha ao buscar dados');
       
       const reportData = await response.json();
+      if (reportData && reportData.isOffline) {
+        addToast('O servidor do Digifarma está Offline.', 'error');
+        setData(null);
+        return;
+      }
       setData(reportData);
     } catch (err: any) {
       console.error(err);

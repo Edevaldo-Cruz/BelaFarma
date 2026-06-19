@@ -236,6 +236,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         const response = await fetch('/api/finance-agent/live-closing');
         if (response.ok) {
            const data = await response.json();
+           if (data && data.isOffline) {
+             console.warn('[Dashboard] Servidor do Digifarma Offline. Mantendo dados do cache.');
+             return;
+           }
            setLiveSalesData(data);
            try {
              localStorage.setItem('belafarma_live_sales_cache', JSON.stringify(data));

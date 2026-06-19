@@ -37,6 +37,11 @@ export const PaymentMethodsChart: React.FC<PaymentMethodsChartProps> = () => {
       if (!response.ok) throw new Error('Erro ao buscar formas de pagamento');
       
       const rawData = await response.json();
+      if (rawData && rawData.isOffline) {
+        setError('Servidor Digifarma Offline');
+        setData([]);
+        return;
+      }
       
       const totals = {
         dinheiro: 0,

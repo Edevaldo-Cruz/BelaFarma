@@ -30,7 +30,15 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
           const resLive = await fetch('/api/finance-agent/live-closing');
           if (resLive.ok) {
             const liveData = await resLive.json();
-            setTodaySales(liveData.totalSales || 0);
+            if (liveData && liveData.isOffline) {
+              const saved = localStorage.getItem('belafarma_live_sales_cache');
+              if (saved) {
+                const cached = JSON.parse(saved);
+                setTodaySales(cached.totalSales || 0);
+              }
+            } else {
+              setTodaySales(liveData.totalSales || 0);
+            }
           }
         } catch (errLive) {
           console.warn('[Goal Popup] Erro ao buscar vendas em tempo real de hoje:', errLive);

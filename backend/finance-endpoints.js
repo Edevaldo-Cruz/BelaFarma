@@ -30,7 +30,22 @@ const handleDigifarmaError = (err, res, route, mockFallback) => {
                     msg.includes('connection') ||
                     msg.includes('socket');
   if (isOffline) {
-    return res.status(503).json({ error: 'O servidor do Digifarma está Offline ou Inacessível.' });
+    console.warn(`[Finance] ⚠️ Digifarma offline. Retornando payload vazio para evitar erros no console do navegador.`);
+    if (route === '/live-closing') {
+      return res.json({
+        totalSales: 0, dinheiro: 0, credit: 0, debit: 0, pix: 0, crediario: 0, outros: 0, qtdVendas: 0, fundoCaixa: 0,
+        isOffline: true
+      });
+    } else if (route === '/monthly-payments') {
+      return res.json({ isOffline: true, payments: [] });
+    } else if (route === '/sales-report') {
+      return res.json({
+        categorias: [],
+        horarios: [],
+        isOffline: true
+      });
+    }
+    return res.json({ isOffline: true });
   }
   return res.status(500).json({ error: msg });
 };
@@ -134,17 +149,28 @@ module.exports = function (db) {
         return res.json(liveClosingCache);
       }
 
-      // Total de vendas do dia - Otimizado com ajuste matemático de fuso para Brasília (-3h = -0.125 dia)
+      // Calcula o início do dia comercial atual (início às 03:00)
+      const getBusinessDayStartStr = () => {
+        const now = new Date();
+        if (now.getHours() < 3) {
+          now.setDate(now.getDate() - 1);
+        }
+        const pad = (num) => String(num).padStart(2, '0');
+        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} 03:00:00`;
+      };
+      const businessDayStart = getBusinessDayStartStr();
+
+      // Total de vendas do dia - Otimizado para permitir uso de index (SARGable)
       const sqlVendas = `
         SELECT 
           COUNT(*) as QTD_VENDAS,
           COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS
         FROM CAB_VENDAS 
-        WHERE CAST((VENDA_DATA_HORA - 0.125) AS DATE) = CURRENT_DATE
+        WHERE VENDA_DATA_HORA >= ?
           AND CANCELADO <> 'S'
       `;
 
-      // Breakdown por forma de pagamento - Otimizado com CAST e ajuste de fuso (-3h)
+      // Breakdown por forma de pagamento - Otimizado para permitir uso de index (SARGable)
       const sqlPagamentos = `
         SELECT 
           fp.TIPO_PAGAMENTO_ID,
@@ -152,7 +178,7 @@ module.exports = function (db) {
           COALESCE(SUM(fp.VALOR), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-        WHERE CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) = CURRENT_DATE
+        WHERE v.VENDA_DATA_HORA >= ?
           AND v.CANCELADO <> 'S'
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
@@ -165,8 +191,8 @@ module.exports = function (db) {
       `;
 
       // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
-      const vendasResult = await queryDigifarma(sqlVendas, []);
-      const pagResult = await queryDigifarma(sqlPagamentos, []);
+      const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart]);
+      const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart]);
       const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, []);
 
       let qtdVendas = 0;
@@ -354,7 +380,16 @@ module.exports = function (db) {
         end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
       }
 
-      // 1. Vendas por Categoria (Ajuste de fuso para Brasília -3h)
+      // Otimização de range para permitir uso de índice (SARGable)
+      const startDateTime = `${start} 03:00:00`;
+      
+      const endParts = end.split('-');
+      const endDateObj = new Date(Number(endParts[0]), Number(endParts[1]) - 1, Number(endParts[2]));
+      endDateObj.setDate(endDateObj.getDate() + 1);
+      const pad = (num) => String(num).padStart(2, '0');
+      const endDateTime = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())} 02:59:59`;
+
+      // 1. Vendas por Categoria (Otimizado para usar index)
       const sqlCategorias = `
         SELECT 
           COALESCE(c.CATEGORIA, 'Sem Categoria') AS CATEGORIA_NOME,
@@ -365,12 +400,12 @@ module.exports = function (db) {
         JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
         LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
         WHERE v.CANCELADO <> 'S'
-          AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) BETWEEN ? AND ?
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
         GROUP BY c.CATEGORIA
         ORDER BY TOTAL_VENDA DESC
       `;
 
-      // 2. Vendas por Horário (Ajuste de fuso para Brasília -3h)
+      // 2. Vendas por Horário (Otimizado para usar index)
       const sqlHorarios = `
         SELECT 
           EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125)) AS HORA,
@@ -378,14 +413,14 @@ module.exports = function (db) {
           COUNT(v.VENDA_NOTA_ID) AS QTD_VENDAS
         FROM CAB_VENDAS v
         WHERE v.CANCELADO <> 'S'
-          AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) BETWEEN ? AND ?
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
         GROUP BY EXTRACT(HOUR FROM (v.VENDA_DATA_HORA - 0.125))
         ORDER BY HORA ASC
       `;
 
       // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
-      const categoriasResult = await queryDigifarma(sqlCategorias, [start, end]);
-      const horariosResult = await queryDigifarma(sqlHorarios, [start, end]);
+      const categoriasResult = await queryDigifarma(sqlCategorias, [startDateTime, endDateTime]);
+      const horariosResult = await queryDigifarma(sqlHorarios, [startDateTime, endDateTime]);
 
       res.json({
         categorias: (categoriasResult || []).map(r => ({

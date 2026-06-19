@@ -97,6 +97,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       }
       if (!response.ok) throw new Error('Erro na API');
       const data = await response.json();
+      if (data && data.isOffline) {
+        if (!silent) addToast('O Servidor do Digifarma está Offline.', 'error');
+        return;
+      }
       
       setTotalSales(data.totalSales || 0);
       setCredit(data.credit || 0);
