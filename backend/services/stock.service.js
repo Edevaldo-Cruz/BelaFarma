@@ -352,6 +352,10 @@ async function obterCategorias(bypassCache = false) {
 }
 
 async function obterProdutosParados90Dias(limit = 150) {
+  if (isNaN(limit) || limit <= 0) {
+    limit = 150;
+  }
+  
   const cacheKey = `produtos_parados_90_dias_${limit}`;
   const now = new Date();
   
@@ -367,7 +371,7 @@ async function obterProdutosParados90Dias(limit = 150) {
     }
   }
 
-  console.log(`[Stock Service] 🔄 Cache expirado ou inexistente. Consultando Digifarma para produtos parados > 90 dias (limite ${limit})...`);
+  console.log(`[Stock Service] 🔄 Consultando produtos parados > 90 dias (limite ${limit})...`);
 
   // Query buscando os produtos inativos com saldo ordenados por valor financeiro parado
   const sql = `
@@ -407,7 +411,61 @@ async function obterProdutosParados90Dias(limit = 150) {
     ORDER BY (p.PROD_SALDO * p.PROD_PRVENDA) DESC, p.PRODUTO ASC
   `;
 
-  const results = await queryDigifarma(sql);
+  let results;
+  let isSimulated = false;
+
+  try {
+    results = await queryDigifarma(sql);
+  } catch (err) {
+    console.error('[Stock Service] Erro ao consultar Digifarma para produtos parados:', err.message);
+    
+    // Tenta buscar no cache SQLite primeiro (mesmo expirado)
+    if (db) {
+      try {
+        let cached = db.prepare('SELECT value FROM ai_cache WHERE key = ?').get(cacheKey);
+        if (cached) {
+          console.warn(`[Stock Service] ⚠️ Digifarma offline. Retornando cache para limite ${limit}.`);
+          return JSON.parse(cached.value);
+        }
+        cached = db.prepare("SELECT value FROM ai_cache WHERE key LIKE 'produtos_parados_90_dias%' ORDER BY expires_at DESC LIMIT 1").get();
+        if (cached) {
+          console.warn('[Stock Service] ⚠️ Digifarma offline. Retornando melhor cache alternativo de produtos parados.');
+          return JSON.parse(cached.value);
+        }
+      } catch (e) {
+        console.error('[Stock Service] Falha ao recuperar cache alternativo:', e.message);
+      }
+    }
+
+    // Se não houver cache algum, e estiver em desenvolvimento, retorna dados simulados a partir da scraped_images
+    const config = require('../config');
+    if (!config.isProduction && db) {
+      try {
+        console.warn(`[Stock Service] ⚠️ Digifarma offline e sem cache. Gerando ${limit} produtos simulados a partir de scraped_images...`);
+        const mockPhotos = db.prepare('SELECT ean, name, image_url, category FROM scraped_images LIMIT ?').all(limit);
+        if (mockPhotos && mockPhotos.length > 0) {
+          isSimulated = true;
+          results = mockPhotos.map((p, idx) => ({
+            PRODUTO_ID: idx + 10000,
+            PRODUTO: p.name,
+            APRESENTACAO: p.category || 'Medicamento',
+            COD_BARRAS: p.ean,
+            PROD_SALDO: Math.floor(Math.random() * 8) + 1,
+            PROD_PRVENDA: parseFloat((Math.random() * 80 + 10).toFixed(2)),
+            PROD_PRCOMPRA: parseFloat((Math.random() * 40 + 5).toFixed(2)),
+            ULTIMA_VENDA: new Date(Date.now() - (90 + idx) * 24 * 60 * 60 * 1000).toISOString()
+          }));
+        }
+      } catch (mockErr) {
+        console.error('[Stock Service] Falha ao gerar dados simulados:', mockErr.message);
+      }
+    }
+
+    // Se mesmo assim não temos dados (ex: produção offline sem cache), propaga o erro original
+    if (!results) {
+      throw err;
+    }
+  }
   
   if (!results) return [];
 
@@ -451,7 +509,7 @@ async function obterProdutosParados90Dias(limit = 150) {
       saldo: r.PROD_SALDO || 0,
       priceVenda: r.PROD_PRVENDA || 0,
       priceCompra: r.PROD_PRCOMPRA || 0,
-      imageUrl,
+      imageUrl: r.image_url || imageUrl, // Se vier dos mockPhotos já terá o image_url mapeado
       lastSale: lastSaleFormatted,
       inactivityDays
     };
@@ -462,8 +520,8 @@ async function obterProdutosParados90Dias(limit = 150) {
   const itemsWithoutImages = items.filter(item => item.imageUrl === null);
   const sortedItems = [...itemsWithImages, ...itemsWithoutImages];
 
-  // Salva no cache por 7 dias (7 * 24 * 60 * 60 * 1000 = 604800000 ms)
-  if (db) {
+  // Salva no cache por 7 dias (apenas se não for simulação)
+  if (db && !isSimulated) {
     try {
       const expiresAt = new Date(Date.now() + 604800000).toISOString();
       db.prepare('INSERT OR REPLACE INTO ai_cache (key, value, expires_at) VALUES (?, ?, ?)')
