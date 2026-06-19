@@ -101,9 +101,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   // Estados para os Produtos Parados > 90 dias e Carrossel Autoplay
   const [inactiveProducts, setInactiveProducts] = React.useState<any[]>([]);
   const [loadingInactive, setLoadingInactive] = React.useState(true);
-  const [activeInactiveIndex, setActiveInactiveIndex] = React.useState(0);
   const [isPaused, setIsPaused] = React.useState(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const inactiveContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Estados para o Widget de Pós-Venda no Dashboard
   const [newCustomers, setNewCustomers] = React.useState<any[]>([]);
@@ -237,13 +237,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     return () => clearInterval(interval);
   }, []);
 
-  // Effect para controlar o Autoplay do Carrossel de Produtos Parados (5 segundos)
+  // Effect para controlar o Autoplay do Carrossel de Produtos Parados (10 segundos)
   React.useEffect(() => {
     if (inactiveProducts.length === 0 || isPaused) return;
 
     const interval = setInterval(() => {
-      setActiveInactiveIndex(prev => (prev + 1) % inactiveProducts.length);
-    }, 5000);
+      const container = inactiveContainerRef.current;
+      if (container) {
+        const cardWidth = 236; // 220px card + 16px gap
+        const maxScrollLeft = container.scrollWidth - container.clientWidth;
+        
+        if (container.scrollLeft >= maxScrollLeft - 10) {
+          container.scrollTo({ left: 0, behavior: 'smooth' });
+        } else {
+          container.scrollBy({ left: cardWidth, behavior: 'smooth' });
+        }
+      }
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [inactiveProducts, isPaused]);
@@ -445,10 +455,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       </header>
       
-      {/* 📦 CARROSSEL DE PRODUTOS PARADOS (AUTOPLAY 5S) */}
+      {/* 📦 CARROSSEL DE PRODUTOS PARADOS (AUTOPLAY 10S) */}
       {!loadingInactive && inactiveProducts.length > 0 && (
         <section 
-          className="relative bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent dark:from-amber-950/20 dark:via-orange-950/5 dark:to-transparent border-2 border-amber-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden"
+          className="relative group/giro bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent dark:from-amber-950/20 dark:via-orange-950/5 dark:to-transparent border-2 border-amber-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden"
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
         >
@@ -466,64 +476,96 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
               </p>
             </div>
             
-            <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-              {activeInactiveIndex + 1} de {inactiveProducts.length}
+            <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-3 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+              {inactiveProducts.length} produtos
             </div>
           </div>
 
-          <div className="relative h-[120px] md:h-[100px] overflow-hidden">
-            {inactiveProducts.map((product, idx) => {
-              const isActive = idx === activeInactiveIndex;
+          {/* Botões de Navegação Manual */}
+          <div className="absolute left-2 top-[60%] -translate-y-1/2 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
+            <button 
+              onClick={() => inactiveContainerRef.current?.scrollBy({ left: -236, behavior: 'smooth' })}
+              className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="absolute right-2 top-[60%] -translate-y-1/2 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
+            <button 
+              onClick={() => inactiveContainerRef.current?.scrollBy({ left: 236, behavior: 'smooth' })}
+              className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Container de Rolagem Horizontal */}
+          <div 
+            ref={inactiveContainerRef}
+            className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
+          >
+            {inactiveProducts.map((product) => {
               const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceVenda);
               const formattedCompra = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceCompra);
               
               return (
                 <div
                   key={product.id}
-                  className={`absolute inset-0 flex items-center gap-4 transition-all duration-700 ease-in-out transform ${
-                    isActive 
-                      ? 'opacity-100 translate-x-0 scale-100 pointer-events-auto' 
-                      : 'opacity-0 translate-x-full scale-95 pointer-events-none'
-                  }`}
+                  className="w-[220px] shrink-0 bg-white dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/80 rounded-[2rem] p-4 flex flex-col justify-between shadow-sm hover:shadow-md hover:border-amber-500/30 dark:hover:border-amber-500/30 transition-all duration-300 group/card"
                 >
-                  {/* Imagem do Produto */}
-                  <div className="w-16 h-16 bg-white dark:bg-slate-950 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
-                    {product.imageUrl ? (
-                      <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain p-1" />
-                    ) : (
-                      <ImageIcon className="w-6 h-6 text-slate-300 dark:text-slate-700" />
-                    )}
-                  </div>
+                  <div>
+                    {/* Badge de Inatividade */}
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="bg-amber-500/10 dark:bg-amber-950/40 text-[9px] font-black text-amber-700 dark:text-amber-400 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                        {product.inactivityDays 
+                          ? `${product.inactivityDays} dias parado`
+                          : 'Nunca vendido'
+                        }
+                      </span>
+                    </div>
 
-                  {/* Detalhes do Produto */}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight truncate" title={product.name}>
-                      {product.name}
-                    </h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase truncate">
-                      {product.presentation || 'Sem Apresentação'}
-                    </p>
-                    
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                      <span>Estoque: <strong className="text-amber-600 dark:text-amber-400">{product.saldo} un</strong></span>
-                      <span>Venda: <strong className="text-slate-800 dark:text-slate-200">{formattedVenda}</strong></span>
-                      {isAdmin && (
-                        <span>Compra: <strong className="text-rose-600 dark:text-rose-400">{formattedCompra}</strong></span>
+                    {/* Imagem do Produto */}
+                    <div className="h-24 w-full bg-white dark:bg-slate-950 rounded-2xl flex items-center justify-center border border-slate-100 dark:border-slate-800/40 overflow-hidden mb-3 relative group-hover/card:scale-[1.02] transition-transform duration-300">
+                      {product.imageUrl ? (
+                        <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain p-2" />
+                      ) : (
+                        <ImageIcon className="w-8 h-8 text-slate-300 dark:text-slate-700" />
                       )}
+                    </div>
+
+                    {/* Detalhes do Produto */}
+                    <div className="mb-2">
+                      <h3 className="text-xs font-black text-slate-900 dark:text-slate-150 uppercase tracking-tight line-clamp-2 min-h-[2rem]" title={product.name}>
+                        {product.name}
+                      </h3>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase truncate mt-0.5">
+                        {product.presentation || 'Sem Apresentação'}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Dias de Inatividade */}
-                  <div className="shrink-0 text-right">
-                    <span className="inline-block bg-amber-500/25 dark:bg-amber-950/50 border border-amber-500/20 px-3 py-1.5 rounded-2xl text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-                      {product.inactivityDays 
-                        ? `Parado há ${product.inactivityDays} dias`
-                        : 'Nunca vendido'
-                      }
-                    </span>
-                    {product.lastSale && (
-                      <p className="text-[9px] text-slate-400 mt-1 uppercase font-bold">Última Venda: {product.lastSale}</p>
-                    )}
+                  <div>
+                    {/* Linha Divisória */}
+                    <div className="border-t border-slate-100 dark:border-slate-800/60 my-2" />
+
+                    {/* Valores e Estoque */}
+                    <div className="space-y-1 text-[10px] font-bold text-slate-500 dark:text-slate-450">
+                      <div className="flex justify-between">
+                        <span>Estoque:</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-black">{product.saldo} un</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Venda:</span>
+                        <span className="text-slate-800 dark:text-slate-200 font-black">{formattedVenda}</span>
+                      </div>
+                      {isAdmin && (
+                        <div className="flex justify-between text-rose-600 dark:text-rose-450 border-t border-dotted border-slate-100 dark:border-slate-800/60 pt-1 mt-1">
+                          <span>Compra:</span>
+                          <span className="font-black">{formattedCompra}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
