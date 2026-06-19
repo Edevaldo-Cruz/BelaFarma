@@ -1,4 +1,5 @@
 const { queryDigifarma } = require('./digifarma.service');
+const db = require('../database');
 
 /**
  * Cache em memória simples para as consultas pesadas de estoque
@@ -351,10 +352,133 @@ async function obterCategorias(bypassCache = false) {
   return data;
 }
 
+async function obterProdutosParados90Dias() {
+  const cacheKey = 'produtos_parados_90_dias';
+  const now = new Date();
+  
+  if (db) {
+    try {
+      const cached = db.prepare('SELECT value, expires_at FROM ai_cache WHERE key = ?').get(cacheKey);
+      if (cached && new Date(cached.expires_at) > now) {
+        console.log('[Stock Service] ⚡ Retornando produtos parados 90 dias via cache SQLite');
+        return JSON.parse(cached.value);
+      }
+    } catch (e) {
+      console.warn('[Stock Service] Erro ao buscar cache de produtos parados:', e.message);
+    }
+  }
+
+  console.log('[Stock Service] 🔄 Cache expirado ou inexistente. Consultando Digifarma para produtos parados > 90 dias...');
+
+  // Query buscando os 10 produtos inativos com saldo ordenados por valor financeiro parado
+  const sql = `
+    SELECT FIRST 10
+      p.PRODUTO_ID,
+      p.PRODUTO,
+      p.APRESENTACAO,
+      p.COD_BARRAS,
+      p.PROD_SALDO,
+      CASE 
+        WHEN p.PROD_PRPROMOCAO > 0 
+             AND (p.INICIO_PROMOCAO IS NULL OR p.INICIO_PROMOCAO <= CURRENT_DATE) 
+             AND (p.TERMINO_PROMOCAO IS NULL OR p.TERMINO_PROMOCAO >= CURRENT_DATE)
+        THEN p.PROD_PRPROMOCAO
+        ELSE p.PROD_PRVENDA
+      END as PROD_PRVENDA,
+      COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
+      (
+        SELECT FIRST 1 v.VENDA_DATA_HORA 
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
+          AND v.CANCELADO <> 'S'
+        ORDER BY v.VENDA_DATA_HORA DESC
+      ) as ULTIMA_VENDA
+    FROM PRODUTOS p
+    WHERE p.PROD_ATIVO = 'S'
+      AND p.PROD_SALDO > 0
+      AND NOT EXISTS (
+        SELECT FIRST 1 1 
+        FROM ITEM_VENDAS iv2
+        JOIN CAB_VENDAS v2 ON iv2.VENDA_NOTA_ID = v2.VENDA_NOTA_ID
+        WHERE iv2.PRODUTO_ID = p.PRODUTO_ID 
+          AND v2.CANCELADO <> 'S'
+          AND v2.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 90
+      )
+    ORDER BY (p.PROD_SALDO * p.PROD_PRVENDA) DESC, p.PRODUTO ASC
+  `;
+
+  const results = await queryDigifarma(sql);
+  
+  if (!results) return [];
+
+  const items = results.map(r => {
+    const barcode = r.COD_BARRAS ? r.COD_BARRAS.trim() : '';
+    const name = r.PRODUTO ? r.PRODUTO.trim() : '';
+    
+    // Busca a imagem do produto no banco local scraped_images
+    let imageUrl = null;
+    if (db) {
+      try {
+        if (barcode) {
+          const photo = db.prepare('SELECT image_url FROM scraped_images WHERE ean = ?').get(barcode);
+          if (photo) imageUrl = photo.image_url;
+        }
+        if (!imageUrl && name) {
+          const photoName = db.prepare('SELECT image_url FROM scraped_images WHERE name LIKE ? LIMIT 1').get(`%${name}%`);
+          if (photoName) imageUrl = photoName.image_url;
+        }
+      } catch (err) {
+        console.error('[Stock Service] Erro ao buscar foto no scraped_images:', err.message);
+      }
+    }
+
+    // Calcula os dias de inatividade
+    let inactivityDays = null;
+    let lastSaleFormatted = null;
+
+    if (r.ULTIMA_VENDA) {
+      const lastSaleDate = new Date(r.ULTIMA_VENDA);
+      const diffTime = Math.abs(now.getTime() - lastSaleDate.getTime());
+      inactivityDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      lastSaleFormatted = lastSaleDate.toLocaleDateString('pt-BR');
+    }
+
+    return {
+      id: r.PRODUTO_ID,
+      name,
+      presentation: r.APRESENTACAO ? r.APRESENTACAO.trim() : '',
+      barcode,
+      saldo: r.PROD_SALDO || 0,
+      priceVenda: r.PROD_PRVENDA || 0,
+      priceCompra: r.PROD_PRCOMPRA || 0,
+      imageUrl,
+      lastSale: lastSaleFormatted,
+      inactivityDays
+    };
+  });
+
+  // Salva no cache por 7 dias (7 * 24 * 60 * 60 * 1000 = 604800000 ms)
+  if (db) {
+    try {
+      const expiresAt = new Date(Date.now() + 604800000).toISOString();
+      db.prepare('INSERT OR REPLACE INTO ai_cache (key, value, expires_at) VALUES (?, ?, ?)')
+        .run(cacheKey, JSON.stringify(items), expiresAt);
+      console.log('[Stock Service] ✅ Cache de produtos parados gravado no SQLite por 7 dias.');
+    } catch (e) {
+      console.error('[Stock Service] Falha ao salvar cache no SQLite:', e.message);
+    }
+  }
+
+  return items;
+}
+
 module.exports = {
   obterResumoEstoque,
   listarProdutosEstoque,
   obterInformacoesVendasProdutos,
   obterCategorias,
+  obterProdutosParados90Dias,
   limparCacheEstoque
 };
+

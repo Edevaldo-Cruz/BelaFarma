@@ -23,7 +23,10 @@ import {
   User as UserIcon,
   Receipt,
   Send,
-  Loader2
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Image as ImageIcon
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -94,6 +97,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
     sessionStorage.setItem('hasSeenGoalPopup', 'true');
     setShowGoalPopup(false);
   };
+
+  // Estados para os Produtos Parados > 90 dias e Carrossel Autoplay
+  const [inactiveProducts, setInactiveProducts] = React.useState<any[]>([]);
+  const [loadingInactive, setLoadingInactive] = React.useState(true);
+  const [activeInactiveIndex, setActiveInactiveIndex] = React.useState(0);
+  const [isPaused, setIsPaused] = React.useState(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Estados para o Widget de Pós-Venda no Dashboard
   const [newCustomers, setNewCustomers] = React.useState<any[]>([]);
@@ -180,7 +190,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         const response = await fetch('/api/backups');
         const data = await response.json();
         if (data && data.length > 0) {
-          // Os backups já vêm ordenados por data desc no backend
           setLastBackup(new Date(data[0].date).toLocaleString('pt-BR'));
         }
       } catch (e) {
@@ -205,12 +214,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       }
     };
 
+    const fetchInactiveProducts = async () => {
+      setLoadingInactive(true);
+      try {
+        const response = await fetch('/api/stock/inactive-90-days');
+        if (response.ok) {
+          const data = await response.json();
+          setInactiveProducts(data || []);
+        }
+      } catch (e) {
+        console.error('Erro ao buscar produtos parados:', e);
+      } finally {
+        setLoadingInactive(false);
+      }
+    };
+
     fetchLastBackup();
     fetchLiveSales();
+    fetchInactiveProducts();
     
     const interval = setInterval(fetchLiveSales, 60000); // 1 minuto
     return () => clearInterval(interval);
   }, []);
+
+  // Effect para controlar o Autoplay do Carrossel de Produtos Parados (5 segundos)
+  React.useEffect(() => {
+    if (inactiveProducts.length === 0 || isPaused) return;
+
+    const interval = setInterval(() => {
+      setActiveInactiveIndex(prev => (prev + 1) % inactiveProducts.length);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [inactiveProducts, isPaused]);
 
   const enrichedCashClosings = React.useMemo(() => {
     if (!liveSalesData) return cashClosings;
@@ -409,72 +445,182 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       </header>
       
-      {/* Quick Actions Section - Dynamic based on usage */}
-      <section className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        {(() => {
-          const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
-          
-          const allShortcuts = [
-            { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
-            { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
-            { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },
-            { id: 'cash-closing', label: 'Fechamento', icon: Lock, color: 'emerald', adminOnly: true },
-            { id: 'financial', label: 'Financeiro', icon: CreditCard, color: 'purple', adminOnly: true },
-            { id: 'task-management', label: 'Tarefas', icon: CheckCircle2, color: 'red' },
-            { id: 'ifood-control', label: 'iFood', icon: Smartphone, color: 'pink', adminOnly: true },
-            { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
-            { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
-            { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
-            { id: 'pix', label: 'Gerador Pix', icon: CreditCard, color: 'emerald' },
-          ];
+      {/* 📦 CARROSSEL DE PRODUTOS PARADOS (AUTOPLAY 5S) */}
+      {!loadingInactive && inactiveProducts.length > 0 && (
+        <section 
+          className="relative bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent dark:from-amber-950/20 dark:via-orange-950/5 dark:to-transparent border-2 border-amber-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden"
+          onMouseEnter={() => setIsPaused(true)}
+          onMouseLeave={() => setIsPaused(false)}
+        >
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+            <div>
+              <h2 className="text-sm font-black text-amber-800 dark:text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                </span>
+                Giro Crítico: Produtos Sem Vendas (&gt; 90 dias)
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold italic">
+                Abaixo estão produtos parados em estoque há mais tempo (ordenados pelo valor de investimento parado).
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-2 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+              {activeInactiveIndex + 1} de {inactiveProducts.length}
+            </div>
+          </div>
 
-          // Filter and ensure 'pix' is always first, followed by top 7 most used
-          const otherShortcuts = allShortcuts
-            .filter(s => s.id !== 'pix')
-            .filter(s => !s.adminOnly || isAdmin)
-            .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0));
+          <div className="relative h-[120px] md:h-[100px] overflow-hidden">
+            {inactiveProducts.map((product, idx) => {
+              const isActive = idx === activeInactiveIndex;
+              const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceVenda);
+              const formattedCompra = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceCompra);
+              
+              return (
+                <div
+                  key={product.id}
+                  className={`absolute inset-0 flex items-center gap-4 transition-all duration-700 ease-in-out transform ${
+                    isActive 
+                      ? 'opacity-100 translate-x-0 scale-100 pointer-events-auto' 
+                      : 'opacity-0 translate-x-full scale-95 pointer-events-none'
+                  }`}
+                >
+                  {/* Imagem do Produto */}
+                  <div className="w-16 h-16 bg-white dark:bg-slate-950 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                    {product.imageUrl ? (
+                      <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain p-1" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-slate-300 dark:text-slate-700" />
+                    )}
+                  </div>
 
-          const visibleShortcuts = [
-            allShortcuts.find(s => s.id === 'pix')!,
-            ...otherShortcuts
-          ].filter(Boolean).slice(0, 8); // Show Pix + top 7
+                  {/* Detalhes do Produto */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight truncate" title={product.name}>
+                      {product.name}
+                    </h3>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase truncate">
+                      {product.presentation || 'Sem Apresentação'}
+                    </p>
+                    
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                      <span>Estoque: <strong className="text-amber-600 dark:text-amber-400">{product.saldo} un</strong></span>
+                      <span>Venda: <strong className="text-slate-800 dark:text-slate-200">{formattedVenda}</strong></span>
+                      {isAdmin && (
+                        <span>Compra: <strong className="text-rose-600 dark:text-rose-400">{formattedCompra}</strong></span>
+                      )}
+                    </div>
+                  </div>
 
-          return visibleShortcuts.map(s => {
-            const Icon = s.icon;
-            const colorMap: any = {
-              indigo: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900',
-              blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900',
-              amber: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
-              emerald: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900',
-              purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900',
-              red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900',
-              pink: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-900',
-              slate: 'bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-900',
-              orange: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-900',
-              gray: 'bg-gray-50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-900'
-            };
-
-            const colors = colorMap[s.color] || colorMap.slate;
-
-            return (
-              <button 
-                key={s.id}
-                onClick={() => {
-                  const currentStats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
-                  currentStats[s.id] = (currentStats[s.id] || 0) + 1;
-                  localStorage.setItem('belinha_usage_stats', JSON.stringify(currentStats));
-                  onNavigate(s.id);
-                }}
-                className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group"
-              >
-                <div className={`p-3 rounded-2xl mb-2 group-hover:scale-110 transition-transform ${colors.split(' ').slice(0,3).join(' ')}`}>
-                  <Icon className="w-6 h-6" />
+                  {/* Dias de Inatividade */}
+                  <div className="shrink-0 text-right">
+                    <span className="inline-block bg-amber-500/25 dark:bg-amber-950/50 border border-amber-500/20 px-3 py-1.5 rounded-2xl text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                      {product.inactivityDays 
+                        ? `Parado há ${product.inactivityDays} dias`
+                        : 'Nunca vendido'
+                      }
+                    </span>
+                    {product.lastSale && (
+                      <p className="text-[9px] text-slate-400 mt-1 uppercase font-bold">Última Venda: {product.lastSale}</p>
+                    )}
+                  </div>
                 </div>
-                <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{s.label}</span>
-              </button>
-            );
-          });
-        })()}
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
+      <section className="relative group">
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <button 
+            onClick={() => scrollContainerRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
+            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div 
+          ref={scrollContainerRef}
+          className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
+        >
+          {(() => {
+            const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
+            
+            const allShortcuts = [
+              { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
+              { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
+              { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },
+              { id: 'cash-closing', label: 'Fechamento', icon: Lock, color: 'emerald', adminOnly: true },
+              { id: 'financial', label: 'Financeiro', icon: CreditCard, color: 'purple', adminOnly: true },
+              { id: 'task-management', label: 'Tarefas', icon: CheckCircle2, color: 'red' },
+              { id: 'ifood-control', label: 'iFood', icon: Smartphone, color: 'pink', adminOnly: true },
+              { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
+              { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
+              { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
+              { id: 'pix', label: 'Gerador Pix', icon: CreditCard, color: 'emerald' },
+            ];
+
+            // Ordena os atalhos: pix sempre em primeiro, depois ordena o resto por uso pessoal
+            const otherShortcuts = allShortcuts
+              .filter(s => s.id !== 'pix')
+              .filter(s => !s.adminOnly || isAdmin)
+              .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0));
+
+            const visibleShortcuts = [
+              allShortcuts.find(s => s.id === 'pix')!,
+              ...otherShortcuts
+            ].filter(Boolean); // Exibe todos os atalhos válidos para o usuário!
+
+            return visibleShortcuts.map(s => {
+              const Icon = s.icon;
+              const colorMap: any = {
+                indigo: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900',
+                blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900',
+                amber: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
+                emerald: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900',
+                purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900',
+                red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900',
+                pink: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-900',
+                slate: 'bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-900',
+                orange: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-900',
+                gray: 'bg-gray-50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-900'
+              };
+
+              const colors = colorMap[s.color] || colorMap.slate;
+
+              return (
+                <button 
+                  key={s.id}
+                  onClick={() => {
+                    const currentStats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
+                    currentStats[s.id] = (currentStats[s.id] || 0) + 1;
+                    localStorage.setItem('belinha_usage_stats', JSON.stringify(currentStats));
+                    onNavigate(s.id);
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group shrink-0 min-w-[120px] h-[110px]"
+                >
+                  <div className={`p-3 rounded-2xl mb-2 group-hover:scale-110 transition-transform ${colors.split(' ').slice(0,3).join(' ')}`}>
+                    <Icon className="w-6 h-6" />
+                  </div>
+                  <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{s.label}</span>
+                </button>
+              );
+            });
+          })()}
+        </div>
+
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <button 
+            onClick={() => scrollContainerRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
+            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
       </section>
 
       {overdueOrders.length > 0 && (

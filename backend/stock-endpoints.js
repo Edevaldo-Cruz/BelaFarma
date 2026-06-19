@@ -4,6 +4,7 @@ const {
   listarProdutosEstoque, 
   obterCategorias,
   obterInformacoesVendasProdutos,
+  obterProdutosParados90Dias,
   limparCacheEstoque
 } = require('./services/stock.service');
 
@@ -90,6 +91,20 @@ module.exports = function () {
         return res.status(503).json({ error: 'Servidor do Digifarma Offline' });
       }
       console.error('[Stock API] Erro em /products/sales-info:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. Obter produtos parados há mais de 90 dias (para carrossel do dashboard)
+  router.get('/inactive-90-days', async (req, res) => {
+    try {
+      const items = await obterProdutosParados90Dias();
+      res.json(items);
+    } catch (err) {
+      if (err.message && err.message.includes('Offline')) {
+        return res.status(503).json({ error: 'Servidor do Digifarma Offline' });
+      }
+      console.error('[Stock API] Erro em /inactive-90-days:', err);
       res.status(500).json({ error: err.message });
     }
   });
