@@ -12,8 +12,16 @@ const { queryDigifarma } = require('./services/digifarma.service');
 const upload = multer({ dest: './uploads/finance_temp/' });
 
 // Função auxiliar para tratar erros do Digifarma
-const handleDigifarmaError = (err, res, route) => {
+const handleDigifarmaError = (err, res, route, mockFallback) => {
   console.error(`[Finance] Erro em ${route}:`, err);
+  
+  // Se estiver em desenvolvimento, retorna dados simulados/mock
+  const config = require('./config');
+  if (!config.isProduction && mockFallback !== undefined) {
+    console.warn(`[Finance] ⚠️ Digifarma offline/com erro. Retornando dados simulados para ${route}.`);
+    return res.json(mockFallback);
+  }
+
   const msg = err && err.message ? err.message : String(err);
   const isOffline = msg.includes('Offline') || 
                     msg.includes('Inacessível') || 
@@ -219,7 +227,18 @@ module.exports = function (db) {
 
       res.json(payload);
     } catch (err) {
-      return handleDigifarmaError(err, res, '/live-closing');
+      const mockPayload = {
+        totalSales: 1250.50,
+        dinheiro: 450.00,
+        credit: 350.00,
+        debit: 200.00,
+        pix: 250.50,
+        crediario: 0,
+        outros: 0,
+        qtdVendas: 35,
+        fundoCaixa: 250.00
+      };
+      return handleDigifarmaError(err, res, '/live-closing', mockPayload);
     }
   });
 
@@ -307,7 +326,13 @@ module.exports = function (db) {
       const payments = await queryDigifarma(sql);
       res.json(payments);
     } catch (err) {
-      return handleDigifarmaError(err, res, '/monthly-payments');
+      const mockPayments = [
+        { TIPO_PAGAMENTO_ID: 1, BANDEIRA: null, TOTAL: 12450.00 },
+        { TIPO_PAGAMENTO_ID: 4, BANDEIRA: 'VISA CREDITO', TOTAL: 8500.00 },
+        { TIPO_PAGAMENTO_ID: 4, BANDEIRA: 'VISA DEBITO', TOTAL: 4200.00 },
+        { TIPO_PAGAMENTO_ID: 8, BANDEIRA: null, TOTAL: 9350.00 }
+      ];
+      return handleDigifarmaError(err, res, '/monthly-payments', mockPayments);
     }
   });
 
@@ -375,7 +400,30 @@ module.exports = function (db) {
         }))
       });
     } catch (err) {
-      return handleDigifarmaError(err, res, '/sales-report');
+      const mockReport = {
+        categorias: [
+          { categoria: 'REFERENCIA', total: 4500.00, quantidade: 120 },
+          { categoria: 'GENERICOS', total: 3800.00, quantidade: 210 },
+          { categoria: 'SIMILARES', total: 2900.00, quantidade: 150 },
+          { categoria: 'PERFUMARIAS', total: 1800.00, quantidade: 95 },
+          { categoria: 'OUTROS', total: 500.00, quantidade: 30 }
+        ],
+        horarios: [
+          { hora: 8, total: 350.00, vendas: 12 },
+          { hora: 9, total: 480.00, vendas: 15 },
+          { hora: 10, total: 720.00, vendas: 22 },
+          { hora: 11, total: 610.00, vendas: 18 },
+          { hora: 12, total: 850.00, vendas: 25 },
+          { hora: 13, total: 400.00, vendas: 14 },
+          { hora: 14, total: 530.00, vendas: 16 },
+          { hora: 15, total: 690.00, vendas: 20 },
+          { hora: 16, total: 880.00, vendas: 24 },
+          { hora: 17, total: 950.00, vendas: 28 },
+          { hora: 18, total: 620.00, vendas: 19 },
+          { hora: 19, total: 300.00, vendas: 10 }
+        ]
+      };
+      return handleDigifarmaError(err, res, '/sales-report', mockReport);
     }
   });
 
