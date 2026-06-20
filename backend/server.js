@@ -895,6 +895,109 @@ app.delete('/api/shortages/:id', (req, res) => {
   }
 });
 
+// GET search products in Digifarma (used for autocomplete suggestions)
+app.get('/api/products/search', async (req, res) => {
+  try {
+    const q = req.query.q ? req.query.q.toString().toUpperCase().trim() : '';
+    if (!q || q.length < 3) {
+      return res.json([]);
+    }
+
+    // Split search terms to support multi-word search
+    const parts = q.split(/\s+/).filter(Boolean);
+    let whereClause = "1=1";
+    const sqlParams = [];
+    
+    if (parts.length > 0) {
+      whereClause = parts.map(() => "(p.PRODUTO LIKE ? OR p.COD_BARRAS = ?)").join(" AND ");
+      parts.forEach(part => {
+        sqlParams.push(`%${part}%`, part);
+      });
+    }
+
+    const sql = `
+      SELECT FIRST 10 
+        p.PRODUTO_ID, 
+        p.PRODUTO, 
+        p.APRESENTACAO, 
+        p.PROD_SALDO, 
+        COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
+        c.CATEGORIA as CATEGORIA_NOME
+      FROM PRODUTOS p
+      LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+      WHERE ${whereClause}
+    `;
+
+    const results = await queryDigifarma(sql, sqlParams);
+    
+    const products = (results || []).map(r => ({
+      id: r.PRODUTO_ID,
+      name: r.PRODUTO ? r.PRODUTO.trim() : '',
+      presentation: r.APRESENTACAO ? r.APRESENTACAO.trim() : '',
+      saldo: r.PROD_SALDO || 0,
+      priceCompra: r.PROD_PRCOMPRA || 0,
+      categoryName: r.CATEGORIA_NOME ? r.CATEGORIA_NOME.trim() : ''
+    }));
+    
+    res.json(products);
+  } catch (err) {
+    console.error('Error searching products in Digifarma:', err);
+    if (err.message && err.message.includes('Offline')) {
+      return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+    }
+    res.status(500).json({ error: 'Erro ao buscar produtos no Digifarma.' });
+  }
+});
+
+// POST query Digifarma stock and price for a batch of product names
+app.post('/api/shortages/db-status', async (req, res) => {
+  try {
+    const { productNames } = req.body;
+    if (!productNames || !Array.isArray(productNames) || productNames.length === 0) {
+      return res.json({});
+    }
+
+    const cleanedNames = productNames
+      .map(name => name.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (cleanedNames.length === 0) {
+      return res.json({});
+    }
+
+    // Build the query with IN clause
+    const placeholders = cleanedNames.map(() => '?').join(',');
+    const sql = `
+      SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
+      FROM PRODUTOS p
+      WHERE TRIM(UPPER(p.PRODUTO)) IN (${placeholders})
+    `;
+
+    const results = await queryDigifarma(sql, cleanedNames);
+    
+    const mapping = {};
+    if (results) {
+      results.forEach(r => {
+        const key = r.PRODUTO ? r.PRODUTO.trim().toUpperCase() : '';
+        if (key) {
+          mapping[key] = {
+            saldo: r.PROD_SALDO || 0,
+            priceCompra: r.PROD_PRCOMPRA || 0
+          };
+        }
+      });
+    }
+
+    res.json(mapping);
+  } catch (err) {
+    console.error('Error querying shortage statuses in Digifarma:', err);
+    if (err.message && err.message.includes('Offline')) {
+      return res.status(503).json({ error: 'O servidor do Digifarma está Offline.' });
+    }
+    res.status(500).json({ error: 'Erro ao buscar status no Digifarma.' });
+  }
+});
+
 // FORÇAR VARREDURA DE FALTAS WHATSAPP
 app.post('/api/whatsapp/force-shortage-scan', async (req, res) => {
   try {

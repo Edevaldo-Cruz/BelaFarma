@@ -3,7 +3,8 @@ import {
   Plus, Search, Filter, Trash2, ClipboardList, 
   MessageCircle, Star, X, Save, User as UserIcon,
   Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3,
-  Truck, Check, Eye, EyeOff, AlertTriangle, RefreshCw, Users
+  Truck, Check, Eye, EyeOff, AlertTriangle, RefreshCw, Users,
+  Send
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
@@ -43,9 +44,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [quoteSuppliers, setQuoteSuppliers] = useState<any[]>([]);
 
   // Estado para busca inteligente no formulário
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
   const [lastSelected, setLastSelected] = useState('');
+
+  // Estado para armazenar o saldo e última compra das faltas vindos do Digifarma
+  const [dbStatuses, setDbStatuses] = useState<Record<string, { saldo: number, priceCompra: number }>>({});
+  const [isLoadingDbStatuses, setIsLoadingDbStatuses] = useState(false);
 
   // Histórico de Compras
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -110,6 +115,40 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     }
   };
 
+  const fetchDbStatuses = async (items: ProductShortage[]) => {
+    if (!items || items.length === 0) {
+      setDbStatuses({});
+      return;
+    }
+    
+    // Get all unique product names
+    const names = Array.from(new Set(items.map(s => s.productName).filter(Boolean)));
+    if (names.length === 0) return;
+    
+    setIsLoadingDbStatuses(true);
+    try {
+      const response = await fetch('/api/shortages/db-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ productNames: names })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDbStatuses(data || {});
+      }
+    } catch (err) {
+      console.error('Erro ao buscar saldos e compras no Digifarma:', err);
+    } finally {
+      setIsLoadingDbStatuses(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDbStatuses(shortages);
+  }, [shortages]);
+
   useEffect(() => {
     const fetchSuggestions = async () => {
       // Se a query for pequena, ou igual ao que acabamos de selecionar, para.
@@ -119,18 +158,10 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       }
       
       setIsSearchingSuggestions(true);
-      // Instantiate GoogleGenAI right before the API call
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       try {
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Sugira 3 nomes de medicamentos oficiais que começam com: "${formData.productName}". Retorne JSON array de strings.`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
-          }
-        });
-        setSuggestions(JSON.parse(response.text || '[]'));
+        const response = await fetch(`/api/products/search?q=${encodeURIComponent(formData.productName)}`);
+        const data = await response.json();
+        setSuggestions(data || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -138,7 +169,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       }
     };
 
-    const timer = setTimeout(fetchSuggestions, 800);
+    const timer = setTimeout(fetchSuggestions, 400);
     return () => clearTimeout(timer);
   }, [formData.productName, lastSelected]);
 
@@ -644,11 +675,11 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
           <table className="w-full text-left border-collapse responsive-table">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-center w-12">
+              <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                <th className="px-6 py-4 text-center w-12 bg-slate-50">
                   <input 
                     type="checkbox" 
                     onChange={toggleSelectAll}
@@ -656,75 +687,105 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produto / Item</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Procura de Cliente</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status de Aquisição</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Registrado por</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ações</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50">Produto / Item</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Saldo</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-right">Última Compra</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50">Tipo</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Procura de Cliente</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Status de Aquisição</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50">Registrado por</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredShortages.map((s) => (
-                <tr 
-                  key={s.id} 
-                  className={`transition-all duration-300 group ${
-                    s.purchased 
-                      ? 'bg-slate-100/50 hover:bg-slate-150 opacity-60' 
-                      : s.ordered 
-                        ? 'bg-blue-50/20 hover:bg-blue-50/40 border-l-4 border-l-blue-500' 
-                        : 'hover:bg-red-50/20'
-                  }`}
-                >
-                  <td className="px-6 py-4 text-center" data-label="Selecionar">
-                    {!s.purchased && (
-                      <input 
-                        type="checkbox" 
-                        checked={selectedIds.includes(s.id)}
-                        onChange={() => toggleSelect(s.id)}
-                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    )}
-                  </td>
-                  <td className="px-6 py-4" data-label="Produto / Item">
-                    <div className="flex flex-col">
-                      <div className="flex items-center">
-                        <span className={`font-black uppercase tracking-tighter transition-all ${
-                          s.purchased 
-                            ? 'text-slate-400 line-through decoration-slate-400 decoration-2' 
-                            : 'text-slate-900'
-                        }`}>
-                          {s.productName}
-                        </span>
-                        {s.purchased && (
-                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 animate-fade-in">
-                            Comprado
+              {filteredShortages.map((s) => {
+                const status = dbStatuses[s.productName.trim().toUpperCase()];
+                return (
+                  <tr 
+                    key={s.id} 
+                    className={`transition-all duration-300 group ${
+                      s.purchased 
+                        ? 'bg-slate-100/50 hover:bg-slate-150 opacity-60' 
+                        : s.ordered 
+                          ? 'bg-blue-50/20 hover:bg-blue-50/40 border-l-4 border-l-blue-500' 
+                          : 'hover:bg-red-50/20'
+                    }`}
+                  >
+                    <td className="px-6 py-4 text-center" data-label="Selecionar">
+                      {!s.purchased && (
+                        <input 
+                          type="checkbox" 
+                          checked={selectedIds.includes(s.id)}
+                          onChange={() => toggleSelect(s.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      )}
+                    </td>
+                    <td className="px-6 py-4" data-label="Produto / Item">
+                      <div className="flex flex-col">
+                        <div className="flex items-center">
+                          <span className={`font-black uppercase tracking-tighter transition-all ${
+                            s.purchased 
+                              ? 'text-slate-400 line-through decoration-slate-400 decoration-2' 
+                              : 'text-slate-900'
+                          }`}>
+                            {s.productName}
                           </span>
-                        )}
-                        {s.ordered && !s.purchased && (
-                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 animate-pulse">
-                            Pedido
-                          </span>
-                        )}
-                        {s.source === 'WhatsApp' && (
-                          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                            <MessageCircle className="w-2.5 h-2.5 fill-emerald-600/30 text-emerald-600" />
-                            WhatsApp
+                          {s.purchased && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 animate-fade-in">
+                              Comprado
+                            </span>
+                          )}
+                          {s.ordered && !s.purchased && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 animate-pulse">
+                              Pedido
+                            </span>
+                          )}
+                          {s.source === 'WhatsApp' && (
+                            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                              <MessageCircle className="w-2.5 h-2.5 fill-emerald-600/30 text-emerald-600" />
+                              WhatsApp
+                            </span>
+                          )}
+                        </div>
+                        {s.notes && (
+                          <span className={`text-[10px] font-bold flex items-center gap-1 mt-0.5 ${s.notes.includes('Atenção: Resta 1') ? 'text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-flex w-fit' : 'text-slate-400'}`}>
+                            {s.notes.includes('Atenção: Resta 1') ? <AlertTriangle className="w-3 h-3" /> : <MessageCircle className="w-3 h-3" />} {s.notes}
                           </span>
                         )}
                       </div>
-                      {s.notes && (
-                        <span className={`text-[10px] font-bold flex items-center gap-1 mt-0.5 ${s.notes.includes('Atenção: Resta 1') ? 'text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-flex w-fit' : 'text-slate-400'}`}>
-                          {s.notes.includes('Atenção: Resta 1') ? <AlertTriangle className="w-3 h-3" /> : <MessageCircle className="w-3 h-3" />} {s.notes}
+                    </td>
+                    <td className="px-6 py-4 text-center" data-label="Saldo">
+                      {status ? (
+                        <span className={`font-black text-xs ${status.saldo <= 0 ? 'text-red-500 bg-red-50 px-2 py-1 rounded-lg border border-red-100 font-extrabold' : 'text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 font-extrabold'}`}>
+                          {status.saldo}
+                        </span>
+                      ) : isLoadingDbStatuses ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-300 mx-auto" />
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200" title="Produto novo ou não encontrado no banco de dados">
+                          Novo / ND
                         </span>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4" data-label="Tipo">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getTypeColor(s.type)}`}>
-                      {s.type}
-                    </span>
-                  </td>
+                    </td>
+                    <td className="px-6 py-4 text-right" data-label="Última Compra">
+                      {status && status.priceCompra > 0 ? (
+                        <span className="font-extrabold text-slate-700 text-xs bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(status.priceCompra)}
+                        </span>
+                      ) : isLoadingDbStatuses ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-300 ml-auto" />
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                          -
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4" data-label="Tipo">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getTypeColor(s.type)}`}>
+                        {s.type}
+                      </span>
+                    </td>
                   <td className="px-6 py-4" data-label="Procura de Cliente">
                     <div className="flex justify-center">
                       {s.clientInquiry ? (
@@ -776,7 +837,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   </td>
                   <td className="px-6 py-4" data-label="Ações">
                     <div className="flex justify-center">
-                      {s.id.startsWith('sh_auto_') && (
+                      {status && (
                         <button 
                           onClick={() => loadHistory(s)}
                           title="Ver Últimas Compras"
@@ -794,7 +855,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
           {filteredShortages.length === 0 && (
@@ -835,20 +896,43 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                 </div>
 
                 {suggestions.length > 0 && (
-                  <div className="absolute top-full left-0 w-full bg-white shadow-2xl rounded-2xl border border-slate-100 z-[70] mt-1 overflow-hidden">
+                  <div className="absolute top-full left-0 w-full bg-white shadow-2xl rounded-2xl border border-slate-100 z-[70] mt-1 overflow-hidden max-h-60 overflow-y-auto">
                     {suggestions.map((s, i) => (
                       <button 
                         key={i} 
                         type="button"
                         onClick={() => {
-                          setFormData({...formData, productName: s});
-                          setLastSelected(s);
+                          const fullName = s.presentation ? `${s.name} ${s.presentation}` : s.name;
+                          // Classificação automática do Tipo do produto com base na categoria
+                          let autoType = ProductType.GENERICO;
+                          const cat = (s.categoryName || '').toUpperCase();
+                          if (cat.includes('GENERICO') || cat.includes('GENÉRICO')) {
+                            autoType = ProductType.GENERICO;
+                          } else if (cat.includes('SIMILAR')) {
+                            autoType = ProductType.SIMILAR;
+                          } else if (cat.includes('PERFUMARIA') || cat.includes('COSMETICO') || cat.includes('HIGIENE') || cat.includes('BELEZA') || cat.includes('DIVERSOS') || cat.includes('CORPO') || cat.includes('CABELO') || cat.includes('FRALDA') || cat.includes('PERFUME')) {
+                            autoType = ProductType.PERFUMARIA;
+                          } else if (cat.includes('ETICO') || cat.includes('ÉTICO') || cat.includes('REFERENCIA') || cat.includes('REFERÊNCIA')) {
+                            autoType = ProductType.MARCA;
+                          }
+
+                          setFormData({
+                            ...formData, 
+                            productName: fullName,
+                            type: autoType
+                          });
+                          setLastSelected(fullName);
                           setSuggestions([]);
                         }}
-                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-red-50 hover:text-red-700 border-b border-slate-50 last:border-none flex items-center gap-2"
+                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-red-50 hover:text-red-700 border-b border-slate-50 last:border-none flex items-center justify-between gap-2"
                       >
-                        <Sparkles className="w-3 h-3 text-red-400" />
-                        {s}
+                        <span className="flex items-center gap-2 truncate">
+                          <Sparkles className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                          <span className="truncate">{s.name} {s.presentation && <span className="text-[10px] text-slate-400 font-normal">({s.presentation})</span>}</span>
+                        </span>
+                        <span className={`text-[10px] font-black shrink-0 ${s.saldo <= 0 ? 'text-red-600 bg-red-50/50 px-1.5 py-0.5 rounded' : 'text-emerald-600 bg-emerald-50/50 px-1.5 py-0.5 rounded'}`}>
+                          Saldo: {s.saldo}
+                        </span>
                       </button>
                     ))}
                   </div>
