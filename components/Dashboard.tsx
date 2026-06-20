@@ -534,34 +534,134 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       </header>
       
-      {/* 📦 CARROSSEL DE PRODUTOS PARADOS (AUTOPLAY 10S) */}
-      {!loadingInactive && inactiveProducts.length > 0 && (
+      {/* 📦 LAYOUT DE DESTAQUES DE VENDAS E GIRO CRÍTICO LADO A LADO */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Destaques de Vendas (Top 3) */}
+        <section className="lg:col-span-5 bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent dark:from-blue-950/20 dark:via-indigo-950/5 dark:to-transparent border-2 border-blue-500/20 rounded-[2.5rem] p-6 shadow-sm flex flex-col justify-between space-y-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-black text-blue-800 dark:text-blue-450 uppercase tracking-widest flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-blue-500" />
+                Destaques de Vendas
+              </h2>
+              <button
+                onClick={() => setShowAbcModal(true)}
+                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-black text-[9px] px-2.5 py-1.5 rounded-full uppercase tracking-wider shadow-sm transition-all cursor-pointer border-none"
+              >
+                <List className="w-3 h-3" />
+                Curva ABC
+              </button>
+            </div>
+
+            <div className="flex justify-between items-center bg-white/60 dark:bg-slate-900/60 p-0.5 rounded-full border border-blue-500/10">
+              <button
+                onClick={() => setTopPeriod('day')}
+                className={`flex-1 py-1 rounded-full text-[9px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
+                  topPeriod === 'day'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-655 dark:text-slate-400 hover:text-blue-655'
+                }`}
+              >
+                Dia
+              </button>
+              <button
+                onClick={() => setTopPeriod('month')}
+                className={`flex-1 py-1 rounded-full text-[9px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
+                  topPeriod === 'month'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-655 dark:text-slate-400 hover:text-blue-655'
+                }`}
+              >
+                Mês
+              </button>
+              <button
+                onClick={() => setTopPeriod('semester')}
+                className={`flex-1 py-1 rounded-full text-[9px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
+                  topPeriod === 'semester'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-655 dark:text-slate-400 hover:text-blue-655'
+                }`}
+              >
+                Semestre
+              </button>
+            </div>
+          </div>
+
+          {loadingTopProducts ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-2 flex-1">
+              <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+              <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Calculando...</span>
+            </div>
+          ) : topProducts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 flex-1">
+              <span className="text-[11px] font-bold text-slate-450 dark:text-slate-500 italic">Nenhuma venda neste período.</span>
+            </div>
+          ) : (
+            <div className="space-y-3 flex-1 flex flex-col justify-center">
+              {topProducts.map((product, index) => {
+                const formattedValor = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.totalValor);
+                const medalIcons = ['🥇', '🥈', '🥉'];
+                const rankColors = [
+                  'bg-amber-100 dark:bg-amber-955/45 text-amber-700 dark:text-amber-400 border border-amber-250 dark:border-amber-900/60',
+                  'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 border border-slate-200 dark:border-slate-700',
+                  'bg-amber-50 dark:bg-amber-955/20 text-amber-800 dark:text-amber-500 border border-amber-100/60 dark:border-amber-900/30'
+                ];
+
+                return (
+                  <div 
+                    key={product.id}
+                    className="flex items-center gap-3 bg-white dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/80 rounded-[1.5rem] p-3 hover:border-blue-500/30 dark:hover:border-blue-500/30 hover:shadow-sm transition-all duration-300"
+                  >
+                    {/* Medalha / Posição */}
+                    <div className={`h-10 w-10 shrink-0 rounded-xl flex items-center justify-center text-lg font-black ${rankColors[index] || ''}`}>
+                      {medalIcons[index] || `${index + 1}º`}
+                    </div>
+
+                    {/* Informações Relevantes */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-[11px] font-black text-slate-850 dark:text-slate-200 uppercase tracking-tight truncate" title={product.name}>
+                        {product.name}
+                      </h4>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-550 font-bold uppercase truncate mt-0.5">
+                        {product.presentation || 'Sem Apresentação'}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1 text-[9px] font-bold text-slate-500 dark:text-slate-450">
+                        <span>Qtd: <span className="text-slate-800 dark:text-slate-200 font-black">{product.quantidade} un</span></span>
+                        <span className="w-0.5 h-0.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
+                        <span>Faturamento: <span className="text-slate-900 dark:text-slate-100 font-black">{formattedValor}</span></span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Right Column: Giro Crítico (Inativos > 90 dias) */}
         <section 
-          className="relative group/giro bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent dark:from-amber-950/20 dark:via-orange-950/5 dark:to-transparent border-2 border-amber-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden"
+          className="lg:col-span-7 relative group/giro bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent dark:from-amber-955/20 dark:via-orange-955/5 dark:to-transparent border-2 border-amber-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden flex flex-col justify-between"
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
         >
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div>
-              <h2 className="text-sm font-black text-amber-800 dark:text-amber-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="relative flex h-3 w-3">
+              <h2 className="text-xs font-black text-amber-800 dark:text-amber-450 uppercase tracking-widest flex items-center gap-1.5">
+                <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
                 </span>
-                Giro Crítico: Produtos Sem Vendas (&gt; 90 dias)
+                Giro Crítico: Inativos (&gt; 90 dias)
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold italic">
-                Abaixo estão produtos parados em estoque há mais tempo (ordenados pelo valor de investimento parado).
-              </p>
             </div>
             
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-3 py-1 rounded-full text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-                {inactiveProducts.length} produtos
-              </div>
+              <span className="bg-white/60 dark:bg-slate-900/60 border border-amber-500/20 px-2 py-0.5 rounded-full text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                {inactiveProducts.length} itens
+              </span>
               <button
                 onClick={handleOpenAllInactiveModal}
-                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-full uppercase tracking-wider shadow-sm transition-all cursor-pointer border-none"
+                className="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white font-bold text-[9px] px-2.5 py-1.5 rounded-full uppercase tracking-wider shadow-sm transition-all cursor-pointer border-none"
               >
                 <List className="w-3 h-3" />
                 Ver Todos
@@ -569,241 +669,108 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
             </div>
           </div>
 
-          {/* Botões de Navegação Manual */}
-          <div className="absolute left-2 top-[60%] -translate-y-1/2 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
-            <button 
-              onClick={() => inactiveContainerRef.current?.scrollBy({ left: -236, behavior: 'smooth' })}
-              className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="absolute right-2 top-[60%] -translate-y-1/2 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
-            <button 
-              onClick={() => inactiveContainerRef.current?.scrollBy({ left: 236, behavior: 'smooth' })}
-              className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Container de Rolagem Horizontal */}
-          <div 
-            ref={inactiveContainerRef}
-            className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
-          >
-            {inactiveProducts.slice(0, 20).map((product) => {
-              const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceVenda);
-              const formattedCompra = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceCompra);
-              
-              return (
-                <div
-                  key={product.id}
-                  className="w-[220px] shrink-0 bg-white dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/80 rounded-[2rem] p-4 flex flex-col justify-between shadow-sm hover:shadow-md hover:border-amber-500/30 dark:hover:border-amber-500/30 transition-all duration-300 group/card"
-                >
-                  <div>
-                    {/* Badge de Inatividade */}
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="bg-amber-500/10 dark:bg-amber-950/40 text-[9px] font-black text-amber-700 dark:text-amber-400 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                        {product.inactivityDays 
-                          ? `${product.inactivityDays} dias parado`
-                          : 'Nunca vendido'
-                        }
-                      </span>
-                    </div>
-
-                    {/* Imagem do Produto */}
-                    <div className="h-24 w-full bg-white dark:bg-slate-950 rounded-2xl flex items-center justify-center border border-slate-100 dark:border-slate-800/40 overflow-hidden mb-3 relative group-hover/card:scale-[1.02] transition-transform duration-300">
-                      {product.imageUrl ? (
-                        <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain p-2" />
-                      ) : (
-                        <ImageIcon className="w-8 h-8 text-slate-300 dark:text-slate-700" />
-                      )}
-                    </div>
-
-                    {/* Detalhes do Produto */}
-                    <div className="mb-2">
-                      <h3 className="text-xs font-black text-slate-900 dark:text-slate-150 uppercase tracking-tight line-clamp-2 min-h-[2rem]" title={product.name}>
-                        {product.name}
-                      </h3>
-                      <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase truncate mt-0.5">
-                        {product.presentation || 'Sem Apresentação'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    {/* Linha Divisória */}
-                    <div className="border-t border-slate-100 dark:border-slate-800/60 my-2" />
-
-                    {/* Valores e Estoque */}
-                    <div className="space-y-1 text-[10px] font-bold text-slate-500 dark:text-slate-450">
-                      <div className="flex justify-between">
-                        <span>Estoque:</span>
-                        <span className="text-amber-600 dark:text-amber-400 font-black">{product.saldo} un</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Venda:</span>
-                        <span className="text-slate-800 dark:text-slate-200 font-black">{formattedVenda}</span>
-                      </div>
-                      {isAdmin && (
-                        <div className="flex justify-between text-rose-600 dark:text-rose-450 border-t border-dotted border-slate-100 dark:border-slate-800/60 pt-1 mt-1">
-                          <span>Compra:</span>
-                          <span className="font-black">{formattedCompra}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* 🏆 SEÇÃO DE DESTAQUES DE VENDAS: TOP 3 & CURVA ABC */}
-      <section className="bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent dark:from-blue-950/20 dark:via-indigo-950/5 dark:to-transparent border-2 border-blue-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h2 className="text-sm font-black text-blue-800 dark:text-blue-400 uppercase tracking-widest flex items-center gap-2">
-              <Award className="w-5 h-5 text-blue-500" />
-              Destaques de Vendas: Top 3 & Curva ABC
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold italic">
-              Produtos mais vendidos no período e classificação de faturamento Curva ABC.
-            </p>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Filtros de período */}
-            <div className="flex bg-white/60 dark:bg-slate-900/60 p-1 rounded-full border border-blue-500/20">
-              <button
-                onClick={() => setTopPeriod('day')}
-                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
-                  topPeriod === 'day'
-                    ? 'bg-blue-500 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
-                }`}
-              >
-                Dia
-              </button>
-              <button
-                onClick={() => setTopPeriod('month')}
-                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
-                  topPeriod === 'month'
-                    ? 'bg-blue-500 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
-                }`}
-              >
-                Mês
-              </button>
-              <button
-                onClick={() => setTopPeriod('semester')}
-                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
-                  topPeriod === 'semester'
-                    ? 'bg-blue-500 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
-                }`}
-              >
-                Semestre
-              </button>
+          {loadingInactive ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-2 flex-1">
+              <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+              <span className="text-[10px] font-bold text-slate-550 dark:text-slate-450 uppercase">Carregando estoque...</span>
             </div>
-
-            {/* Botão Ver Curva ABC */}
-            <button
-              onClick={() => setShowAbcModal(true)}
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] px-3.5 py-2 rounded-full uppercase tracking-wider shadow-sm transition-all cursor-pointer border-none"
-            >
-              <List className="w-3 h-3" />
-              Ver Curva ABC
-            </button>
-          </div>
-        </div>
-
-        {loadingTopProducts ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-2">
-            <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Calculando ranking e curva...</span>
-          </div>
-        ) : topProducts.length === 0 ? (
-          <p className="text-center text-slate-450 py-8 italic text-xs font-bold">Nenhuma venda registrada neste período.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {topProducts.map((product, index) => {
-              const formattedValor = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.totalValor);
-              
-              // Cores e Badges de Posição
-              const medalColors = [
-                'from-amber-400 to-yellow-600 text-white shadow-amber-300/40', // Ouro
-                'from-slate-350 to-slate-500 text-white shadow-slate-300/40', // Prata
-                'from-amber-600 to-amber-800 text-white shadow-amber-700/30'  // Bronze
-              ];
-              
-              const medalLabels = ['1º Lugar', '2º Lugar', '3º Lugar'];
-
-              return (
-                <div
-                  key={product.id}
-                  className="bg-white dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/80 rounded-[2rem] p-5 flex flex-col justify-between shadow-sm hover:shadow-md hover:border-blue-500/30 dark:hover:border-blue-500/30 transition-all duration-300 relative group/ranking"
+          ) : inactiveProducts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 flex-1">
+              <span className="text-xs font-bold text-slate-400 italic">Nenhum produto inativo encontrado.</span>
+            </div>
+          ) : (
+            <div className="relative flex-1 flex items-center">
+              {/* Botões de Navegação Manual */}
+              <div className="absolute left-0 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
+                <button 
+                  onClick={() => inactiveContainerRef.current?.scrollBy({ left: -226, behavior: 'smooth' })}
+                  className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
                 >
-                  {/* Badge de Posição */}
-                  <div className="absolute top-4 left-4 z-10">
-                    <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-gradient-to-br ${medalColors[index]} shadow-md`}>
-                      <Award className="w-3.5 h-3.5" />
-                      {medalLabels[index]}
-                    </span>
-                  </div>
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
-                  <div className="mt-6 flex flex-col items-center">
-                    {/* Imagem do Produto */}
-                    <div className="h-28 w-28 bg-white dark:bg-slate-950 rounded-2xl flex items-center justify-center border border-slate-100 dark:border-slate-800/40 overflow-hidden mb-4 relative group-hover/ranking:scale-[1.04] transition-transform duration-300 shadow-sm">
-                      {product.imageUrl ? (
-                        <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain p-2" />
-                      ) : (
-                        <ImageIcon className="w-10 h-10 text-slate-300 dark:text-slate-700" />
-                      )}
-                    </div>
+              <div className="absolute right-0 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
+                <button 
+                  onClick={() => inactiveContainerRef.current?.scrollBy({ left: 226, behavior: 'smooth' })}
+                  className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
-                    {/* Detalhes do Produto */}
-                    <div className="text-center w-full">
-                      <h3 className="text-xs font-black text-slate-900 dark:text-slate-150 uppercase tracking-tight line-clamp-2 min-h-[2rem]" title={product.name}>
-                        {product.name}
-                      </h3>
-                      <p className="text-[9px] text-slate-400 dark:text-slate-550 font-bold uppercase truncate mt-1">
-                        {product.presentation || 'Sem Apresentação'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="w-full">
-                    {/* Linha Divisória */}
-                    <div className="border-t border-slate-100 dark:border-slate-800/60 my-3" />
-
-                    {/* Valores e Estoque */}
-                    <div className="space-y-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-450">
-                      <div className="flex justify-between">
-                        <span>Quantidade Vendida:</span>
-                        <span className="text-blue-600 dark:text-blue-450 font-black">{product.quantidade} un</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Receita Gerada:</span>
-                        <span className="text-slate-800 dark:text-slate-200 font-black">{formattedValor}</span>
-                      </div>
-                      {product.barcode && (
-                        <div className="flex justify-between text-[9px] text-slate-400 dark:text-slate-550 border-t border-dotted border-slate-100 dark:border-slate-800/60 pt-1 mt-1 font-mono">
-                          <span>EAN:</span>
-                          <span>{product.barcode}</span>
+              {/* Container de Rolagem Horizontal */}
+              <div 
+                ref={inactiveContainerRef}
+                className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
+              >
+                {inactiveProducts.slice(0, 20).map((product) => {
+                  const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceVenda);
+                  const formattedCompra = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.priceCompra);
+                  
+                  return (
+                    <div
+                      key={product.id}
+                      className="w-[210px] shrink-0 bg-white dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/80 rounded-[2rem] p-4 flex flex-col justify-between shadow-sm hover:shadow-md hover:border-amber-500/30 dark:hover:border-amber-500/30 transition-all duration-300 group/card"
+                    >
+                      <div>
+                        {/* Badge de Inatividade */}
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="bg-amber-500/10 dark:bg-amber-955/40 text-[9px] font-black text-amber-700 dark:text-amber-400 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                            {product.inactivityDays 
+                              ? `${product.inactivityDays} dias`
+                              : 'Sem vendas'
+                            }
+                          </span>
                         </div>
-                      )}
+
+                        {/* Imagem do Produto */}
+                        <div className="h-20 w-full bg-white dark:bg-slate-955 rounded-2xl flex items-center justify-center border border-slate-100 dark:border-slate-800/40 overflow-hidden mb-3 relative group-hover/card:scale-[1.02] transition-transform duration-300">
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain p-2" />
+                          ) : (
+                            <ImageIcon className="w-6 h-6 text-slate-300 dark:text-slate-700" />
+                          )}
+                        </div>
+
+                        {/* Detalhes do Produto */}
+                        <div className="mb-2">
+                          <h3 className="text-[11px] font-black text-slate-900 dark:text-slate-150 uppercase tracking-tight line-clamp-2 min-h-[1.75rem]" title={product.name}>
+                            {product.name}
+                          </h3>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-555 font-bold uppercase truncate mt-0.5">
+                            {product.presentation || 'Sem Apresentação'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="border-t border-slate-100 dark:border-slate-800/60 my-2" />
+                        <div className="space-y-1 text-[9px] font-bold text-slate-550 dark:text-slate-450">
+                          <div className="flex justify-between">
+                            <span>Estoque:</span>
+                            <span className="text-amber-600 dark:text-amber-400 font-black">{product.saldo} un</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Venda:</span>
+                            <span className="text-slate-800 dark:text-slate-200 font-black">{formattedVenda}</span>
+                          </div>
+                          {isAdmin && (
+                            <div className="flex justify-between text-rose-600 dark:text-rose-455 border-t border-dotted border-slate-100 dark:border-slate-800/60 pt-1 mt-1">
+                              <span>Compra:</span>
+                              <span className="font-black">{formattedCompra}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
 
       {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
       <section className="relative group">
