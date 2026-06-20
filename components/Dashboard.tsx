@@ -29,7 +29,10 @@ import {
   Image as ImageIcon,
   Search,
   X,
-  List
+  List,
+  DollarSign,
+  Ticket,
+  Award
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -138,6 +141,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
       (p.presentation && p.presentation.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   }, [allInactiveProducts, searchTerm]);
+
+  // Estados para Ranking de Produtos e Curva ABC
+  const [topProducts, setTopProducts] = React.useState<any[]>([]);
+  const [abcCurve, setAbcCurve] = React.useState<any[]>([]);
+  const [loadingTopProducts, setLoadingTopProducts] = React.useState(true);
+  const [topPeriod, setTopPeriod] = React.useState<'day' | 'month' | 'semester'>('month');
+  const [showAbcModal, setShowAbcModal] = React.useState(false);
+  const [abcSearchTerm, setAbcSearchTerm] = React.useState('');
+
+  const fetchTopProducts = React.useCallback(async (period: 'day' | 'month' | 'semester') => {
+    setLoadingTopProducts(true);
+    try {
+      const response = await fetch(`/api/finance-agent/top-products?period=${period}`);
+      if (response.ok) {
+        const data = await response.json();
+        setTopProducts(data.topProducts || []);
+        setAbcCurve(data.abcCurve || []);
+      }
+    } catch (e) {
+      console.error('Erro ao buscar ranking de produtos:', e);
+      addToast('Erro ao buscar ranking de produtos.', 'error');
+    } finally {
+      setLoadingTopProducts(false);
+    }
+  }, [addToast]);
+
+  React.useEffect(() => {
+    fetchTopProducts(topPeriod);
+  }, [topPeriod, fetchTopProducts]);
+
+  const filteredAbcCurve = React.useMemo(() => {
+    return abcCurve.filter(p => 
+      (p.name && p.name.toLowerCase().includes(abcSearchTerm.toLowerCase())) ||
+      (p.barcode && p.barcode.includes(abcSearchTerm)) ||
+      (p.presentation && p.presentation.toLowerCase().includes(abcSearchTerm.toLowerCase())) ||
+      (p.curve && p.curve.toLowerCase() === abcSearchTerm.toLowerCase().trim())
+    );
+  }, [abcCurve, abcSearchTerm]);
 
   // Estados para o Widget de Pós-Venda no Dashboard
   const [newCustomers, setNewCustomers] = React.useState<any[]>([]);
@@ -621,6 +662,149 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </section>
       )}
 
+      {/* 🏆 SEÇÃO DE DESTAQUES DE VENDAS: TOP 3 & CURVA ABC */}
+      <section className="bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent dark:from-blue-950/20 dark:via-indigo-950/5 dark:to-transparent border-2 border-blue-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-sm font-black text-blue-800 dark:text-blue-400 uppercase tracking-widest flex items-center gap-2">
+              <Award className="w-5 h-5 text-blue-500" />
+              Destaques de Vendas: Top 3 & Curva ABC
+            </h2>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold italic">
+              Produtos mais vendidos no período e classificação de faturamento Curva ABC.
+            </p>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Filtros de período */}
+            <div className="flex bg-white/60 dark:bg-slate-900/60 p-1 rounded-full border border-blue-500/20">
+              <button
+                onClick={() => setTopPeriod('day')}
+                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
+                  topPeriod === 'day'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
+                }`}
+              >
+                Dia
+              </button>
+              <button
+                onClick={() => setTopPeriod('month')}
+                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
+                  topPeriod === 'month'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
+                }`}
+              >
+                Mês
+              </button>
+              <button
+                onClick={() => setTopPeriod('semester')}
+                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border-none cursor-pointer ${
+                  topPeriod === 'semester'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
+                }`}
+              >
+                Semestre
+              </button>
+            </div>
+
+            {/* Botão Ver Curva ABC */}
+            <button
+              onClick={() => setShowAbcModal(true)}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] px-3.5 py-2 rounded-full uppercase tracking-wider shadow-sm transition-all cursor-pointer border-none"
+            >
+              <List className="w-3 h-3" />
+              Ver Curva ABC
+            </button>
+          </div>
+        </div>
+
+        {loadingTopProducts ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-2">
+            <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Calculando ranking e curva...</span>
+          </div>
+        ) : topProducts.length === 0 ? (
+          <p className="text-center text-slate-450 py-8 italic text-xs font-bold">Nenhuma venda registrada neste período.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {topProducts.map((product, index) => {
+              const formattedValor = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.totalValor);
+              
+              // Cores e Badges de Posição
+              const medalColors = [
+                'from-amber-400 to-yellow-600 text-white shadow-amber-300/40', // Ouro
+                'from-slate-350 to-slate-500 text-white shadow-slate-300/40', // Prata
+                'from-amber-600 to-amber-800 text-white shadow-amber-700/30'  // Bronze
+              ];
+              
+              const medalLabels = ['1º Lugar', '2º Lugar', '3º Lugar'];
+
+              return (
+                <div
+                  key={product.id}
+                  className="bg-white dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800/80 rounded-[2rem] p-5 flex flex-col justify-between shadow-sm hover:shadow-md hover:border-blue-500/30 dark:hover:border-blue-500/30 transition-all duration-300 relative group/ranking"
+                >
+                  {/* Badge de Posição */}
+                  <div className="absolute top-4 left-4 z-10">
+                    <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-gradient-to-br ${medalColors[index]} shadow-md`}>
+                      <Award className="w-3.5 h-3.5" />
+                      {medalLabels[index]}
+                    </span>
+                  </div>
+
+                  <div className="mt-6 flex flex-col items-center">
+                    {/* Imagem do Produto */}
+                    <div className="h-28 w-28 bg-white dark:bg-slate-950 rounded-2xl flex items-center justify-center border border-slate-100 dark:border-slate-800/40 overflow-hidden mb-4 relative group-hover/ranking:scale-[1.04] transition-transform duration-300 shadow-sm">
+                      {product.imageUrl ? (
+                        <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain p-2" />
+                      ) : (
+                        <ImageIcon className="w-10 h-10 text-slate-300 dark:text-slate-700" />
+                      )}
+                    </div>
+
+                    {/* Detalhes do Produto */}
+                    <div className="text-center w-full">
+                      <h3 className="text-xs font-black text-slate-900 dark:text-slate-150 uppercase tracking-tight line-clamp-2 min-h-[2rem]" title={product.name}>
+                        {product.name}
+                      </h3>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-550 font-bold uppercase truncate mt-1">
+                        {product.presentation || 'Sem Apresentação'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="w-full">
+                    {/* Linha Divisória */}
+                    <div className="border-t border-slate-100 dark:border-slate-800/60 my-3" />
+
+                    {/* Valores e Estoque */}
+                    <div className="space-y-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-450">
+                      <div className="flex justify-between">
+                        <span>Quantidade Vendida:</span>
+                        <span className="text-blue-600 dark:text-blue-450 font-black">{product.quantidade} un</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Receita Gerada:</span>
+                        <span className="text-slate-800 dark:text-slate-200 font-black">{formattedValor}</span>
+                      </div>
+                      {product.barcode && (
+                        <div className="flex justify-between text-[9px] text-slate-400 dark:text-slate-550 border-t border-dotted border-slate-100 dark:border-slate-800/60 pt-1 mt-1 font-mono">
+                          <span>EAN:</span>
+                          <span>{product.barcode}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
       <section className="relative group">
         <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -758,7 +942,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-6">
         
         {/* Vendas Hoje (Live) Widget */}
         <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-3xl shadow-lg relative overflow-hidden text-white flex flex-col justify-between">
@@ -782,6 +966,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
               {liveSalesData !== null 
                 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales)
                 : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Ticket Médio (Hoje) */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl w-fit mb-4">
+              <DollarSign className="w-6 h-6" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              Ticket Médio (Hoje)
+            </p>
+            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              {liveSalesData !== null 
+                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.qtdVendas > 0 ? liveSalesData.totalSales / liveSalesData.qtdVendas : 0)
+                : <span className="text-slate-350 animate-pulse text-lg">...</span>
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Total de Tickets (Hoje) */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
+              <Ticket className="w-6 h-6" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              Total de Tickets (Hoje)
+            </p>
+            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              {liveSalesData !== null 
+                ? `${liveSalesData.qtdVendas} vendas`
+                : <span className="text-slate-350 animate-pulse text-lg">...</span>
               }
             </p>
           </div>
@@ -905,6 +1125,137 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           onUpdate={onUpdateOrder}
           onUpdateBoletos={onUpdateBoletos}
         />
+      )}
+
+      {showAbcModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/20">
+              <div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                  <Award className="w-5 h-5 text-blue-500" />
+                  Classificação Curva ABC ({topPeriod === 'day' ? 'Dia Atual' : topPeriod === 'month' ? 'Mês Atual' : 'Semestre'})
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Produtos classificados de acordo com a participação faturamento acumulada (Curva A: 80%, B: 15%, C: 5%).
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAbcModal(false);
+                  setAbcSearchTerm('');
+                }}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-350 rounded-full transition-colors cursor-pointer border-none bg-transparent"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Search Bar */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row gap-4 justify-between items-center">
+              <div className="relative w-full sm:max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nome, EAN ou curva (A, B, C)..."
+                  value={abcSearchTerm}
+                  onChange={(e) => setAbcSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-800 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 text-xs font-bold text-slate-500 dark:text-slate-400">
+                <span>Total: {filteredAbcCurve.length} de {abcCurve.length} produtos vendidos</span>
+              </div>
+            </div>
+
+            {/* Modal Body / Table */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 dark:bg-slate-950/10">
+              {loadingTopProducts ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                  <span className="text-sm font-bold text-slate-500 dark:text-slate-400">Calculando curva...</span>
+                </div>
+              ) : filteredAbcCurve.length === 0 ? (
+                <div className="text-center py-20">
+                  <Award className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                  <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Nenhum produto encontrado.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200/50 dark:border-slate-800/80 bg-white dark:bg-slate-900 shadow-sm">
+                  <table className="w-full border-collapse text-left text-xs text-slate-600 dark:text-slate-300">
+                    <thead className="bg-slate-50 dark:bg-slate-950/50 text-[10px] font-black text-slate-450 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800/60">
+                      <tr>
+                        <th className="px-6 py-3.5 w-16">Foto</th>
+                        <th className="px-6 py-3.5">Produto</th>
+                        <th className="px-6 py-3.5 text-center">Curva</th>
+                        <th className="px-6 py-3.5 text-center">Qtd Vendida</th>
+                        <th className="px-6 py-3.5 text-right">Faturamento</th>
+                        <th className="px-6 py-3.5 text-right">Acumulado (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {filteredAbcCurve.map((p) => {
+                        const formattedVenda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.totalValor);
+                        
+                        const curveColors = {
+                          A: 'bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400',
+                          B: 'bg-blue-500/10 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400',
+                          C: 'bg-slate-500/10 dark:bg-slate-800/40 text-slate-700 dark:text-slate-400'
+                        };
+
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors">
+                            {/* Imagem */}
+                            <td className="px-6 py-3">
+                              <div className="h-10 w-10 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/60 rounded-xl flex items-center justify-center overflow-hidden">
+                                {p.imageUrl ? (
+                                  <img src={p.imageUrl} alt={p.name} className="h-full w-full object-contain p-1" />
+                                ) : (
+                                  <ImageIcon className="w-5 h-5 text-slate-300 dark:text-slate-700" />
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Informações */}
+                            <td className="px-6 py-3">
+                              <div className="font-black text-slate-800 dark:text-slate-200 uppercase">{p.name}</div>
+                              <div className="text-[10px] text-slate-400 dark:text-slate-500 uppercase mt-0.5">{p.presentation || 'Sem apresentação'}</div>
+                              {p.barcode && <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">EAN: {p.barcode}</div>}
+                            </td>
+
+                            {/* Curva */}
+                            <td className="px-6 py-3 text-center">
+                              <span className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-xs font-black uppercase tracking-wider ${curveColors[p.curve] || curveColors.C}`}>
+                                {p.curve}
+                              </span>
+                            </td>
+
+                            {/* Qtd Vendida */}
+                            <td className="px-6 py-3 text-center font-black text-slate-700 dark:text-slate-300">
+                              {p.quantidade} un
+                            </td>
+
+                            {/* Faturamento */}
+                            <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
+                              {formattedVenda}
+                            </td>
+
+                            {/* Participação Acumulada */}
+                            <td className="px-6 py-3 text-right font-bold text-slate-500 dark:text-slate-400">
+                              {p.cumulativePercentage}%
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {showAllInactiveModal && (

@@ -362,7 +362,7 @@ module.exports = function (db) {
     }
   });
 
-  // Rota de relatório de vendas do Digifarma (Categorias e Horários)
+  // Rota de relatório de vendas do Digifarma (Categorias, Horários e Evolução Diária de Tickets)
   router.get('/sales-report', async (req, res) => {
     try {
       const { startDate, endDate } = req.query;
@@ -406,9 +406,6 @@ module.exports = function (db) {
       `;
 
       // 2. Vendas por Horário
-      // NOTA: O node-firebird já converte os timestamps do Firebird para hora local (GMT-3).
-      // Portanto, usamos EXTRACT(HOUR FROM ...) diretamente sem subtrair offset algum.
-      // O offset -0.125 (3 horas) estava incorretamente deslocando vendas das 17h/18h para 14h/15h.
       const sqlHorarios = `
         SELECT 
           EXTRACT(HOUR FROM v.VENDA_DATA_HORA) AS HORA,
@@ -421,9 +418,23 @@ module.exports = function (db) {
         ORDER BY HORA ASC
       `;
 
+      // 3. Tickets Diários (Quantidade de cupons gerados por dia)
+      const sqlTicketsDiarios = `
+        SELECT 
+          CAST(v.VENDA_DATA_HORA AS DATE) AS DATA_VENDA,
+          COUNT(v.VENDA_NOTA_ID) AS QTD_TICKETS,
+          SUM(v.VENDA_TOTAL) AS TOTAL_VENDA
+        FROM CAB_VENDAS v
+        WHERE v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
+        GROUP BY CAST(v.VENDA_DATA_HORA AS DATE)
+        ORDER BY DATA_VENDA ASC
+      `;
+
       // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
       const categoriasResult = await queryDigifarma(sqlCategorias, [startDateTime, endDateTime]);
       const horariosResult = await queryDigifarma(sqlHorarios, [startDateTime, endDateTime]);
+      const ticketsDiariosResult = await queryDigifarma(sqlTicketsDiarios, [startDateTime, endDateTime]);
 
       res.json({
         categorias: (categoriasResult || []).map(r => ({
@@ -435,9 +446,40 @@ module.exports = function (db) {
           hora: r.HORA,
           total: r.TOTAL_VENDA || 0,
           vendas: r.QTD_VENDAS || 0
-        }))
+        })),
+        ticketsDiarios: (ticketsDiariosResult || []).map(r => {
+          let dateStr = '';
+          if (r.DATA_VENDA) {
+            const dateObj = new Date(r.DATA_VENDA);
+            const pad2 = (num) => String(num).padStart(2, '0');
+            dateStr = `${dateObj.getFullYear()}-${pad2(dateObj.getMonth() + 1)}-${pad2(dateObj.getDate())}`;
+          }
+          return {
+            data: dateStr,
+            tickets: r.QTD_TICKETS || 0,
+            total: r.TOTAL_VENDA || 0
+          };
+        })
       });
     } catch (err) {
+      const endParts = (endDate || '').split('-');
+      const tempDate = endParts.length === 3 
+        ? new Date(Number(endParts[0]), Number(endParts[1]) - 1, Number(endParts[2]))
+        : new Date();
+      
+      const mockTicketsDiarios = [];
+      const pad = (num) => String(num).padStart(2, '0');
+      for (let i = 15; i >= 0; i--) {
+        const d = new Date(tempDate);
+        d.setDate(tempDate.getDate() - i);
+        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        mockTicketsDiarios.push({
+          data: dateStr,
+          tickets: Math.floor(Math.random() * 30) + 10,
+          total: parseFloat((Math.random() * 1500 + 500).toFixed(2))
+        });
+      }
+
       const mockReport = {
         categorias: [
           { categoria: 'REFERENCIA', total: 4500.00, quantidade: 120 },
@@ -459,9 +501,155 @@ module.exports = function (db) {
           { hora: 17, total: 950.00, vendas: 28 },
           { hora: 18, total: 620.00, vendas: 19 },
           { hora: 19, total: 300.00, vendas: 10 }
-        ]
+        ],
+        ticketsDiarios: mockTicketsDiarios
       };
       return handleDigifarmaError(err, res, '/sales-report', mockReport);
+    }
+  });
+
+  // Rota para obter o ranking dos 3 produtos mais vendidos e a classificação Curva ABC
+  router.get('/top-products', async (req, res) => {
+    try {
+      const { period } = req.query;
+      const now = new Date();
+      let startDateTime;
+      const pad = (num) => String(num).padStart(2, '0');
+      
+      const getBusinessDayStart = () => {
+        const d = new Date(now);
+        if (d.getHours() < 3) {
+          d.setDate(d.getDate() - 1);
+        }
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} 03:00:00`;
+      };
+
+      if (period === 'month') {
+        const d = new Date(now);
+        startDateTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01 03:00:00`;
+      } else if (period === 'semester') {
+        const d = new Date(now);
+        d.setDate(d.getDate() - 180);
+        startDateTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} 03:00:00`;
+      } else {
+        // dia atual (day)
+        startDateTime = getBusinessDayStart();
+      }
+
+      const endDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+      // Query para buscar produtos vendidos no período ordenados por quantidade desc
+      const sql = `
+        SELECT 
+          p.PRODUTO_ID,
+          p.PRODUTO,
+          p.APRESENTACAO,
+          p.COD_BARRAS,
+          SUM(iv.ITEMVEND_QUANT) as QTD_VENDIDA,
+          SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) as TOTAL_VALOR
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+        WHERE v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
+        GROUP BY p.PRODUTO_ID, p.PRODUTO, p.APRESENTACAO, p.COD_BARRAS
+        ORDER BY QTD_VENDIDA DESC
+      `;
+
+      const results = await queryDigifarma(sql, [startDateTime, endDateTime]);
+      
+      if (!results || results.length === 0) {
+        return res.json({ topProducts: [], abcCurve: [] });
+      }
+
+      const products = results.map(r => ({
+        id: r.PRODUTO_ID,
+        name: (r.PRODUTO || '').trim(),
+        presentation: (r.APRESENTACAO || '').trim(),
+        barcode: (r.COD_BARRAS || '').trim(),
+        quantidade: r.QTD_VENDIDA || 0,
+        totalValor: r.TOTAL_VALOR || 0,
+        imageUrl: null
+      }));
+
+      // Busca imagens em lote no SQLite usando IN
+      if (db) {
+        try {
+          const barcodes = products.map(p => p.barcode).filter(Boolean);
+          if (barcodes.length > 0) {
+            const placeholders = barcodes.map(() => '?').join(',');
+            const photos = db.prepare(`SELECT ean, image_url FROM scraped_images WHERE ean IN (${placeholders})`).all(barcodes);
+            const photoMap = new Map(photos.map(p => [p.ean, p.image_url]));
+            
+            products.forEach(p => {
+              if (p.barcode && photoMap.has(p.barcode)) {
+                p.imageUrl = photoMap.get(p.barcode);
+              }
+            });
+          }
+        } catch (dbErr) {
+          console.error('[Top Products] Erro ao buscar fotos em lote no SQLite:', dbErr.message);
+        }
+      }
+
+      // Ranking Top 3 (ordenado por quantidade)
+      const topProducts = [...products].sort((a, b) => b.quantidade - a.quantidade).slice(0, 3);
+
+      // Curva ABC (ordenado por faturamento total)
+      const sortedByValue = [...products].sort((a, b) => b.totalValor - a.totalValor);
+      const totalRevenue = sortedByValue.reduce((sum, p) => sum + p.totalValor, 0);
+
+      let cumulativeValue = 0;
+      const abcCurve = sortedByValue.map(p => {
+        cumulativeValue += p.totalValor;
+        const percentage = totalRevenue > 0 ? (cumulativeValue / totalRevenue) * 100 : 0;
+        
+        let curve = 'C';
+        if (percentage <= 80) {
+          curve = 'A';
+        } else if (percentage <= 95) {
+          curve = 'B';
+        }
+        
+        return {
+          ...p,
+          cumulativePercentage: parseFloat(percentage.toFixed(2)),
+          curve
+        };
+      });
+
+      res.json({ topProducts, abcCurve });
+
+    } catch (err) {
+      // Fallback para mock se o Digifarma estiver offline
+      const mockTopProducts = [
+        { id: 99991, name: 'DORFLEX COMPRIMIDOS', presentation: '36 COMPRIMIDOS', barcode: '7896070601362', quantidade: 42, totalValor: 630.00, imageUrl: null },
+        { id: 99992, name: 'NEOSALDINA DRAGEAS', presentation: '30 DRAGEAS', barcode: '7896094200152', quantidade: 35, totalValor: 875.00, imageUrl: null },
+        { id: 99993, name: 'LOSARTANA POTASSICA 50MG', presentation: '30 COMPRIMIDOS', barcode: '7896004732100', quantidade: 28, totalValor: 140.00, imageUrl: null }
+      ];
+
+      // Tenta carregar fotos reais de scraped_images para os mocks em dev
+      if (db) {
+        try {
+          const barcodes = mockTopProducts.map(p => p.barcode);
+          const photos = db.prepare('SELECT ean, image_url FROM scraped_images WHERE ean IN (?,?,?)').all(barcodes);
+          const photoMap = new Map(photos.map(p => [p.ean, p.image_url]));
+          mockTopProducts.forEach(p => {
+            if (photoMap.has(p.barcode)) p.imageUrl = photoMap.get(p.barcode);
+          });
+        } catch (e) {}
+      }
+
+      const mockAbcCurve = [
+        { id: 99992, name: 'NEOSALDINA DRAGEAS', presentation: '30 DRAGEAS', barcode: '7896094200152', quantidade: 35, totalValor: 875.00, cumulativePercentage: 45.0, curve: 'A' },
+        { id: 99991, name: 'DORFLEX COMPRIMIDOS', presentation: '36 COMPRIMIDOS', barcode: '7896070601362', quantidade: 42, totalValor: 630.00, cumulativePercentage: 77.0, curve: 'A' },
+        { id: 99994, name: 'IBUPROFENO 600MG', presentation: '20 COMPRIMIDOS', barcode: '7896004732333', quantidade: 15, totalValor: 210.00, cumulativePercentage: 88.0, curve: 'B' },
+        { id: 99993, name: 'LOSARTANA POTASSICA 50MG', presentation: '30 COMPRIMIDOS', barcode: '7896004732100', quantidade: 28, totalValor: 140.00, cumulativePercentage: 95.0, curve: 'B' },
+        { id: 99995, name: 'PARACETAMOL 750MG', presentation: '20 COMPRIMIDOS', barcode: '7896004732444', quantidade: 18, totalValor: 90.00, cumulativePercentage: 99.6, curve: 'C' },
+        { id: 99996, name: 'ALCOOL EM GEL 70%', presentation: '500ML', barcode: '7896004732555', quantidade: 1, totalValor: 8.00, cumulativePercentage: 100.0, curve: 'C' }
+      ];
+
+      return handleDigifarmaError(err, res, '/top-products', { topProducts: mockTopProducts, abcCurve: mockAbcCurve });
     }
   });
 

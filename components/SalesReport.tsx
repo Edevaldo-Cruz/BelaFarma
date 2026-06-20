@@ -36,9 +36,16 @@ interface HorarioReport {
   vendas: number;
 }
 
+interface TicketDiarioReport {
+  data: string;
+  tickets: number;
+  total: number;
+}
+
 interface SalesReportData {
   categorias: CategoriaReport[];
   horarios: HorarioReport[];
+  ticketsDiarios?: TicketDiarioReport[];
 }
 
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f43f5e', '#a855f7', '#64748b'];
@@ -407,6 +414,58 @@ export const SalesReport: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Gráfico de Tickets Diários */}
+          {data.ticketsDiarios && data.ticketsDiarios.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800/80 rounded-[2.5rem] p-8 shadow-sm my-8">
+              <div className="mb-6">
+                <h2 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  <div className="w-1.5 h-6 bg-indigo-500 rounded-full" />
+                  Evolução Diária de Tickets Gerados
+                </h2>
+                <p className="text-xs font-bold text-slate-400 italic">Quantidade de cupons/vendas geradas dia a dia no período selecionado.</p>
+              </div>
+
+              <div style={{ width: '100%', height: '300px' }}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={data.ticketsDiarios} margin={{ left: 10, right: 10, top: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis 
+                      dataKey="data" 
+                      stroke="#94a3b8" 
+                      fontSize={10} 
+                      tickFormatter={(str) => {
+                        if (!str) return '';
+                        const parts = str.split('-');
+                        if (parts.length === 3) return `${parts[2]}/${parts[1]}`;
+                        return str;
+                      }}
+                    />
+                    <YAxis stroke="#94a3b8" fontSize={10} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', backgroundColor: '#fff', color: '#1e293b' }}
+                      formatter={(value: number) => [`${value} cupons`, 'Tickets Gerados']}
+                      labelFormatter={(label) => {
+                        if (!label) return '';
+                        const parts = label.split('-');
+                        if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                        return label;
+                      }}
+                      itemStyle={{ fontWeight: 'bold', fontSize: '11px' }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="tickets" 
+                      stroke="#6366f1" 
+                      strokeWidth={3.5} 
+                      dot={{ r: 3, fill: '#6366f1' }} 
+                      activeDot={{ r: 6 }} 
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           <div className="bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800/80 rounded-[2.5rem] shadow-sm overflow-hidden">
             <div className="p-6 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800">
