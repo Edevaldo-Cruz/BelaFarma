@@ -32,7 +32,10 @@ import {
   List,
   DollarSign,
   Ticket,
-  Award
+  Award,
+  BarChart3,
+  LineChart as LineChartIcon,
+  PieChart
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -51,7 +54,7 @@ import FinancialEvolutionChart from './FinancialEvolutionChart';
 import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
 import { OrderStatusModal } from './OrderStatusModal';
-import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount } from '../types';
+import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount, MonthlyLimit } from '../types';
 
 interface DashboardProps {
   user: User;
@@ -60,17 +63,73 @@ interface DashboardProps {
   cashClosings: CashClosingRecord[];
   boletos: Boleto[];
   fixedAccounts: FixedAccount[];
+  monthlyLimits?: MonthlyLimit[];
   onNavigate: (view: any) => void;
   onUpdateOrder: (order: Order) => void;
   onUpdateBoletos: (orderId: string, boletos: Boleto[]) => void;
   isMobile?: boolean;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, cashClosings, boletos, fixedAccounts, onNavigate, onUpdateOrder, onUpdateBoletos, isMobile = false }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ 
+  user, 
+  orders, 
+  shortages, 
+  cashClosings, 
+  boletos, 
+  fixedAccounts, 
+  monthlyLimits = [], 
+  onNavigate, 
+  onUpdateOrder, 
+  onUpdateBoletos, 
+  isMobile = false 
+}) => {
   const { addToast } = useToast();
   const isAdmin = user.role === UserRole.ADM;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
+
+  const currentMonthName = React.useMemo(() => {
+    return new Date().toLocaleString('pt-BR', { month: 'long' });
+  }, []);
+
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  const budgetStatus = React.useMemo(() => {
+    if (!isAdmin) return null;
+    const currentYear = new Date().getFullYear();
+    const currentMonthNumber = new Date().getMonth() + 1;
+
+    const monthBoletos = boletos.filter(b => {
+      const d = new Date(b.due_date + 'T00:00:00');
+      return d.getFullYear() === currentYear && (d.getMonth() + 1) === currentMonthNumber;
+    });
+
+    const totalSpentThisMonth = monthBoletos.reduce((sum, b) => sum + b.value, 0);
+    const limitObj = monthlyLimits.find(l => l.month === currentMonthNumber && l.year === currentYear);
+    const budgetLimit = limitObj ? limitObj.limit : 0;
+
+    let percentUsed = 0;
+    let status: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
+
+    if (budgetLimit > 0) {
+      percentUsed = (totalSpentThisMonth / budgetLimit) * 100;
+      if (percentUsed < 80) {
+        status = 'safe';
+      } else if (percentUsed <= 100) {
+        status = 'warning';
+      } else {
+        status = 'danger';
+      }
+    }
+
+    return {
+      totalSpentThisMonth,
+      budgetLimit,
+      percentUsed,
+      status
+    };
+  }, [boletos, monthlyLimits, isAdmin]);
+
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [liveSalesData, setLiveSalesData] = React.useState<{
@@ -149,6 +208,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
   const [topPeriod, setTopPeriod] = React.useState<'day' | 'month' | 'semester'>('month');
   const [showAbcModal, setShowAbcModal] = React.useState(false);
   const [abcSearchTerm, setAbcSearchTerm] = React.useState('');
+
+  // Estado para Tabs de Gráficos
+  const [chartTab, setChartTab] = React.useState<'evolution' | 'expenses' | 'sales' | 'payments'>('evolution');
 
   const fetchTopProducts = React.useCallback(async (period: 'day' | 'month' | 'semester') => {
     setLoadingTopProducts(true);
@@ -446,20 +508,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
            isSaturday;
   });
 
-  const currentMonthName = now.toLocaleString('pt-BR', { month: 'long' });
-  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  
-  const totalSpentThisMonth = orders.reduce((acc, curr) => {
-    if (curr.installments && curr.installments.length > 0) {
-      return acc + curr.installments
-        .filter(inst => {
-          const d = new Date(inst.dueDate);
-          return d.toLocaleString('pt-BR', { month: 'long' }).toLowerCase() === currentMonthName.toLowerCase();
-        })
-        .reduce((sum, inst) => sum + inst.value, 0);
-    } else {
-      return acc + (curr.paymentMonth.toLowerCase() === currentMonthName.toLowerCase() ? curr.totalValue : 0);
-    }
+  const totalSpentThisMonth = budgetStatus?.totalSpentThisMonth || boletos.reduce((sum, b) => {
+    const d = new Date(b.due_date + 'T00:00:00');
+    return d.getFullYear() === now.getFullYear() && (d.getMonth() + 1) === (now.getMonth() + 1) ? sum + b.value : sum;
   }, 0);
 
   const overdueCount = overdueOrders.length;
@@ -533,6 +584,186 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
           )}
         </div>
       </header>
+
+      {isAdmin && budgetStatus && budgetStatus.budgetLimit > 0 && (
+        <section className={`p-6 rounded-3xl border transition-all duration-300 ${
+          budgetStatus.status === 'safe' ? 'bg-emerald-50/30 dark:bg-emerald-955/10 border-emerald-250/50 dark:border-emerald-800/40 card-glow-emerald' :
+          budgetStatus.status === 'warning' ? 'bg-amber-50/30 dark:bg-amber-955/10 border-amber-250/50 dark:border-amber-800/40 card-glow-amber' :
+          'bg-red-50/30 dark:bg-red-955/10 border-red-300 dark:border-red-800/60 card-glow-rose shadow-md shadow-red-500/5'
+        }`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
+                budgetStatus.status === 'safe' ? 'text-emerald-700 dark:text-emerald-400' :
+                budgetStatus.status === 'warning' ? 'text-amber-700 dark:text-amber-400' :
+                'text-red-650 dark:text-red-400'
+              }`}>
+                <DollarSign className="w-4 h-4" />
+                Orçamento Mensal de Boletos — {capitalize(currentMonthName)}
+              </h2>
+              <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-2">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetStatus.totalSpentThisMonth)}
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 ml-2">
+                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetStatus.budgetLimit)} limite
+                </span>
+              </p>
+            </div>
+
+            <div className="flex-1 max-w-md w-full">
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
+                <span>Uso do Limite</span>
+                <span className={
+                  budgetStatus.status === 'safe' ? 'text-emerald-600 dark:text-emerald-400' :
+                  budgetStatus.status === 'warning' ? 'text-amber-600 dark:text-amber-455' :
+                  'text-red-655 dark:text-red-400'
+                }>
+                  {budgetStatus.percentUsed.toFixed(1)}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-500 ${
+                    budgetStatus.status === 'safe' ? 'bg-emerald-500' :
+                    budgetStatus.status === 'warning' ? 'bg-amber-500' :
+                    'bg-red-500'
+                  }`}
+                  style={{ width: `${Math.min(100, budgetStatus.percentUsed)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 📊 GRID DE KPIS (METRICAS DO DIA/MÊS) NO TOPO */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-6">
+        
+        {/* Vendas Hoje (Live) Widget */}
+        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-3xl shadow-lg relative overflow-hidden text-white flex flex-col justify-between">
+          <div className="absolute top-0 right-0 p-4 opacity-20">
+             <TrendingUp className="w-24 h-24" />
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
+                <ShoppingCart className="w-6 h-6 text-white" />
+              </div>
+            </div>
+            <p className="text-[10px] font-black text-emerald-100 uppercase tracking-widest flex items-center gap-2">
+              Vendas de Hoje (Live)
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+              </span>
+            </p>
+            <p className="text-3xl font-black text-white mt-1">
+              {liveSalesData !== null 
+                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales)
+                : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Ticket Médio (Hoje) */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl w-fit mb-4">
+              <DollarSign className="w-6 h-6" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest">
+              Ticket Médio (Hoje)
+            </p>
+            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              {liveSalesData !== null 
+                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.qtdVendas > 0 ? liveSalesData.totalSales / liveSalesData.qtdVendas : 0)
+                : <span className="text-slate-350 animate-pulse text-lg">...</span>
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Total de Tickets (Hoje) */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
+              <Ticket className="w-6 h-6" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-555 uppercase tracking-widest">
+              Total de Tickets (Hoje)
+            </p>
+            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+              {liveSalesData !== null 
+                ? `${liveSalesData.qtdVendas} vendas`
+                : <span className="text-slate-350 animate-pulse text-lg">...</span>
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Vencimentos / Faltas */}
+        {(() => {
+          const isVencimentoCard = isAdmin;
+          let cardStyles = "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800";
+          let iconStyles = "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-650 dark:text-indigo-400";
+          let textColors = "text-slate-900 dark:text-slate-100";
+          
+          if (isVencimentoCard && budgetStatus && budgetStatus.budgetLimit > 0) {
+            if (budgetStatus.status === 'safe') {
+              cardStyles = "bg-emerald-50/20 dark:bg-emerald-955/5 border-emerald-200/40 dark:border-emerald-900/30 card-glow-emerald";
+              iconStyles = "bg-emerald-55 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400";
+            } else if (budgetStatus.status === 'warning') {
+              cardStyles = "bg-amber-50/20 dark:bg-amber-955/5 border-amber-200/40 dark:border-amber-900/30 card-glow-amber";
+              iconStyles = "bg-amber-55 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400";
+            } else if (budgetStatus.status === 'danger') {
+              cardStyles = "bg-red-50/20 dark:bg-red-955/5 border-red-250/40 dark:border-red-900/30 card-glow-rose";
+              iconStyles = "bg-red-50 dark:bg-red-900/20 text-red-650 dark:text-red-400 animate-pulse";
+              textColors = "text-red-655 dark:text-red-400";
+            }
+          }
+          
+          return (
+            <div className={`p-6 rounded-3xl border shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${cardStyles}`}>
+              <div className={`p-2 rounded-xl w-fit mb-4 ${iconStyles}`}>
+                {isAdmin ? <Receipt className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
+              </div>
+              <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                {isAdmin ? `Vencimentos em ${capitalize(currentMonthName)}` : 'Produtos em Falta'}
+              </p>
+              <p className={`text-2xl font-black mt-1 ${textColors}`}>
+                {isAdmin 
+                  ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSpentThisMonth)
+                  : shortages.length
+                }
+              </p>
+            </div>
+          );
+        })()}
+
+        <div className={`p-6 rounded-3xl border shadow-sm transition-all ${overdueCount > 0 ? 'bg-red-50/10 border-red-200 dark:border-red-900/30' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
+          <div className={`p-2 rounded-xl w-fit mb-4 ${overdueCount > 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-650 dark:text-red-400 animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pedidos em Atraso</p>
+          <p className={`text-2xl font-black mt-1 ${overdueCount > 0 ? 'text-red-650 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
+            <Store className="w-6 h-6" />
+          </div>
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Distribuidora Ativa</p>
+          <p className="text-lg font-black text-slate-900 dark:text-slate-100 truncate mt-1 uppercase tracking-tight" title={topDistributor}>{topDistributor}</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="p-2 bg-red-55 dark:bg-red-900/20 text-red-650 dark:text-red-400 rounded-xl w-fit mb-4">
+            <Pill className="w-6 h-6" />
+          </div>
+          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Total de Pedidos</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">{orders.length}</p>
+        </div>
+      </div>
       
       {/* 📦 LAYOUT DE DESTAQUES DE VENDAS E GIRO CRÍTICO LADO A LADO */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -909,140 +1140,73 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-6">
-        
-        {/* Vendas Hoje (Live) Widget */}
-        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-3xl shadow-lg relative overflow-hidden text-white flex flex-col justify-between">
-          <div className="absolute top-0 right-0 p-4 opacity-20">
-             <TrendingUp className="w-24 h-24" />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
-                <ShoppingCart className="w-6 h-6 text-white" />
+      {/* 📊 SEÇÃO DE RELATÓRIOS COM ABAS */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Coluna Principal: Gráficos com Tabs */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-w-0">
+          {/* Tab Navigation */}
+          {user.role !== UserRole.OPERADOR && (
+            <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex flex-wrap gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-2xl">
+                {[
+                  { id: 'evolution' as const, label: 'Evolução', icon: LineChartIcon },
+                  { id: 'expenses' as const, label: 'Despesas', icon: BarChart3 },
+                  { id: 'sales' as const, label: 'Vendas', icon: TrendingUp },
+                  { id: 'payments' as const, label: 'Pagamentos', icon: PieChart },
+                ].map(tab => {
+                  const TabIcon = tab.icon;
+                  const isActive = chartTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setChartTab(tab.id)}
+                      className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-200 border-none cursor-pointer ${
+                        isActive
+                          ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 bg-transparent'
+                      }`}
+                    >
+                      <TabIcon className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">{tab.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <p className="text-[10px] font-black text-emerald-100 uppercase tracking-widest flex items-center gap-2">
-              Vendas de Hoje (Live)
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-              </span>
-            </p>
-            <p className="text-3xl font-black text-white mt-1">
-              {liveSalesData !== null 
-                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales)
-                : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
-              }
-            </p>
+          )}
+
+          {/* Tab Content */}
+          <div className="p-4 md:p-6">
+            {user.role !== UserRole.OPERADOR ? (
+              <div className="h-[380px] md:h-[420px] w-full min-w-0 overflow-hidden">
+                {chartTab === 'evolution' && (
+                  <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
+                )}
+                {chartTab === 'expenses' && (
+                  <ExpensesChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
+                )}
+                {chartTab === 'sales' && (
+                  <SalesChart cashClosings={enrichedCashClosings} />
+                )}
+                {chartTab === 'payments' && (
+                  <PaymentMethodsChart cashClosings={enrichedCashClosings} />
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-slate-400 dark:text-slate-500 text-sm font-medium italic">
+                Sem acesso aos relatórios financeiros.
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Ticket Médio (Hoje) */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl w-fit mb-4">
-              <DollarSign className="w-6 h-6" />
-            </div>
-            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-              Ticket Médio (Hoje)
-            </p>
-            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              {liveSalesData !== null 
-                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.qtdVendas > 0 ? liveSalesData.totalSales / liveSalesData.qtdVendas : 0)
-                : <span className="text-slate-350 animate-pulse text-lg">...</span>
-              }
-            </p>
-          </div>
-        </div>
-
-        {/* Total de Tickets (Hoje) */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
-              <Ticket className="w-6 h-6" />
-            </div>
-            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-              Total de Tickets (Hoje)
-            </p>
-            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
-              {liveSalesData !== null 
-                ? `${liveSalesData.qtdVendas} vendas`
-                : <span className="text-slate-350 animate-pulse text-lg">...</span>
-              }
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl w-fit mb-4">
-            {isAdmin ? <Receipt className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
-          </div>
-          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-            {isAdmin ? `Vencimentos em ${capitalize(currentMonthName)}` : 'Produtos em Falta'}
-          </p>
-          <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
-            {isAdmin 
-              ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSpentThisMonth)
-              : shortages.length
-            }
-          </p>
-        </div>
-
-        <div className={`p-6 rounded-3xl border shadow-sm transition-all ${overdueCount > 0 ? 'bg-red-50/10 border-red-200 dark:border-red-900/30' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
-          <div className={`p-2 rounded-xl w-fit mb-4 ${overdueCount > 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
-            <AlertCircle className="w-6 h-6" />
-          </div>
-          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pedidos em Atraso</p>
-          <p className={`text-2xl font-black mt-1 ${overdueCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
-            <Store className="w-6 h-6" />
-          </div>
-          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Distribuidora Ativa</p>
-          <p className="text-lg font-black text-slate-900 dark:text-slate-100 truncate mt-1 uppercase tracking-tight" title={topDistributor}>{topDistributor}</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl w-fit mb-4">
-            <Pill className="w-6 h-6" />
-          </div>
-          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Total de Pedidos</p>
-          <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">{orders.length}</p>
-        </div>
-      </div>
-
-      {user.role !== UserRole.OPERADOR && (
-        <div className="space-y-8">
-          <div className="bg-white dark:bg-slate-900 p-4 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[450px] w-full min-w-0 overflow-hidden">
-            <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
-          </div>
-          <div className="bg-white dark:bg-slate-900 p-4 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px] w-full min-w-0 overflow-hidden">
-            <ExpensesChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {user.role !== UserRole.OPERADOR && (
-          <div className="lg:col-span-2 space-y-8 min-w-0 w-full overflow-hidden">
-            <div className="bg-white dark:bg-slate-900 p-4 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[400px] w-full min-w-0 overflow-hidden">
-              <SalesChart cashClosings={enrichedCashClosings} />
-            </div>
-            <div className="bg-white dark:bg-slate-900 p-4 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[450px] w-full min-w-0 overflow-hidden">
-              <PaymentMethodsChart cashClosings={enrichedCashClosings} />
-            </div>
-          </div>
-        )}
-
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6 flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-slate-400 dark:text-slate-500" />
+        {/* Coluna Lateral: Últimas Remessas */}
+        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h2 className="text-xs font-black text-slate-500 dark:text-slate-400 mb-6 flex items-center gap-2 uppercase tracking-widest">
+            <ShoppingCart className="w-4 h-4 text-slate-400 dark:text-slate-500" />
             Últimas Remessas
           </h2>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {orders.slice(0, 5).map((order) => {
                const forecast = new Date(order.arrivalForecast);
                forecast.setHours(0,0,0,0);
@@ -1055,7 +1219,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, orders, shortages, c
                   className={`flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border border-transparent hover:border-slate-100 dark:hover:border-slate-700 cursor-pointer ${isDelayed ? 'bg-red-50/30 dark:bg-red-900/10' : ''}`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-2.5 h-2.5 rounded-full ${
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                       order.status === OrderStatus.ENTREGUE ? 'bg-emerald-500' :
                       order.status === OrderStatus.CANCELADO ? 'bg-slate-300 dark:bg-slate-600' : 
                       isDelayed ? 'bg-red-600 animate-pulse' : 'bg-blue-500'

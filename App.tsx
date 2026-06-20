@@ -804,6 +804,7 @@ const App: React.FC = () => {
                   cashClosings={cashClosings} 
                   boletos={boletos} 
                   fixedAccounts={fixedAccounts} 
+                  monthlyLimits={monthlyLimits}
                   onNavigate={handleNavigate} 
                   onUpdateOrder={updateOrder}
                   onUpdateBoletos={handleUpdateBoletos}
