@@ -651,95 +651,105 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </header>
 
-      {isAdmin && budgetData && budgetData.currentWeek.status !== 'no-budget' && (
-        <section className={`glass-card p-4 md:p-6 rounded-3xl transition-all duration-300 shadow-md ${themeCardClass}`}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-700/50">
-            {/* HOJE */}
-            <div className="pt-4 md:pt-0 md:pl-4 first:pt-0 first:pl-0 flex flex-col justify-between">
-              <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                <Calendar className="w-3.5 h-3.5" /> Orçamento Hoje
-              </h2>
-              <div className="mt-2">
-                <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-slate-100 truncate">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.daily.spent)}
-                </p>
-                <p className="text-[10px] md:text-xs font-bold text-slate-400 dark:text-slate-500 truncate">
-                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.daily.limit)} limite
-                </p>
-              </div>
-              <div className="mt-3 w-full">
-                <div className="flex justify-between items-center text-[9px] md:text-[10px] font-bold text-slate-500 mb-1">
-                  <span>Uso</span>
-                  <span className={`${budgetData.daily.status === 'danger' ? 'text-red-500' : budgetData.daily.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                    {budgetData.daily.percentUsed.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className={`h-full transition-all duration-500 ${budgetData.daily.status === 'danger' ? 'bg-red-500' : budgetData.daily.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.daily.percentUsed)}%` }} />
-                </div>
-              </div>
-            </div>
 
-            {/* ESTA SEMANA */}
-            <div className="pt-4 md:pt-0 md:pl-6 flex flex-col justify-between">
-              <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                <Calendar className="w-3.5 h-3.5" /> Esta Semana
-              </h2>
-              <div className="mt-2">
-                <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-slate-100 truncate">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.spent)}
-                </p>
-                <p className="text-[10px] md:text-xs font-bold text-slate-400 dark:text-slate-500 truncate">
-                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.adjustedLimit)} lim. ajust.
-                </p>
-              </div>
-              <div className="mt-3 w-full">
-                <div className="flex justify-between items-center text-[9px] md:text-[10px] font-bold text-slate-500 mb-1">
-                  <span>Uso</span>
-                  <span className={`${budgetData.currentWeek.status === 'danger' ? 'text-red-500' : budgetData.currentWeek.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                    {budgetData.currentWeek.percentUsed.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className={`h-full transition-all duration-500 ${budgetData.currentWeek.status === 'danger' ? 'bg-red-500' : budgetData.currentWeek.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.currentWeek.percentUsed)}%` }} />
-                </div>
-              </div>
-            </div>
+      {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
+      <section className="relative group">
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <button 
+            onClick={() => scrollContainerRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
+            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+        </div>
 
-            {/* ESTE MÊS */}
-            <div className="pt-4 md:pt-0 md:pl-6 flex flex-col justify-between">
-              <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                <Calendar className="w-3.5 h-3.5" /> Este Mês ({capitalize(currentMonthName)})
-              </h2>
-              <div className="mt-2">
-                <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-slate-100 truncate">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.spent)}
-                </p>
-                <p className="text-[10px] md:text-xs font-bold text-slate-400 dark:text-slate-500 truncate">
-                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.limit)} limite
-                </p>
-              </div>
-              <div className="mt-3 w-full">
-                <div className="flex justify-between items-center text-[9px] md:text-[10px] font-bold text-slate-500 mb-1">
-                  <span>Uso</span>
-                  <span className={`${budgetData.monthly.status === 'danger' ? 'text-red-500' : budgetData.monthly.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                    {budgetData.monthly.percentUsed.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className={`h-full transition-all duration-500 ${budgetData.monthly.status === 'danger' ? 'bg-red-500' : budgetData.monthly.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.monthly.percentUsed)}%` }} />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+        <div 
+          ref={scrollContainerRef}
+          className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
+        >
+          {(() => {
+            const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
+            
+            const allShortcuts = [
+              { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
+              { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
+              { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },
+              { id: 'cash-closing', label: 'Fechamento', icon: Lock, color: 'emerald', adminOnly: true },
+              { id: 'financial', label: 'Financeiro', icon: CreditCard, color: 'purple', adminOnly: true },
+              { id: 'task-management', label: 'Tarefas', icon: CheckCircle2, color: 'red' },
+              { id: 'ifood-control', label: 'iFood', icon: Smartphone, color: 'pink', adminOnly: true },
+              { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
+              { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
+              { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
+              { id: 'pix', label: 'Gerador Pix', icon: CreditCard, color: 'emerald' },
+            ];
 
-      {/* 📊 GRID DE KPIS (METRICAS DO DIA/MÊS) NO TOPO */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-6">
+            // Ordena os atalhos: pix sempre em primeiro, depois ordena o resto por uso pessoal
+            const otherShortcuts = allShortcuts
+              .filter(s => s.id !== 'pix')
+              .filter(s => !s.adminOnly || isAdmin)
+              .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0));
+
+            const visibleShortcuts = [
+              allShortcuts.find(s => s.id === 'pix')!,
+              ...otherShortcuts
+            ].filter(Boolean); // Exibe todos os atalhos válidos para o usuário!
+
+            return visibleShortcuts.map(s => {
+              const Icon = s.icon;
+              const colorMap: any = {
+                indigo: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900',
+                blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900',
+                amber: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
+                emerald: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900',
+                purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900',
+                red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900',
+                pink: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-900',
+                slate: 'bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-900',
+                orange: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-900',
+                gray: 'bg-gray-50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-900'
+              };
+
+              const colors = colorMap[s.color] || colorMap.slate;
+
+              return (
+                <button 
+                  key={s.id}
+                  onClick={() => {
+                    const currentStats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
+                    currentStats[s.id] = (currentStats[s.id] || 0) + 1;
+                    localStorage.setItem('belinha_usage_stats', JSON.stringify(currentStats));
+                    onNavigate(s.id);
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group shrink-0 min-w-[120px] h-[110px]"
+                >
+                  <div className={`p-3 rounded-2xl mb-2 group-hover:scale-110 transition-transform ${colors.split(' ').slice(0,3).join(' ')}`}>
+                    <Icon className="w-6 h-6" />
+                  </div>
+                  <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{s.label}</span>
+                </button>
+              );
+            });
+          })()}
+        </div>
+
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <button 
+            onClick={() => scrollContainerRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
+            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      </section>
+
+      <div className="my-6"></div>
+
+      {/* PAINEL DE VENDAS E ORÇAMENTO MENSAL */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         
         {/* Vendas Hoje (Live) Widget */}
-        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-3xl shadow-lg relative overflow-hidden text-white flex flex-col justify-between">
+        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-3xl shadow-lg relative overflow-hidden text-white flex flex-col justify-between h-full min-h-[160px]">
           <div className="absolute top-0 right-0 p-4 opacity-20">
              <TrendingUp className="w-24 h-24" />
           </div>
@@ -756,7 +766,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
               </span>
             </p>
-            <p className="text-2xl xl:text-3xl font-black text-white mt-1 truncate" title={liveSalesData !== null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales) : ''}>
+            <p className="text-3xl font-black text-white mt-1 truncate" title={liveSalesData !== null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales) : ''}>
               {liveSalesData !== null 
                 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales)
                 : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
@@ -765,6 +775,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
+        {/* Orçamento Mensal */}
+        {isAdmin && budgetData && budgetData.currentWeek.status !== 'no-budget' && (
+          <section className={`glass-card p-6 rounded-3xl shadow-md transition-all duration-300 flex flex-col justify-between h-full min-h-[160px] ${themeCardClass}`}>
+            <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
+              <Calendar className="w-4 h-4" /> Orçamento Mensal ({capitalize(currentMonthName)})
+            </h2>
+            <div className="mt-2">
+              <p className="text-3xl font-black text-slate-900 dark:text-slate-100 truncate">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.spent)}
+              </p>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 truncate mt-1">
+                de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.limit)} limite
+              </p>
+            </div>
+            <div className="mt-4 w-full">
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 mb-1">
+                <span>Uso do Limite</span>
+                <span className={`${budgetData.monthly.status === 'danger' ? 'text-red-500' : budgetData.monthly.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  {budgetData.monthly.percentUsed.toFixed(1)}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                <div className={`h-full transition-all duration-500 ${budgetData.monthly.status === 'danger' ? 'bg-red-500' : budgetData.monthly.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.monthly.percentUsed)}%` }} />
+              </div>
+            </div>
+          </section>
+        )}
+      </div>
+
+      
+
+      {/* 📊 GRID DE KPIS (METRICAS DO DIA/MÊS) NO TOPO */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+        
         {/* Ticket Médio (Hoje) */}
         <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div>
@@ -1103,96 +1147,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </section>
       </div>
 
-      {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
-      <section className="relative group">
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <button 
-            onClick={() => scrollContainerRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
-            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div 
-          ref={scrollContainerRef}
-          className="flex items-center gap-4 overflow-x-auto scroll-smooth scrollbar-none py-2 pr-12 w-full no-scrollbar"
-        >
-          {(() => {
-            const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
-            
-            const allShortcuts = [
-              { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
-              { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
-              { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },
-              { id: 'cash-closing', label: 'Fechamento', icon: Lock, color: 'emerald', adminOnly: true },
-              { id: 'financial', label: 'Financeiro', icon: CreditCard, color: 'purple', adminOnly: true },
-              { id: 'task-management', label: 'Tarefas', icon: CheckCircle2, color: 'red' },
-              { id: 'ifood-control', label: 'iFood', icon: Smartphone, color: 'pink', adminOnly: true },
-              { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
-              { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
-              { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
-              { id: 'pix', label: 'Gerador Pix', icon: CreditCard, color: 'emerald' },
-            ];
-
-            // Ordena os atalhos: pix sempre em primeiro, depois ordena o resto por uso pessoal
-            const otherShortcuts = allShortcuts
-              .filter(s => s.id !== 'pix')
-              .filter(s => !s.adminOnly || isAdmin)
-              .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0));
-
-            const visibleShortcuts = [
-              allShortcuts.find(s => s.id === 'pix')!,
-              ...otherShortcuts
-            ].filter(Boolean); // Exibe todos os atalhos válidos para o usuário!
-
-            return visibleShortcuts.map(s => {
-              const Icon = s.icon;
-              const colorMap: any = {
-                indigo: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900',
-                blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900',
-                amber: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
-                emerald: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900',
-                purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-900',
-                red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900',
-                pink: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-900',
-                slate: 'bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-900',
-                orange: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-900',
-                gray: 'bg-gray-50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-900'
-              };
-
-              const colors = colorMap[s.color] || colorMap.slate;
-
-              return (
-                <button 
-                  key={s.id}
-                  onClick={() => {
-                    const currentStats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
-                    currentStats[s.id] = (currentStats[s.id] || 0) + 1;
-                    localStorage.setItem('belinha_usage_stats', JSON.stringify(currentStats));
-                    onNavigate(s.id);
-                  }}
-                  className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group shrink-0 min-w-[120px] h-[110px]"
-                >
-                  <div className={`p-3 rounded-2xl mb-2 group-hover:scale-110 transition-transform ${colors.split(' ').slice(0,3).join(' ')}`}>
-                    <Icon className="w-6 h-6" />
-                  </div>
-                  <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{s.label}</span>
-                </button>
-              );
-            });
-          })()}
-        </div>
-
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <button 
-            onClick={() => scrollContainerRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
-            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
-      </section>
+      
 
       {overdueOrders.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-3xl p-6 animate-in fade-in duration-500">

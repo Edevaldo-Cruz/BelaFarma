@@ -120,7 +120,7 @@ const App: React.FC = () => {
   };
 
   // Cálculos do Orçamento Semanal Atual para o Botão Flutuante e Tema
-  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus, currentWeekAvailable, currentWeekLabel } = useMemo(() => {
+  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus, currentWeekAvailable, currentDailyAvailable } = useMemo(() => {
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonthIndex = today.getMonth(); // 0-11
@@ -142,38 +142,60 @@ const App: React.FC = () => {
     const currentMonthKey = `${currentYear}-${currentMonthIndex + 1}`;
     const currentMonthStats = weeklyStats[currentMonthKey];
 
-    let status: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
+    let overallStatus: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
     let emoji = '🤍';
     let isBusted = false;
     let weekAvailable = 0;
-    let weekLabel = 'Semana atual';
+    let dailyAvailable = 0;
 
     if (currentMonthStats) {
-      // Encontra a semana atual
+      // 1. Calcular Diário
+      const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
+      const dailyLimit = currentMonthStats.limit / daysInMonth;
+      
+      const todayBoletos = boletos.filter(b => {
+        if (!b.due_date) return false;
+        const [by, bm, bd] = b.due_date.split('-').map(Number);
+        return by === today.getFullYear() && bm === (today.getMonth() + 1) && bd === today.getDate();
+      });
+      const spentToday = todayBoletos.reduce((sum, b) => sum + b.value, 0);
+      dailyAvailable = dailyLimit - spentToday;
+      
+      let percentDaily = 0;
+      if (dailyLimit > 0) percentDaily = (spentToday / dailyLimit) * 100;
+      else if (spentToday > 0) percentDaily = 100;
+      
+      let dailyStatusValue: 'safe' | 'warning' | 'danger' = 'safe';
+      if (percentDaily >= 100) dailyStatusValue = 'danger';
+      else if (percentDaily >= 80) dailyStatusValue = 'warning';
+
+      // 2. Calcular Semanal
       const currentWeek = currentMonthStats.weeks.find(w =>
         today >= w.startDate && today <= w.endDate
       ) || currentMonthStats.weeks[currentMonthStats.weeks.length - 1];
 
       if (currentWeek) {
         weekAvailable = currentWeek.available;
-        status = currentWeek.status;
-        isBusted = currentWeek.available < 0;
-        const startStr = `${String(currentWeek.startDay).padStart(2, '0')}/${String(currentMonthIndex + 1).padStart(2, '0')}`;
-        const endStr = `${String(currentWeek.endDay).padStart(2, '0')}/${String(currentMonthIndex + 1).padStart(2, '0')}`;
-        weekLabel = `${startStr} a ${endStr}`;
+        const weekStatus = currentWeek.status;
+        isBusted = currentWeek.available < 0 || dailyAvailable < 0;
+        
+        // Pior status entre diário e semanal dita a cor do balão
+        overallStatus = weekStatus;
+        if (weekStatus === 'danger' || dailyStatusValue === 'danger') overallStatus = 'danger';
+        else if (weekStatus === 'warning' || dailyStatusValue === 'warning') overallStatus = 'warning';
 
-        if (status === 'safe') emoji = '💚';
-        else if (status === 'warning') emoji = '💛';
-        else if (status === 'danger') emoji = '💔';
+        if (overallStatus === 'safe') emoji = '💚';
+        else if (overallStatus === 'warning') emoji = '💛';
+        else if (overallStatus === 'danger') emoji = '💔';
       }
     }
 
     return {
       isBudgetBusted: isBusted,
       budgetEmoji: emoji,
-      currentMonthBudgetStatus: status,
+      currentMonthBudgetStatus: overallStatus,
       currentWeekAvailable: weekAvailable,
-      currentWeekLabel: weekLabel,
+      currentDailyAvailable: dailyAvailable,
     };
   }, [boletos, monthlyLimits]);
 
@@ -1024,11 +1046,11 @@ const App: React.FC = () => {
 
       {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
       <div className="fixed bottom-8 right-8 z-[90] flex flex-col items-center gap-2">
-        {/* Balão de Saldo Semanal */}
+        {/* Balão de Saldo Diário e Semanal */}
         {currentMonthBudgetStatus !== 'no-budget' && (
           <div className={`
-            relative flex flex-col items-center px-3 py-2 rounded-2xl shadow-xl text-xs font-bold
-            transition-all duration-500 animate-in fade-in slide-in-from-bottom-2
+            relative flex flex-col px-4 py-3 rounded-2xl shadow-xl text-xs font-bold
+            transition-all duration-500 animate-in fade-in slide-in-from-bottom-2 gap-2
             ${currentMonthBudgetStatus === 'danger'
               ? 'bg-red-600 text-white'
               : currentMonthBudgetStatus === 'warning'
@@ -1036,11 +1058,20 @@ const App: React.FC = () => {
                 : 'bg-emerald-600 text-white'
             }
           `}>
-            <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider whitespace-nowrap">Disponível esta semana</span>
-            <span className="text-sm font-black whitespace-nowrap">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentWeekAvailable)}
-            </span>
-            <span className="text-[9px] opacity-70 whitespace-nowrap">{currentWeekLabel}</span>
+            {/* Diário */}
+            <div className="flex flex-col items-end border-b border-white/20 pb-2">
+              <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider whitespace-nowrap">Disponível Hoje</span>
+              <span className="text-sm font-black whitespace-nowrap">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentDailyAvailable)}
+              </span>
+            </div>
+            {/* Semanal */}
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider whitespace-nowrap">Disponível na Semana</span>
+              <span className="text-sm font-black whitespace-nowrap">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentWeekAvailable)}
+              </span>
+            </div>
             {/* Ponteiro do balão */}
             <span className={`
               absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45
