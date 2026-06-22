@@ -153,16 +153,6 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
   onClose
 }) => {
   const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
-  const [expandedMonths, setExpandedMonths] = useState<Set<number>>(new Set([new Date().getMonth()]));
-
-  const toggleMonth = (monthIndex: number) => {
-    setExpandedMonths(prev => {
-      const next = new Set(prev);
-      if (next.has(monthIndex)) next.delete(monthIndex);
-      else next.add(monthIndex);
-      return next;
-    });
-  };
 
   // Calcula os orçamentos semanais em cascata para o ano selecionado
   const { monthlyStats, yearTotal, yearBudget } = useMemo(() => {
@@ -249,7 +239,7 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
             </div>
             <div>
               <h2 className="text-2xl font-black uppercase tracking-tight">Painel de Orçamentos</h2>
-              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mt-0.5">Visão semanal por mês · Excessos propagados automaticamente</p>
+              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mt-0.5">Visão consolidada mensal</p>
             </div>
           </div>
 
@@ -318,10 +308,9 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
                   key={stat.monthIndex}
                   className={`rounded-[1.5rem] border ${styles.bg} ${styles.border} shadow-sm overflow-hidden transition-all duration-200`}
                 >
-                  {/* Cabeçalho do mês — clicável */}
-                  <button
-                    className="w-full p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:opacity-90 transition-opacity text-left"
-                    onClick={() => toggleMonth(stat.monthIndex)}
+                  {/* Cabeçalho do mês */}
+                  <div
+                    className="w-full p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 text-left"
                   >
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center justify-between md:justify-start gap-3">
@@ -388,43 +377,8 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
                       {stat.status === 'warning' && <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />}
                       {stat.status === 'danger' && <AlertTriangle className="w-5 h-5 text-red-500 animate-bounce" />}
                       {stat.status === 'no-budget' && <Info className="w-5 h-5 text-slate-400" />}
-                      {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                     </div>
-                  </button>
-
-                  {/* Detalhamento semanal (expansível) */}
-                  {isExpanded && stat.weeks.length > 0 && (
-                    <div className="px-5 pb-5 space-y-2 border-t border-slate-200/60 dark:border-slate-800/60 pt-4">
-                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">
-                        Detalhamento Semanal · Excessos propagados automaticamente
-                      </p>
-                      {stat.weeks.map(week => {
-                        const isCurrentWeek = isCurrentMonth &&
-                          today >= week.startDate && today <= week.endDate;
-                        return (
-                          <WeekRow
-                            key={week.weekIndex}
-                            week={week}
-                            monthIndex={stat.monthIndex}
-                            year={currentYear}
-                            isCurrentWeek={isCurrentWeek}
-                          />
-                        );
-                      })}
-                      {stat.excessToNextMonth > 0 && (
-                        <div className="flex items-center gap-2 mt-2 p-2.5 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 text-xs text-red-600 dark:text-red-400 font-semibold">
-                          <ArrowRight className="w-4 h-4 flex-shrink-0" />
-                          <span>Excedente de <strong>{formatCurrency(stat.excessToNextMonth)}</strong> propagado para o próximo mês</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {isExpanded && stat.weeks.length === 0 && (
-                    <div className="px-5 pb-5 pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
-                      <p className="text-xs text-slate-400 text-center py-4">Nenhum dado de semana disponível para este mês.</p>
-                    </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
