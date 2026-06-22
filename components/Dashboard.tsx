@@ -55,6 +55,7 @@ import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
 import { OrderStatusModal } from './OrderStatusModal';
 import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount, MonthlyLimit } from '../types';
+import { calculateWeeklyBudgetsCascade } from '../utils';
 
 interface DashboardProps {
   user: User;
@@ -94,48 +95,54 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-  const budgetStatus = React.useMemo(() => {
+  const budgetData = React.useMemo(() => {
     if (!isAdmin) return null;
     const currentYear = new Date().getFullYear();
     const currentMonthNumber = new Date().getMonth() + 1;
 
-    const monthBoletos = boletos.filter(b => {
-      const d = new Date(b.due_date + 'T00:00:00');
-      return d.getFullYear() === currentYear && (d.getMonth() + 1) === currentMonthNumber;
-    });
+    // Calcula a cascata do ano (com as regras de perdão de dívidas em utils.ts)
+    const stats = calculateWeeklyBudgetsCascade(currentYear, monthlyLimits, boletos);
+    const monthKey = `${currentYear}-${currentMonthNumber}`;
+    const monthData = stats[monthKey];
 
-    const totalSpentThisMonth = monthBoletos.reduce((sum, b) => sum + b.value, 0);
-    const limitObj = monthlyLimits.find(l => l.month === currentMonthNumber && l.year === currentYear);
-    const budgetLimit = limitObj ? limitObj.limit : 0;
+    if (!monthData) return null;
 
+    const agora = new Date();
+    // Encontrar a semana atual
+    let currentWeek = monthData.weeks.find(w => agora >= w.startDate && agora <= w.endDate);
+    
+    if (!currentWeek && monthData.weeks.length > 0) {
+      // Se não cair exatamente dentro de uma (ex: fds), pega a que estiver com endDate no futuro ou a última
+      currentWeek = monthData.weeks.find(w => agora <= w.endDate) || monthData.weeks[monthData.weeks.length - 1];
+    }
+
+    if (!currentWeek) return null;
+
+    // Calcula progresso da semana
     let percentUsed = 0;
-    let status: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
-
-    if (budgetLimit > 0) {
-      percentUsed = (totalSpentThisMonth / budgetLimit) * 100;
-      if (percentUsed < 80) {
-        status = 'safe';
-      } else if (percentUsed <= 100) {
-        status = 'warning';
-      } else {
-        status = 'danger';
-      }
+    const adjustedLimit = currentWeek.available + currentWeek.spent; // reconstrói o limite ajustado
+    if (adjustedLimit > 0) {
+      percentUsed = (currentWeek.spent / adjustedLimit) * 100;
+    } else if (currentWeek.spent > 0) {
+      percentUsed = 100;
     }
 
     return {
-      totalSpentThisMonth,
-      budgetLimit,
-      percentUsed,
-      status
+      totalSpentThisMonth: monthData.totalSpent,
+      currentWeek: {
+        ...currentWeek,
+        percentUsed,
+        adjustedLimit
+      }
     };
   }, [boletos, monthlyLimits, isAdmin]);
 
   const themeCardClass = React.useMemo(() => {
-    if (!isAdmin || !budgetStatus || budgetStatus.budgetLimit === 0) return 'glass-card-neutral';
-    if (budgetStatus.status === 'safe') return 'glass-card-safe';
-    if (budgetStatus.status === 'warning') return 'glass-card-warning';
+    if (!isAdmin || !budgetData || budgetData.currentWeek.status === 'no-budget') return 'glass-card-neutral';
+    if (budgetData.currentWeek.status === 'safe') return 'glass-card-safe';
+    if (budgetData.currentWeek.status === 'warning') return 'glass-card-warning';
     return 'glass-card-danger';
-  }, [isAdmin, budgetStatus]);
+  }, [isAdmin, budgetData]);
 
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
@@ -515,7 +522,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
            isSaturday;
   });
 
-  const totalSpentThisMonth = budgetStatus?.totalSpentThisMonth || boletos.reduce((sum, b) => {
+  const totalSpentThisMonth = budgetData?.totalSpentThisMonth || boletos.reduce((sum, b) => {
     const d = new Date(b.due_date + 'T00:00:00');
     return d.getFullYear() === now.getFullYear() && (d.getMonth() + 1) === (now.getMonth() + 1) ? sum + b.value : sum;
   }, 0);
@@ -535,15 +542,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     <div className="space-y-8 animate-in fade-in duration-500 relative">
       {/* Decorative background glow for Glassmorphism theme */}
       <div className={`absolute -top-40 -right-40 w-[450px] h-[450px] rounded-full blur-[140px] opacity-[0.08] dark:opacity-[0.05] pointer-events-none transition-all duration-1000 -z-10 bg-gradient-to-br ${
-        !isAdmin || !budgetStatus || budgetStatus.budgetLimit === 0 ? 'from-blue-400 to-indigo-500' :
-        budgetStatus.status === 'safe' ? 'from-emerald-400 to-teal-500' :
-        budgetStatus.status === 'warning' ? 'from-amber-400 to-yellow-500' :
+        !isAdmin || !budgetData || budgetData.currentWeek.status === 'no-budget' ? 'from-blue-400 to-indigo-500' :
+        budgetData.currentWeek.status === 'safe' ? 'from-emerald-400 to-teal-500' :
+        budgetData.currentWeek.status === 'warning' ? 'from-amber-400 to-yellow-500' :
         'from-rose-450 to-red-650'
       }`} />
       <div className={`absolute top-[40vh] -left-40 w-[350px] h-[350px] rounded-full blur-[120px] opacity-[0.05] dark:opacity-[0.03] pointer-events-none transition-all duration-1000 -z-10 bg-gradient-to-br ${
-        !isAdmin || !budgetStatus || budgetStatus.budgetLimit === 0 ? 'from-purple-400 to-blue-500' :
-        budgetStatus.status === 'safe' ? 'from-teal-400 to-emerald-500' :
-        budgetStatus.status === 'warning' ? 'from-yellow-400 to-amber-500' :
+        !isAdmin || !budgetData || budgetData.currentWeek.status === 'no-budget' ? 'from-purple-400 to-blue-500' :
+        budgetData.currentWeek.status === 'safe' ? 'from-teal-400 to-emerald-500' :
+        budgetData.currentWeek.status === 'warning' ? 'from-yellow-400 to-amber-500' :
         'from-red-400 to-rose-650'
       }`} />
       {!isMobile && showGoalPopup && (
@@ -605,22 +612,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </header>
 
-      {isAdmin && budgetStatus && budgetStatus.budgetLimit > 0 && (
+      {isAdmin && budgetData && budgetData.currentWeek.status !== 'no-budget' && (
         <section className={`glass-card p-6 rounded-3xl transition-all duration-300 shadow-md ${themeCardClass}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h2 className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
-                budgetStatus.status === 'safe' ? 'text-emerald-700 dark:text-emerald-400' :
-                budgetStatus.status === 'warning' ? 'text-amber-700 dark:text-amber-400' :
+                budgetData.currentWeek.status === 'safe' ? 'text-emerald-700 dark:text-emerald-400' :
+                budgetData.currentWeek.status === 'warning' ? 'text-amber-700 dark:text-amber-400' :
                 'text-red-650 dark:text-red-400'
               }`}>
                 <DollarSign className="w-4 h-4" />
-                Orçamento Mensal de Boletos — {capitalize(currentMonthName)}
+                Orçamento da Semana — {budgetData.currentWeek.startDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})} a {budgetData.currentWeek.endDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}
               </h2>
               <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-2">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetStatus.totalSpentThisMonth)}
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.spent)}
                 <span className="text-xs font-bold text-slate-400 dark:text-slate-500 ml-2">
-                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetStatus.budgetLimit)} limite
+                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.adjustedLimit)} limite
                 </span>
               </p>
             </div>
@@ -629,21 +636,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
                 <span>Uso do Limite</span>
                 <span className={
-                  budgetStatus.status === 'safe' ? 'text-emerald-600 dark:text-emerald-400' :
-                  budgetStatus.status === 'warning' ? 'text-amber-600 dark:text-amber-455' :
+                  budgetData.currentWeek.status === 'safe' ? 'text-emerald-600 dark:text-emerald-400' :
+                  budgetData.currentWeek.status === 'warning' ? 'text-amber-600 dark:text-amber-455' :
                   'text-red-655 dark:text-red-400'
                 }>
-                  {budgetStatus.percentUsed.toFixed(1)}%
+                  {budgetData.currentWeek.percentUsed.toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
                 <div 
                   className={`h-full transition-all duration-500 ${
-                    budgetStatus.status === 'safe' ? 'bg-emerald-500' :
-                    budgetStatus.status === 'warning' ? 'bg-amber-500' :
+                    budgetData.currentWeek.status === 'safe' ? 'bg-emerald-500' :
+                    budgetData.currentWeek.status === 'warning' ? 'bg-amber-500' :
                     'bg-red-500'
                   }`}
-                  style={{ width: `${Math.min(100, budgetStatus.percentUsed)}%` }}
+                  style={{ width: `${Math.min(100, budgetData.currentWeek.percentUsed)}%` }}
                 />
               </div>
             </div>
@@ -724,14 +731,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
           let iconStyles = "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-650 dark:text-indigo-400";
           let textColors = "text-slate-900 dark:text-slate-100";
           
-          if (isVencimentoCard && budgetStatus && budgetStatus.budgetLimit > 0) {
-            if (budgetStatus.status === 'safe') {
+          if (isVencimentoCard && budgetData && budgetData.currentWeek.status !== 'no-budget') {
+            if (budgetData.currentWeek.status === 'safe') {
               cardStyles = "glass-card-safe";
               iconStyles = "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400";
-            } else if (budgetStatus.status === 'warning') {
+            } else if (budgetData.currentWeek.status === 'warning') {
               cardStyles = "glass-card-warning";
               iconStyles = "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-450";
-            } else if (budgetStatus.status === 'danger') {
+            } else if (budgetData.currentWeek.status === 'danger') {
               cardStyles = "glass-card-danger";
               iconStyles = "bg-red-55 dark:bg-red-900/20 text-red-650 dark:text-red-400 animate-pulse";
               textColors = "text-red-655 dark:text-red-400";

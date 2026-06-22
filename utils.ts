@@ -148,6 +148,12 @@ export function calculateWeeklyBudgetsCascade(
 
       const weeks: WeekPeriod[] = [];
       let totalMonthSpent = 0;
+      
+      // REGRA: No início do mês 07 (Julho), zera a dívida acumulada de meses anteriores
+      if (monthNumber === 7) {
+        excessFromPreviousMonth = 0;
+      }
+      
       let currentExcess = excessFromPreviousMonth;
 
       for (let i = 0; i < N; i++) {
