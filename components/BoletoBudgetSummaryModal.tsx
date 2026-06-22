@@ -298,7 +298,6 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
             .map(stat => {
               const styles = getStatusStyles(stat.status);
               const hasBudget = stat.status !== 'no-budget';
-              const isExpanded = expandedMonths.has(stat.monthIndex);
               const isCurrentMonth = currentYear === today.getFullYear() && stat.monthIndex === today.getMonth();
               const difference = Math.abs(stat.budgetLimit - stat.totalSpent);
               const isExceeded = stat.totalSpent > stat.budgetLimit && stat.budgetLimit > 0;
