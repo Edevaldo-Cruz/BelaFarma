@@ -1,3 +1,4 @@
 const { queryDigifarma } = require('./services/digifarma.service.js');
-const sql = "SELECT RDB$VIEW_SOURCE FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = 'VIEW_ULT_COMPRAS'";
-queryDigifarma(sql).then(res => console.log(res)).catch(console.error);
+queryDigifarma("SELECT FIRST 1 * FROM PRODUTOS").then(res => {
+  if (res && res.length > 0) console.log(Object.keys(res[0]));
+}).catch(console.error);

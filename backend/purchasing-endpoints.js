@@ -184,12 +184,13 @@ module.exports = (db) => {
     
     try {
       const placeholders = products.map(() => '?').join(',');
-      // Usar a VIEW_ULT_COMPRAS para buscar os últimos fornecedores dos produtos selecionados
+      // Usar a VIEW_ULT_COMPRAS e JOIN com PRODUTOS para buscar pelo NOME do produto
       const sql = `
-        SELECT PRODUTO_ID, FORNECEDOR 
-        FROM VIEW_ULT_COMPRAS
-        WHERE PRODUTO_ID IN (${placeholders})
-        ORDER BY COMPRA_DATA DESC
+        SELECT p.PRODUTO as PRODUTO_ID, v.FORNECEDOR 
+        FROM VIEW_ULT_COMPRAS v
+        JOIN PRODUTOS p ON v.PRODUTO_ID = p.PRODUTO_ID
+        WHERE p.PRODUTO IN (${placeholders})
+        ORDER BY v.COMPRA_DATA DESC
       `;
       const result = await queryDigifarma(sql, products);
       res.json(result);

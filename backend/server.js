@@ -970,7 +970,7 @@ app.post('/api/shortages/db-status', async (req, res) => {
     const sql = `
       SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
       FROM PRODUTOS p
-      WHERE TRIM(UPPER(p.PRODUTO)) IN (${placeholders})
+      WHERE p.PRODUTO IN (${placeholders})
     `;
 
     const results = await queryDigifarma(sql, cleanedNames);
