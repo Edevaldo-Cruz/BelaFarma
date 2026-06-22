@@ -274,15 +274,20 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       const dateStr = now.toLocaleDateString('pt-BR');
       const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-      // Generate one file per Type
-      for (const type of Object.keys(groupedByType)) {
-        const lines: string[] = [
-          '================================================',
-          `  COTAÇÃO - ${type.toUpperCase()}`,
-          `  Gerado em: ${dateStr} às ${timeStr}`,
-          '================================================',
-          '',
-        ];
+      const lines: string[] = [
+        '================================================',
+        `  COTAÇÃO GERAL`,
+        `  Gerado em: ${dateStr} às ${timeStr}`,
+        '================================================',
+        '',
+      ];
+
+      const sortedTypes = Object.keys(groupedByType).sort();
+
+      // Generate one file with all Types
+      for (const type of sortedTypes) {
+        lines.push(`▶ TIPO: ${type.toUpperCase()}`);
+        lines.push('================================================');
 
         const suppliersObj = groupedByType[type];
         
@@ -294,34 +299,31 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         });
 
         for (const supplier of sortedSuppliers) {
-          lines.push(`📦 FORNECEDOR: ${supplier}`);
-          lines.push('------------------------------------------------');
+          lines.push(`  📦 FORNECEDOR: ${supplier}`);
+          lines.push('  ----------------------------------------------');
           
           const products = suppliersObj[supplier];
           products.forEach((s, i) => {
-            let itemLine = `   ${i + 1}. ${s.productName.toUpperCase()}`;
+            let itemLine = `     ${i + 1}. ${s.productName.toUpperCase()}`;
             if (s.clientInquiry) itemLine += ' *';
             if (s.ordered) itemLine += ' [JÁ PEDIDO]';
             lines.push(itemLine);
-            if (s.notes) lines.push(`      Obs: ${s.notes}`);
+            if (s.notes) lines.push(`        Obs: ${s.notes}`);
           });
           lines.push('');
         }
-
-        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        const safeTypeName = type.toLowerCase().replace(/[^a-z0-9]/g, '-');
-        a.download = `cotacao-${safeTypeName}-${now.toISOString().split('T')[0]}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        // Small delay between downloads to prevent browser from blocking multiple popups
-        await new Promise(resolve => setTimeout(resolve, 300));
+        lines.push('');
       }
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cotacao-geral-${now.toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
       addToast("Exportação concluída com sucesso!", "success");
     } catch (err) {
