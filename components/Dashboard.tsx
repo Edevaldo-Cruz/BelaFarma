@@ -101,7 +101,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const currentMonthNumber = new Date().getMonth() + 1;
 
     // Calcula a cascata do ano (com as regras de perdão de dívidas em utils.ts)
-    const stats = calculateWeeklyBudgetsCascade(currentYear, monthlyLimits, boletos);
+    // CORREÇÃO: ordem dos parâmetros é (boletos, monthlyLimits, startYear, endYear, endMonth)
+    const stats = calculateWeeklyBudgetsCascade(boletos, monthlyLimits, currentYear, currentYear, currentMonthNumber - 1);
     const monthKey = `${currentYear}-${currentMonthNumber}`;
     const monthData = stats[monthKey];
 
@@ -118,7 +119,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
     if (!currentWeek) return null;
 
-    // Calcula progresso da semana
+    // Progresso da Semana
     let percentUsed = 0;
     const adjustedLimit = currentWeek.available + currentWeek.spent; // reconstrói o limite ajustado
     if (adjustedLimit > 0) {
@@ -127,12 +128,50 @@ export const Dashboard: React.FC<DashboardProps> = ({
       percentUsed = 100;
     }
 
+    // Progresso Diário
+    const daysInMonth = new Date(currentYear, currentMonthNumber, 0).getDate();
+    const dailyLimit = monthData.limit / daysInMonth;
+    const todayBoletos = boletos.filter(b => {
+      if (!b.due_date) return false;
+      const [by, bm, bd] = b.due_date.split('-').map(Number);
+      return by === agora.getFullYear() && bm === (agora.getMonth() + 1) && bd === agora.getDate();
+    });
+    const spentToday = todayBoletos.reduce((sum, b) => sum + b.value, 0);
+
+    let percentDaily = 0;
+    if (dailyLimit > 0) percentDaily = (spentToday / dailyLimit) * 100;
+    else if (spentToday > 0) percentDaily = 100;
+
+    let dailyStatus: 'safe' | 'warning' | 'danger' = 'safe';
+    if (percentDaily >= 100) dailyStatus = 'danger';
+    else if (percentDaily >= 80) dailyStatus = 'warning';
+
+    // Progresso Mensal
+    let percentMonthly = 0;
+    if (monthData.limit > 0) percentMonthly = (monthData.totalSpent / monthData.limit) * 100;
+    else if (monthData.totalSpent > 0) percentMonthly = 100;
+
+    let monthlyStatus: 'safe' | 'warning' | 'danger' = 'safe';
+    if (percentMonthly >= 100) monthlyStatus = 'danger';
+    else if (percentMonthly >= 80) monthlyStatus = 'warning';
+
     return {
-      totalSpentThisMonth: monthData.totalSpent,
+      daily: {
+        limit: dailyLimit,
+        spent: spentToday,
+        percentUsed: percentDaily,
+        status: dailyStatus
+      },
       currentWeek: {
         ...currentWeek,
         percentUsed,
         adjustedLimit
+      },
+      monthly: {
+        limit: monthData.limit,
+        spent: monthData.totalSpent,
+        percentUsed: percentMonthly,
+        status: monthlyStatus
       }
     };
   }, [boletos, monthlyLimits, isAdmin]);
@@ -522,7 +561,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
            isSaturday;
   });
 
-  const totalSpentThisMonth = budgetData?.totalSpentThisMonth || boletos.reduce((sum, b) => {
+  const totalSpentThisMonth = budgetData?.monthly.spent || boletos.reduce((sum, b) => {
     const d = new Date(b.due_date + 'T00:00:00');
     return d.getFullYear() === now.getFullYear() && (d.getMonth() + 1) === (now.getMonth() + 1) ? sum + b.value : sum;
   }, 0);
@@ -613,45 +652,83 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </header>
 
       {isAdmin && budgetData && budgetData.currentWeek.status !== 'no-budget' && (
-        <section className={`glass-card p-6 rounded-3xl transition-all duration-300 shadow-md ${themeCardClass}`}>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
-                budgetData.currentWeek.status === 'safe' ? 'text-emerald-700 dark:text-emerald-400' :
-                budgetData.currentWeek.status === 'warning' ? 'text-amber-700 dark:text-amber-400' :
-                'text-red-650 dark:text-red-400'
-              }`}>
-                <DollarSign className="w-4 h-4" />
-                Orçamento da Semana — {budgetData.currentWeek.startDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})} a {budgetData.currentWeek.endDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}
+        <section className={`glass-card p-4 md:p-6 rounded-3xl transition-all duration-300 shadow-md ${themeCardClass}`}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-700/50">
+            {/* HOJE */}
+            <div className="pt-4 md:pt-0 md:pl-4 first:pt-0 first:pl-0 flex flex-col justify-between">
+              <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <Calendar className="w-3.5 h-3.5" /> Orçamento Hoje
               </h2>
-              <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-2">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.spent)}
-                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 ml-2">
-                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.adjustedLimit)} limite
-                </span>
-              </p>
+              <div className="mt-2">
+                <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-slate-100 truncate">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.daily.spent)}
+                </p>
+                <p className="text-[10px] md:text-xs font-bold text-slate-400 dark:text-slate-500 truncate">
+                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.daily.limit)} limite
+                </p>
+              </div>
+              <div className="mt-3 w-full">
+                <div className="flex justify-between items-center text-[9px] md:text-[10px] font-bold text-slate-500 mb-1">
+                  <span>Uso</span>
+                  <span className={`${budgetData.daily.status === 'danger' ? 'text-red-500' : budgetData.daily.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {budgetData.daily.percentUsed.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div className={`h-full transition-all duration-500 ${budgetData.daily.status === 'danger' ? 'bg-red-500' : budgetData.daily.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.daily.percentUsed)}%` }} />
+                </div>
+              </div>
             </div>
 
-            <div className="flex-1 max-w-md w-full">
-              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
-                <span>Uso do Limite</span>
-                <span className={
-                  budgetData.currentWeek.status === 'safe' ? 'text-emerald-600 dark:text-emerald-400' :
-                  budgetData.currentWeek.status === 'warning' ? 'text-amber-600 dark:text-amber-455' :
-                  'text-red-655 dark:text-red-400'
-                }>
-                  {budgetData.currentWeek.percentUsed.toFixed(1)}%
-                </span>
+            {/* ESTA SEMANA */}
+            <div className="pt-4 md:pt-0 md:pl-6 flex flex-col justify-between">
+              <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <Calendar className="w-3.5 h-3.5" /> Esta Semana
+              </h2>
+              <div className="mt-2">
+                <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-slate-100 truncate">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.spent)}
+                </p>
+                <p className="text-[10px] md:text-xs font-bold text-slate-400 dark:text-slate-500 truncate">
+                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.currentWeek.adjustedLimit)} lim. ajust.
+                </p>
               </div>
-              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-500 ${
-                    budgetData.currentWeek.status === 'safe' ? 'bg-emerald-500' :
-                    budgetData.currentWeek.status === 'warning' ? 'bg-amber-500' :
-                    'bg-red-500'
-                  }`}
-                  style={{ width: `${Math.min(100, budgetData.currentWeek.percentUsed)}%` }}
-                />
+              <div className="mt-3 w-full">
+                <div className="flex justify-between items-center text-[9px] md:text-[10px] font-bold text-slate-500 mb-1">
+                  <span>Uso</span>
+                  <span className={`${budgetData.currentWeek.status === 'danger' ? 'text-red-500' : budgetData.currentWeek.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {budgetData.currentWeek.percentUsed.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div className={`h-full transition-all duration-500 ${budgetData.currentWeek.status === 'danger' ? 'bg-red-500' : budgetData.currentWeek.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.currentWeek.percentUsed)}%` }} />
+                </div>
+              </div>
+            </div>
+
+            {/* ESTE MÊS */}
+            <div className="pt-4 md:pt-0 md:pl-6 flex flex-col justify-between">
+              <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <Calendar className="w-3.5 h-3.5" /> Este Mês ({capitalize(currentMonthName)})
+              </h2>
+              <div className="mt-2">
+                <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-slate-100 truncate">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.spent)}
+                </p>
+                <p className="text-[10px] md:text-xs font-bold text-slate-400 dark:text-slate-500 truncate">
+                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.limit)} limite
+                </p>
+              </div>
+              <div className="mt-3 w-full">
+                <div className="flex justify-between items-center text-[9px] md:text-[10px] font-bold text-slate-500 mb-1">
+                  <span>Uso</span>
+                  <span className={`${budgetData.monthly.status === 'danger' ? 'text-red-500' : budgetData.monthly.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {budgetData.monthly.percentUsed.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div className={`h-full transition-all duration-500 ${budgetData.monthly.status === 'danger' ? 'bg-red-500' : budgetData.monthly.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.monthly.percentUsed)}%` }} />
+                </div>
               </div>
             </div>
           </div>
