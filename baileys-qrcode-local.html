@@ -123,7 +123,9 @@
 </div>
 
 <script>
-  const API = 'https://app.drogariabelafarma.com.br';
+  // Detecta se está rodando localmente (localhost, 127.0.0.1 ou arquivo local)
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:';
+  const API = isLocal ? 'http://localhost:3001' : 'https://app.drogariabelafarma.com.br';
   let intervalId = null;
   let countdown  = 5;
   let connected  = false;

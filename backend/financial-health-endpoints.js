@@ -91,6 +91,353 @@ module.exports = function (app, db) {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/financial-health/caixa-minimo
+  // Calcula o Caixa Mínimo Operacional recomendado com base nas despesas reais
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/financial-health/caixa-minimo', async (req, res) => {
+    try {
+      const DIAS_COBERTURA = 15;
+      const today = new Date().toISOString().split('T')[0];
+      const currentMonth = new Date().toISOString().slice(0, 7);
+
+      // 1. Despesas fixas do mês atual
+      let despesasFixasMensais = 0;
+      let listaContasFixas = [];
+      try {
+        const fixedPayments = db.prepare(`
+          SELECT fixedAccountName, value, status, dueDate
+          FROM fixed_account_payments WHERE month = ?
+        `).all(currentMonth);
+        despesasFixasMensais = fixedPayments.reduce((a, p) => a + (p.value || 0), 0);
+        listaContasFixas = fixedPayments.map(p => ({ nome: p.fixedAccountName, valor: p.value, status: p.status }));
+      } catch (e) { console.warn('[CaixaMinimo] fixed_account_payments:', e.message); }
+
+      // 2. Boletos a vencer nos próximos 30 dias
+      let boletosAVencer30 = 0;
+      let listaBoletosVencendo = [];
+      try {
+        const dt30 = new Date(); dt30.setDate(dt30.getDate() + 30);
+        const dt30Str = dt30.toISOString().split('T')[0];
+        const boletos = db.prepare(`
+          SELECT supplierName, due_date, value
+          FROM boletos
+          WHERE status = 'Pendente' AND due_date >= ? AND due_date <= ?
+          ORDER BY due_date
+        `).all(today, dt30Str);
+        boletosAVencer30 = boletos.reduce((a, b) => a + (b.value || 0), 0);
+        listaBoletosVencendo = boletos.map(b => ({ fornecedor: b.supplierName, vencimento: b.due_date, valor: b.value }));
+      } catch (e) { console.warn('[CaixaMinimo] boletos:', e.message); }
+
+      // 3. Média de compras dos últimos 3 meses
+      let mediaComprasMensais = 0;
+      try {
+        const dt90 = new Date(); dt90.setDate(dt90.getDate() - 90);
+        const orders = db.prepare(`
+          SELECT totalValue FROM orders
+          WHERE orderDate >= ? AND status != 'Cancelado'
+        `).all(dt90.toISOString().split('T')[0]);
+        const totalCompras90 = orders.reduce((a, o) => a + (o.totalValue || 0), 0);
+        mediaComprasMensais = totalCompras90 / 3;
+      } catch (e) { console.warn('[CaixaMinimo] orders:', e.message); }
+
+      // 4. Foguete Amarelo pendente
+      let foguetePendente = 0;
+      try {
+        const foguete = db.prepare(`
+          SELECT remaining_value FROM accounts_payable
+          WHERE is_foguete_amarelo = 1 AND status != 'Quitado' AND due_date <= ?
+        `).all(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
+        foguetePendente = foguete.reduce((a, f) => a + (f.remaining_value || 0), 0);
+      } catch (e) { console.warn('[CaixaMinimo] foguete:', e.message); }
+
+      // 5. Saldo atual do cofre (safe_entries)
+      let saldoCaixaAtual = 0;
+      try {
+        const entradas = db.prepare(`SELECT SUM(value) as total FROM safe_entries WHERE type = 'Entrada'`).get();
+        const saidas   = db.prepare(`SELECT SUM(value) as total FROM safe_entries WHERE type = 'Saída'`).get();
+        saldoCaixaAtual = (entradas?.total || 0) - (saidas?.total || 0);
+      } catch (e) { console.warn('[CaixaMinimo] safe_entries:', e.message); }
+
+      // Cálculo
+      const totalBaseMensal = despesasFixasMensais + boletosAVencer30 + mediaComprasMensais + foguetePendente;
+      const caixaMinimo = (totalBaseMensal / 30) * DIAS_COBERTURA;
+      const diferenca = saldoCaixaAtual - caixaMinimo;
+
+      let situacao = 'Saudável';
+      if (diferenca < 0) situacao = 'Crítico';
+      else if (diferenca < caixaMinimo * 0.2) situacao = 'Atenção';
+
+      res.json({
+        caixaMinimo: Math.round(caixaMinimo * 100) / 100,
+        situacao,
+        saldoCaixaAtual: Math.round(saldoCaixaAtual * 100) / 100,
+        diferenca: Math.round(diferenca * 100) / 100,
+        diasCobertura: DIAS_COBERTURA,
+        composicao: {
+          despesasFixasMensais: Math.round(despesasFixasMensais * 100) / 100,
+          boletosAVencer30dias: Math.round(boletosAVencer30 * 100) / 100,
+          mediaComprasMensais: Math.round(mediaComprasMensais * 100) / 100,
+          foguetePendente30dias: Math.round(foguetePendente * 100) / 100,
+          totalBaseMensal: Math.round(totalBaseMensal * 100) / 100,
+        },
+        detalhes: {
+          contasFixas: listaContasFixas,
+          boletosVencendo: listaBoletosVencendo,
+        },
+      });
+    } catch (err) {
+      console.error('[CaixaMinimo] Erro:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/financial-health/dre?month=2026-06
+  // DRE (Demonstrativo de Resultados do Exercício) mensal consolidado
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/financial-health/dre', async (req, res) => {
+    try {
+      const month = req.query.month || new Date().toISOString().slice(0, 7);
+      const [year, mon] = month.split('-');
+      const startDate = `${month}-01`;
+      const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate();
+      const endDate   = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+      // 1. Faturamento dos fechamentos de caixa
+      let receitaBruta = 0;
+      let breakdown = { credito: 0, debito: 0, pix: 0, dinheiro: 0, crediario: 0 };
+      let diasComFechamento = 0;
+      try {
+        const closings = db.prepare(`
+          SELECT totalSales, credit, debit, pix, totalInDrawer, totalCrediario, expenses
+          FROM cash_closings WHERE date >= ? AND date <= ?
+        `).all(startDate, endDate);
+        diasComFechamento = closings.length;
+        receitaBruta  = closings.reduce((a, c) => a + (c.totalSales || 0), 0);
+        breakdown.credito   = closings.reduce((a, c) => a + (c.credit || 0), 0);
+        breakdown.debito    = closings.reduce((a, c) => a + (c.debit || 0), 0);
+        breakdown.pix       = closings.reduce((a, c) => a + (c.pix || 0), 0);
+        breakdown.dinheiro  = closings.reduce((a, c) => a + (c.totalInDrawer || 0), 0);
+        breakdown.crediario = closings.reduce((a, c) => a + (c.totalCrediario || 0), 0);
+      } catch (e) { console.warn('[DRE] cash_closings:', e.message); }
+
+      // 2. CMV Real do Digifarma
+      let cmv = 0;
+      let totalVendaDigifarma = 0;
+      let usouCMVReal = false;
+      try {
+        const cmvResult = await queryDigifarma(`
+          SELECT
+            SUM(COALESCE(iv.ITEMVEND_CMV, iv.ITEMVEND_ULT_COMPRA, 0) * iv.ITEMVEND_QUANT) AS TOTAL_CMV,
+            SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) AS TOTAL_VENDA
+          FROM ITEM_VENDAS iv
+          JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+          WHERE v.CANCELADO <> 'S'
+            AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) >= ?
+            AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) <= ?
+        `, [startDate, endDate]);
+        if (cmvResult && cmvResult.length > 0) {
+          cmv = cmvResult[0].TOTAL_CMV || 0;
+          totalVendaDigifarma = cmvResult[0].TOTAL_VENDA || 0;
+          usouCMVReal = true;
+          if (totalVendaDigifarma > 0 && receitaBruta === 0) receitaBruta = totalVendaDigifarma;
+        }
+      } catch (e) { console.warn('[DRE] CMV Digifarma:', e.message); }
+
+      // 3. Despesas fixas do mês
+      let despesasFixas = 0;
+      let listaFixas = [];
+      try {
+        const fixeds = db.prepare(`
+          SELECT fixedAccountName, value, status FROM fixed_account_payments WHERE month = ?
+        `).all(month);
+        despesasFixas = fixeds.reduce((a, f) => a + (f.value || 0), 0);
+        listaFixas = fixeds.map(f => ({ nome: f.fixedAccountName, valor: f.value, status: f.status }));
+      } catch (e) { console.warn('[DRE] fixed_account_payments:', e.message); }
+
+      // 4. Despesas operacionais (sangrias/daily_records)
+      let despesasOperacionais = 0;
+      try {
+        const dailys = db.prepare(`
+          SELECT expenses FROM cash_closings WHERE date >= ? AND date <= ?
+        `).all(startDate, endDate);
+        despesasOperacionais = dailys.reduce((a, d) => a + (d.expenses || 0), 0);
+      } catch (e) { console.warn('[DRE] despesas operacionais:', e.message); }
+
+      // 5. Boletos pagos no mês
+      let boletosPagos = 0;
+      let listaBoletos = [];
+      try {
+        const boletos = db.prepare(`
+          SELECT supplierName, value FROM boletos
+          WHERE status = 'Pago' AND due_date >= ? AND due_date <= ?
+        `).all(startDate, endDate);
+        boletosPagos = boletos.reduce((a, b) => a + (b.value || 0), 0);
+        listaBoletos = boletos.map(b => ({ fornecedor: b.supplierName, valor: b.value }));
+      } catch (e) { console.warn('[DRE] boletos pagos:', e.message); }
+
+      // Cálculos DRE
+      const lucroBase = usouCMVReal ? totalVendaDigifarma : receitaBruta;
+      const lucroBruto = lucroBase - cmv;
+      const margemBruta = lucroBase > 0 ? (lucroBruto / lucroBase) * 100 : 0;
+      const despesasTotal = despesasFixas + despesasOperacionais + boletosPagos;
+      const lucroLiquido = lucroBruto - despesasTotal;
+      const margemLiquida = lucroBase > 0 ? (lucroLiquido / lucroBase) * 100 : 0;
+
+      res.json({
+        mes: month,
+        periodo: { startDate, endDate, diasComFechamento },
+        dre: {
+          receitaBruta: Math.round(lucroBase * 100) / 100,
+          cmv: Math.round(cmv * 100) / 100,
+          lucroBruto: Math.round(lucroBruto * 100) / 100,
+          margemBruta: Math.round(margemBruta * 10) / 10,
+          despesasFixas: Math.round(despesasFixas * 100) / 100,
+          despesasOperacionais: Math.round(despesasOperacionais * 100) / 100,
+          boletosPagos: Math.round(boletosPagos * 100) / 100,
+          despesasTotal: Math.round(despesasTotal * 100) / 100,
+          lucroLiquido: Math.round(lucroLiquido * 100) / 100,
+          margemLiquida: Math.round(margemLiquida * 10) / 10,
+        },
+        breakdown,
+        usouCMVReal,
+        detalhes: {
+          contasFixas: listaFixas,
+          boletos: listaBoletos,
+        },
+      });
+    } catch (err) {
+      console.error('[DRE] Erro:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/financial-health/indicadores?days=30
+  // Ticket Médio e Giro de Estoque
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/financial-health/indicadores', async (req, res) => {
+    try {
+      const days = parseInt(req.query.days) || 30;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+
+      // 1. Ticket Médio — Digifarma
+      let ticketMedio = 0;
+      let qtdVendas = 0;
+      let totalVendas = 0;
+      let evolucaoTicket = [];
+      try {
+        const ticketResult = await queryDigifarma(`
+          SELECT
+            SUM(v.TOTAL_VENDA) AS TOTAL,
+            COUNT(DISTINCT v.VENDA_NOTA_ID) AS QTD
+          FROM CAB_VENDAS v
+          WHERE v.CANCELADO <> 'S'
+            AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) >= ?
+        `, [cutoffStr]);
+        if (ticketResult && ticketResult.length > 0) {
+          totalVendas = ticketResult[0].TOTAL || 0;
+          qtdVendas   = ticketResult[0].QTD || 0;
+          ticketMedio = qtdVendas > 0 ? totalVendas / qtdVendas : 0;
+        }
+
+        // Evolução diária do ticket (últimos 14 dias para o gráfico)
+        const dt14 = new Date(); dt14.setDate(dt14.getDate() - 14);
+        const evolResult = await queryDigifarma(`
+          SELECT
+            CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) AS DATA,
+            SUM(v.TOTAL_VENDA) AS TOTAL,
+            COUNT(DISTINCT v.VENDA_NOTA_ID) AS QTD
+          FROM CAB_VENDAS v
+          WHERE v.CANCELADO <> 'S'
+            AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) >= ?
+          GROUP BY CAST((v.VENDA_DATA_HORA - 0.125) AS DATE)
+          ORDER BY 1
+        `, [dt14.toISOString().split('T')[0]]);
+        evolucaoTicket = (evolResult || []).map(r => ({
+          data: r.DATA,
+          ticket: r.QTD > 0 ? Math.round((r.TOTAL / r.QTD) * 100) / 100 : 0,
+          qtd: r.QTD,
+          total: r.TOTAL,
+        }));
+      } catch (e) { console.warn('[Indicadores] Ticket Médio Digifarma:', e.message); }
+
+      // Fallback: ticket dos fechamentos SQLite
+      if (ticketMedio === 0) {
+        try {
+          const closings = db.prepare(`
+            SELECT totalSales FROM cash_closings WHERE date >= ?
+          `).all(cutoffStr);
+          const totalFat = closings.reduce((a, c) => a + (c.totalSales || 0), 0);
+          // sem qtd de vendas disponível no sqlite, estimar pelo período
+          qtdVendas   = closings.length > 0 ? closings.length * 20 : 1; // estimativa
+          totalVendas = totalFat;
+          ticketMedio = totalFat / qtdVendas;
+        } catch (e2) { console.warn('[Indicadores] Ticket fallback:', e2.message); }
+      }
+
+      // 2. Giro de Estoque
+      // CMV do período (Digifarma)
+      let cmvPeriodo = 0;
+      try {
+        const cmvResult = await queryDigifarma(`
+          SELECT SUM(COALESCE(iv.ITEMVEND_CMV, iv.ITEMVEND_ULT_COMPRA, 0) * iv.ITEMVEND_QUANT) AS TOTAL_CMV
+          FROM ITEM_VENDAS iv
+          JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+          WHERE v.CANCELADO <> 'S'
+            AND CAST((v.VENDA_DATA_HORA - 0.125) AS DATE) >= ?
+        `, [cutoffStr]);
+        if (cmvResult && cmvResult.length > 0) cmvPeriodo = cmvResult[0].TOTAL_CMV || 0;
+      } catch (e) { console.warn('[Indicadores] CMV Giro:', e.message); }
+
+      // Valor do estoque atual (SQLite stock_products)
+      let valorEstoqueAtual = 0;
+      let qtdProdutosEstoque = 0;
+      try {
+        const estoque = db.prepare(`
+          SELECT SUM(cost_price * stock_qty) AS VALOR_TOTAL, COUNT(*) AS QTD
+          FROM stock_products WHERE stock_qty > 0
+        `).get();
+        valorEstoqueAtual  = estoque?.VALOR_TOTAL || 0;
+        qtdProdutosEstoque = estoque?.QTD || 0;
+      } catch (e) { console.warn('[Indicadores] stock_products:', e.message); }
+
+      // Giro = CMV_período / Valor_estoque × (30/days) para anualizar ao mês
+      const giro = valorEstoqueAtual > 0 ? (cmvPeriodo / valorEstoqueAtual) : 0;
+      const diasEstoque = cmvPeriodo > 0 ? Math.round((valorEstoqueAtual / (cmvPeriodo / days)) ) : 0;
+
+      let interpretacaoGiro = '';
+      if (giro === 0) interpretacaoGiro = 'Sem dados suficientes para calcular';
+      else if (giro < 1)  interpretacaoGiro = `⚠️ Estoque girando ${giro.toFixed(1)}x — giro lento, dinheiro parado`;
+      else if (giro < 3)  interpretacaoGiro = `🟡 Estoque girando ${giro.toFixed(1)}x — giro moderado`;
+      else                interpretacaoGiro = `✅ Estoque girando ${giro.toFixed(1)}x — giro saudável`;
+
+      res.json({
+        periodo: { days, cutoffStr },
+        ticketMedio: {
+          valor: Math.round(ticketMedio * 100) / 100,
+          qtdVendas,
+          totalVendas: Math.round(totalVendas * 100) / 100,
+          evolucao: evolucaoTicket,
+        },
+        giroEstoque: {
+          giro: Math.round(giro * 100) / 100,
+          interpretacao: interpretacaoGiro,
+          cmvPeriodo: Math.round(cmvPeriodo * 100) / 100,
+          valorEstoqueAtual: Math.round(valorEstoqueAtual * 100) / 100,
+          qtdProdutosEstoque,
+          diasEstoque,
+        },
+      });
+    } catch (err) {
+      console.error('[Indicadores] Erro:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // POST /api/financial-health/chat
   // ─────────────────────────────────────────────────────────────────────────
   app.post('/api/financial-health/chat', async (req, res) => {

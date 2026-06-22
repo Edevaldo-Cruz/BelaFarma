@@ -148,6 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
     { id: 'stock', label: 'Estoque', icon: Package },
     { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse },
+    { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet },
     { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp },
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
@@ -155,7 +156,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'sales-report', 'critical-stock']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

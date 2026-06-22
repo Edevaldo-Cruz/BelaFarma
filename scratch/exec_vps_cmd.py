@@ -3,7 +3,7 @@ import sys
 
 def main():
     hostname = '192.168.1.70'
-    username = 'ed'
+    username = 'root'
     password = '2494'
     
     ssh = paramiko.SSHClient()
@@ -14,9 +14,7 @@ def main():
         print("Connected to VPS.")
         
         commands = [
-            "date",
-            "cd ~/projects/BelaFarma && docker-compose exec -T backend date",
-            "cd ~/projects/BelaFarma && docker-compose exec -T backend node -e \"console.log(new Date().toString() + ' | timezone: ' + Intl.DateTimeFormat().resolvedOptions().timeZone)\""
+            "cd /home/ed/projects/BelaFarma && docker-compose ps"
         ]
         
         for cmd in commands:
@@ -25,9 +23,9 @@ def main():
             out = stdout.read().decode('utf-8', errors='ignore').strip()
             err = stderr.read().decode('utf-8', errors='ignore').strip()
             if out:
-                print("STDOUT:", out)
+                sys.stdout.buffer.write(b"STDOUT: " + out.encode('utf-8') + b"\n")
             if err:
-                print("STDERR:", err)
+                sys.stdout.buffer.write(b"STDERR: " + err.encode('utf-8') + b"\n")
                 
     except Exception as e:
         print(f"Error: {e}")

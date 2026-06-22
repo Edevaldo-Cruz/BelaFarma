@@ -31,6 +31,7 @@ import { NotificationsPage } from "./components/NotificationsPage";
 import { MessagingCenter } from "./components/MessagingCenter";
 import AIPortal from "./components/AIPortal";
 import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
+import { CaixaProvisoes } from "./components/CaixaProvisoes";
 import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import { WhatsAppVendas } from "./components/WhatsAppVendas";
@@ -62,7 +63,7 @@ import {
 } from "./types";
 import { Loader2 } from "lucide-react";
 import { useToast } from "./components/ToastContext";
-import { trackViewUsage } from "./utils";
+import { trackViewUsage, calculateWeeklyBudgetsCascade } from "./utils";
 
 const LOGOUT_TIME = 15 * 60 * 1000;
 
@@ -118,47 +119,61 @@ const App: React.FC = () => {
     setIsBudgetSummaryOpen(false);
   };
 
-  // Cálculos do Orçamento do Mês Atual para o Botão Flutuante e Tema
-  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus } = useMemo(() => {
+  // Cálculos do Orçamento Semanal Atual para o Botão Flutuante e Tema
+  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus, currentWeekAvailable, currentWeekLabel } = useMemo(() => {
     const today = new Date();
-    const currentMonthIndex = today.getMonth(); // 0-11
     const currentYear = today.getFullYear();
+    const currentMonthIndex = today.getMonth(); // 0-11
 
-    const currentMonthBoletos = boletos.filter(b => {
-      const d = new Date(b.due_date + 'T00:00:00');
-      return d.getFullYear() === currentYear && d.getMonth() === currentMonthIndex;
-    });
+    // Calcula a cascata de orçamentos semanais a partir do primeiro mês com limite cadastrado
+    // Usamos o mínimo entre o primeiro ano com limite e o ano atual como ponto de partida
+    const earliestYear = monthlyLimits.length > 0
+      ? Math.min(...monthlyLimits.map(l => l.year))
+      : currentYear;
 
-    const currentMonthBoletosTotal = currentMonthBoletos.reduce((sum, b) => sum + b.value, 0);
-    
-    const currentMonthLimitObj = monthlyLimits.find(
-      l => l.month === (currentMonthIndex + 1) && l.year === currentYear
+    const weeklyStats = calculateWeeklyBudgetsCascade(
+      boletos,
+      monthlyLimits,
+      earliestYear,
+      currentYear,
+      currentMonthIndex
     );
-    const currentMonthBudgetLimit = currentMonthLimitObj ? currentMonthLimitObj.limit : 0;
+
+    const currentMonthKey = `${currentYear}-${currentMonthIndex + 1}`;
+    const currentMonthStats = weeklyStats[currentMonthKey];
 
     let status: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
     let emoji = '🤍';
     let isBusted = false;
+    let weekAvailable = 0;
+    let weekLabel = 'Semana atual';
 
-    if (currentMonthBudgetLimit > 0) {
-      const percentUsed = (currentMonthBoletosTotal / currentMonthBudgetLimit) * 100;
-      isBusted = percentUsed > 100;
-      if (percentUsed < 80) {
-        status = 'safe';
-        emoji = '💚';
-      } else if (percentUsed <= 100) {
-        status = 'warning';
-        emoji = '💛';
-      } else {
-        status = 'danger';
-        emoji = '💔';
+    if (currentMonthStats) {
+      // Encontra a semana atual
+      const currentWeek = currentMonthStats.weeks.find(w =>
+        today >= w.startDate && today <= w.endDate
+      ) || currentMonthStats.weeks[currentMonthStats.weeks.length - 1];
+
+      if (currentWeek) {
+        weekAvailable = currentWeek.available;
+        status = currentWeek.status;
+        isBusted = currentWeek.available < 0;
+        const startStr = `${String(currentWeek.startDay).padStart(2, '0')}/${String(currentMonthIndex + 1).padStart(2, '0')}`;
+        const endStr = `${String(currentWeek.endDay).padStart(2, '0')}/${String(currentMonthIndex + 1).padStart(2, '0')}`;
+        weekLabel = `${startStr} a ${endStr}`;
+
+        if (status === 'safe') emoji = '💚';
+        else if (status === 'warning') emoji = '💛';
+        else if (status === 'danger') emoji = '💔';
       }
     }
 
     return {
       isBudgetBusted: isBusted,
       budgetEmoji: emoji,
-      currentMonthBudgetStatus: status
+      currentMonthBudgetStatus: status,
+      currentWeekAvailable: weekAvailable,
+      currentWeekLabel: weekLabel,
     };
   }, [boletos, monthlyLimits]);
 
@@ -963,6 +978,9 @@ const App: React.FC = () => {
               {currentView === 'financial-health' && user.role === UserRole.ADM && (
                 <FinancialHealthAdvisor />
               )}
+              {currentView === 'caixa-provisoes' && user.role === UserRole.ADM && (
+                <CaixaProvisoes />
+              )}
               {currentView === 'sales-report' && user.role === UserRole.ADM && (
                 <SalesReport />
               )}
@@ -1005,18 +1023,51 @@ const App: React.FC = () => {
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
 
       {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
-      <button
-        onClick={() => setIsBudgetSummaryOpen(true)}
-        className={`fixed bottom-8 right-8 z-[90] flex items-center justify-center w-20 h-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group`}
-        title="Ver Painel de Orçamentos"
-      >
-        <span className="text-4xl relative select-none flex items-center justify-center">
-          {budgetEmoji}
-          {(currentMonthBudgetStatus === 'warning' || currentMonthBudgetStatus === 'danger') && (
-            <span className={`absolute -inset-1 rounded-full animate-ping border-2 ${currentMonthBudgetStatus === 'danger' ? 'border-red-500' : 'border-amber-500'} opacity-75`} />
-          )}
-        </span>
-      </button>
+      <div className="fixed bottom-8 right-8 z-[90] flex flex-col items-center gap-2">
+        {/* Balão de Saldo Semanal */}
+        {currentMonthBudgetStatus !== 'no-budget' && (
+          <div className={`
+            relative flex flex-col items-center px-3 py-2 rounded-2xl shadow-xl text-xs font-bold
+            transition-all duration-500 animate-in fade-in slide-in-from-bottom-2
+            ${currentMonthBudgetStatus === 'danger'
+              ? 'bg-red-600 text-white'
+              : currentMonthBudgetStatus === 'warning'
+                ? 'bg-amber-500 text-white'
+                : 'bg-emerald-600 text-white'
+            }
+          `}>
+            <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider whitespace-nowrap">Disponível esta semana</span>
+            <span className="text-sm font-black whitespace-nowrap">
+              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentWeekAvailable)}
+            </span>
+            <span className="text-[9px] opacity-70 whitespace-nowrap">{currentWeekLabel}</span>
+            {/* Ponteiro do balão */}
+            <span className={`
+              absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45
+              ${currentMonthBudgetStatus === 'danger'
+                ? 'bg-red-600'
+                : currentMonthBudgetStatus === 'warning'
+                  ? 'bg-amber-500'
+                  : 'bg-emerald-600'
+              }
+            `} />
+          </div>
+        )}
+
+        {/* Botão circular */}
+        <button
+          onClick={() => setIsBudgetSummaryOpen(true)}
+          className={`flex items-center justify-center w-20 h-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95`}
+          title="Ver Painel de Orçamentos"
+        >
+          <span className="text-4xl relative select-none flex items-center justify-center">
+            {budgetEmoji}
+            {(currentMonthBudgetStatus === 'warning' || currentMonthBudgetStatus === 'danger') && (
+              <span className={`absolute -inset-1 rounded-full animate-ping border-2 ${currentMonthBudgetStatus === 'danger' ? 'border-red-500' : 'border-amber-500'} opacity-75`} />
+            )}
+          </span>
+        </button>
+      </div>
 
       {/* Pop-up de Somas de Boletos e Orçamentos por Mês */}
       {isBudgetSummaryOpen && (

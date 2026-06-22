@@ -130,6 +130,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [boletos, monthlyLimits, isAdmin]);
 
+  const themeCardClass = React.useMemo(() => {
+    if (!isAdmin || !budgetStatus || budgetStatus.budgetLimit === 0) return 'glass-card-neutral';
+    if (budgetStatus.status === 'safe') return 'glass-card-safe';
+    if (budgetStatus.status === 'warning') return 'glass-card-warning';
+    return 'glass-card-danger';
+  }, [isAdmin, budgetStatus]);
+
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
   const [liveSalesData, setLiveSalesData] = React.useState<{
@@ -525,7 +532,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
     : 'Nenhum';
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 relative">
+      {/* Decorative background glow for Glassmorphism theme */}
+      <div className={`absolute -top-40 -right-40 w-[450px] h-[450px] rounded-full blur-[140px] opacity-[0.08] dark:opacity-[0.05] pointer-events-none transition-all duration-1000 -z-10 bg-gradient-to-br ${
+        !isAdmin || !budgetStatus || budgetStatus.budgetLimit === 0 ? 'from-blue-400 to-indigo-500' :
+        budgetStatus.status === 'safe' ? 'from-emerald-400 to-teal-500' :
+        budgetStatus.status === 'warning' ? 'from-amber-400 to-yellow-500' :
+        'from-rose-450 to-red-650'
+      }`} />
+      <div className={`absolute top-[40vh] -left-40 w-[350px] h-[350px] rounded-full blur-[120px] opacity-[0.05] dark:opacity-[0.03] pointer-events-none transition-all duration-1000 -z-10 bg-gradient-to-br ${
+        !isAdmin || !budgetStatus || budgetStatus.budgetLimit === 0 ? 'from-purple-400 to-blue-500' :
+        budgetStatus.status === 'safe' ? 'from-teal-400 to-emerald-500' :
+        budgetStatus.status === 'warning' ? 'from-yellow-400 to-amber-500' :
+        'from-red-400 to-rose-650'
+      }`} />
       {!isMobile && showGoalPopup && (
         <GoalPopup 
           cashClosings={cashClosings} 
@@ -586,11 +606,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </header>
 
       {isAdmin && budgetStatus && budgetStatus.budgetLimit > 0 && (
-        <section className={`p-6 rounded-3xl border transition-all duration-300 ${
-          budgetStatus.status === 'safe' ? 'bg-emerald-50/30 dark:bg-emerald-955/10 border-emerald-250/50 dark:border-emerald-800/40 card-glow-emerald' :
-          budgetStatus.status === 'warning' ? 'bg-amber-50/30 dark:bg-amber-955/10 border-amber-250/50 dark:border-amber-800/40 card-glow-amber' :
-          'bg-red-50/30 dark:bg-red-955/10 border-red-300 dark:border-red-800/60 card-glow-rose shadow-md shadow-red-500/5'
-        }`}>
+        <section className={`glass-card p-6 rounded-3xl transition-all duration-300 shadow-md ${themeCardClass}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h2 className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
@@ -666,7 +682,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Ticket Médio (Hoje) */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+        <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div>
             <div className="p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl w-fit mb-4">
               <DollarSign className="w-6 h-6" />
@@ -684,7 +700,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Total de Tickets (Hoje) */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+        <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div>
             <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
               <Ticket className="w-6 h-6" />
@@ -704,26 +720,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Vencimentos / Faltas */}
         {(() => {
           const isVencimentoCard = isAdmin;
-          let cardStyles = "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800";
+          let cardStyles = themeCardClass;
           let iconStyles = "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-650 dark:text-indigo-400";
           let textColors = "text-slate-900 dark:text-slate-100";
           
           if (isVencimentoCard && budgetStatus && budgetStatus.budgetLimit > 0) {
             if (budgetStatus.status === 'safe') {
-              cardStyles = "bg-emerald-50/20 dark:bg-emerald-955/5 border-emerald-200/40 dark:border-emerald-900/30 card-glow-emerald";
-              iconStyles = "bg-emerald-55 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400";
+              cardStyles = "glass-card-safe";
+              iconStyles = "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400";
             } else if (budgetStatus.status === 'warning') {
-              cardStyles = "bg-amber-50/20 dark:bg-amber-955/5 border-amber-200/40 dark:border-amber-900/30 card-glow-amber";
-              iconStyles = "bg-amber-55 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400";
+              cardStyles = "glass-card-warning";
+              iconStyles = "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-450";
             } else if (budgetStatus.status === 'danger') {
-              cardStyles = "bg-red-50/20 dark:bg-red-955/5 border-red-250/40 dark:border-red-900/30 card-glow-rose";
-              iconStyles = "bg-red-50 dark:bg-red-900/20 text-red-650 dark:text-red-400 animate-pulse";
+              cardStyles = "glass-card-danger";
+              iconStyles = "bg-red-55 dark:bg-red-900/20 text-red-650 dark:text-red-400 animate-pulse";
               textColors = "text-red-655 dark:text-red-400";
             }
           }
           
           return (
-            <div className={`p-6 rounded-3xl border shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${cardStyles}`}>
+            <div className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${cardStyles}`}>
               <div className={`p-2 rounded-xl w-fit mb-4 ${iconStyles}`}>
                 {isAdmin ? <Receipt className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
               </div>
@@ -740,7 +756,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           );
         })()}
 
-        <div className={`p-6 rounded-3xl border shadow-sm transition-all ${overdueCount > 0 ? 'bg-red-50/10 border-red-200 dark:border-red-900/30' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
+        <div className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${overdueCount > 0 ? 'bg-red-500/10 border-red-500/30' : themeCardClass}`}>
           <div className={`p-2 rounded-xl w-fit mb-4 ${overdueCount > 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-650 dark:text-red-400 animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
             <AlertCircle className="w-6 h-6" />
           </div>
@@ -748,7 +764,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <p className={`text-2xl font-black mt-1 ${overdueCount > 0 ? 'text-red-650 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
             <Store className="w-6 h-6" />
           </div>
@@ -756,7 +772,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <p className="text-lg font-black text-slate-900 dark:text-slate-100 truncate mt-1 uppercase tracking-tight" title={topDistributor}>{topDistributor}</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div className="p-2 bg-red-55 dark:bg-red-900/20 text-red-650 dark:text-red-400 rounded-xl w-fit mb-4">
             <Pill className="w-6 h-6" />
           </div>
@@ -768,7 +784,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* 📦 LAYOUT DE DESTAQUES DE VENDAS E GIRO CRÍTICO LADO A LADO */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Destaques de Vendas (Top 3) */}
-        <section className="lg:col-span-5 bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent dark:from-blue-950/20 dark:via-indigo-950/5 dark:to-transparent border-2 border-blue-500/20 rounded-[2.5rem] p-6 shadow-sm flex flex-col justify-between space-y-4">
+        <section className={`lg:col-span-5 glass-card rounded-[2.5rem] p-6 shadow-sm flex flex-col justify-between space-y-4 hover:border-blue-500/35 hover:shadow-blue-500/5 ${themeCardClass}`}>
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-black text-blue-800 dark:text-blue-450 uppercase tracking-widest flex items-center gap-1.5">
@@ -871,7 +887,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Right Column: Giro Crítico (Inativos > 90 dias) */}
         <section 
-          className="lg:col-span-7 relative group/giro bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent dark:from-amber-955/20 dark:via-orange-955/5 dark:to-transparent border-2 border-amber-500/20 rounded-[2.5rem] p-6 shadow-sm overflow-hidden flex flex-col justify-between"
+          className={`lg:col-span-7 relative group/giro glass-card rounded-[2.5rem] p-6 shadow-sm overflow-hidden flex flex-col justify-between hover:border-amber-500/35 hover:shadow-amber-500/5 ${themeCardClass}`}
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
         >
@@ -1143,7 +1159,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* 📊 SEÇÃO DE RELATÓRIOS COM ABAS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Coluna Principal: Gráficos com Tabs */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-w-0">
+        <div className={`lg:col-span-2 glass-card rounded-3xl shadow-sm overflow-hidden min-w-0 ${themeCardClass}`}>
           {/* Tab Navigation */}
           {user.role !== UserRole.OPERADOR && (
             <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800">
@@ -1162,7 +1178,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       onClick={() => setChartTab(tab.id)}
                       className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-200 border-none cursor-pointer ${
                         isActive
-                          ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                          ? 'bg-white/65 dark:bg-slate-800/65 text-slate-900 dark:text-slate-100 shadow-sm'
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 bg-transparent'
                       }`}
                     >
@@ -1201,7 +1217,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Coluna Lateral: Últimas Remessas */}
-        <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className={`glass-card p-6 md:p-8 rounded-3xl shadow-sm ${themeCardClass}`}>
           <h2 className="text-xs font-black text-slate-500 dark:text-slate-400 mb-6 flex items-center gap-2 uppercase tracking-widest">
             <ShoppingCart className="w-4 h-4 text-slate-400 dark:text-slate-500" />
             Últimas Remessas
@@ -1528,7 +1544,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+      <section className={`glass-card rounded-3xl p-6 shadow-sm space-y-6 ${themeCardClass}`}>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4 overflow-hidden">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-md shrink-0">
