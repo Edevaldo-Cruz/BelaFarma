@@ -756,7 +756,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
               </span>
             </p>
-            <p className="text-3xl font-black text-white mt-1">
+            <p className="text-2xl xl:text-3xl font-black text-white mt-1 truncate" title={liveSalesData !== null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales) : ''}>
               {liveSalesData !== null 
                 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales)
                 : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
@@ -774,7 +774,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-[10px] font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest">
               Ticket Médio (Hoje)
             </p>
-            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+            <p className="text-xl xl:text-2xl font-black text-slate-900 dark:text-slate-100 mt-1 truncate" title={liveSalesData !== null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.qtdVendas > 0 ? liveSalesData.totalSales / liveSalesData.qtdVendas : 0) : ''}>
               {liveSalesData !== null 
                 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.qtdVendas > 0 ? liveSalesData.totalSales / liveSalesData.qtdVendas : 0)
                 : <span className="text-slate-350 animate-pulse text-lg">...</span>
@@ -792,7 +792,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-[10px] font-black text-slate-400 dark:text-slate-555 uppercase tracking-widest">
               Total de Tickets (Hoje)
             </p>
-            <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">
+            <p className="text-xl xl:text-2xl font-black text-slate-900 dark:text-slate-100 mt-1 truncate">
               {liveSalesData !== null 
                 ? `${liveSalesData.qtdVendas} vendas`
                 : <span className="text-slate-350 animate-pulse text-lg">...</span>
@@ -830,7 +830,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                 {isAdmin ? `Vencimentos em ${capitalize(currentMonthName)}` : 'Produtos em Falta'}
               </p>
-              <p className={`text-2xl font-black mt-1 ${textColors}`}>
+              <p className={`text-xl xl:text-2xl font-black mt-1 truncate ${textColors}`} title={isAdmin ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSpentThisMonth) : ''}>
                 {isAdmin 
                   ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSpentThisMonth)
                   : shortages.length
@@ -845,7 +845,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <AlertCircle className="w-6 h-6" />
           </div>
           <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pedidos em Atraso</p>
-          <p className={`text-2xl font-black mt-1 ${overdueCount > 0 ? 'text-red-650 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
+          <p className={`text-xl xl:text-2xl font-black mt-1 truncate ${overdueCount > 0 ? 'text-red-650 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
         </div>
 
         <div className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
