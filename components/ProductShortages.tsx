@@ -70,6 +70,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [isScanning, setIsScanning] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [targetPhone, setTargetPhone] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleWhatsAppScan = async (deepScan: boolean, phone?: string) => {
     setIsScanModalOpen(false);
@@ -221,65 +222,114 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     return 0;
   });
 
-  const exportToTxt = () => {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-BR');
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const filterLabel = typeFilter === 'all' ? 'Todos os tipos' : typeFilter;
-    const searchLabel = searchTerm ? `Busca: "${searchTerm}"` : 'Sem filtro de busca';
-
-    // Para a cotação de fato, filtramos os itens já comprados
-    const exportableShortages = filteredShortages.filter(s => !s.purchased);
-
-    const lines: string[] = [
-      '================================================',
-      `  LISTA DE FALTAS - COTAÇÃO`,
-      `  Gerado em: ${dateStr} às ${timeStr}`,
-      `  Filtros: ${filterLabel} | ${searchLabel}`,
-      `  Total de itens pendentes: ${exportableShortages.length}`,
-      '================================================',
-      '',
-    ];
-
-    // Urgentes primeiro
-    const urgent = exportableShortages.filter(s => s.clientInquiry);
-    const normal = exportableShortages.filter(s => !s.clientInquiry);
-
-    if (urgent.length > 0) {
-      lines.push('⚠  URGENTE (Cliente Aguardando):');
-      lines.push('------------------------------------------------');
-      urgent.forEach((s, i) => {
-        let itemLine = `  ${i + 1}. ${s.productName.toUpperCase()} [${s.type}]`;
-        if (s.ordered) itemLine += ' [⚠️ JÁ PEDIDO]';
-        lines.push(itemLine);
-        if (s.notes) lines.push(`     Obs: ${s.notes}`);
-      });
-      lines.push('');
+  const exportToTxt = async () => {
+    const exportableShortages = filteredShortages.filter(s => selectedIds.includes(s.id));
+    if (exportableShortages.length === 0) {
+      addToast("Nenhum item selecionado para exportação.", "warning");
+      return;
     }
 
-    if (normal.length > 0) {
-      lines.push('   ITENS PARA COTAÇÃO:');
-      lines.push('------------------------------------------------');
-      normal.forEach((s, i) => {
-        let itemLine = `  ${urgent.length + i + 1}. ${s.productName.toUpperCase()} [${s.type}]`;
-        if (s.ordered) itemLine += ' [JÁ PEDIDO]';
-        lines.push(itemLine);
-        if (s.notes) lines.push(`     Obs: ${s.notes}`);
+    setIsExporting(true);
+    try {
+      const selectedProductsNames = Array.from(new Set(exportableShortages.map(s => s.productName)));
+      let suppliersData: any[] = [];
+      
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      try {
+        const resSuppliers = await fetch(`${API_BASE}/api/purchasing/quotes/last-suppliers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: selectedProductsNames })
+        });
+        if (resSuppliers.ok) {
+          suppliersData = await resSuppliers.json();
+        }
+      } catch (err) {
+        console.error("Erro ao buscar fornecedores:", err);
+      }
+
+      // Build a map of ProductName -> SupplierName
+      const productToSupplier = new Map<string, string>();
+      suppliersData.forEach((s: any) => {
+        // As the query orders by COMPRA_DATA DESC, the first one encountered is the most recent
+        if (!productToSupplier.has(s.PRODUTO_ID)) {
+          productToSupplier.set(s.PRODUTO_ID, s.FORNECEDOR);
+        }
       });
-      lines.push('');
+
+      // Group products by Type -> Supplier -> Products
+      const groupedByType: Record<string, Record<string, ProductShortage[]>> = {};
+
+      exportableShortages.forEach(s => {
+        const type = s.type || 'Outros';
+        const supplier = productToSupplier.get(s.productName) || 'SEM FORNECEDOR / OUTROS';
+        
+        if (!groupedByType[type]) groupedByType[type] = {};
+        if (!groupedByType[type][supplier]) groupedByType[type][supplier] = [];
+        
+        groupedByType[type][supplier].push(s);
+      });
+
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('pt-BR');
+      const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      // Generate one file per Type
+      for (const type of Object.keys(groupedByType)) {
+        const lines: string[] = [
+          '================================================',
+          `  COTAÇÃO - ${type.toUpperCase()}`,
+          `  Gerado em: ${dateStr} às ${timeStr}`,
+          '================================================',
+          '',
+        ];
+
+        const suppliersObj = groupedByType[type];
+        
+        // Sort suppliers alphabetically, put 'SEM FORNECEDOR / OUTROS' at the end
+        const sortedSuppliers = Object.keys(suppliersObj).sort((a, b) => {
+          if (a === 'SEM FORNECEDOR / OUTROS') return 1;
+          if (b === 'SEM FORNECEDOR / OUTROS') return -1;
+          return a.localeCompare(b);
+        });
+
+        for (const supplier of sortedSuppliers) {
+          lines.push(`📦 FORNECEDOR: ${supplier}`);
+          lines.push('------------------------------------------------');
+          
+          const products = suppliersObj[supplier];
+          products.forEach((s, i) => {
+            let itemLine = `   ${i + 1}. ${s.productName.toUpperCase()}`;
+            if (s.clientInquiry) itemLine += ' *';
+            if (s.ordered) itemLine += ' [JÁ PEDIDO]';
+            lines.push(itemLine);
+            if (s.notes) lines.push(`      Obs: ${s.notes}`);
+          });
+          lines.push('');
+        }
+
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const safeTypeName = type.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        a.download = `cotacao-${safeTypeName}-${now.toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Small delay between downloads to prevent browser from blocking multiple popups
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      addToast("Exportação concluída com sucesso!", "success");
+    } catch (err) {
+      console.error(err);
+      addToast("Erro ao exportar arquivo TXT.", "error");
+    } finally {
+      setIsExporting(false);
     }
-
-    lines.push('================================================');
-    lines.push('  Bela Farma');
-    lines.push('================================================');
-
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `faltas-cotacao-${now.toISOString().split('T')[0]}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const toggleSelectAll = () => {
@@ -664,12 +714,12 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         </button>
         <button
           onClick={exportToTxt}
-          disabled={filteredShortages.length === 0}
-          title={`Exportar ${filteredShortages.length} item(s) para TXT`}
+          disabled={selectedIds.length === 0 || isExporting}
+          title={`Exportar ${selectedIds.length} item(s) selecionado(s) para TXT`}
           className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
         >
-          <FileDown className="w-4 h-4" />
-          Exportar TXT ({filteredShortages.length})
+          {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+          {isExporting ? "Gerando..." : `Exportar TXT (${selectedIds.length})`}
         </button>
         </div>
       </div>

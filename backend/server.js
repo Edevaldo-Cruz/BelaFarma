@@ -1950,10 +1950,32 @@ app.post('/api/cash-closings', (req, res) => {
               
               if (!existing) {
                 const notes = saldo === 1 ? '[ATENÇÃO: RESTA 1 NO ESTOQUE]' : '';
+                
+                let productType = 'Marca (Referência)';
+                const nomeLower = prodName.toLowerCase();
+                if (nomeLower.includes('generico') || nomeLower.includes('genérico')) {
+                  productType = 'Genérico';
+                } else if (
+                  nomeLower.includes('shampoo') || 
+                  nomeLower.includes('condicionador') ||
+                  nomeLower.includes('sabonete') ||
+                  nomeLower.includes('desodorante') ||
+                  nomeLower.includes('fralda') ||
+                  nomeLower.includes('creme') ||
+                  nomeLower.includes('perfume') ||
+                  nomeLower.includes('absorvente') ||
+                  nomeLower.includes('escova') ||
+                  nomeLower.includes('pasta') ||
+                  nomeLower.includes('gillette') ||
+                  nomeLower.includes('prestobarba')
+                ) {
+                  productType = 'Perfumaria';
+                }
+
                 insertShortageStmt.run({
                   id: 'sht_' + Date.now().toString() + '_' + Math.floor(Math.random() * 1000),
                   productName: prodName,
-                  type: 'Sistema',
+                  type: productType,
                   clientInquiry: 0,
                   notes: notes,
                   createdAt: new Date().toISOString(),
