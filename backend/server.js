@@ -965,13 +965,13 @@ app.post('/api/shortages/db-status', async (req, res) => {
       return res.json({});
     }
 
-    // Build the query with IN clause
-    const placeholders = cleanedNames.map(() => '?').join(',');
-    const sql = `
+    // Build the query with UNION ALL for high performance index usage
+    const subqueries = cleanedNames.map(() => `
       SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
       FROM PRODUTOS p
-      WHERE p.PRODUTO IN (${placeholders})
-    `;
+      WHERE p.PRODUTO = ?
+    `);
+    const sql = subqueries.join('\n    UNION ALL\n');
 
     const results = await queryDigifarma(sql, cleanedNames);
     
