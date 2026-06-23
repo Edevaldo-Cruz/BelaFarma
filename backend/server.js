@@ -4496,6 +4496,25 @@ app.get('/api/labels/stock', (req, res) => {
   }
 });
 
+// Rota de diagnóstico temporária para testar conexão com o Digifarma de dentro da VPS
+app.get('/api/test-digifarma-vps', async (req, res) => {
+  try {
+    const results = await queryDigifarma("SELECT FIRST 3 PRODUTO, PROD_SALDO FROM PRODUTOS");
+    res.json({
+      success: true,
+      message: "Conexão com o Digifarma realizada com sucesso de dentro da VPS!",
+      data: results
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "FALHA na conexão com o Digifarma de dentro da VPS!",
+      error: err.message,
+      stack: err.stack
+    });
+  }
+});
+
 // Nodemon trigger restart
 
 
