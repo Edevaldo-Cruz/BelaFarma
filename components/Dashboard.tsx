@@ -598,52 +598,52 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onClose={handleCloseGoalPopup} 
         />
       )}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
           <img 
             src="/images/logo-bela-farma.jpg" 
             alt="belinha" 
-            className="h-16 w-auto object-contain"
+            className="h-12 md:h-16 w-auto object-contain"
           />
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium">Resumo operacional belinha.</p>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Resumo operacional belinha.</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {isAdmin && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               <button
                 onClick={handleIniciarRadio}
                 disabled={iniciandoRadio}
-                className="flex items-center gap-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-4 py-2 rounded-full shadow-md transition-all"
+                className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-3 py-1.5 rounded-full shadow-md transition-all min-h-[36px]"
               >
-                <Radio className={`w-4 h-4 ${iniciandoRadio ? 'animate-pulse' : ''}`} />
-                {iniciandoRadio ? 'Iniciando...' : 'Iniciar Rádio'}
+                <Radio className={`w-3.5 h-3.5 md:w-4 md:h-4 ${iniciandoRadio ? 'animate-pulse' : ''}`} />
+                <span className="hidden sm:inline">{iniciandoRadio ? 'Iniciando...' : 'Rádio'}</span>
               </button>
               <button
                 onClick={handleTocarNoticias}
                 disabled={carregandoNoticias}
-                className="flex items-center gap-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded-full shadow-md transition-all"
+                className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-3 py-1.5 rounded-full shadow-md transition-all min-h-[36px]"
               >
-                <Megaphone className={`w-4 h-4 ${carregandoNoticias ? 'animate-bounce' : ''}`} />
-                {carregandoNoticias ? 'Preparando...' : 'Notícias'}
+                <Megaphone className={`w-3.5 h-3.5 md:w-4 md:h-4 ${carregandoNoticias ? 'animate-bounce' : ''}`} />
+                <span className="hidden sm:inline">{carregandoNoticias ? 'Preparando...' : 'Notícias'}</span>
               </button>
               <button
                 onClick={handlePararRadio}
-                className="flex items-center gap-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-full shadow-md transition-all"
+                className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-full shadow-md transition-all min-h-[36px]"
               >
-                <Square className="w-4 h-4" />
-                Parar
+                <Square className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                <span className="hidden sm:inline">Parar</span>
               </button>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full border border-red-100 dark:border-red-800 shadow-sm w-fit">
-            <Calendar className="w-4 h-4" />
+          <div className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-full border border-red-100 dark:border-red-800 shadow-sm">
+            <Calendar className="w-3.5 h-3.5 md:w-4 md:h-4" />
             {now.toLocaleDateString('pt-BR')}
           </div>
           {lastBackup && (
-            <div className="hidden md:flex items-center gap-2 text-sm font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm w-fit" title="Último Backup">
+            <div className="hidden md:flex items-center gap-2 text-sm font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm" title="Último Backup">
               <Database className="w-4 h-4" />
               {lastBackup}
             </div>
@@ -654,7 +654,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
       <section className="relative group">
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300">
           <button 
             onClick={() => scrollContainerRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
             className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
@@ -733,7 +733,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           })()}
         </div>
 
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300">
           <button 
             onClick={() => scrollContainerRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
             className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-650 dark:hover:text-red-500 rounded-full shadow-lg transition-colors cursor-pointer"
@@ -807,7 +807,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       
 
       {/* 📊 GRID DE KPIS (METRICAS DO DIA/MÊS) NO TOPO */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-6">
         
         {/* Ticket Médio (Hoje) */}
         <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
@@ -1056,7 +1056,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           ) : (
             <div className="relative flex-1 flex items-center">
               {/* Botões de Navegação Manual */}
-              <div className="absolute left-0 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
+              <div className="absolute left-0 z-10 md:opacity-0 md:group-hover/giro:opacity-100 transition-opacity duration-300">
                 <button 
                   onClick={() => inactiveContainerRef.current?.scrollBy({ left: -226, behavior: 'smooth' })}
                   className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
@@ -1065,7 +1065,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </button>
               </div>
 
-              <div className="absolute right-0 z-10 opacity-0 group-hover/giro:opacity-100 transition-opacity duration-300">
+              <div className="absolute right-0 z-10 md:opacity-0 md:group-hover/giro:opacity-100 transition-opacity duration-300">
                 <button 
                   onClick={() => inactiveContainerRef.current?.scrollBy({ left: 226, behavior: 'smooth' })}
                   className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded-full shadow-lg transition-colors cursor-pointer"
@@ -1233,7 +1233,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {/* Tab Content */}
           <div className="p-4 md:p-6">
             {user.role !== UserRole.OPERADOR ? (
-              <div className="h-[380px] md:h-[420px] w-full min-w-0 overflow-hidden">
+              <div className="h-[260px] md:h-[420px] w-full min-w-0 overflow-hidden">
                 {chartTab === 'evolution' && (
                   <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
                 )}

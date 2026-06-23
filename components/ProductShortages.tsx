@@ -25,6 +25,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [showComparator, setShowComparator] = useState(false);
   const [mainTab, setMainTab] = useState<'faltas' | 'atencao'>('faltas');
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [hidePurchased, setHidePurchased] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [clientInquiryFilter, setClientInquiryFilter] = useState<'all' | 'urgent' | 'normal'>('all');
@@ -534,54 +535,69 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         <QuotationComparator onBack={() => setShowComparator(false)} />
       ) : (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Lista de Faltas e Procura</h1>
-          <p className="text-slate-500 font-medium">Controle de estoque e pedidos perdidos.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowComparator(true)}
-            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95"
-          >
-            <BarChart3 className="w-5 h-5" /> Comparar Cotações
-          </button>
-          <button
-            onClick={() => setIsScanModalOpen(true)}
-            disabled={isScanning}
-            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800/60 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap"
-          >
-            {isScanning ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <MessageCircle className="w-5 h-5 fill-white/20 text-white" />
-            )}
-            {isScanning ? "Varrendo WhatsApp..." : "Varrer WhatsApp"}
-          </button>
-          <button 
-            onClick={onRefresh}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95"
-          >
-            <RefreshCw className="w-4 h-4" /> Atualizar
-          </button>
+      <header className="flex flex-col gap-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900">Lista de Faltas e Procura</h1>
+            <p className="text-sm text-slate-500 font-medium">Controle de estoque e pedidos perdidos.</p>
+          </div>
+          {/* Botão de Registrar Falta ao lado do título no mobile para economizar espaço */}
           <button 
             onClick={() => {
               setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
               setLastSelected('');
               setIsModalOpen(true);
             }}
-            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95"
+            className="md:hidden flex items-center justify-center p-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 min-h-[44px] min-w-[44px]"
+            title="Registrar Falta"
           >
-            <Plus className="w-5 h-5" /> Registrar Falta
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
+        {/* Botões de Ação do Header - Scroll horizontal no mobile */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+          <button 
+            onClick={() => {
+              setFormData({ productName: '', type: ProductType.GENERICO, clientInquiry: false, notes: '' });
+              setLastSelected('');
+              setIsModalOpen(true);
+            }}
+            className="hidden md:flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
+          >
+            <Plus className="w-4 h-4" /> Registrar Falta
+          </button>
+          <button
+            onClick={() => setShowComparator(true)}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
+          >
+            <BarChart3 className="w-4 h-4" /> <span className="hidden sm:inline">Comparar</span> Cotações
+          </button>
+          <button
+            onClick={() => setIsScanModalOpen(true)}
+            disabled={isScanning}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800/60 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
+          >
+            {isScanning ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <MessageCircle className="w-4 h-4 fill-white/20 text-white" />
+            )}
+            {isScanning ? "Varrendo..." : "Varrer WhatsApp"}
+          </button>
+          <button 
+            onClick={onRefresh}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
+          >
+            <RefreshCw className="w-4 h-4" /> Atualizar
           </button>
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-slate-100 max-w-fit">
+      <div className="flex w-full md:w-fit bg-white rounded-2xl p-1 shadow-sm border border-slate-100">
         <button
           onClick={() => { setMainTab('faltas'); setSelectedIds([]); }}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${
+          className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${
             mainTab === 'faltas' 
               ? 'bg-slate-900 text-white shadow-md' 
               : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
@@ -592,7 +608,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         </button>
         <button
           onClick={() => { setMainTab('atencao'); setSelectedIds([]); }}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${
+          className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${
             mainTab === 'atencao' 
               ? 'bg-amber-500 text-white shadow-md' 
               : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'
@@ -603,131 +619,150 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         </button>
       </div>
 
-      <div className="flex flex-col gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col md:flex-row gap-4 items-center w-full">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Buscar produto em falta..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-red-500"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="relative w-full md:w-48">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <select 
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-red-500"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+      <div className="flex flex-col gap-3 md:gap-4 bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col md:flex-row gap-3 w-full">
+          {/* Linha da Busca + Botão Filtro Mobile */}
+          <div className="flex items-center gap-2 w-full md:flex-1">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Buscar produto em falta..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-red-500 input-no-zoom"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(!filtersOpen)}
+              className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 min-h-[44px]"
             >
-              <option value="all">Todas Categorias</option>
-              {Object.values(ProductType).map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              <Filter className={`w-4 h-4 ${filtersOpen ? 'text-red-650' : 'text-slate-400'}`} />
+              Filtros
+            </button>
           </div>
-          <div className="relative w-full md:w-48">
-            <Star className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <select 
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-amber-500"
-              value={clientInquiryFilter}
-              onChange={(e) => setClientInquiryFilter(e.target.value as any)}
-            >
-              <option value="all">Todas Procuras</option>
-              <option value="urgent">Apenas Urgentes</option>
-              <option value="normal">Não Urgentes</option>
-            </select>
-          </div>
-          <div className="relative w-full md:w-48">
-            <Truck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <select 
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-            >
-              <option value="all">Todos os Status</option>
-              <option value="pending">Apenas Pendentes</option>
-              <option value="ordered">Apenas Pedidos</option>
-              <option value="purchased">Apenas Comprados</option>
-            </select>
-          </div>
-          <div className="relative w-full md:w-56">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <select 
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-slate-500"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-            >
-              <option value="date_desc">Mais Recentes Primeiro</option>
-              <option value="date_asc">Mais Antigos Primeiro</option>
-              <option value="urgent_first">Urgência Primeiro</option>
-              <option value="status_pending">Status (Pendentes Primeiro)</option>
-              <option value="alpha_asc">Ordem Alfabética (A-Z)</option>
-              <option value="alpha_desc">Ordem Alfabética (Z-A)</option>
-            </select>
+
+          {/* Demais Filtros colapsáveis */}
+          <div className={`grid grid-cols-2 md:flex md:flex-row gap-3 items-center w-full md:w-auto transition-all duration-300 overflow-hidden ${filtersOpen ? 'max-h-[500px]' : 'max-h-0 md:max-h-none'} md:block`}>
+            <div className="relative col-span-2 md:col-span-1">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <select 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base md:text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-red-500 input-no-zoom"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+              >
+                <option value="all">Todas Categorias</option>
+                {Object.values(ProductType).map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <div className="relative col-span-2 md:col-span-1">
+              <Star className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <select 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base md:text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-amber-500 input-no-zoom"
+                value={clientInquiryFilter}
+                onChange={(e) => setClientInquiryFilter(e.target.value as any)}
+              >
+                <option value="all">Todas Procuras</option>
+                <option value="urgent">Apenas Urgentes</option>
+                <option value="normal">Não Urgentes</option>
+              </select>
+            </div>
+            <div className="relative col-span-2 md:col-span-1">
+              <Truck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <select 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base md:text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500 input-no-zoom"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+              >
+                <option value="all">Todos os Status</option>
+                <option value="pending">Apenas Pendentes</option>
+                <option value="ordered">Apenas Pedidos</option>
+                <option value="purchased">Apenas Comprados</option>
+              </select>
+            </div>
+            <div className="relative col-span-2 md:col-span-1">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <select 
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base md:text-sm font-bold appearance-none outline-none focus:ring-2 focus:ring-slate-500 input-no-zoom"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+              >
+                <option value="date_desc">Mais Recentes</option>
+                <option value="date_asc">Mais Antigos</option>
+                <option value="urgent_first">Urgência Primeiro</option>
+                <option value="status_pending">Pendentes Primeiro</option>
+                <option value="alpha_asc">A-Z</option>
+                <option value="alpha_desc">Z-A</option>
+              </select>
+            </div>
           </div>
         </div>
         
-        <div className="flex flex-wrap gap-3 items-center">
-        <button
-          onClick={() => setHidePurchased(!hidePurchased)}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all shadow active:scale-95 whitespace-nowrap ${
-            hidePurchased 
-              ? 'bg-slate-700 text-white hover:bg-slate-800' 
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-          }`}
-          title={hidePurchased ? "Mostrar itens já comprados" : "Ocultar itens já comprados"}
-        >
-          {hidePurchased ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-          {hidePurchased ? "Mostrar Comprados" : "Ocultar Comprados"}
-        </button>
-        <button
-          onClick={handleOpenQuotation}
-          disabled={selectedIds.length === 0}
-          title={`Cotar ${selectedIds.length} item(s) selecionado(s)`}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-        >
-          <Users className="w-4 h-4" />
-          Cotar Selecionados ({selectedIds.length})
-        </button>
-        <button
-          onClick={() => {
-            loadLists();
-            setIsListsModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow active:scale-95 whitespace-nowrap"
-        >
-          <ClipboardList className="w-4 h-4" />
-          Minhas Listas
-        </button>
-        <button
-          onClick={() => {
-            loadLists();
-            setIsAddToListModalOpen(true);
-          }}
-          disabled={selectedIds.length === 0}
-          title={`Adicionar ${selectedIds.length} item(s) selecionado(s) à uma lista`}
-          className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-        >
-          <Plus className="w-4 h-4" />
-          Adicionar à Lista
-        </button>
-        <button
-          onClick={exportToTxt}
-          disabled={selectedIds.length === 0 || isExporting}
-          title={`Exportar ${selectedIds.length} item(s) selecionado(s) para TXT`}
-          className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-        >
-          {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-          {isExporting ? "Gerando..." : `Exportar TXT (${selectedIds.length})`}
-        </button>
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 w-full flex-nowrap shrink-0">
+          <button
+            onClick={() => setHidePurchased(!hidePurchased)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition-all shadow active:scale-95 whitespace-nowrap min-h-[44px] text-sm shrink-0 ${
+              hidePurchased 
+                ? 'bg-slate-700 text-white hover:bg-slate-800' 
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+            }`}
+            title={hidePurchased ? "Mostrar itens já comprados" : "Ocultar itens já comprados"}
+          >
+            {hidePurchased ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            {hidePurchased ? "Mostrar Comprados" : "Ocultar Comprados"}
+          </button>
+          <button
+            onClick={handleOpenQuotation}
+            disabled={selectedIds.length === 0}
+            title={`Cotar ${selectedIds.length} item(s) selecionado(s)`}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap min-h-[44px] text-sm shrink-0"
+          >
+            <Users className="w-4 h-4" />
+            Cotar ({selectedIds.length})
+          </button>
+          <button
+            onClick={() => {
+              loadLists();
+              setIsListsModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow active:scale-95 whitespace-nowrap min-h-[44px] text-sm shrink-0"
+          >
+            <ClipboardList className="w-4 h-4" />
+            Minhas Listas
+          </button>
+          <button
+            onClick={() => {
+              loadLists();
+              setIsAddToListModalOpen(true);
+            }}
+            disabled={selectedIds.length === 0}
+            title={`Adicionar ${selectedIds.length} item(s) selecionado(s) à uma lista`}
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap min-h-[44px] text-sm shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            + Lista
+          </button>
+          <button
+            onClick={exportToTxt}
+            disabled={selectedIds.length === 0 || isExporting}
+            title={`Exportar ${selectedIds.length} item(s) selecionado(s) para TXT`}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap min-h-[44px] text-sm shrink-0"
+          >
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            {isExporting ? "Gerando..." : `Exportar TXT (${selectedIds.length})`}
+          </button>
         </div>
       </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
+        {/* Indicador de scroll horizontal - só aparece no mobile */}
+        <div className="scroll-hint md:hidden py-2 text-slate-400">
+          ← Role para ver mais colunas →
+        </div>
+        <div className="overflow-x-auto mobile-table-container max-h-[650px] overflow-y-auto">
           <table className="w-full text-left border-collapse responsive-table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
@@ -763,13 +798,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                           : 'hover:bg-red-50/20'
                     }`}
                   >
-                    <td className="px-6 py-4 text-center" data-label="Selecionar">
+                    <td className="px-4 md:px-6 py-3 md:py-4 text-center" data-label="Selecionar">
                       {!s.purchased && (
                         <input 
                           type="checkbox" 
                           checked={selectedIds.includes(s.id)}
                           onChange={() => toggleSelect(s.id)}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
                       )}
                     </td>
@@ -850,13 +885,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4" data-label="Status de Aquisição">
+                  <td className="px-4 md:px-6 py-3 md:py-4" data-label="Status de Aquisição">
                     <div className="flex items-center justify-center gap-2">
                       {/* Botão Pedido */}
                       <button
                         onClick={() => onUpdate(s.id, !!s.purchased, !s.ordered)}
                         title={s.ordered ? "Remover marcação de Pedido" : "Marcar como Pedido"}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 ${
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 min-h-[44px] ${
                           s.ordered
                             ? 'bg-blue-100 text-blue-700 border-blue-200 shadow-sm'
                             : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
@@ -870,7 +905,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                       <button
                         onClick={() => onUpdate(s.id, !s.purchased, !!s.ordered)}
                         title={s.purchased ? "Remover marcação de Comprado" : "Marcar como Comprado"}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 ${
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 min-h-[44px] ${
                           s.purchased
                             ? 'bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm'
                             : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
@@ -919,16 +954,16 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100">
-            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-red-50/50">
-              <h2 className="text-xl font-black text-red-700 tracking-tight uppercase">Registrar Falta</h2>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 text-slate-400 hover:text-red-700 transition-all">
+        <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full md:max-w-md rounded-t-[2.5rem] md:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 md:zoom-in-95 duration-200 border border-slate-100 flex flex-col max-h-[92dvh]">
+            <div className="px-6 md:px-8 py-5 md:py-6 border-b border-slate-100 flex items-center justify-between bg-red-50/50 shrink-0">
+              <h2 className="text-lg md:text-xl font-black text-red-700 tracking-tight uppercase">Registrar Falta</h2>
+              <button onClick={() => setIsModalOpen(false)} className="p-2 text-slate-400 hover:text-red-700 transition-all min-h-[44px] min-w-[44px] flex items-center justify-center">
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-5 overflow-y-auto flex-1">
               <div className="space-y-2 relative">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between">
                   Nome do Produto* 
@@ -940,7 +975,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                     required autoFocus
                     type="text"
                     autoComplete="off"
-                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold"
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold text-base md:text-sm input-no-zoom"
                     placeholder="Inicie a digitação..."
                     value={formData.productName}
                     onChange={e => setFormData({...formData, productName: e.target.value})}
@@ -994,7 +1029,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Classificação do Produto*</label>
                 <select 
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold appearance-none"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold appearance-none text-base md:text-sm input-no-zoom"
                   value={formData.type}
                   onChange={e => setFormData({...formData, type: e.target.value as ProductType})}
                 >

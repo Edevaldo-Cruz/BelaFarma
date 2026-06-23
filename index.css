@@ -189,6 +189,119 @@ body {
   scrollbar-width: none;  /* Firefox */
 }
 
+/* =====================================================
+   MOBILE / IPHONE UTILITIES
+   ===================================================== */
+
+/* Safe Area — compensar barra do Safari e PWA no iPhone */
+.pb-safe {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: max(8px, env(safe-area-inset-top));
+}
+.mb-safe {
+  margin-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+/* Tabela com scroll horizontal e indicador visual */
+.table-scroll-wrapper {
+  position: relative;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fade nas bordas laterais da tabela para indicar scroll */
+.table-scroll-wrapper::before,
+.table-scroll-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.table-scroll-wrapper::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(255,255,255,0.9), transparent);
+}
+.table-scroll-wrapper::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(255,255,255,0.9), transparent);
+}
+.dark .table-scroll-wrapper::before {
+  background: linear-gradient(to right, rgba(15,23,42,0.9), transparent);
+}
+.dark .table-scroll-wrapper::after {
+  background: linear-gradient(to left, rgba(15,23,42,0.9), transparent);
+}
+
+/* Indicador textual de scroll (aparece apenas no mobile) */
+.scroll-hint {
+  display: none;
+}
+@media (max-width: 768px) {
+  .scroll-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+    padding: 4px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    animation: pulse-hint 2s ease-in-out infinite;
+  }
+  @keyframes pulse-hint {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+}
+
+/* Touch Target mínimo Apple HIG (44×44px) */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Input sem zoom automático no iOS (font-size ≥ 16px no foco) */
+.input-no-zoom {
+  font-size: 16px !important;
+}
+@media (min-width: 768px) {
+  .input-no-zoom {
+    font-size: 0.75rem !important; /* restaura no desktop */
+  }
+}
+
+/* Botão flutuante com safe area no iPhone */
+.floating-btn-container {
+  bottom: max(2rem, calc(1rem + env(safe-area-inset-bottom)));
+}
+
+/* Scroll indicator em tabelas mobile */
+@media (max-width: 768px) {
+  .mobile-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .mobile-table-container::-webkit-scrollbar {
+    height: 3px;
+  }
+  .mobile-table-container::-webkit-scrollbar-thumb {
+    background: var(--border-focus);
+    border-radius: 4px;
+  }
+}
+
 /* RESPONSIVE TABLES (Cards no mobile) */
 @media (max-width: 768px) {
   .responsive-table {

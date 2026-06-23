@@ -232,6 +232,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
+      {isOpen && (
+        <button
+          type="button"
+          onClick={() => setIsOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-sm md:hidden transition-opacity duration-300 animate-in fade-in cursor-default w-full h-full text-left"
+          aria-label="Fechar menu"
+        />
+      )}
 
       <aside 
         className={`fixed inset-y-0 left-0 z-40 w-64 border-r transform transition-transform duration-300 ease-in-out transition-colors duration-500 md:relative md:translate-x-0 shadow-2xl md:shadow-none ${

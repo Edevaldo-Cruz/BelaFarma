@@ -73,6 +73,15 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
 
   // Modo de visualização: tabela ou lista de cards
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
+  // Estado para o painel de filtros colapsível no mobile
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // No mobile, usar modo card por padrão
+  React.useEffect(() => {
+    if (window.innerWidth < 768) {
+      setViewMode('list');
+    }
+  }, []);
 
   // Buscar categorias no boot
   useEffect(() => {
@@ -278,7 +287,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
       </header>
 
       {/* Cards de Resumo */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
         
         {/* Card 1: Valor em Estoque Parado */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4">
@@ -346,11 +355,23 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
       </section>
 
       {/* Painel de Filtros */}
-      <section className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-        <div className="flex items-center gap-2 text-slate-900 dark:text-slate-550 border-b border-slate-100 dark:border-slate-800 pb-3">
-          <Filter className="w-4 h-4 text-blue-650" />
-          <h2 className="text-xs font-black uppercase tracking-widest">Filtros & Buscas</h2>
-        </div>
+      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        {/* Cabeçalho do painel - sempre visível com toggle no mobile */}
+        <button
+          className="w-full flex items-center justify-between px-5 md:px-6 py-4 border-b border-slate-100 dark:border-slate-800 md:cursor-default"
+          onClick={() => setFiltersOpen(f => !f)}
+          type="button"
+        >
+          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-550">
+            <Filter className="w-4 h-4 text-blue-650" />
+            <h2 className="text-xs font-black uppercase tracking-widest">Filtros &amp; Buscas</h2>
+          </div>
+          <span className={`md:hidden text-slate-400 transition-transform duration-200 ${filtersOpen ? 'rotate-180' : ''}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </button>
+        <div className={`transition-all duration-300 overflow-hidden ${filtersOpen ? 'max-h-[800px]' : 'max-h-0 md:max-h-none'} md:block`}>
+          <div className="p-5 md:p-6 space-y-4">
         
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           
@@ -449,15 +470,17 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* Botão limpar filtros */}
-        <div className="flex justify-end pt-1">
-          <button
-            onClick={handleResetFilters}
-            className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 hover:text-blue-650 uppercase tracking-widest cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Limpar Filtros
-          </button>
+          {/* Botão limpar filtros */}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={handleResetFilters}
+              className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 hover:text-blue-650 uppercase tracking-widest cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Limpar Filtros
+            </button>
+          </div>
+          </div>
         </div>
       </section>
 
@@ -478,8 +501,13 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
           
           {/* Exibição em Tabela */}
           {viewMode === 'table' ? (
+            <>
+            {/* Indicador de scroll - mobile */}
+            <div className="scroll-hint md:hidden py-2 text-slate-400 text-center text-[10px] font-bold">
+              ← Role para ver mais colunas →
+            </div>
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
+              <div className="overflow-x-auto mobile-table-container overflow-y-auto max-h-[60vh]">
                 <table className="w-full text-left border-collapse responsive-table">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
@@ -577,6 +605,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
                 </table>
               </div>
             </div>
+            </>
           ) : (
             // Exibição em Lista (Cards)
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
@@ -660,10 +689,14 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user }) => {
             </div>
           )}
 
-          {/* Paginação Premium Numérica e Dropdown de Página */}
-          <div className="flex flex-col lg:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-6 py-4 rounded-3xl shadow-sm">
-            <span className="text-xs font-bold text-slate-500">
+          {/* Paginação Premium */}
+          <div className="flex flex-col md:flex-row justify-between items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 md:px-6 py-3 md:py-4 rounded-3xl shadow-sm">
+            <span className="text-xs font-bold text-slate-500 hidden md:block">
               Mostrando <strong className="text-slate-800 dark:text-slate-200">{(page - 1) * limit + 1}</strong> a <strong className="text-slate-800 dark:text-slate-200">{Math.min(page * limit, totalProducts)}</strong> de <strong className="text-slate-800 dark:text-slate-200">{totalProducts}</strong> produtos
+            </span>
+            {/* Mobile: texto compacto */}
+            <span className="text-xs font-bold text-slate-500 md:hidden">
+              Pág. {page}/{totalPages} • {totalProducts} produtos
             </span>
             
             <div className="flex flex-wrap items-center gap-2">

@@ -1045,7 +1045,7 @@ const App: React.FC = () => {
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
 
       {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
-      <div className="fixed bottom-8 right-8 z-[90] flex flex-col items-center gap-2">
+      <div className="fixed bottom-10 md:bottom-8 right-4 md:right-8 z-[90] flex flex-col items-center gap-2 pb-safe">
         {/* Balão de Saldo Diário e Semanal */}
         {currentMonthBudgetStatus !== 'no-budget' && (
           <div className={`
@@ -1088,10 +1088,10 @@ const App: React.FC = () => {
         {/* Botão circular */}
         <button
           onClick={() => setIsBudgetSummaryOpen(true)}
-          className={`flex items-center justify-center w-20 h-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95`}
+          className={`flex items-center justify-center w-14 h-14 md:w-20 md:h-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95`}
           title="Ver Painel de Orçamentos"
         >
-          <span className="text-4xl relative select-none flex items-center justify-center">
+          <span className="text-2xl md:text-4xl relative select-none flex items-center justify-center">
             {budgetEmoji}
             {(currentMonthBudgetStatus === 'warning' || currentMonthBudgetStatus === 'danger') && (
               <span className={`absolute -inset-1 rounded-full animate-ping border-2 ${currentMonthBudgetStatus === 'danger' ? 'border-red-500' : 'border-amber-500'} opacity-75`} />
