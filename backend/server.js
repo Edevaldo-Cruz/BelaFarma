@@ -965,15 +965,26 @@ app.post('/api/shortages/db-status', async (req, res) => {
       return res.json({});
     }
 
-    // Build the query with UNION ALL for high performance index usage
-    const subqueries = cleanedNames.map(() => `
-      SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
-      FROM PRODUTOS p
-      WHERE p.PRODUTO = ?
-    `);
-    const sql = subqueries.join('\n    UNION ALL\n');
+    // Process in batches of 40 to avoid Firebird limits (SQL length, max table contexts)
+    const batchSize = 40;
+    const batches = [];
+    for (let i = 0; i < cleanedNames.length; i += batchSize) {
+      batches.push(cleanedNames.slice(i, i + batchSize));
+    }
 
-    const results = await queryDigifarma(sql, cleanedNames);
+    let results = [];
+    for (const batch of batches) {
+      const subqueries = batch.map(() => `
+        SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
+        FROM PRODUTOS p
+        WHERE p.PRODUTO = ?
+      `);
+      const sql = subqueries.join('\n      UNION ALL\n');
+      const batchResults = await queryDigifarma(sql, batch);
+      if (batchResults && Array.isArray(batchResults)) {
+        results = results.concat(batchResults);
+      }
+    }
     
     const mapping = {};
     if (results) {
