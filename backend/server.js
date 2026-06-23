@@ -4515,6 +4515,60 @@ app.get('/api/test-digifarma-vps', async (req, res) => {
   }
 });
 
+// Rota de diagnóstico avançado das faltas para testar individualmente cada item
+app.get('/api/debug-shortages', async (req, res) => {
+  try {
+    const shortagesList = db.prepare("SELECT * FROM shortages WHERE purchased = 0").all();
+    if (shortagesList.length === 0) {
+      return res.json({ success: true, message: "Nenhum produto em falta (não comprado) no banco SQLite local." });
+    }
+    
+    const report = [];
+    for (const item of shortagesList) {
+      const name = item.productName ? item.productName.trim().toUpperCase() : '';
+      if (!name) continue;
+      
+      const start = Date.now();
+      try {
+        const sql = `
+          SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
+          FROM PRODUTOS p
+          WHERE p.PRODUTO = ?
+        `;
+        const queryRes = await queryDigifarma(sql, [name]);
+        report.push({
+          productName: item.productName,
+          cleanedName: name,
+          success: true,
+          timeMs: Date.now() - start,
+          found: queryRes.length > 0,
+          data: queryRes
+        });
+      } catch (err) {
+        report.push({
+          productName: item.productName,
+          cleanedName: name,
+          success: false,
+          timeMs: Date.now() - start,
+          error: err.message
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      totalItems: shortagesList.length,
+      report
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stack: err.stack
+    });
+  }
+});
+
 // Nodemon trigger restart
 
 
