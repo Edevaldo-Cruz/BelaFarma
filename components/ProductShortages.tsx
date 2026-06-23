@@ -31,6 +31,16 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [clientInquiryFilter, setClientInquiryFilter] = useState<'all' | 'urgent' | 'normal'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'ordered' | 'purchased'>('all');
   const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'urgent_first' | 'status_pending' | 'alpha_asc' | 'alpha_desc'>('date_desc');
+  
+  // Estados de paginação local
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+
+  // Resetar a página para 1 quando filtros mudarem
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, typeFilter, hidePurchased, clientInquiryFilter, statusFilter, sortBy, mainTab]);
+
   const [formData, setFormData] = useState({
     productName: '',
     type: ProductType.GENERICO,
@@ -117,39 +127,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     }
   };
 
-  const fetchDbStatuses = async (items: ProductShortage[]) => {
-    if (!items || items.length === 0) {
-      setDbStatuses({});
-      return;
-    }
-    
-    // Get all unique product names
-    const names = Array.from(new Set(items.map(s => s.productName).filter(Boolean)));
-    if (names.length === 0) return;
-    
-    setIsLoadingDbStatuses(true);
-    try {
-      const response = await fetch('/api/shortages/db-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ productNames: names })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDbStatuses(data || {});
-      }
-    } catch (err) {
-      console.error('Erro ao buscar saldos e compras no Digifarma:', err);
-    } finally {
-      setIsLoadingDbStatuses(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchDbStatuses(shortages);
-  }, [shortages]);
+  // fetchDbStatuses foi movido para baixo de filteredShortages para suportar paginação
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -222,6 +200,55 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
     }
     return 0;
   });
+
+  // Fatiar a lista filtrada para a página atual
+  const paginatedShortages = filteredShortages.slice(
+    (page - 1) * pageSize,
+    page * pageSize
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredShortages.length / pageSize));
+
+  const fetchDbStatuses = async (items: ProductShortage[]) => {
+    if (!items || items.length === 0) {
+      setDbStatuses({});
+      return;
+    }
+    
+    // Get all unique product names
+    const names = Array.from(new Set(items.map(s => s.productName).filter(Boolean)));
+    if (names.length === 0) return;
+    
+    setIsLoadingDbStatuses(true);
+    try {
+      const response = await fetch('/api/shortages/db-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ productNames: names })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDbStatuses(data || {});
+      }
+    } catch (err) {
+      console.error('Erro ao buscar saldos e compras no Digifarma:', err);
+    } finally {
+      setIsLoadingDbStatuses(false);
+    }
+  };
+
+  // Carrega saldos do Digifarma apenas para a fatia visível (paginada)
+  const currentPageProductNames = paginatedShortages.map(s => s.productName).join(',');
+
+  useEffect(() => {
+    if (paginatedShortages.length > 0) {
+      fetchDbStatuses(paginatedShortages);
+    } else {
+      setDbStatuses({});
+    }
+  }, [currentPageProductNames]);
 
   const exportToTxt = async () => {
     const exportableShortages = filteredShortages.filter(s => selectedIds.includes(s.id));
@@ -336,11 +363,15 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   };
 
   const toggleSelectAll = () => {
-    const exportable = filteredShortages.filter(s => !s.purchased);
-    if (selectedIds.length === exportable.length) {
-      setSelectedIds([]);
+    const exportable = paginatedShortages.filter(s => !s.purchased);
+    const allExportableSelected = exportable.every(s => selectedIds.includes(s.id));
+    
+    if (allExportableSelected) {
+      const exportableIds = exportable.map(s => s.id);
+      setSelectedIds(prev => prev.filter(id => !exportableIds.includes(id)));
     } else {
-      setSelectedIds(exportable.map(s => s.id));
+      const exportableIds = exportable.map(s => s.id);
+      setSelectedIds(prev => Array.from(new Set([...prev, ...exportableIds])));
     }
   };
 
@@ -770,7 +801,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                   <input 
                     type="checkbox" 
                     onChange={toggleSelectAll}
-                    checked={selectedIds.length > 0 && selectedIds.length === filteredShortages.filter(s => !s.purchased).length}
+                    checked={selectedIds.length > 0 && paginatedShortages.filter(s => !s.purchased).length > 0 && paginatedShortages.filter(s => !s.purchased).every(s => selectedIds.includes(s.id))}
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
@@ -785,7 +816,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredShortages.map((s) => {
+              {paginatedShortages.map((s) => {
                 const status = dbStatuses[s.productName.trim().toUpperCase()];
                 return (
                   <tr 
@@ -949,6 +980,51 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             </div>
           )}
         </div>
+
+        {/* Paginação */}
+        {filteredShortages.length > 0 && (
+          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <span className="text-xs font-bold text-slate-500">
+              Mostrando <strong className="text-slate-800">{(page - 1) * pageSize + 1}</strong> a <strong className="text-slate-800">{Math.min(page * pageSize, filteredShortages.length)}</strong> de <strong className="text-slate-800">{filteredShortages.length}</strong> faltas
+            </span>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-black text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-40 disabled:hover:bg-white"
+              >
+                Anterior
+              </button>
+              
+              <span className="text-xs font-bold text-slate-600 px-2">
+                Pág. {page} de {totalPages}
+              </span>
+
+              <button
+                onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-black text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-40 disabled:hover:bg-white"
+              >
+                Próxima
+              </button>
+
+              {totalPages > 1 && (
+                <select
+                  value={page}
+                  onChange={(e) => setPage(Number(e.target.value))}
+                  className="ml-2 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((pNum) => (
+                    <option key={pNum} value={pNum}>
+                      Ir para pág. {pNum}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {isModalOpen && (
