@@ -40,6 +40,7 @@ async function syncScrapedImages() {
   
   if (!fs.existsSync(JSON_PATH)) {
     console.warn(`[Sync-Images] ⚠️ Arquivo de raspagem não encontrado em: ${JSON_PATH}`);
+    require('./watcher.service.js').registerServiceRun('whatsapp_vendas_sync', 'FAILED', 'Arquivo JSON de raspagem não encontrado.');
     return { success: false, error: 'Arquivo JSON não encontrado.' };
   }
 
@@ -89,9 +90,11 @@ async function syncScrapedImages() {
     console.log(`[Sync-Images] ✅ Sincronização concluída com sucesso!`);
     console.log(`[Sync-Images] Processados: ${processed} | Sincronizados com EAN: ${synchronized}`);
     
+    require('./watcher.service.js').registerServiceRun('whatsapp_vendas_sync', 'SUCCESS');
     return { success: true, processed, synchronized };
   } catch (err) {
     console.error('[Sync-Images] ❌ Erro ao sincronizar fotos do site:', err.message);
+    require('./watcher.service.js').registerServiceRun('whatsapp_vendas_sync', 'FAILED', err.message);
     return { success: false, error: err.message };
   }
 }

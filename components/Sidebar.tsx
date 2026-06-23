@@ -38,6 +38,7 @@ import {
   ContactRound, // Added for CRM WhatsApp
   Sparkles, // Added for Tera Incentive
   Printer, // Added for Labels
+  Activity, // Added for Vigilante
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -141,8 +142,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'radio-manager', label: 'Rádio Bela Farma', icon: Radio },
     { id: 'whatsapp-crm', label: 'CRM WhatsApp', icon: ContactRound },
     { id: 'whatsapp-vendas', label: 'Assistente de Vendas', icon: MessageSquare },
-    { id: 'pix', label: 'Gerador Pix', icon: CreditCard },
-    { id: 'pix-history', label: 'Extrato Pix', icon: Landmark },
     { id: 'labels', label: 'Etiquetas A4', icon: Printer },
     { id: 'compras-live', label: 'Sugestão Compras', icon: ShoppingCart },
     { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
@@ -151,12 +150,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet },
     { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp },
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
+    { id: 'system-watcher', label: 'Vigilante', icon: Activity },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

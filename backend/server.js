@@ -3,8 +3,6 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 let db = require('./database.js');
-const InterPixService = require('./services/inter-pix.service.js');
-const interPixService = new InterPixService(db);
 const multer = require('multer');
 const fs = require('fs');
 const fetch = require('node-fetch');
@@ -1402,220 +1400,7 @@ app.post('/api/daily-records/pix-direct', (req, res) => {
   }
 });
 
-// ==========================================
-// BANCO INTER PIX DINÂMICO - ROTAS DE API
-// ==========================================
 
-// 1. GERAR COBRANÇA PIX DINÂMICA
-app.post('/api/pix/generate-dynamic', async (req, res) => {
-  try {
-    const { value, description } = req.body;
-    if (!value || isNaN(value) || parseFloat(value) <= 0) {
-      return res.status(400).json({ error: 'Value must be a positive number.' });
-    }
-
-    const charge = await interPixService.createPixCharge(value, description);
-    
-    // Salva na tabela local pix_confirmations como 'Pendente' para conciliação mútua
-    db.prepare(`
-      INSERT OR REPLACE INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt, type, userName)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      charge.txid,
-      'balcao',
-      charge.value,
-      charge.description || 'Venda Balcão Banco Inter PJ',
-      new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
-      'Pendente',
-      'Pix Dinâmico Banco Inter',
-      new Date().toISOString(),
-      'entrada',
-      req.body.userName || 'Caixa'
-    );
-
-    res.status(200).json(charge);
-  } catch (err) {
-    console.error('Error generating dynamic Pix:', err);
-    res.status(500).json({ error: 'Failed to generate Pix charge.', details: err.message });
-  }
-});
-
-// 2. CONSULTAR STATUS DA COBRANÇA (POLLING E FAIL-SAFE)
-app.get('/api/pix/status/:txid', async (req, res) => {
-  try {
-    const { txid } = req.params;
-    console.log(`[PIX STATUS] Consultando status do txid: ${txid}`);
-    const status = await interPixService.getChargeStatus(txid);
-    console.log(`[PIX STATUS] Status retornado pela API Inter: ${status}`);
-    
-    // Se estiver paga/concluída nas APIs, garante que está lançada localmente de forma idempotente
-    if (status === 'CONCLUIDA' || status === 'CONCLUIDO') {
-      const localRecord = db.prepare('SELECT status, value, senderName FROM pix_confirmations WHERE id = ?').get(txid);
-      console.log(`[PIX STATUS] Registro local encontrado:`, localRecord);
-      
-      if (localRecord && localRecord.status === 'Pendente') {
-        console.log(`[PIX LANÇAMENTO] ✅ Pix PAGO detectado. Txid: ${txid}. Valor: R$ ${localRecord.value}. Lançando no caixa...`);
-        
-        // 1. Confirma o pagamento no banco local
-        db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
-        
-        // 2. Lança no caixa diário
-        const today = new Intl.DateTimeFormat('fr-CA', {
-          timeZone: 'America/Sao_Paulo',
-          year: 'numeric', month: '2-digit', day: '2-digit'
-        }).format(new Date());
-
-        try {
-          const PixBotService = require('./services/pix-bot.service');
-          const pixBot = new PixBotService(db);
-          pixBot.recordPixDirect(localRecord.value, localRecord.senderName || 'Venda Balcão Banco Inter PJ', today);
-          console.log(`[PIX LANÇAMENTO] ✅ Valor R$ ${localRecord.value} lançado com sucesso no caixa diário de ${today}`);
-        } catch (launchErr) {
-          console.error(`[PIX LANÇAMENTO] ❌ ERRO ao lançar no caixa diário:`, launchErr.message);
-        }
-      } else if (localRecord && localRecord.status === 'Confirmado') {
-        console.log(`[PIX STATUS] Txid ${txid} já foi confirmado e lançado anteriormente. Ignorando.`);
-      }
-    }
-
-    res.status(200).json({ status });
-  } catch (err) {
-    console.error(`[PIX STATUS] Erro ao consultar txid ${req.params.txid}:`, err);
-    res.status(500).json({ error: 'Failed to fetch status.' });
-  }
-});
-
-// 3. SIMULAR PAGAMENTO DE PIX (Apenas em modo de teste/simulado)
-app.post('/api/pix/mock-pay/:txid', (req, res) => {
-  try {
-    const { txid } = req.params;
-    const success = interPixService.simulatePayment(txid);
-    
-    if (success) {
-      // Confirma localmente
-      db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
-      res.status(200).json({ success: true, message: 'Simulated payment processed and recorded in cash closing.' });
-    } else {
-      res.status(400).json({ error: 'Charge not found or already paid.' });
-    }
-  } catch (err) {
-    console.error('Error processing mock payment:', err);
-    res.status(500).json({ error: 'Failed to process mock payment.' });
-  }
-});
-
-// EXTRATO: Listar histórico de Pix (entradas e retiradas)
-app.get('/api/pix/history', (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
-    const start = startDate || new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    const end = endDate || start;
-
-    const records = db.prepare(`
-      SELECT id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt, 
-             COALESCE(type, 'entrada') as type, COALESCE(userName, '') as userName
-      FROM pix_confirmations 
-      WHERE pixDate >= ? AND pixDate <= ?
-      ORDER BY createdAt DESC
-    `).all(start, end);
-
-    // Calcula totais
-    const totalEntradas = records
-      .filter(r => (r.type === 'entrada') && r.status === 'Confirmado')
-      .reduce((sum, r) => sum + (r.value || 0), 0);
-    const totalRetiradas = records
-      .filter(r => r.type === 'retirada')
-      .reduce((sum, r) => sum + (r.value || 0), 0);
-
-    res.json({
-      records,
-      totalEntradas: Number(totalEntradas.toFixed(2)),
-      totalRetiradas: Number(totalRetiradas.toFixed(2)),
-      saldo: Number((totalEntradas - totalRetiradas).toFixed(2))
-    });
-  } catch (err) {
-    console.error('[PIX HISTORY] Erro ao buscar histórico:', err);
-    res.status(500).json({ error: 'Erro ao buscar histórico de Pix.' });
-  }
-});
-
-// RETIRADA: Registrar uma retirada de Pix
-app.post('/api/pix/withdrawal', (req, res) => {
-  try {
-    const { value, description, userName } = req.body;
-    if (!value || isNaN(value) || parseFloat(value) <= 0) {
-      return res.status(400).json({ error: 'Valor inválido.' });
-    }
-
-    const id = 'retirada_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-    const today = new Intl.DateTimeFormat('fr-CA', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date());
-
-    db.prepare(`
-      INSERT INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt, type, userName)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      'balcao',
-      parseFloat(value),
-      description || 'Retirada de Pix',
-      today,
-      'Confirmado',
-      'Retirada manual via Gerador Pix',
-      new Date().toISOString(),
-      'retirada',
-      userName || 'Sistema'
-    );
-
-    console.log(`[PIX RETIRADA] R$ ${parseFloat(value).toFixed(2)} registrada por ${userName}. Desc: ${description}`);
-    res.json({ success: true, id });
-  } catch (err) {
-    console.error('[PIX RETIRADA] Erro:', err);
-    res.status(500).json({ error: 'Erro ao registrar retirada.' });
-  }
-});
-
-// 4. WEBHOOK OFICIAL DO BANCO INTER (Para conciliação automática de produção)
-app.post('/api/webhook/inter-pix', (req, res) => {
-  try {
-    const payments = req.body;
-    console.log('[BANCO INTER WEBHOOK] 📥 Recebido evento de pagamento:', JSON.stringify(payments));
-    
-    if (Array.isArray(payments)) {
-      for (const event of payments) {
-        if (event.pix && Array.isArray(event.pix)) {
-          for (const item of event.pix) {
-            const { txid, valor } = item;
-            if (txid) {
-              const localRecord = db.prepare('SELECT status, value, senderName FROM pix_confirmations WHERE id = ?').get(txid);
-              if (localRecord && localRecord.status === 'Pendente') {
-                console.log(`[BANCO INTER WEBHOOK] ✓ Confirmando pagamento do txid: ${txid} - R$ ${valor}`);
-                
-                db.prepare("UPDATE pix_confirmations SET status = 'Confirmado' WHERE id = ?").run(txid);
-                
-                const today = new Intl.DateTimeFormat('fr-CA', {
-                  timeZone: 'America/Sao_Paulo',
-                  year: 'numeric', month: '2-digit', day: '2-digit'
-                }).format(new Date());
-
-                const PixBotService = require('./services/pix-bot.service');
-                const pixBot = new PixBotService(db);
-                pixBot.recordPixDirect(localRecord.value, localRecord.senderName || 'Venda Balcão Banco Inter PJ', today);
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    res.status(200).send('OK');
-  } catch (err) {
-    console.error('[BANCO INTER WEBHOOK] Erro ao processar:', err.message);
-    res.status(550).send('Error'); // Código padrão do Inter para rejeitar
-  }
-});
 
 // IMPORTANT: Specific routes must come before parameterized routes!
 // This must be BEFORE app.put('/api/daily-records/:id') to avoid route conflicts
@@ -3814,13 +3599,23 @@ const { postarStatusDiario } = require('./services/whatsapp-status.service.js');
 // CRON: ROBÔ DE OFERTAS (JIT) E STATUS
 // ============================================================================
 // Roda a cada hora, nos 10 minutos (08:10, 09:10, ..., 20:10) de Seg a Sex
-cron.schedule('10 8-20 * * 1-6', () => {
-  escolherEPostarOfertaInteligente();
+cron.schedule('10 8-20 * * 1-6', async () => {
+  try {
+    await escolherEPostarOfertaInteligente();
+    require('./services/watcher.service.js').registerServiceRun('robo_ofertas_jit', 'SUCCESS');
+  } catch (err) {
+    require('./services/watcher.service.js').registerServiceRun('robo_ofertas_jit', 'FAILED', err.message);
+  }
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON] 🤖 Robô de Ofertas JIT agendado para rodar a cada hora (:10) das 08h às 20h, Seg-Sáb.');
 
-cron.schedule('0 8 * * 1-6', () => {
-  postarStatusDiario();
+cron.schedule('0 8 * * 1-6', async () => {
+  try {
+    await postarStatusDiario();
+    require('./services/watcher.service.js').registerServiceRun('robo_status', 'SUCCESS');
+  } catch (err) {
+    require('./services/watcher.service.js').registerServiceRun('robo_status', 'FAILED', err.message);
+  }
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON] 🤖 Robô de Status agendado para rodar às 08h00, Seg-Sáb.');
 
@@ -3829,9 +3624,11 @@ app.post('/api/whatsapp/offers-bank/trigger-jit', async (req, res) => {
   try {
     console.log('[RoboOfertas JIT] Disparo manual solicitado via API...');
     await escolherEPostarOfertaInteligente();
+    require('./services/watcher.service.js').registerServiceRun('robo_ofertas_jit', 'SUCCESS');
     res.json({ success: true, message: 'JIT executado! Verifique o histórico.' });
   } catch (err) {
     console.error('[RoboOfertas JIT] Erro no disparo manual:', err);
+    require('./services/watcher.service.js').registerServiceRun('robo_ofertas_jit', 'FAILED', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3841,10 +3638,13 @@ app.post('/api/whatsapp/offers-bank/trigger-status', async (req, res) => {
   try {
     console.log('[WhatsAppStatus] Disparo manual solicitado via API...');
     // Roda em background para não travar a requisição
-    postarStatusDiario().catch(console.error);
+    postarStatusDiario()
+      .then(() => require('./services/watcher.service.js').registerServiceRun('robo_status', 'SUCCESS'))
+      .catch(err => require('./services/watcher.service.js').registerServiceRun('robo_status', 'FAILED', err.message));
     res.json({ success: true, message: 'Rotina de Status iniciada em segundo plano! Verifique o WhatsApp da farmácia.' });
   } catch (err) {
     console.error('[WhatsAppStatus] Erro no disparo manual:', err);
+    require('./services/watcher.service.js').registerServiceRun('robo_status', 'FAILED', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3957,6 +3757,7 @@ function performLocalBackup() {
 
     if (!fs.existsSync(DB_BACKUP_PATH)) {
       console.error(`${logTag} Banco nao encontrado em: ${DB_BACKUP_PATH}`);
+      require('./services/watcher.service.js').registerServiceRun('backup', 'FAILED', `Banco nao encontrado em ${DB_BACKUP_PATH}`);
       return;
     }
 
@@ -3985,8 +3786,10 @@ function performLocalBackup() {
       });
     }
 
+    require('./services/watcher.service.js').registerServiceRun('backup', 'SUCCESS');
   } catch (err) {
     console.error(`${logTag} Erro fatal no backup: ${err.message}`);
+    require('./services/watcher.service.js').registerServiceRun('backup', 'FAILED', err.message);
   }
 }
 
@@ -4061,11 +3864,14 @@ const dispararNoticiasAutomatico = async () => {
     
     if (response.ok) {
       console.log('[CRON] Notícias IA disparadas com sucesso na rádio.');
+      require('./services/watcher.service.js').registerServiceRun('radio_news', 'SUCCESS');
     } else {
       console.error(`[CRON] Rádio respondeu com erro (${response.status}) ao disparo de notícias.`);
+      require('./services/watcher.service.js').registerServiceRun('radio_news', 'FAILED', `Rádio retornou status ${response.status}`);
     }
   } catch (err) {
     console.error('[CRON] Erro ao disparar notícias automáticas:', err.message);
+    require('./services/watcher.service.js').registerServiceRun('radio_news', 'FAILED', err.message);
   }
 };
 
@@ -4084,11 +3890,27 @@ cron.schedule('30 23 * * *', async () => {
     const autoShortages = require('./services/auto-shortages.service.js');
     const result = await autoShortages.runAutoShortages(0);
     console.log('[CRON-AUTO-SHORTAGES] Verificação concluída:', result);
+    require('./services/watcher.service.js').registerServiceRun('auto_shortages', 'SUCCESS');
   } catch (err) {
     console.error('[CRON-AUTO-SHORTAGES] Erro ao executar rotina:', err.message);
+    require('./services/watcher.service.js').registerServiceRun('auto_shortages', 'FAILED', err.message);
   }
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON-AUTO-SHORTAGES] 🤖 Robô de faltas automáticas agendado para rodar às 23:30 diariamente.');
+
+// ============================================================================
+// CRON: VIGILANTE DE SERVIÇOS (VERIFICAÇÃO DE SAÚDE PERIÓDICA)
+// ============================================================================
+// Roda a cada 6 horas (00:00, 06:00, 12:00, 18:00) verificando e alertando o admin
+cron.schedule('0 */6 * * *', async () => {
+  try {
+    const watcherService = require('./services/watcher.service.js');
+    await watcherService.checkAndAlertDelayedServices();
+  } catch (err) {
+    console.error('[VIGILANTE-CRON] Erro ao rodar rotina de alertas:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[VIGILANTE] 🛡️ Cron de verificação de integridade agendado a cada 6 horas.');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARADOR DE COTAÇÕES — /api/quotation/analyze

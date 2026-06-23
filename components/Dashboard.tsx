@@ -681,19 +681,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
               { id: 'customers', label: 'Clientes', icon: UserIcon, color: 'slate' },
               { id: 'daily-records', label: 'Lançamentos', icon: Receipt, color: 'orange' },
               { id: 'safe', label: 'Cofre', icon: Lock, color: 'gray', adminOnly: true },
-              { id: 'pix', label: 'Gerador Pix', icon: CreditCard, color: 'emerald' },
             ];
 
-            // Ordena os atalhos: pix sempre em primeiro, depois ordena o resto por uso pessoal
-            const otherShortcuts = allShortcuts
-              .filter(s => s.id !== 'pix')
+            // Ordena os atalhos por uso pessoal
+            const visibleShortcuts = allShortcuts
               .filter(s => !s.adminOnly || isAdmin)
               .sort((a, b) => (stats[b.id] || 0) - (stats[a.id] || 0));
-
-            const visibleShortcuts = [
-              allShortcuts.find(s => s.id === 'pix')!,
-              ...otherShortcuts
-            ].filter(Boolean); // Exibe todos os atalhos válidos para o usuário!
 
             return visibleShortcuts.map(s => {
               const Icon = s.icon;
