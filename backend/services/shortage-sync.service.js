@@ -10,7 +10,7 @@ async function syncShortages() {
     const productNames = Array.from(new Set(shortagesList.map(s => s.productName).filter(Boolean)));
     if (productNames.length === 0) return;
 
-    const batchSize = 40;
+    const batchSize = 10;
     const nameBatches = [];
     for (let i = 0; i < productNames.length; i += batchSize) {
       nameBatches.push(productNames.slice(i, i + batchSize));
