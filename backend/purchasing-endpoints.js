@@ -371,8 +371,8 @@ A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma e
         params.push(productId);
       } else if (productName) {
         // Query by product name
-        sql += ` WHERE I.PRODUTO_ID = (SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS WHERE PRODUTO = ?) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N' ORDER BY C.DATA_EMISSAO DESC`;
-        params.push(productName);
+        sql += ` WHERE I.PRODUTO_ID = (SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS WHERE PRODUTO LIKE ?) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N' ORDER BY C.DATA_EMISSAO DESC`;
+        params.push(productName + '%');
       } else {
         return res.json([]);
       }

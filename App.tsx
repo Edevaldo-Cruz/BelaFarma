@@ -111,6 +111,14 @@ const App: React.FC = () => {
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const { addToast } = useToast();
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
+  const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowMobileFloatingButton(false);
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleCloseBudgetSummary = () => {
     setIsBudgetSummaryOpen(false);
@@ -1025,7 +1033,7 @@ const App: React.FC = () => {
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
 
       {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
-      <div className="fixed bottom-10 md:bottom-8 right-4 md:right-8 z-[90] flex flex-col items-center gap-2 pb-safe">
+      <div className={`fixed bottom-10 md:bottom-8 right-4 md:right-8 z-[90] flex-col items-center gap-2 pb-safe ${showMobileFloatingButton ? 'flex' : 'hidden md:flex'}`}>
         {/* Balão de Saldo Diário e Semanal */}
         {currentMonthBudgetStatus !== 'no-budget' && (
           <div className={`

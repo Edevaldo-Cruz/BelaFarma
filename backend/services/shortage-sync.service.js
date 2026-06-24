@@ -20,14 +20,14 @@ async function syncShortages() {
     const histories = {};
 
     for (const batch of nameBatches) {
-      const placeholders = batch.map(() => '?').join(',');
+      const whereClause = batch.map(() => 'p.PRODUTO LIKE ?').join(' OR ');
       
       const sqlStatus = `
         SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
         FROM PRODUTOS p
-        WHERE p.PRODUTO IN (${placeholders})
+        WHERE ${whereClause}
       `;
-      const statusResults = await queryDigifarma(sqlStatus, batch);
+      const statusResults = await queryDigifarma(sqlStatus, batch.map(n => n + '%'));
       if (statusResults && Array.isArray(statusResults)) {
         statusResults.forEach(r => {
           const key = r.PRODUTO ? r.PRODUTO.trim().toUpperCase() : '';
@@ -52,10 +52,10 @@ async function syncShortages() {
         JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
         JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
         LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
-        WHERE P.PRODUTO IN (${placeholders}) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
+        WHERE (${whereClause}) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
         ORDER BY C.DATA_EMISSAO DESC
       `;
-      const historyResults = await queryDigifarma(sqlHistory, batch);
+      const historyResults = await queryDigifarma(sqlHistory, batch.map(n => n + '%'));
       if (historyResults && Array.isArray(historyResults)) {
         historyResults.forEach(h => {
           const key = h.productName ? h.productName.trim().toUpperCase() : '';
