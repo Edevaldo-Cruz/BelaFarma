@@ -66,6 +66,36 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     }
   };
 
+  const [syncingShortages, setSyncingShortages] = React.useState(false);
+
+  const handleSyncDelayedShortages = async () => {
+    setSyncingShortages(true);
+    addToast('🔄 Iniciando busca e lançamento de faltas atrasadas dos últimos 30 dias...', 'info');
+    try {
+      const res = await fetch('/api/run-auto-shortages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 30 })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const added = data.result?.added || 0;
+        const attention = data.result?.attention || 0;
+        addToast(`✅ Lançamento concluído! Adicionados: ${added} itens zerados e ${attention} itens com atenção.`, 'success');
+        // Se houver a função fetchSystemHealth, podemos atualizar os dados
+        fetchSystemHealth();
+      } else {
+        const errData = await res.json();
+        addToast(`❌ Erro ao lançar faltas atrasadas: ${errData.error || 'Erro desconhecido'}`, 'error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast(`❌ Erro de conexão ao tentar lançar faltas atrasadas: ${err.message}`, 'error');
+    } finally {
+      setSyncingShortages(false);
+    }
+  };
+
   // --- WhatsApp Principal ---
   const fetchBaileysStatus = async () => {
     try {
@@ -539,14 +569,24 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
                 <p className="text-[10px] text-slate-400 font-medium leading-tight">Monitoramento do Servidor em Tempo Real</p>
               </div>
             </div>
-            <button
-              onClick={fetchSystemHealth}
-              disabled={healthLoading}
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-50 flex items-center gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${healthLoading ? 'animate-spin' : ''}`} />
-              Diagnóstico
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleSyncDelayedShortages}
+                disabled={syncingShortages}
+                className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${syncingShortages ? 'animate-spin' : ''}`} />
+                Lançar Faltas Atrasadas (30d)
+              </button>
+              <button
+                onClick={fetchSystemHealth}
+                disabled={healthLoading}
+                className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${healthLoading ? 'animate-spin' : ''}`} />
+                Diagnóstico
+              </button>
+            </div>
           </div>
 
           {systemHealth && (

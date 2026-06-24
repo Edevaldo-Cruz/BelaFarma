@@ -4021,6 +4021,29 @@ app.get('/api/run-5-days', async (req, res) => {
   }
 });
 
+app.post('/api/run-auto-shortages', async (req, res) => {
+  try {
+    const days = parseInt(req.body.days) || 0;
+    const autoShortages = require('./services/auto-shortages.service.js');
+    const result = await autoShortages.runAutoShortages(days);
+    res.json({ success: true, message: `Pesquisa dos últimos ${days} dias concluída!`, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/run-auto-shortages', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 0;
+    const autoShortages = require('./services/auto-shortages.service.js');
+    const result = await autoShortages.runAutoShortages(days);
+    res.json({ success: true, message: `Pesquisa dos últimos ${days} dias concluída!`, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
