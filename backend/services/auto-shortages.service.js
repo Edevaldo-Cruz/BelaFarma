@@ -88,10 +88,28 @@ async function runAutoShortages(daysAgo = 0) {
     })();
 
     console.log(`[AutoShortages] Concluído. Adicionados ${countZero} itens zerados e ${countOne} itens com atenção.`);
+    
+    // Avisa o Vigilante em caso de sucesso
+    try {
+      const watcher = require('./watcher.service');
+      watcher.registerServiceRun('auto_shortages', 'SUCCESS');
+    } catch (watcherErr) {
+      console.error('[AutoShortages] Erro ao registrar sucesso no Vigilante:', watcherErr.message);
+    }
+
     return { added: countZero, attention: countOne };
 
   } catch (err) {
     console.error('[AutoShortages] Erro ao rodar rotina:', err);
+    
+    // Avisa o Vigilante em caso de falha
+    try {
+      const watcher = require('./watcher.service');
+      watcher.registerServiceRun('auto_shortages', 'FAILED', err.message);
+    } catch (watcherErr) {
+      console.error('[AutoShortages] Erro ao registrar falha no Vigilante:', watcherErr.message);
+    }
+
     return { error: err.message };
   }
 }
