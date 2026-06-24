@@ -427,6 +427,11 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const loadHistory = async (product: any) => {
     setHistoryProduct(product);
     setIsHistoryModalOpen(true);
+    if (product.history && Array.isArray(product.history) && product.history.length > 0) {
+      setHistoryData(product.history);
+      setIsHistoryLoading(false);
+      return;
+    }
     setIsHistoryLoading(true);
     try {
       const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
@@ -817,7 +822,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedShortages.map((s) => {
-                const status = dbStatuses[s.productName.trim().toUpperCase()];
+                const status = dbStatuses[s.productName.trim().toUpperCase()] || s.dbStatus;
                 return (
                   <tr 
                     key={s.id} 
@@ -1079,10 +1084,10 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
 
                           setFormData({
                             ...formData, 
-                            productName: fullName,
+                            productName: s.name,
                             type: autoType
                           });
-                          setLastSelected(fullName);
+                          setLastSelected(s.name);
                           setSuggestions([]);
                         }}
                         className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-red-50 hover:text-red-700 border-b border-slate-50 last:border-none flex items-center justify-between gap-2"
