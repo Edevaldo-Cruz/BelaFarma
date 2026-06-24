@@ -316,7 +316,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     console.log("fetchData: Iniciando...");
     try {
-      const response = await fetch('/api/all-data');
+      const response = await fetch(`/api/all-data?_t=${new Date().getTime()}`);
       console.log("fetchData: Resposta da API recebida.", response);
       if (!response.ok) {
         throw new Error(`Network response was not ok: ${response.statusText}`);

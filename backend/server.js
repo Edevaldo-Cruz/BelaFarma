@@ -1622,6 +1622,14 @@ app.post('/api/cash-closings', (req, res) => {
       }
     })();
 
+    // Trigger auto shortages extraction when cash closing is done
+    try {
+      const { runAutoShortages } = require('./services/auto-shortages.service.js');
+      runAutoShortages(0).catch(err => console.error('[CashClosing] Erro ao lançar faltas automáticas:', err));
+    } catch (err) {
+      console.error('[CashClosing] Erro ao instanciar auto-shortages.service:', err);
+    }
+
     // Auto-create task if accumulated safe deposits >= R$ 1000
     if (closing.safeDeposit > 0) {
       console.log(`[CASH CLOSING] Safe deposit: R$ ${closing.safeDeposit.toFixed(2)}`);
