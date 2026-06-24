@@ -767,6 +767,8 @@ const App: React.FC = () => {
     }
   };
 
+  const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+
   if (!user)
     return (
       <Auth
@@ -777,6 +779,16 @@ const App: React.FC = () => {
         }}
       />
     );
+
+  if (isTauri) {
+    return (
+      <div className="h-screen bg-slate-50 dark:bg-slate-950 overflow-y-auto">
+        <div className="max-w-7xl mx-auto p-4">
+          <WhatsAppVendas />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
