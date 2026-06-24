@@ -59,10 +59,6 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
   const [lastSelected, setLastSelected] = useState('');
 
-  // Estado para armazenar o saldo e última compra das faltas vindos do Digifarma
-  const [dbStatuses, setDbStatuses] = useState<Record<string, { saldo: number, priceCompra: number }>>({});
-  const [isLoadingDbStatuses, setIsLoadingDbStatuses] = useState(false);
-
   // Histórico de Compras
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [historyProduct, setHistoryProduct] = useState<any>(null);
@@ -209,46 +205,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
 
   const totalPages = Math.max(1, Math.ceil(filteredShortages.length / pageSize));
 
-  const fetchDbStatuses = async (items: ProductShortage[]) => {
-    if (!items || items.length === 0) {
-      setDbStatuses({});
-      return;
-    }
-    
-    // Get all unique product names
-    const names = Array.from(new Set(items.map(s => s.productName).filter(Boolean)));
-    if (names.length === 0) return;
-    
-    setIsLoadingDbStatuses(true);
-    try {
-      const response = await fetch('/api/shortages/db-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ productNames: names })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDbStatuses(data || {});
-      }
-    } catch (err) {
-      console.error('Erro ao buscar saldos e compras no Digifarma:', err);
-    } finally {
-      setIsLoadingDbStatuses(false);
-    }
-  };
-
-  // Carrega saldos do Digifarma apenas para a fatia visível (paginada)
-  const currentPageProductNames = paginatedShortages.map(s => s.productName).join(',');
-
-  useEffect(() => {
-    if (paginatedShortages.length > 0) {
-      fetchDbStatuses(paginatedShortages);
-    } else {
-      setDbStatuses({});
-    }
-  }, [currentPageProductNames]);
+  // fetchDbStatuses was removed because saldo/priceCompra are now served instantly by the backend
 
   const exportToTxt = async () => {
     const exportableShortages = filteredShortages.filter(s => selectedIds.includes(s.id));
@@ -822,7 +779,7 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedShortages.map((s) => {
-                const status = dbStatuses[s.productName.trim().toUpperCase()] || s.dbStatus;
+                const status = s.dbStatus;
                 return (
                   <tr 
                     key={s.id} 
@@ -883,8 +840,6 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                         <span className={`font-black text-xs ${status.saldo <= 0 ? 'text-red-500 bg-red-50 px-2 py-1 rounded-lg border border-red-100 font-extrabold' : 'text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 font-extrabold'}`}>
                           {status.saldo}
                         </span>
-                      ) : isLoadingDbStatuses ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-300 mx-auto" />
                       ) : (
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200" title="Produto novo ou não encontrado no banco de dados">
                           Novo / ND
@@ -896,8 +851,6 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                         <span className="font-extrabold text-slate-700 text-xs bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(status.priceCompra)}
                         </span>
-                      ) : isLoadingDbStatuses ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-300 ml-auto" />
                       ) : (
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
                           -

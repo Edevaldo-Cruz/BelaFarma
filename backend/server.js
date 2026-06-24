@@ -239,101 +239,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Helper function to enrich shortages with stock, price and purchase history from Digifarma in batch
-async function enrichShortages(shortagesList) {
-  // Filter active shortages (not purchased) to query
-  const activeShortages = shortagesList.filter(s => !s.purchased);
-  if (activeShortages.length === 0) return shortagesList;
-
-  const productNames = Array.from(new Set(activeShortages.map(s => s.productName).filter(Boolean)));
-  if (productNames.length === 0) return shortagesList;
-
-  try {
-    const { queryDigifarma } = require('./services/digifarma.service');
-
-    // Process in batches of 40 to avoid Firebird SQL query limits
-    const batchSize = 40;
-    const nameBatches = [];
-    for (let i = 0; i < productNames.length; i += batchSize) {
-      nameBatches.push(productNames.slice(i, i + batchSize));
-    }
-
-    const dbStatuses = {};
-    const histories = {};
-
-    for (const batch of nameBatches) {
-      const placeholders = batch.map(() => '?').join(',');
-      
-      // Batch query for stock and last purchase price
-      const sqlStatus = `
-        SELECT p.PRODUTO, p.PROD_SALDO, COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
-        FROM PRODUTOS p
-        WHERE p.PRODUTO IN (${placeholders})
-      `;
-      const statusResults = await queryDigifarma(sqlStatus, batch);
-      if (statusResults && Array.isArray(statusResults)) {
-        statusResults.forEach(r => {
-          const key = r.PRODUTO ? r.PRODUTO.trim().toUpperCase() : '';
-          if (key) {
-            dbStatuses[key] = {
-              saldo: r.PROD_SALDO || 0,
-              priceCompra: r.PROD_PRCOMPRA || 0
-            };
-          }
-        });
-      }
-
-      // Batch query for purchase histories
-      const sqlHistory = `
-        SELECT 
-          P.PRODUTO as "productName",
-          C.DATA_EMISSAO as "dataCompra",
-          F.FORNECEDOR as "fornecedor",
-          C.NOTA_FISCAL as "notaFiscal",
-          I.ITEM_NOTAS_QUANT as "quantidade",
-          I.ITEM_NOTAS_PRCOMPRA as "precoCompra"
-        FROM ITEM_NOTAS I
-        JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
-        JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
-        LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
-        WHERE P.PRODUTO IN (${placeholders}) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
-        ORDER BY C.DATA_EMISSAO DESC
-      `;
-      const historyResults = await queryDigifarma(sqlHistory, batch);
-      if (historyResults && Array.isArray(historyResults)) {
-        historyResults.forEach(h => {
-          const key = h.productName ? h.productName.trim().toUpperCase() : '';
-          if (key) {
-            if (!histories[key]) histories[key] = [];
-            if (histories[key].length < 6) {
-              histories[key].push({
-                dataCompra: h.dataCompra,
-                fornecedor: h.fornecedor,
-                notaFiscal: h.notaFiscal,
-                quantidade: h.quantidade,
-                precoCompra: h.precoCompra
-              });
-            }
-          }
-        });
-      }
-    }
-
-    // Map enriched data back to original shortages list
-    return shortagesList.map(s => {
-      const key = s.productName ? s.productName.trim().toUpperCase() : '';
-      return {
-        ...s,
-        dbStatus: dbStatuses[key] || null,
-        history: histories[key] || []
-      };
-    });
-
-  } catch (err) {
-    console.error('[EnrichShortages] Error querying Digifarma status/history:', err.message);
-    return shortagesList;
-  }
-}
+// enrichShortages was removed as it's now handled by the background service
 
 app.get('/api/all-data', async (req, res) => {
   if (!db) {
@@ -352,15 +258,17 @@ app.get('/api/all-data', async (req, res) => {
       isFogueteAmarelo: !!order.isFogueteAmarelo,
     }));
 
-    const shortagesRawMapped = shortagesRaw.map(shortage => ({
+    const shortages = shortagesRaw.map(shortage => ({
       ...shortage,
       clientInquiry: !!shortage.clientInquiry, // Convert 0/1 back to false/true
       purchased: !!shortage.purchased,
       ordered: !!shortage.ordered,
+      dbStatus: {
+        saldo: shortage.saldo || 0,
+        priceCompra: shortage.valorUltimaCompra || 0
+      },
+      history: shortage.history ? safelyParseJSON(shortage.history) : []
     }));
-    
-    // Enrich active shortages with data from Digifarma
-    const shortages = await enrichShortages(shortagesRawMapped);
     
     const cashClosings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all();
     
@@ -4010,6 +3918,17 @@ cron.schedule('0 */6 * * *', async () => {
   }
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[VIGILANTE] 🛡️ Cron de verificação de integridade agendado a cada 6 horas.');
+
+// CRON: SINCRONIZAÇÃO DE SALDOS E HISTÓRICO DAS FALTAS
+cron.schedule('0 * * * *', async () => {
+  try {
+    const { syncShortages } = require('./services/shortage-sync.service');
+    await syncShortages();
+  } catch (err) {
+    console.error('[CRON-SHORTAGE-SYNC] Erro:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON-SHORTAGE-SYNC] 🔄 Sincronização de faltas agendada para rodar a cada hora.');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARADOR DE COTAÇÕES — /api/quotation/analyze

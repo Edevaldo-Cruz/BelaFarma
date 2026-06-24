@@ -54,7 +54,10 @@ try {
         createdAt TEXT NOT NULL,
         userName TEXT NOT NULL,
         purchased INTEGER DEFAULT 0,
-        ordered INTEGER DEFAULT 0
+        ordered INTEGER DEFAULT 0,
+        saldo REAL DEFAULT 0,
+        valorUltimaCompra REAL DEFAULT 0,
+        history TEXT
       );
     `;
 
@@ -402,6 +405,10 @@ try {
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
     db.exec(createShortagesTable);
+
+    try { db.exec('ALTER TABLE shortages ADD COLUMN saldo REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE shortages ADD COLUMN valorUltimaCompra REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE shortages ADD COLUMN history TEXT'); } catch(e) {}
     db.exec(createLogsTable);
     db.exec(createCashClosingsTable);
     db.exec(createCrediarioRecordsTable);

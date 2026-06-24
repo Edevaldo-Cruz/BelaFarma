@@ -15,7 +15,8 @@ async function runAutoShortages(daysAgo = 0) {
       SELECT DISTINCT
         P.PRODUTO_ID, 
         P.PRODUTO as DESCRICAO, 
-        P.PROD_SALDO as ESTOQUE
+        P.PROD_SALDO as ESTOQUE,
+        COALESCE(P.PROD_PRCOMPRA, P.VALOR_ULT_COMPRA, 0) as VALOR_COMPRA
       FROM CAB_VENDAS C
       JOIN ITEM_VENDAS I ON C.VENDA_NOTA_ID = I.VENDA_NOTA_ID
       JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
@@ -35,7 +36,8 @@ async function runAutoShortages(daysAgo = 0) {
         SELECT DISTINCT
           P.PRODUTO_ID, 
           P.PRODUTO as DESCRICAO, 
-          P.PROD_SALDO as ESTOQUE
+          P.PROD_SALDO as ESTOQUE,
+          COALESCE(P.PROD_PRCOMPRA, P.VALOR_ULT_COMPRA, 0) as VALOR_COMPRA
         FROM CAB_VENDAS C
         JOIN ITEM_VENDAS I ON C.VENDA_NOTA_ID = I.VENDA_NOTA_ID
         JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
@@ -54,8 +56,8 @@ async function runAutoShortages(daysAgo = 0) {
 
     // Prepare SQLite statement
     const insertShortage = db.prepare(`
-      INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered)
-      VALUES (?, ?, 'Sistema', 0, ?, ?, 'Sistema (Automático)', 'auto', 0, 0)
+      INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered, saldo, valorUltimaCompra)
+      VALUES (?, ?, 'Sistema', 0, ?, ?, 'Sistema (Automático)', 'auto', 0, 0, ?, ?)
     `);
 
     // Check if product exists and is pending
@@ -80,7 +82,7 @@ async function runAutoShortages(daysAgo = 0) {
         const notes = isZero ? '' : '[ATENÇÃO: RESTA 1 NO ESTOQUE]';
         const id = 'sh_auto_' + Date.now().toString() + '_' + Math.random().toString(36).substring(2, 10);
         
-        insertShortage.run(id, productName, notes, now);
+        insertShortage.run(id, productName, notes, now, row.ESTOQUE || 0, row.VALOR_COMPRA || 0);
         
         if (isZero) countZero++;
         else countOne++;
@@ -93,6 +95,15 @@ async function runAutoShortages(daysAgo = 0) {
     try {
       const watcher = require('./watcher.service');
       watcher.registerServiceRun('auto_shortages', 'SUCCESS');
+      
+      const adminPhone = (process.env.ADMIN_WHATSAPP || '').replace(/\D/g, '');
+      if (adminPhone) {
+        const baileys = require('../baileys-service');
+        const msg = `🛡️ *[Vigilante BelaFarma]*\n\nA rotina de faltas automáticas (últimos ${days} dias) foi finalizada.\n\n✅ *${countZero}* itens zerados inseridos.\n⚠️ *${countOne}* itens com atenção inseridos.`;
+        if (baileys.getStatus().connected) {
+          baileys.sendTextMessage(adminPhone, msg).catch(e => console.error('Erro ao enviar whatsapp auto-shortages:', e));
+        }
+      }
     } catch (watcherErr) {
       console.error('[AutoShortages] Erro ao registrar sucesso no Vigilante:', watcherErr.message);
     }
