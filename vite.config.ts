@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 5173,
         host: '0.0.0.0',
-        https: true,
+        https: !process.env.TAURI_ENV_PLATFORM,
         proxy: {
           '/api': {
             target: 'http://localhost:3001',
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [
         react(),
-        basicSsl(),
+        ...(process.env.TAURI_ENV_PLATFORM ? [] : [basicSsl()]),
         VitePWA({
           registerType: 'prompt',
           includeAssets: ['favicon.ico', 'pwa-192x192.png', 'pwa-512x512.png'],

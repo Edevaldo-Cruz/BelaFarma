@@ -448,55 +448,59 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
     copyText(text, '📋 Ficha completa copiada!');
   };
 
-  return (
-    <div className="flex flex-col h-full w-full bg-slate-50 dark:bg-slate-950 p-6 animate-in fade-in duration-300 overflow-hidden">
-      {/* Header do Módulo */}
-      <div className="flex items-center justify-between pb-6 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-red-650 flex items-center justify-center font-extrabold text-white text-lg shadow-md">
-            BF
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-800 dark:text-white leading-tight">Assistente de Vendas</h1>
-            <p className="text-xs text-slate-500 font-medium">Ferramenta de Consulta e Cópia Manual</p>
-          </div>
-        </div>
+  const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 
-        {/* Abas de Navegação */}
-        <div className="flex bg-slate-200/80 dark:bg-slate-900 p-1 rounded-xl text-sm font-bold shadow-inner">
-          <button
-            onClick={() => setActiveTab('estoque')}
-            className={`px-5 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2 ${
-              activeTab === 'estoque'
-                ? 'bg-white dark:bg-red-700 text-red-700 dark:text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-350 hover:text-slate-800 dark:hover:text-white'
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            Consulta de Estoque
-          </button>
-          <button
-            onClick={() => setActiveTab('cliente')}
-            className={`px-5 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2 ${
-              activeTab === 'cliente'
-                ? 'bg-white dark:bg-red-700 text-red-700 dark:text-white shadow-md'
-                : 'text-slate-600 dark:text-slate-350 hover:text-slate-800 dark:hover:text-white'
-            }`}
-          >
-            <User className="w-4 h-4" />
-            Ficha do Cliente
-          </button>
+  return (
+    <div className={`flex flex-col h-full w-full bg-slate-50 dark:bg-slate-950 ${isTauri ? 'p-1' : 'p-6'} animate-in fade-in duration-300 overflow-hidden`}>
+      {/* Header do Módulo */}
+      {!isTauri && (
+        <div className="flex items-center justify-between pb-6 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-red-650 flex items-center justify-center font-extrabold text-white text-lg shadow-md">
+              BF
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-800 dark:text-white leading-tight">Assistente de Vendas</h1>
+              <p className="text-xs text-slate-500 font-medium">Ferramenta de Consulta e Cópia Manual</p>
+            </div>
+          </div>
+
+          {/* Abas de Navegação */}
+          <div className="flex bg-slate-200/80 dark:bg-slate-900 p-1 rounded-xl shadow-inner w-full text-sm font-bold md:w-auto">
+            <button
+              onClick={() => setActiveTab('estoque')}
+              className={`flex-1 md:flex-none px-3 py-2 md:px-5 md:py-2.5 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                activeTab === 'estoque'
+                  ? 'bg-white dark:bg-red-700 text-red-700 dark:text-white shadow-md font-bold'
+                  : 'text-slate-600 dark:text-slate-350 hover:text-slate-800 dark:hover:text-white'
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4" />
+              Consulta
+            </button>
+            <button
+              onClick={() => setActiveTab('cliente')}
+              className={`flex-1 md:flex-none px-3 py-2 md:px-5 md:py-2.5 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                activeTab === 'cliente'
+                  ? 'bg-white dark:bg-red-700 text-red-700 dark:text-white shadow-md font-bold'
+                  : 'text-slate-600 dark:text-slate-350 hover:text-slate-800 dark:hover:text-white'
+              }`}
+            >
+              <User className="w-4 h-4" />
+              Cliente
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Conteúdo das Abas */}
-      <div className="flex-1 overflow-hidden mt-6 flex flex-col">
+      <div className={`flex-1 overflow-hidden ${isTauri ? 'mt-0' : 'mt-6'} flex flex-col`}>
         {activeTab === 'estoque' ? (
           <div className="flex-1 flex gap-6 overflow-hidden">
             {/* Coluna Principal da Busca de Produtos */}
             <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               {/* Campo de Busca */}
-              <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className={`${isTauri ? 'p-2' : 'p-5'} border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex flex-col md:flex-row ${isTauri ? 'gap-2' : 'gap-4'} items-center justify-between`}>
                 <div className="relative flex-1 w-full">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                   <input
@@ -504,7 +508,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                     placeholder="Pesquisar produto no Digifarma (digite no mínimo 2 caracteres)..."
                     value={productQuery}
                     onChange={e => setProductQuery(e.target.value)}
-                    className="w-full pl-12 pr-6 py-3.5 text-base rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-650 focus:bg-white dark:focus:bg-slate-850 transition-all shadow-inner"
+                    className={`w-full ${isTauri ? 'pl-10 pr-4 py-2 text-sm' : 'pl-12 pr-6 py-3.5 text-base'} rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-650 focus:bg-white dark:focus:bg-slate-850 transition-all shadow-inner`}
                   />
                 </div>
                 
@@ -513,7 +517,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                   <button
                     type="button"
                     onClick={() => setHideOutOfStock(prev => !prev)}
-                    className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+                    className={`${isTauri ? 'px-3 py-2' : 'px-4 py-2.5'} rounded-xl border text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
                       hideOutOfStock
                         ? 'bg-red-50 border-red-200 text-red-750 dark:bg-red-950/20 dark:border-red-900 dark:text-red-400'
                         : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-750'
@@ -527,7 +531,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
 
               {/* Categorias */}
               {products.length > 0 && (
-                <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                <div className={`${isTauri ? 'px-2 py-1' : 'px-5 py-3'} border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex items-center gap-2 overflow-x-auto no-scrollbar`}>
                   {categoriesList.map(cat => (
                     <button
                       key={cat}
@@ -546,7 +550,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
               )}
 
               {/* Grid / Lista de Produtos */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div className={`flex-1 overflow-y-auto ${isTauri ? 'p-2 space-y-2' : 'p-5 space-y-4'}`}>
                 {searchingProducts ? (
                   <div className="flex flex-col items-center justify-center h-40 gap-2 text-slate-400">
                     <Loader2 className="w-8 h-8 animate-spin text-red-600" />
@@ -558,11 +562,11 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                     <span>Digite o nome do produto ou código de barras para começar a pesquisar.</span>
                   </div>
                 ) : filteredProducts.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-sm italic">
+                  <div className={`text-center ${isTauri ? 'py-4' : 'py-10'} text-slate-400 text-sm italic`}>
                     Nenhum produto encontrado nesta categoria.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className={`flex flex-col ${isTauri ? 'gap-2' : 'gap-3 md:gap-4'}`}>
                     {filteredProducts.map(prod => {
                       const isStockOk = prod.stock > 5;
                       const hasStock = prod.stock > 0;
@@ -571,11 +575,11 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                       return (
                         <div
                           key={prod.id}
-                          className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition duration-200 flex flex-col overflow-hidden relative group"
+                          className={`bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition duration-200 flex flex-col overflow-hidden relative group`}
                         >
-                          <div className="p-4 flex gap-4">
+                          <div className={`${isTauri ? 'p-2' : 'p-4'} flex gap-3 md:gap-4`}>
                             {/* Imagem do Produto */}
-                            <div className="w-32 h-32 bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-700">
+                            <div className={`${isTauri ? 'w-20 h-20' : 'w-32 h-32'} bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-700`}>
                               {prod.imageUrl && !imageErrors[prod.id] ? (
                                 <img 
                                   src={getProductImageSrc(prod.imageUrl)} 
@@ -593,11 +597,11 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                             {/* Detalhes do Produto */}
                             <div className="flex-1 min-w-0 flex flex-col justify-between">
                               <div>
-                                <h4 className="text-sm font-bold text-slate-800 dark:text-white truncate pr-6" title={prod.name}>
+                                <h4 className={`${isTauri ? 'text-[13px] leading-snug' : 'text-sm leading-tight'} font-bold text-slate-800 dark:text-white pr-2`} title={prod.name}>
                                   {prod.name}
                                 </h4>
                                 {prod.barcode && (
-                                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">EAN: {prod.barcode}</p>
+                                  <p className={`${isTauri ? 'text-[10px]' : 'text-[11px]'} text-slate-400 font-mono mt-0.5`}>EAN: {prod.barcode}</p>
                                 )}
                               </div>
                               
@@ -620,7 +624,7 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                           </div>
 
                           {/* Ações de Cópia e Orçamento */}
-                          <div className="px-4 pb-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+                          <div className={`${isTauri ? 'px-2 pb-2 pt-1.5' : 'px-4 pb-4 pt-2'} border-t border-slate-100 dark:border-slate-800 flex flex-col ${isTauri ? 'gap-1.5' : 'gap-2'}`}>
                             <div className="flex gap-2">
                               <button
                                 onClick={() => copyProductText(prod)}

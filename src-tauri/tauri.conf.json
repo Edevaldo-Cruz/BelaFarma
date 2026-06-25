@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AssistenteVenda",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.belafarma.assistente",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Assistente de Vendas",
-        "width": 400,
-        "height": 600,
+        "width": 1920,
+        "height": 320,
         "resizable": true,
         "fullscreen": false,
         "alwaysOnTop": true
