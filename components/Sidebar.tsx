@@ -39,6 +39,7 @@ import {
   Sparkles, // Added for Tera Incentive
   Printer, // Added for Labels
   Activity, // Added for Vigilante
+  Calendar, // Added for Purchase Calendar
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -144,6 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'whatsapp-vendas', label: 'Assistente de Vendas', icon: MessageSquare },
     { id: 'labels', label: 'Etiquetas A4', icon: Printer },
     { id: 'compras-live', label: 'Sugestão Compras', icon: ShoppingCart },
+    { id: 'purchase-calendar', label: 'Calendário de Compras', icon: Calendar },
     { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
     { id: 'stock', label: 'Estoque', icon: Package },
     { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse },
@@ -156,7 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

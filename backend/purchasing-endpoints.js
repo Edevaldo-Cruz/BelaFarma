@@ -176,6 +176,141 @@ module.exports = (db) => {
     }
   });
 
+  // --- Previsão de Esgotamento e Calendário de Compras ---
+
+  router.get('/forecast', async (req, res) => {
+    const daysAnalysis = parseInt(req.query.daysAnalysis) || 30;
+    const leadTime = parseInt(req.query.leadTime) || 5;
+    const daysCoverage = parseInt(req.query.daysCoverage) || 30;
+
+    try {
+      const dataN = new Date();
+      dataN.setDate(dataN.getDate() - daysAnalysis);
+      dataN.setHours(0, 0, 0, 0);
+
+      // Helper function local para formatar data do Firebird
+      const pad = (num) => String(num).padStart(2, '0');
+      const dataInicio = `${dataN.getFullYear()}-${pad(dataN.getMonth() + 1)}-${pad(dataN.getDate())} 00:00:00`;
+
+      // Query para buscar produtos ativos e calcular a soma de vendas no período
+      const sql = `
+        SELECT 
+          p.PRODUTO_ID as id,
+          TRIM(p.PRODUTO) as name,
+          TRIM(p.APRESENTACAO) as presentation,
+          TRIM(p.COD_BARRAS) as barcode,
+          p.PROD_SALDO as stock,
+          p.PROD_ESTMINIMO as minStock,
+          p.PROD_PRVENDA as price,
+          p.CATEGORIA_ID as categoryId,
+          c.CATEGORIA as categoryName,
+          COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as totalSold
+        FROM PRODUTOS p
+        LEFT JOIN ITEM_VENDAS iv ON iv.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN CAB_VENDAS cv ON cv.VENDA_NOTA_ID = iv.VENDA_NOTA_ID AND cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= ?
+        LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        WHERE p.PROD_ATIVO = 'S'
+        GROUP BY p.PRODUTO_ID, p.PRODUTO, p.APRESENTACAO, p.COD_BARRAS, p.PROD_SALDO, p.PROD_ESTMINIMO, p.PROD_PRVENDA, p.CATEGORIA_ID, c.CATEGORIA
+      `;
+
+      const products = await queryDigifarma(sql, [dataInicio]);
+
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      const items = [];
+
+      for (const p of products) {
+        const stock = p.STOCK || 0;
+        const minStock = p.MINSTOCK || 0;
+        const totalSold = p.TOTALSOLD || 0;
+        const price = p.PRICE || 0;
+        const giroDiario = totalSold / daysAnalysis;
+
+        if (giroDiario <= 0) {
+          // Se não vendeu nada no período e o estoque está zerado, mas tem estoque mínimo: precisa repor hoje
+          if (stock <= 0 && minStock > 0) {
+            items.push({
+              id: p.ID,
+              name: p.NAME,
+              presentation: p.PRESENTATION || '',
+              barcode: p.BARCODE || '',
+              stock: stock,
+              minStock: minStock,
+              price: price,
+              categoryId: p.CATEGORYID,
+              categoryName: p.CATEGORYNAME || 'Sem Categoria',
+              totalSold: 0,
+              giroDiario: 0,
+              depletionDate: todayStr,
+              purchaseDate: todayStr,
+              status: 'esgotado',
+              suggestedQty: minStock,
+              costValue: minStock * price
+            });
+          }
+          continue;
+        }
+
+        // Se vendeu, calcula dias restantes de estoque
+        const diasRestantes = stock / giroDiario;
+        
+        // Data prevista de esgotamento
+        const depletionDate = new Date(today);
+        depletionDate.setDate(today.getDate() + Math.floor(diasRestantes));
+        const depletionDateStr = depletionDate.toISOString().split('T')[0];
+
+        // Data ideal de compra (depletionDate - leadTime)
+        const purchaseDate = new Date(depletionDate);
+        purchaseDate.setDate(depletionDate.getDate() - leadTime);
+        const purchaseDateStr = purchaseDate.toISOString().split('T')[0];
+
+        // Qtd sugerida para cobrir daysCoverage
+        const suggestedQty = Math.ceil(giroDiario * daysCoverage);
+
+        let status = 'planejado';
+        if (stock <= 0) {
+          status = 'esgotado';
+        } else if (diasRestantes <= leadTime) {
+          status = 'urgente';
+        } else if (diasRestantes <= leadTime + 5) {
+          status = 'alerta';
+        }
+
+        items.push({
+          id: p.ID,
+          name: p.NAME,
+          presentation: p.PRESENTATION || '',
+          barcode: p.BARCODE || '',
+          stock: stock,
+          minStock: minStock,
+          price: p.PRICE || 0,
+          categoryId: p.CATEGORYID,
+          categoryName: p.CATEGORYNAME || 'Sem Categoria',
+          totalSold: totalSold,
+          giroDiario: giroDiario,
+          depletionDate: depletionDateStr,
+          purchaseDate: purchaseDateStr,
+          status: status,
+          suggestedQty: suggestedQty,
+          costValue: suggestedQty * price
+        });
+      }
+
+      res.json({
+        daysAnalysis,
+        leadTime,
+        daysCoverage,
+        timestamp: new Date().toISOString(),
+        items
+      });
+    } catch (err) {
+      if (err.message && err.message.includes('Offline')) {
+        return res.status(503).json({ error: 'O servidor do Digifarma está desligado ou offline.' });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // --- Cotações (Quotations) ---
 
   router.post('/quotes/last-suppliers', async (req, res) => {

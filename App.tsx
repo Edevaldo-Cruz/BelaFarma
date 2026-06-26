@@ -38,6 +38,7 @@ import { WhatsAppVendas } from "./components/WhatsAppVendas";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { EtiquetasManager } from "./components/EtiquetasManager";
 import { ComprasLive } from "./components/ComprasLive";
+import { PurchaseCalendar } from "./components/PurchaseCalendar";
 import { StockManagement } from "./components/StockManagement";
 import SuppliersManager from "./components/SuppliersManager";
 import { PwaUpdater } from "./components/PwaUpdater";
@@ -961,6 +962,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'compras-live' && (
                 <ComprasLive />
+              )}
+              {currentView === 'purchase-calendar' && user.role === UserRole.ADM && (
+                <PurchaseCalendar user={user} />
               )}
               {currentView === 'stock' && user.role === UserRole.ADM && (
                 <StockManagement user={user} />
