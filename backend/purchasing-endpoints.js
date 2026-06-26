@@ -192,7 +192,7 @@ module.exports = (db) => {
       const pad = (num) => String(num).padStart(2, '0');
       const dataInicio = `${dataN.getFullYear()}-${pad(dataN.getMonth() + 1)}-${pad(dataN.getDate())} 00:00:00`;
 
-      // Query para buscar produtos ativos e calcular a soma de vendas no período
+      // Query para buscar produtos ativos, vendas e faturamento no período
       const sql = `
         SELECT 
           p.PRODUTO_ID as id,
@@ -204,7 +204,8 @@ module.exports = (db) => {
           p.PROD_PRVENDA as price,
           p.CATEGORIA_ID as categoryId,
           c.CATEGORIA as categoryName,
-          COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as totalSold
+          COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as totalSold,
+          COALESCE(SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT), 0) as totalRevenue
         FROM PRODUTOS p
         LEFT JOIN ITEM_VENDAS iv ON iv.PRODUTO_ID = p.PRODUTO_ID
         LEFT JOIN CAB_VENDAS cv ON cv.VENDA_NOTA_ID = iv.VENDA_NOTA_ID AND cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= ?
@@ -215,41 +216,57 @@ module.exports = (db) => {
 
       const products = await queryDigifarma(sql, [dataInicio]);
 
+      // Filtrar produtos que têm faturamento no período e calcular Curva ABC
+      const soldProducts = products
+        .map(p => ({
+          id: p.ID,
+          name: p.NAME,
+          presentation: p.PRESENTATION || '',
+          barcode: p.BARCODE || '',
+          stock: p.STOCK || 0,
+          minStock: p.MINSTOCK || 0,
+          price: p.PRICE || 0,
+          categoryId: p.CATEGORYID,
+          categoryName: p.CATEGORYNAME || 'Sem Categoria',
+          totalSold: p.TOTALSOLD || 0,
+          totalRevenue: p.TOTALREVENUE || 0
+        }))
+        .filter(p => p.totalSold > 0)
+        .sort((a, b) => b.totalRevenue - a.totalRevenue);
+
+      const totalRevenueGeral = soldProducts.reduce((sum, p) => sum + p.totalRevenue, 0);
+
+      let cumulativeRevenue = 0;
+      const abProducts = [];
+
+      for (const p of soldProducts) {
+        cumulativeRevenue += p.totalRevenue;
+        const percentage = totalRevenueGeral > 0 ? (cumulativeRevenue / totalRevenueGeral) * 100 : 0;
+        
+        let curve = 'C';
+        if (percentage <= 80) {
+          curve = 'A';
+        } else if (percentage <= 95) {
+          curve = 'B';
+        }
+
+        // Se for Curva A ou B, mantemos para previsão de compras
+        if (curve === 'A' || curve === 'B') {
+          abProducts.push({
+            ...p,
+            curve
+          });
+        }
+      }
+
       const today = new Date();
-      const todayStr = today.toISOString().split('T')[0];
       const items = [];
 
-      for (const p of products) {
-        const stock = p.STOCK || 0;
-        const minStock = p.MINSTOCK || 0;
-        const totalSold = p.TOTALSOLD || 0;
-        const price = p.PRICE || 0;
+      for (const p of abProducts) {
+        const stock = p.stock;
+        const totalSold = p.totalSold;
         const giroDiario = totalSold / daysAnalysis;
-
-        if (giroDiario <= 0) {
-          // Se não vendeu nada no período e o estoque está zerado, mas tem estoque mínimo: precisa repor hoje
-          if (stock <= 0 && minStock > 0) {
-            items.push({
-              id: p.ID,
-              name: p.NAME,
-              presentation: p.PRESENTATION || '',
-              barcode: p.BARCODE || '',
-              stock: stock,
-              minStock: minStock,
-              price: price,
-              categoryId: p.CATEGORYID,
-              categoryName: p.CATEGORYNAME || 'Sem Categoria',
-              totalSold: 0,
-              giroDiario: 0,
-              depletionDate: todayStr,
-              purchaseDate: todayStr,
-              status: 'esgotado',
-              suggestedQty: minStock,
-              costValue: minStock * price
-            });
-          }
-          continue;
-        }
+        const price = p.price;
 
         // Se vendeu, calcula dias restantes de estoque
         const diasRestantes = stock / giroDiario;
@@ -277,22 +294,23 @@ module.exports = (db) => {
         }
 
         items.push({
-          id: p.ID,
-          name: p.NAME,
-          presentation: p.PRESENTATION || '',
-          barcode: p.BARCODE || '',
+          id: p.id,
+          name: p.name,
+          presentation: p.presentation,
+          barcode: p.barcode,
           stock: stock,
-          minStock: minStock,
-          price: p.PRICE || 0,
-          categoryId: p.CATEGORYID,
-          categoryName: p.CATEGORYNAME || 'Sem Categoria',
+          minStock: p.minStock,
+          price: price,
+          categoryId: p.categoryId,
+          categoryName: p.categoryName,
           totalSold: totalSold,
           giroDiario: giroDiario,
           depletionDate: depletionDateStr,
           purchaseDate: purchaseDateStr,
           status: status,
           suggestedQty: suggestedQty,
-          costValue: suggestedQty * price
+          costValue: suggestedQty * price,
+          curve: p.curve
         });
       }
 

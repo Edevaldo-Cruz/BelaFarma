@@ -37,6 +37,7 @@ interface ForecastItem {
   status: 'esgotado' | 'urgente' | 'alerta' | 'planejado';
   suggestedQty: number;
   costValue: number;
+  curve?: 'A' | 'B' | 'C';
 }
 
 interface Category {
@@ -760,8 +761,15 @@ export const PurchaseCalendar: React.FC<PurchaseCalendarProps> = ({ user }) => {
                           {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                         </div>
                         <div className="min-w-0">
-                          <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 truncate uppercase tracking-tight">
+                          <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 truncate uppercase tracking-tight flex items-center gap-1.5">
                             {item.name}
+                            {item.curve && (
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase text-white ${
+                                item.curve === 'A' ? 'bg-red-600 font-bold' : 'bg-blue-600 font-bold'
+                              }`} title={`Produto Curva ${item.curve}`}>
+                                Curva {item.curve}
+                              </span>
+                            )}
                           </h4>
                           <p className="text-[10px] font-bold text-slate-400 truncate uppercase mt-0.5">
                             {item.presentation} | EAN: {item.barcode || 'N/D'}
