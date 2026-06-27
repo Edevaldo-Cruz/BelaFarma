@@ -3561,15 +3561,9 @@ app.get('/api/whatsapp/test', async (req, res) => {
   }
 });
 
-// ============================================================================
-// SISTEMA FOGUETE AMARELO - Inicialização dos Endpoints
-// ============================================================================
-const { initializeFogueteAmareloEndpoints } = require('./foguete-amarelo-endpoints.js');
 const cron = require('node-cron');
 const { exec } = require('child_process');
 
-
-initializeFogueteAmareloEndpoints(app, db);
 require('./consignado-endpoints.js')(app, db);
 
 // ============================================================================

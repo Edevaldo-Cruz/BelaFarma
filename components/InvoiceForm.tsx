@@ -12,7 +12,6 @@ interface InvoiceFormData {
   supplierName: string;
   issueDate: string;
   totalValue: number;
-  isFogueteAmarelo: boolean;
   notes: string;
 }
 
@@ -22,7 +21,6 @@ export function InvoiceForm({ userId, userName }: InvoiceFormProps) {
     supplierName: '',
     issueDate: new Date().toISOString().split('T')[0],
     totalValue: 0,
-    isFogueteAmarelo: false,
     notes: ''
   });
 
@@ -139,7 +137,6 @@ export function InvoiceForm({ userId, userName }: InvoiceFormProps) {
         supplierName: '',
         issueDate: new Date().toISOString().split('T')[0],
         totalValue: 0,
-        isFogueteAmarelo: false,
         notes: ''
       });
       setItems([]);
@@ -227,24 +224,7 @@ export function InvoiceForm({ userId, userName }: InvoiceFormProps) {
             </div>
           </div>
 
-          <div className="form-group checkbox-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                name="isFogueteAmarelo"
-                checked={formData.isFogueteAmarelo}
-                onChange={handleInputChange}
-              />
-              <span className="checkbox-text">
-                🚀 <strong>É Foguete Amarelo?</strong> (Prazo 120 dias com amortização por venda)
-              </span>
-            </label>
-            {formData.isFogueteAmarelo && formData.issueDate && (
-              <div className="due-date-info">
-                📅 Vencimento automático: <strong>{calculateDueDate()}</strong>
-              </div>
-            )}
-          </div>
+
 
           <div className="form-group">
             <label htmlFor="notes">Observações</label>

@@ -22,7 +22,6 @@ interface CaixaMinimoData {
     despesasFixasMensais: number;
     boletosAVencer30dias: number;
     mediaComprasMensais: number;
-    foguetePendente30dias: number;
     totalBaseMensal: number;
   };
   detalhes: {
@@ -93,7 +92,6 @@ interface BalanceteData {
   passivo: {
     total: number;
     boletos: { total: number; detalhes: BalanceteDetalheItem[] };
-    fogueteAmarelo: { total: number; detalhes: BalanceteDetalheItem[] };
     contasFixas: { total: number; mes: string; detalhes: BalanceteDetalheItem[] };
   };
   patrimonioLiquido: number;
@@ -360,12 +358,11 @@ export const CaixaProvisoes: React.FC = () => {
                   </h3>
                 </div>
                 <div className="p-8">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {[
                       { label: 'Despesas Fixas/mês', val: caixaData.composicao.despesasFixasMensais, icon: Landmark, color: 'blue' },
                       { label: 'Boletos (próx. 30d)', val: caixaData.composicao.boletosAVencer30dias, icon: Receipt, color: 'red' },
                       { label: 'Média Compras/mês', val: caixaData.composicao.mediaComprasMensais, icon: ShoppingBasket, color: 'violet' },
-                      { label: 'Foguete Amarelo', val: caixaData.composicao.foguetePendente30dias, icon: Package, color: 'amber' },
                     ].map((item, i) => (
                       <div key={i} className="bg-slate-50 rounded-2xl p-4">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{item.label}</p>
@@ -1109,53 +1106,7 @@ export const CaixaProvisoes: React.FC = () => {
                   )}
                 </div>
 
-                {/* Foguete Amarelo */}
-                <div className="border-b border-slate-50">
-                  <button
-                    onClick={() => toggleSection('foguete')}
-                    className="w-full flex items-center justify-between px-8 py-4 hover:bg-slate-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Package className="w-4 h-4 text-amber-500" />
-                      <span className="font-black text-slate-900 text-sm">Foguete Amarelo (D+120)</span>
-                      <span className="text-[10px] font-bold text-slate-400">
-                        ({balanceteData.passivo.fogueteAmarelo.detalhes.reduce((a, d) => a + (d.qtd || 0), 0)} títulos)
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-black text-amber-700">{fmt(balanceteData.passivo.fogueteAmarelo.total)}</span>
-                      {expandedSections['foguete'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                    </div>
-                  </button>
-                  {expandedSections['foguete'] && (
-                    <div className="px-8 pb-4 space-y-3 max-h-64 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
-                      {balanceteData.passivo.fogueteAmarelo.detalhes.length === 0
-                        ? <p className="text-xs text-slate-400 text-center py-2 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Sem títulos Foguete pendentes</p>
-                        : balanceteData.passivo.fogueteAmarelo.detalhes.map((grupo, i) => (
-                          <div key={i} className="pl-7">
-                            <div className="flex justify-between items-center mb-1">
-                              <div className="flex items-center gap-2">
-                                <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                                <span className="text-xs font-black text-slate-800">{grupo.fornecedor}</span>
-                                <span className="text-[9px] font-bold text-slate-400">({grupo.qtd})</span>
-                              </div>
-                              <span className="text-xs font-black text-amber-700">{fmt(grupo.valor)}</span>
-                            </div>
-                            {grupo.itens && grupo.itens.map((item, j) => (
-                              <div key={j} className="flex justify-between items-center pl-6 py-0.5">
-                                <span className="text-[10px] font-bold text-slate-400">
-                                  {item.vencimento ? new Date(item.vencimento + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}
-                                  {item.descricao && ` · ${item.descricao}`}
-                                </span>
-                                <span className="text-[10px] font-bold text-slate-600">{fmt(item.valor)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ))
-                      }
-                    </div>
-                  )}
-                </div>
+
 
                 {/* Contas Fixas Pendentes */}
                 <div>

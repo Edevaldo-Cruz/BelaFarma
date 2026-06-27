@@ -27,7 +27,6 @@ import {
   Database,
   Bell,
   AlertTriangle, // Added for Devedores menu item
-  Rocket, // Added for Foguete Amarelo
   FileText, // Added for Invoices
   Package, // Added for Consignados
   MessageSquare, // Added for Messaging Center
@@ -134,7 +133,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'safe', label: 'Cofre', icon: Lock },
     { id: 'backups', label: 'Backups', icon: Database },
     { id: 'quotations', label: 'Cotações', icon: MessageSquare },
-    { id: 'foguete-amarelo', label: 'Foguete Amarelo', icon: Rocket },
     { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart },
     { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
@@ -158,7 +156,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'foguete-amarelo', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

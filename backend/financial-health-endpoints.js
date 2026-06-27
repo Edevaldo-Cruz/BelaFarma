@@ -140,16 +140,6 @@ module.exports = function (app, db) {
         mediaComprasMensais = totalCompras90 / 3;
       } catch (e) { console.warn('[CaixaMinimo] orders:', e.message); }
 
-      // 4. Foguete Amarelo pendente
-      let foguetePendente = 0;
-      try {
-        const foguete = db.prepare(`
-          SELECT remaining_value FROM accounts_payable
-          WHERE is_foguete_amarelo = 1 AND status != 'Quitado' AND due_date <= ?
-        `).all(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
-        foguetePendente = foguete.reduce((a, f) => a + (f.remaining_value || 0), 0);
-      } catch (e) { console.warn('[CaixaMinimo] foguete:', e.message); }
-
       // 5. Saldo atual do cofre (safe_entries)
       let saldoCaixaAtual = 0;
       try {
@@ -159,7 +149,7 @@ module.exports = function (app, db) {
       } catch (e) { console.warn('[CaixaMinimo] safe_entries:', e.message); }
 
       // Cálculo
-      const totalBaseMensal = despesasFixasMensais + boletosAVencer30 + mediaComprasMensais + foguetePendente;
+      const totalBaseMensal = despesasFixasMensais + boletosAVencer30 + mediaComprasMensais;
       const caixaMinimo = (totalBaseMensal / 30) * DIAS_COBERTURA;
       const diferenca = saldoCaixaAtual - caixaMinimo;
 
@@ -177,7 +167,6 @@ module.exports = function (app, db) {
           despesasFixasMensais: Math.round(despesasFixasMensais * 100) / 100,
           boletosAVencer30dias: Math.round(boletosAVencer30 * 100) / 100,
           mediaComprasMensais: Math.round(mediaComprasMensais * 100) / 100,
-          foguetePendente30dias: Math.round(foguetePendente * 100) / 100,
           totalBaseMensal: Math.round(totalBaseMensal * 100) / 100,
         },
         detalhes: {
@@ -628,36 +617,6 @@ module.exports = function (app, db) {
       } catch (e) { console.warn('[Balancete] boletos:', e.message); }
 
       // 6. Foguete Amarelo (accounts_payable)
-      let fogueteTotalPendente = 0;
-      let fogueteDetalhes = [];
-      try {
-        const foguetes = db.prepare(`
-          SELECT supplier_name, due_date, remaining_value, status, description
-          FROM accounts_payable
-          WHERE is_foguete_amarelo = 1 AND status NOT IN ('Quitado', 'Pago')
-          ORDER BY due_date ASC
-        `).all();
-        fogueteTotalPendente = foguetes.reduce((a, f) => a + (f.remaining_value || 0), 0);
-
-        // Agrupar por fornecedor
-        const porFornecedor = {};
-        for (const f of foguetes) {
-          const key = f.supplier_name || 'Sem fornecedor';
-          if (!porFornecedor[key]) porFornecedor[key] = { valor: 0, qtd: 0, itens: [] };
-          porFornecedor[key].valor += f.remaining_value || 0;
-          porFornecedor[key].qtd += 1;
-          porFornecedor[key].itens.push({
-            vencimento: f.due_date,
-            valor: f.remaining_value,
-            descricao: f.description,
-          });
-        }
-        fogueteDetalhes = Object.entries(porFornecedor).map(([fornecedor, data]) => ({
-          fornecedor,
-          ...data,
-        })).sort((a, b) => b.valor - a.valor);
-      } catch (e) { console.warn('[Balancete] accounts_payable:', e.message); }
-
       // 7. Contas fixas pendentes
       let contasFixasTotalPendente = 0;
       let contasFixasDetalhes = [];
@@ -678,7 +637,7 @@ module.exports = function (app, db) {
         }));
       } catch (e) { console.warn('[Balancete] fixed_account_payments:', e.message); }
 
-      const totalPassivo = boletosTotalPendente + fogueteTotalPendente + contasFixasTotalPendente;
+      const totalPassivo = boletosTotalPendente + contasFixasTotalPendente;
 
       // ═══════════════════════════════════════════════════════════════════
       //  PATRIMÔNIO LÍQUIDO
@@ -717,10 +676,6 @@ module.exports = function (app, db) {
           boletos: {
             total: Math.round(boletosTotalPendente * 100) / 100,
             detalhes: boletosDetalhes,
-          },
-          fogueteAmarelo: {
-            total: Math.round(fogueteTotalPendente * 100) / 100,
-            detalhes: fogueteDetalhes,
           },
           contasFixas: {
             total: Math.round(contasFixasTotalPendente * 100) / 100,
@@ -838,22 +793,6 @@ async function buildSnapshot(db, days) {
     boletosPorFornecedor[key] = (boletosPorFornecedor[key] || 0) + (b.value || 0);
   }
 
-  // 4. Foguete Amarelo (accounts_payable)
-  let fogueteAmarelo = [];
-  try {
-    fogueteAmarelo = db.prepare(`
-      SELECT supplier_name, due_date, remaining_value, status
-      FROM accounts_payable
-      WHERE is_foguete_amarelo = 1 AND status != 'Quitado'
-      ORDER BY due_date
-    `).all();
-  } catch (e) {
-    console.warn('[FinancialHealth] accounts_payable query failed:', e.message);
-  }
-
-  const totalFoguete   = fogueteAmarelo.reduce((acc, f) => acc + (f.remaining_value || 0), 0);
-  const fogueteVencido = fogueteAmarelo.filter(f => f.due_date < today).reduce((acc, f) => acc + (f.remaining_value || 0), 0);
-
   // 5. Pedidos / Compras
   let orders = [];
   try {
@@ -909,7 +848,7 @@ async function buildSnapshot(db, days) {
   if (margemBruta < 0) margemBruta = 0;
   if (margemBruta > 100) margemBruta = 100;
 
-  const totalDespesasTotal = totalContasFixas + totalBoletosVencidos + totalBoletosAVencer + totalFoguete;
+  const totalDespesasTotal = totalContasFixas + totalBoletosVencidos + totalBoletosAVencer;
   const pontoEquilibrio = margemBruta > 0 ? totalContasFixas / (margemBruta / 100) : 0;
   
   const cmvProporcional = totalFaturamento * (1 - (margemBruta / 100));
@@ -931,7 +870,6 @@ async function buildSnapshot(db, days) {
       qtdVencidos: boletosVencidos.length, qtdAVencer: boletosAVencer.length,
       porFornecedor: boletosPorFornecedor,
     },
-    fogueteAmarelo: { total: totalFoguete, vencido: fogueteVencido, qtd: fogueteAmarelo.length },
     compras: { total: totalCompras, porDistribuidora: compraPorDistribuidora, qtdPedidos: orders.length },
     kpis: {
       margemBrutaPercent: margemBruta,
@@ -987,9 +925,6 @@ Vencidos: ${fmt(s.boletos.totalVencidos)} (${s.boletos.qtdVencidos} boletos URGE
 A vencer: ${fmt(s.boletos.totalAVencer)} (${s.boletos.qtdAVencer} boletos)
 Por fornecedor:
 ${fornecedoresBoletos}
-
-=== FOGUETE AMARELO (compras D+120) ===
-Saldo: ${fmt(s.fogueteAmarelo.total)} em ${s.fogueteAmarelo.qtd} título(s) | Vencido: ${fmt(s.fogueteAmarelo.vencido)}
 
 === COMPRAS ===
 Total comprado: ${fmt(s.compras.total)} em ${s.compras.qtdPedidos} pedido(s)
