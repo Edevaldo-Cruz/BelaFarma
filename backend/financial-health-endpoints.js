@@ -495,17 +495,39 @@ module.exports = function (app, db) {
         saldoCofre = result?.saldo || 0;
       } catch (e) { console.warn('[Balancete] safe_entries:', e.message); }
 
-      // 3. Estoque (stock_products)
+      // 3. Estoque (Digifarma com fallback para SQLite stock_products)
       let valorEstoque = 0;
       let qtdProdutosEstoque = 0;
+      let estoqueFonte = 'SQLite Local';
+
       try {
-        const estoque = db.prepare(`
-          SELECT COALESCE(SUM(cost_price * stock_qty), 0) AS valor_total, COUNT(*) AS qtd
-          FROM stock_products WHERE stock_qty > 0 AND cost_price IS NOT NULL
-        `).get();
-        valorEstoque = estoque?.valor_total || 0;
-        qtdProdutosEstoque = estoque?.qtd || 0;
-      } catch (e) { console.warn('[Balancete] stock_products:', e.message); }
+        const { queryDigifarma } = require('./services/digifarma.service');
+        const estoqueDigi = await queryDigifarma(`
+          SELECT 
+            COALESCE(SUM(p.PROD_SALDO * COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0)), 0) as VALOR_TOTAL,
+            COUNT(*) as QTD
+          FROM PRODUTOS p
+          WHERE p.PROD_ATIVO = 'S' AND p.PROD_SALDO > 0
+        `);
+        if (estoqueDigi && estoqueDigi.length > 0 && (estoqueDigi[0].VALOR_TOTAL || estoqueDigi[0].valor_total) > 0) {
+          valorEstoque = estoqueDigi[0].VALOR_TOTAL || estoqueDigi[0].valor_total || 0;
+          qtdProdutosEstoque = estoqueDigi[0].QTD || estoqueDigi[0].qtd || 0;
+          estoqueFonte = 'Digifarma (Real-time)';
+        }
+      } catch (e) {
+        console.warn('[Balancete] Erro ao buscar estoque no Digifarma (usando fallback do SQLite):', e.message);
+      }
+
+      if (valorEstoque === 0) {
+        try {
+          const estoque = db.prepare(`
+            SELECT COALESCE(SUM(cost_price * stock_qty), 0) AS valor_total, COUNT(*) AS qtd
+            FROM stock_products WHERE stock_qty > 0 AND cost_price IS NOT NULL
+          `).get();
+          valorEstoque = estoque?.valor_total || 0;
+          qtdProdutosEstoque = estoque?.qtd || 0;
+        } catch (e) { console.warn('[Balancete] stock_products:', e.message); }
+      }
 
       // 4. Crediário a receber — CRM local (customer_debts)
       let crediarioTotal = 0;
@@ -680,6 +702,7 @@ module.exports = function (app, db) {
           estoque: {
             valor: Math.round(valorEstoque * 100) / 100,
             qtdProdutos: qtdProdutosEstoque,
+            fonte: estoqueFonte,
           },
           crediario: {
             total: Math.round(crediarioFinal * 100) / 100,

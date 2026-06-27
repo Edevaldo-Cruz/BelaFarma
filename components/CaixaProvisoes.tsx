@@ -87,7 +87,7 @@ interface BalanceteData {
   ativo: {
     total: number;
     disponivel: { caixa: number; cofre: number; totalDisponivel: number; ultimoFechamento: string | null };
-    estoque: { valor: number; qtdProdutos: number };
+    estoque: { valor: number; qtdProdutos: number; fonte?: string };
     crediario: { total: number; fonte: string; detalhes: BalanceteDetalheItem[] };
   };
   passivo: {
@@ -995,6 +995,11 @@ export const CaixaProvisoes: React.FC = () => {
                       <span className="text-[10px] font-bold text-slate-400">
                         ({balanceteData.ativo.estoque.qtdProdutos} produtos)
                       </span>
+                      {balanceteData.ativo.estoque.fonte && (
+                        <span className="text-[9px] font-black px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full">
+                          {balanceteData.ativo.estoque.fonte}
+                        </span>
+                      )}
                     </div>
                     <span className="font-black text-violet-700">{fmt(balanceteData.ativo.estoque.valor)}</span>
                   </div>
