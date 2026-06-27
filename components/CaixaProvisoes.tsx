@@ -5,7 +5,8 @@ import {
   ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2,
   ShoppingBasket, RotateCcw, Receipt, DollarSign,
   ArrowUpRight, ArrowDownRight, Info, Package,
-  CreditCard, Landmark, QrCode, Banknote
+  CreditCard, Landmark, QrCode, Banknote, Scale,
+  ChevronDown, ChevronUp, Building2, Users, Archive
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -67,6 +68,38 @@ interface IndicadoresData {
   };
 }
 
+interface BalanceteDetalheItem {
+  fornecedor?: string;
+  cliente?: string;
+  nome?: string;
+  valor: number;
+  qtd?: number;
+  qtdCompras?: number;
+  status?: string;
+  vencimento?: string;
+  compraAntiga?: string;
+  itens?: { vencimento?: string; valor: number; status?: string; descricao?: string }[];
+}
+
+interface BalanceteData {
+  modo: 'atual' | 'mensal';
+  referencia: string;
+  ativo: {
+    total: number;
+    disponivel: { caixa: number; cofre: number; totalDisponivel: number; ultimoFechamento: string | null };
+    estoque: { valor: number; qtdProdutos: number };
+    crediario: { total: number; fonte: string; detalhes: BalanceteDetalheItem[] };
+  };
+  passivo: {
+    total: number;
+    boletos: { total: number; detalhes: BalanceteDetalheItem[] };
+    fogueteAmarelo: { total: number; detalhes: BalanceteDetalheItem[] };
+    contasFixas: { total: number; mes: string; detalhes: BalanceteDetalheItem[] };
+  };
+  patrimonioLiquido: number;
+  situacao: 'Saudável' | 'Atenção' | 'Crítico';
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmt = (v: number) =>
@@ -122,17 +155,23 @@ export const CaixaProvisoes: React.FC = () => {
   const { addToast } = useToast();
   const monthOptions = getMonthOptions();
 
-  const [activeTab, setActiveTab] = useState<'caixa' | 'dre' | 'indicadores'>('caixa');
+  const [activeTab, setActiveTab] = useState<'caixa' | 'dre' | 'indicadores' | 'balancete'>('caixa');
   const [period, setPeriod]   = useState(30);
   const [dreMonth, setDreMonth] = useState(monthOptions[0].val);
 
-  const [caixaData, setCaixaData]     = useState<CaixaMinimoData | null>(null);
-  const [dreData, setDreData]         = useState<DREData | null>(null);
-  const [indicData, setIndicData]     = useState<IndicadoresData | null>(null);
+  const [caixaData, setCaixaData]         = useState<CaixaMinimoData | null>(null);
+  const [dreData, setDreData]             = useState<DREData | null>(null);
+  const [indicData, setIndicData]         = useState<IndicadoresData | null>(null);
+  const [balanceteData, setBalanceteData] = useState<BalanceteData | null>(null);
 
-  const [loadingCaixa, setLoadingCaixa] = useState(false);
-  const [loadingDre, setLoadingDre]     = useState(false);
-  const [loadingIndic, setLoadingIndic] = useState(false);
+  const [loadingCaixa, setLoadingCaixa]       = useState(false);
+  const [loadingDre, setLoadingDre]           = useState(false);
+  const [loadingIndic, setLoadingIndic]       = useState(false);
+  const [loadingBalancete, setLoadingBalancete] = useState(false);
+
+  const [balanceteMode, setBalanceteMode] = useState<'atual' | 'mensal'>('atual');
+  const [balanceteMonth, setBalanceteMonth] = useState(monthOptions[0].val);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   // ── Fetchers ──────────────────────────────────────────────────────────────
 
@@ -169,10 +208,29 @@ export const CaixaProvisoes: React.FC = () => {
     } finally { setLoadingIndic(false); }
   }, [period, addToast]);
 
+  const fetchBalancete = useCallback(async () => {
+    setLoadingBalancete(true);
+    try {
+      const url = balanceteMode === 'atual'
+        ? '/api/financial-health/balancete'
+        : `/api/financial-health/balancete?month=${balanceteMonth}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error((await res.json()).error);
+      setBalanceteData(await res.json());
+    } catch (e: any) {
+      addToast(`❌ Balancete: ${e.message}`, 'error');
+    } finally { setLoadingBalancete(false); }
+  }, [balanceteMode, balanceteMonth, addToast]);
+
+  const toggleSection = (key: string) => {
+    setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
   // Load on mount and tab change
   useEffect(() => { fetchCaixa(); }, [fetchCaixa]);
   useEffect(() => { if (activeTab === 'dre') fetchDre(); }, [activeTab, fetchDre]);
   useEffect(() => { if (activeTab === 'indicadores') fetchIndicadores(); }, [activeTab, fetchIndicadores]);
+  useEffect(() => { if (activeTab === 'balancete') fetchBalancete(); }, [activeTab, fetchBalancete]);
 
   // ── Semaphore helper ──────────────────────────────────────────────────────
 
@@ -186,6 +244,7 @@ export const CaixaProvisoes: React.FC = () => {
     { id: 'caixa'       as const, label: '💰 Caixa Mínimo',   icon: Wallet    },
     { id: 'dre'         as const, label: '📊 DRE Mensal',      icon: Receipt   },
     { id: 'indicadores' as const, label: '📈 Indicadores',     icon: TrendingUp },
+    { id: 'balancete'   as const, label: '⚖️ Balancete',       icon: Scale     },
   ];
 
   return (
@@ -212,6 +271,7 @@ export const CaixaProvisoes: React.FC = () => {
               fetchCaixa();
               if (activeTab === 'dre') fetchDre();
               if (activeTab === 'indicadores') fetchIndicadores();
+              if (activeTab === 'balancete') fetchBalancete();
             }}
             className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/20 text-white rounded-2xl font-bold text-sm hover:bg-white/20 transition-all"
           >
@@ -498,7 +558,7 @@ export const CaixaProvisoes: React.FC = () => {
                   <div className="flex items-center justify-between px-8 py-3">
                     <div className="flex items-center gap-3 pl-4">
                       <ArrowDownRight className="w-4 h-4 text-red-300" />
-                      <span className="text-slate-500 text-xs font-bold">(-) Sangrias / Desp. Operacionais</span>
+                      <span className="text-slate-500 text-xs font-bold">(-) Despesas Operacionais</span>
                     </div>
                     <span className="font-bold text-red-500 text-sm">{fmt(dreData.dre.despesasOperacionais)}</span>
                   </div>
@@ -729,6 +789,442 @@ export const CaixaProvisoes: React.FC = () => {
             <div className="text-center py-12 text-slate-400">
               <TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p className="font-bold">Não foi possível carregar os indicadores</p>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ═══════════════════════════════════════════════════════════════════
+          TAB: BALANCETE PATRIMONIAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'balancete' && (
+        <div className="space-y-5 animate-in slide-in-from-right-4 duration-300">
+          {/* Seletor Atual vs Mensal */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex bg-slate-100 border border-slate-200 rounded-2xl p-1 gap-1">
+              <button
+                onClick={() => setBalanceteMode('atual')}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                  balanceteMode === 'atual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                📸 Atual
+              </button>
+              <button
+                onClick={() => setBalanceteMode('mensal')}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                  balanceteMode === 'mensal' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                📅 Mensal
+              </button>
+            </div>
+            {balanceteMode === 'mensal' && (
+              <>
+                <button
+                  onClick={() => {
+                    const idx = monthOptions.findIndex(m => m.val === balanceteMonth);
+                    if (idx < monthOptions.length - 1) setBalanceteMonth(monthOptions[idx + 1].val);
+                  }}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4 text-slate-600" />
+                </button>
+                <select
+                  value={balanceteMonth}
+                  onChange={e => setBalanceteMonth(e.target.value)}
+                  className="flex-1 bg-white border border-slate-200 rounded-2xl px-5 py-3 font-black text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  {monthOptions.map(m => (
+                    <option key={m.val} value={m.val}>{m.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    const idx = monthOptions.findIndex(m => m.val === balanceteMonth);
+                    if (idx > 0) setBalanceteMonth(monthOptions[idx - 1].val);
+                  }}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4 text-slate-600" />
+                </button>
+              </>
+            )}
+            <button onClick={fetchBalancete} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors">
+              <RefreshCw className="w-4 h-4 text-slate-600" />
+            </button>
+          </div>
+
+          {loadingBalancete ? (
+            <div className="flex items-center justify-center h-60">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            </div>
+          ) : balanceteData ? (
+            <>
+              {/* ── Resumo Principal ────────────────────────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Total Ativo */}
+                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-[2rem] border border-emerald-200 p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Ativo</p>
+                  </div>
+                  <p className="text-3xl font-black text-emerald-800">{fmt(balanceteData.ativo.total)}</p>
+                  <p className="text-[10px] text-emerald-600 font-bold mt-1">O que a farmácia TEM</p>
+                </div>
+
+                {/* Total Passivo */}
+                <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-[2rem] border border-red-200 p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center">
+                      <TrendingDown className="w-5 h-5 text-red-600" />
+                    </div>
+                    <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Total Passivo</p>
+                  </div>
+                  <p className="text-3xl font-black text-red-800">{fmt(balanceteData.passivo.total)}</p>
+                  <p className="text-[10px] text-red-600 font-bold mt-1">O que a farmácia DEVE</p>
+                </div>
+
+                {/* Patrimônio Líquido */}
+                {(() => {
+                  const cfg = situacaoConfig(balanceteData.situacao);
+                  return (
+                    <div className={`rounded-[2rem] border p-6 shadow-sm ${cfg.bg} ${cfg.border}`}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${balanceteData.patrimonioLiquido >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                          <Scale className={`w-5 h-5 ${balanceteData.patrimonioLiquido >= 0 ? 'text-emerald-600' : 'text-red-600'}`} />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'inherit' }}>Patrimônio Líquido</p>
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${cfg.badge}`}>{balanceteData.situacao}</span>
+                        </div>
+                      </div>
+                      <p className={`text-3xl font-black ${balanceteData.patrimonioLiquido >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                        {fmt(balanceteData.patrimonioLiquido)}
+                      </p>
+                      <p className="text-[10px] font-bold mt-1 opacity-70">Ativo − Passivo</p>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* ── Barra Visual Proporção ──────────────────────────── */}
+              {(balanceteData.ativo.total > 0 || balanceteData.passivo.total > 0) && (
+                <div className="bg-white rounded-[1.5rem] border border-slate-200 shadow-sm p-5">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Proporção Ativo vs Passivo</p>
+                  <div className="flex rounded-full overflow-hidden h-4 bg-slate-100">
+                    <div
+                      className="bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700 rounded-l-full"
+                      style={{ width: `${Math.min(100, Math.max(2, (balanceteData.ativo.total / (balanceteData.ativo.total + balanceteData.passivo.total)) * 100))}%` }}
+                    />
+                    <div
+                      className="bg-gradient-to-r from-red-400 to-red-500 transition-all duration-700 rounded-r-full"
+                      style={{ width: `${Math.min(100, Math.max(2, (balanceteData.passivo.total / (balanceteData.ativo.total + balanceteData.passivo.total)) * 100))}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-[10px] font-black text-emerald-600">
+                      Ativo {((balanceteData.ativo.total / (balanceteData.ativo.total + balanceteData.passivo.total)) * 100).toFixed(0)}%
+                    </span>
+                    <span className="text-[10px] font-black text-red-600">
+                      Passivo {((balanceteData.passivo.total / (balanceteData.ativo.total + balanceteData.passivo.total)) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ═══════════════════════════════════════════════════════
+                  ATIVO
+              ═══════════════════════════════════════════════════════ */}
+              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-8 py-5 border-b border-slate-100 bg-emerald-50">
+                  <div className="flex items-center gap-3">
+                    <TrendingUp className="w-5 h-5 text-emerald-600" />
+                    <h3 className="font-black text-slate-900 uppercase tracking-tighter text-base">Ativo</h3>
+                    <span className="ml-auto text-lg font-black text-emerald-700">{fmt(balanceteData.ativo.total)}</span>
+                  </div>
+                </div>
+
+                {/* Disponível (Caixa + Cofre) */}
+                <div className="border-b border-slate-50">
+                  <button
+                    onClick={() => toggleSection('disponivel')}
+                    className="w-full flex items-center justify-between px-8 py-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Wallet className="w-4 h-4 text-blue-500" />
+                      <span className="font-black text-slate-900 text-sm">Disponível (Caixa + Cofre)</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-blue-700">{fmt(balanceteData.ativo.disponivel.totalDisponivel)}</span>
+                      {expandedSections['disponivel'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </div>
+                  </button>
+                  {expandedSections['disponivel'] && (
+                    <div className="px-8 pb-4 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                      <div className="flex justify-between items-center pl-7">
+                        <div className="flex items-center gap-2">
+                          <Banknote className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="text-xs text-slate-600 font-bold">Caixa (Gaveta)</span>
+                        </div>
+                        <span className="text-xs font-black text-slate-900">{fmt(balanceteData.ativo.disponivel.caixa)}</span>
+                      </div>
+                      <div className="flex justify-between items-center pl-7">
+                        <div className="flex items-center gap-2">
+                          <Archive className="w-3.5 h-3.5 text-indigo-500" />
+                          <span className="text-xs text-slate-600 font-bold">Cofre</span>
+                        </div>
+                        <span className="text-xs font-black text-slate-900">{fmt(balanceteData.ativo.disponivel.cofre)}</span>
+                      </div>
+                      {balanceteData.ativo.disponivel.ultimoFechamento && (
+                        <p className="text-[10px] text-slate-400 font-bold pl-7 mt-1">
+                          Último fechamento: {new Date(balanceteData.ativo.disponivel.ultimoFechamento + 'T12:00:00').toLocaleDateString('pt-BR')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Estoque */}
+                <div className="border-b border-slate-50">
+                  <div className="flex items-center justify-between px-8 py-4">
+                    <div className="flex items-center gap-3">
+                      <Package className="w-4 h-4 text-violet-500" />
+                      <span className="font-black text-slate-900 text-sm">Estoque</span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        ({balanceteData.ativo.estoque.qtdProdutos} produtos)
+                      </span>
+                    </div>
+                    <span className="font-black text-violet-700">{fmt(balanceteData.ativo.estoque.valor)}</span>
+                  </div>
+                </div>
+
+                {/* Crediário a Receber */}
+                <div className="border-b border-slate-50">
+                  <button
+                    onClick={() => toggleSection('crediario')}
+                    className="w-full flex items-center justify-between px-8 py-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Users className="w-4 h-4 text-amber-500" />
+                      <span className="font-black text-slate-900 text-sm">Crediário a Receber</span>
+                      <span className="text-[9px] font-black px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
+                        {balanceteData.ativo.crediario.fonte}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-amber-700">{fmt(balanceteData.ativo.crediario.total)}</span>
+                      {expandedSections['crediario'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </div>
+                  </button>
+                  {expandedSections['crediario'] && (
+                    <div className="px-8 pb-4 space-y-2 max-h-64 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      {balanceteData.ativo.crediario.detalhes.length === 0
+                        ? <p className="text-xs text-slate-400 text-center py-2">Nenhum crediário pendente</p>
+                        : balanceteData.ativo.crediario.detalhes.map((d, i) => (
+                          <div key={i} className="flex justify-between items-center pl-7">
+                            <div>
+                              <p className="text-xs text-slate-700 font-bold">{d.cliente}</p>
+                              <p className="text-[10px] text-slate-400 font-bold">
+                                {d.qtdCompras} compra(s)
+                                {d.compraAntiga && ` · desde ${new Date(d.compraAntiga + 'T12:00:00').toLocaleDateString('pt-BR')}`}
+                              </p>
+                            </div>
+                            <span className="text-xs font-black text-amber-700">{fmt(d.valor)}</span>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ═══════════════════════════════════════════════════════
+                  PASSIVO
+              ═══════════════════════════════════════════════════════ */}
+              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-8 py-5 border-b border-slate-100 bg-red-50">
+                  <div className="flex items-center gap-3">
+                    <TrendingDown className="w-5 h-5 text-red-600" />
+                    <h3 className="font-black text-slate-900 uppercase tracking-tighter text-base">Passivo</h3>
+                    <span className="ml-auto text-lg font-black text-red-700">{fmt(balanceteData.passivo.total)}</span>
+                  </div>
+                </div>
+
+                {/* Boletos Pendentes */}
+                <div className="border-b border-slate-50">
+                  <button
+                    onClick={() => toggleSection('boletos')}
+                    className="w-full flex items-center justify-between px-8 py-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Receipt className="w-4 h-4 text-red-500" />
+                      <span className="font-black text-slate-900 text-sm">Boletos Pendentes</span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        ({balanceteData.passivo.boletos.detalhes.reduce((a, d) => a + (d.qtd || 0), 0)} boletos)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-red-700">{fmt(balanceteData.passivo.boletos.total)}</span>
+                      {expandedSections['boletos'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </div>
+                  </button>
+                  {expandedSections['boletos'] && (
+                    <div className="px-8 pb-4 space-y-3 max-h-80 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      {balanceteData.passivo.boletos.detalhes.length === 0
+                        ? <p className="text-xs text-slate-400 text-center py-2 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Nenhum boleto pendente</p>
+                        : balanceteData.passivo.boletos.detalhes.map((grupo, i) => (
+                          <div key={i} className="pl-7">
+                            <div className="flex justify-between items-center mb-1">
+                              <div className="flex items-center gap-2">
+                                <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-black text-slate-800">{grupo.fornecedor}</span>
+                                <span className="text-[9px] font-bold text-slate-400">({grupo.qtd})</span>
+                              </div>
+                              <span className="text-xs font-black text-red-700">{fmt(grupo.valor)}</span>
+                            </div>
+                            {grupo.itens && grupo.itens.map((item, j) => (
+                              <div key={j} className="flex justify-between items-center pl-6 py-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[10px] font-bold ${item.status === 'Vencido' ? 'text-red-500' : 'text-slate-400'}`}>
+                                    {item.vencimento ? new Date(item.vencimento + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}
+                                  </span>
+                                  {item.status === 'Vencido' && (
+                                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full">VENCIDO</span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-600">{fmt(item.valor)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+
+                {/* Foguete Amarelo */}
+                <div className="border-b border-slate-50">
+                  <button
+                    onClick={() => toggleSection('foguete')}
+                    className="w-full flex items-center justify-between px-8 py-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Package className="w-4 h-4 text-amber-500" />
+                      <span className="font-black text-slate-900 text-sm">Foguete Amarelo (D+120)</span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        ({balanceteData.passivo.fogueteAmarelo.detalhes.reduce((a, d) => a + (d.qtd || 0), 0)} títulos)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-amber-700">{fmt(balanceteData.passivo.fogueteAmarelo.total)}</span>
+                      {expandedSections['foguete'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </div>
+                  </button>
+                  {expandedSections['foguete'] && (
+                    <div className="px-8 pb-4 space-y-3 max-h-64 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      {balanceteData.passivo.fogueteAmarelo.detalhes.length === 0
+                        ? <p className="text-xs text-slate-400 text-center py-2 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Sem títulos Foguete pendentes</p>
+                        : balanceteData.passivo.fogueteAmarelo.detalhes.map((grupo, i) => (
+                          <div key={i} className="pl-7">
+                            <div className="flex justify-between items-center mb-1">
+                              <div className="flex items-center gap-2">
+                                <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-black text-slate-800">{grupo.fornecedor}</span>
+                                <span className="text-[9px] font-bold text-slate-400">({grupo.qtd})</span>
+                              </div>
+                              <span className="text-xs font-black text-amber-700">{fmt(grupo.valor)}</span>
+                            </div>
+                            {grupo.itens && grupo.itens.map((item, j) => (
+                              <div key={j} className="flex justify-between items-center pl-6 py-0.5">
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  {item.vencimento ? new Date(item.vencimento + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}
+                                  {item.descricao && ` · ${item.descricao}`}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-600">{fmt(item.valor)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+
+                {/* Contas Fixas Pendentes */}
+                <div>
+                  <button
+                    onClick={() => toggleSection('contasFixas')}
+                    className="w-full flex items-center justify-between px-8 py-4 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Landmark className="w-4 h-4 text-blue-500" />
+                      <span className="font-black text-slate-900 text-sm">Contas Fixas Pendentes</span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        ({balanceteData.passivo.contasFixas.detalhes.length} contas · {balanceteData.passivo.contasFixas.mes})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-blue-700">{fmt(balanceteData.passivo.contasFixas.total)}</span>
+                      {expandedSections['contasFixas'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </div>
+                  </button>
+                  {expandedSections['contasFixas'] && (
+                    <div className="px-8 pb-4 space-y-2 max-h-64 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      {balanceteData.passivo.contasFixas.detalhes.length === 0
+                        ? <p className="text-xs text-slate-400 text-center py-2 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4 text-emerald-400" /> Todas as contas fixas foram pagas</p>
+                        : balanceteData.passivo.contasFixas.detalhes.map((c, i) => (
+                          <div key={i} className="flex justify-between items-center pl-7">
+                            <div>
+                              <p className="text-xs text-slate-700 font-bold">{c.nome}</p>
+                              <p className="text-[10px] text-slate-400 font-bold">
+                                {c.vencimento ? `Vence: ${new Date(c.vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}` : ''}
+                                {c.status && ` · ${c.status}`}
+                              </p>
+                            </div>
+                            <span className="text-xs font-black text-blue-700">{fmt(c.valor)}</span>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ═══════════════════════════════════════════════════════
+                  PATRIMÔNIO LÍQUIDO (Rodapé)
+              ═══════════════════════════════════════════════════════ */}
+              <div className={`rounded-[2rem] border shadow-sm overflow-hidden ${
+                balanceteData.patrimonioLiquido >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
+              }`}>
+                <div className="px-8 py-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <Scale className={`w-8 h-8 ${balanceteData.patrimonioLiquido >= 0 ? 'text-emerald-600' : 'text-red-600'}`} />
+                      <div>
+                        <h3 className="font-black text-slate-900 uppercase tracking-tighter text-base">Patrimônio Líquido</h3>
+                        <p className="text-[10px] text-slate-500 font-bold">
+                          {fmt(balanceteData.ativo.total)} (Ativo) − {fmt(balanceteData.passivo.total)} (Passivo)
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-4xl font-black ${balanceteData.patrimonioLiquido >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                        {fmt(balanceteData.patrimonioLiquido)}
+                      </p>
+                      <p className="text-[10px] font-bold mt-1 opacity-60">
+                        {balanceteData.modo === 'atual' ? 'Snapshot atual' : `Ref.: ${balanceteData.referencia}`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              <Scale className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-bold">Não foi possível carregar o balancete</p>
             </div>
           )}
         </div>

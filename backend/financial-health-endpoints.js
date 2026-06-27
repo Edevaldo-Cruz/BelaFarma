@@ -438,6 +438,281 @@ module.exports = function (app, db) {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/financial-health/balancete?month=2026-06
+  // Balancete Patrimonial simplificado
+  // Sem month = snapshot atual | Com month = histórico mensal
+  // ─────────────────────────────────────────────────────────────────────────
+  app.get('/api/financial-health/balancete', async (req, res) => {
+    try {
+      const month = req.query.month; // undefined = snapshot atual
+      const isSnapshot = !month;
+      const today = new Date().toISOString().split('T')[0];
+
+      let endDate = today;
+      let startDate = null;
+      if (month) {
+        const [year, mon] = month.split('-');
+        startDate = `${month}-01`;
+        const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate();
+        endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      //  ATIVO
+      // ═══════════════════════════════════════════════════════════════════
+
+      // 1. Caixa (gaveta) — último fechamento
+      let saldoCaixa = 0;
+      let ultimoFechamento = null;
+      try {
+        const query = month
+          ? `SELECT date, totalInDrawer, safeDeposit FROM cash_closings WHERE date >= ? AND date <= ? ORDER BY date DESC LIMIT 1`
+          : `SELECT date, totalInDrawer, safeDeposit FROM cash_closings ORDER BY date DESC LIMIT 1`;
+        const params = month ? [startDate, endDate] : [];
+        const last = db.prepare(query).get(...params);
+        if (last) {
+          // O saldo do caixa é o que restou na gaveta após o depósito no cofre
+          saldoCaixa = (last.totalInDrawer || 0) - (last.safeDeposit || 0);
+          if (saldoCaixa < 0) saldoCaixa = 0;
+          ultimoFechamento = last.date;
+        }
+      } catch (e) { console.warn('[Balancete] cash_closings:', e.message); }
+
+      // 2. Cofre (safe_entries)
+      let saldoCofre = 0;
+      try {
+        const query = month
+          ? `SELECT 
+               COALESCE(SUM(CASE WHEN type = 'Entrada' THEN value ELSE 0 END), 0) -
+               COALESCE(SUM(CASE WHEN type = 'Saída' THEN value ELSE 0 END), 0) as saldo
+             FROM safe_entries WHERE date <= ?`
+          : `SELECT 
+               COALESCE(SUM(CASE WHEN type = 'Entrada' THEN value ELSE 0 END), 0) -
+               COALESCE(SUM(CASE WHEN type = 'Saída' THEN value ELSE 0 END), 0) as saldo
+             FROM safe_entries`;
+        const params = month ? [endDate] : [];
+        const result = db.prepare(query).get(...params);
+        saldoCofre = result?.saldo || 0;
+      } catch (e) { console.warn('[Balancete] safe_entries:', e.message); }
+
+      // 3. Estoque (stock_products)
+      let valorEstoque = 0;
+      let qtdProdutosEstoque = 0;
+      try {
+        const estoque = db.prepare(`
+          SELECT COALESCE(SUM(cost_price * stock_qty), 0) AS valor_total, COUNT(*) AS qtd
+          FROM stock_products WHERE stock_qty > 0 AND cost_price IS NOT NULL
+        `).get();
+        valorEstoque = estoque?.valor_total || 0;
+        qtdProdutosEstoque = estoque?.qtd || 0;
+      } catch (e) { console.warn('[Balancete] stock_products:', e.message); }
+
+      // 4. Crediário a receber — CRM local (customer_debts)
+      let crediarioTotal = 0;
+      let crediarioDetalhes = [];
+      try {
+        const debts = db.prepare(`
+          SELECT cd.customerId, c.name as clientName, c.nickname,
+                 SUM(cd.totalValue) as totalDevido, COUNT(*) as qtdCompras,
+                 MIN(cd.purchaseDate) as compraAntiga
+          FROM customer_debts cd
+          LEFT JOIN customers c ON cd.customerId = c.id
+          WHERE cd.status IN ('Pendente', 'Atrasado')
+          GROUP BY cd.customerId
+          ORDER BY totalDevido DESC
+        `).all();
+        crediarioTotal = debts.reduce((a, d) => a + (d.totalDevido || 0), 0);
+        crediarioDetalhes = debts.map(d => ({
+          cliente: d.clientName || d.nickname || 'Desconhecido',
+          valor: d.totalDevido || 0,
+          qtdCompras: d.qtdCompras || 0,
+          compraAntiga: d.compraAntiga,
+        }));
+      } catch (e) { console.warn('[Balancete] customer_debts:', e.message); }
+
+      // 4b. Crediário Digifarma (tentativa)
+      let crediarioDigifarma = 0;
+      let crediarioDigifarmaDetalhes = [];
+      try {
+        const { queryDigifarma } = require('./services/digifarma.service');
+        const digiCrediario = await queryDigifarma(`
+          SELECT
+            cli.CLIENTE as clientName,
+            SUM(c.FICHARIO_VALOR) as totalDevido,
+            COUNT(*) as qtdCompras,
+            MIN(c.FICHARIO_DATACOMPRA) as compraAntiga
+          FROM FICHARIO c
+          LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
+          GROUP BY cli.CLIENTE
+          ORDER BY 2 DESC
+        `, []);
+        if (digiCrediario && digiCrediario.length > 0) {
+          crediarioDigifarma = digiCrediario.reduce((a, d) => a + (d.TOTALDEVIDO || d.totalDevido || 0), 0);
+          crediarioDigifarmaDetalhes = digiCrediario.map(d => ({
+            cliente: d.CLIENTNAME || d.clientName || 'Desconhecido',
+            valor: d.TOTALDEVIDO || d.totalDevido || 0,
+            qtdCompras: d.QTDCOMPRAS || d.qtdCompras || 0,
+            compraAntiga: d.COMPRAANTIGA || d.compraAntiga,
+          }));
+        }
+      } catch (e) { console.warn('[Balancete] crediario Digifarma (fallback CRM local):', e.message); }
+
+      // Usar Digifarma se disponível, senão CRM local
+      const crediarioFinal = crediarioDigifarma > 0 ? crediarioDigifarma : crediarioTotal;
+      const crediarioDetalhesFinal = crediarioDigifarmaDetalhes.length > 0
+        ? crediarioDigifarmaDetalhes : crediarioDetalhes;
+      const fonteCrediario = crediarioDigifarma > 0 ? 'Digifarma' : 'CRM Local';
+
+      const totalAtivo = saldoCaixa + saldoCofre + valorEstoque + crediarioFinal;
+
+      // ═══════════════════════════════════════════════════════════════════
+      //  PASSIVO
+      // ═══════════════════════════════════════════════════════════════════
+
+      // 5. Boletos pendentes
+      let boletosTotalPendente = 0;
+      let boletosDetalhes = [];
+      try {
+        const filterClause = month
+          ? `WHERE status IN ('Pendente', 'Vencido') AND due_date <= ?`
+          : `WHERE status IN ('Pendente', 'Vencido')`;
+        const params = month ? [endDate] : [];
+        const boletos = db.prepare(`
+          SELECT supplierName, due_date, value, status
+          FROM boletos ${filterClause}
+          ORDER BY due_date ASC
+        `).all(...params);
+        boletosTotalPendente = boletos.reduce((a, b) => a + (b.value || 0), 0);
+
+        // Agrupar por fornecedor
+        const porFornecedor = {};
+        for (const b of boletos) {
+          const key = b.supplierName || 'Sem fornecedor';
+          if (!porFornecedor[key]) porFornecedor[key] = { valor: 0, qtd: 0, itens: [] };
+          porFornecedor[key].valor += b.value || 0;
+          porFornecedor[key].qtd += 1;
+          porFornecedor[key].itens.push({
+            vencimento: b.due_date,
+            valor: b.value,
+            status: b.status,
+          });
+        }
+        boletosDetalhes = Object.entries(porFornecedor).map(([fornecedor, data]) => ({
+          fornecedor,
+          ...data,
+        })).sort((a, b) => b.valor - a.valor);
+      } catch (e) { console.warn('[Balancete] boletos:', e.message); }
+
+      // 6. Foguete Amarelo (accounts_payable)
+      let fogueteTotalPendente = 0;
+      let fogueteDetalhes = [];
+      try {
+        const foguetes = db.prepare(`
+          SELECT supplier_name, due_date, remaining_value, status, description
+          FROM accounts_payable
+          WHERE is_foguete_amarelo = 1 AND status NOT IN ('Quitado', 'Pago')
+          ORDER BY due_date ASC
+        `).all();
+        fogueteTotalPendente = foguetes.reduce((a, f) => a + (f.remaining_value || 0), 0);
+
+        // Agrupar por fornecedor
+        const porFornecedor = {};
+        for (const f of foguetes) {
+          const key = f.supplier_name || 'Sem fornecedor';
+          if (!porFornecedor[key]) porFornecedor[key] = { valor: 0, qtd: 0, itens: [] };
+          porFornecedor[key].valor += f.remaining_value || 0;
+          porFornecedor[key].qtd += 1;
+          porFornecedor[key].itens.push({
+            vencimento: f.due_date,
+            valor: f.remaining_value,
+            descricao: f.description,
+          });
+        }
+        fogueteDetalhes = Object.entries(porFornecedor).map(([fornecedor, data]) => ({
+          fornecedor,
+          ...data,
+        })).sort((a, b) => b.valor - a.valor);
+      } catch (e) { console.warn('[Balancete] accounts_payable:', e.message); }
+
+      // 7. Contas fixas pendentes
+      let contasFixasTotalPendente = 0;
+      let contasFixasDetalhes = [];
+      try {
+        const queryMonth = month || new Date().toISOString().slice(0, 7);
+        const fixeds = db.prepare(`
+          SELECT fixedAccountName, value, status, dueDate
+          FROM fixed_account_payments
+          WHERE month = ? AND status != 'Pago'
+          ORDER BY dueDate ASC
+        `).all(queryMonth);
+        contasFixasTotalPendente = fixeds.reduce((a, f) => a + (f.value || 0), 0);
+        contasFixasDetalhes = fixeds.map(f => ({
+          nome: f.fixedAccountName,
+          valor: f.value,
+          status: f.status,
+          vencimento: f.dueDate,
+        }));
+      } catch (e) { console.warn('[Balancete] fixed_account_payments:', e.message); }
+
+      const totalPassivo = boletosTotalPendente + fogueteTotalPendente + contasFixasTotalPendente;
+
+      // ═══════════════════════════════════════════════════════════════════
+      //  PATRIMÔNIO LÍQUIDO
+      // ═══════════════════════════════════════════════════════════════════
+      const patrimonioLiquido = totalAtivo - totalPassivo;
+
+      // Situação
+      let situacao = 'Saudável';
+      if (patrimonioLiquido < 0) situacao = 'Crítico';
+      else if (patrimonioLiquido < totalAtivo * 0.15) situacao = 'Atenção';
+
+      res.json({
+        modo: isSnapshot ? 'atual' : 'mensal',
+        referencia: isSnapshot ? today : month,
+        ativo: {
+          total: Math.round(totalAtivo * 100) / 100,
+          disponivel: {
+            caixa: Math.round(saldoCaixa * 100) / 100,
+            cofre: Math.round(saldoCofre * 100) / 100,
+            totalDisponivel: Math.round((saldoCaixa + saldoCofre) * 100) / 100,
+            ultimoFechamento,
+          },
+          estoque: {
+            valor: Math.round(valorEstoque * 100) / 100,
+            qtdProdutos: qtdProdutosEstoque,
+          },
+          crediario: {
+            total: Math.round(crediarioFinal * 100) / 100,
+            fonte: fonteCrediario,
+            detalhes: crediarioDetalhesFinal,
+          },
+        },
+        passivo: {
+          total: Math.round(totalPassivo * 100) / 100,
+          boletos: {
+            total: Math.round(boletosTotalPendente * 100) / 100,
+            detalhes: boletosDetalhes,
+          },
+          fogueteAmarelo: {
+            total: Math.round(fogueteTotalPendente * 100) / 100,
+            detalhes: fogueteDetalhes,
+          },
+          contasFixas: {
+            total: Math.round(contasFixasTotalPendente * 100) / 100,
+            mes: month || new Date().toISOString().slice(0, 7),
+            detalhes: contasFixasDetalhes,
+          },
+        },
+        patrimonioLiquido: Math.round(patrimonioLiquido * 100) / 100,
+        situacao,
+      });
+    } catch (err) {
+      console.error('[Balancete] Erro:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // POST /api/financial-health/chat
   // ─────────────────────────────────────────────────────────────────────────
   app.post('/api/financial-health/chat', async (req, res) => {
@@ -676,7 +951,7 @@ DADOS FINANCEIROS — ÚLTIMOS ${days} DIAS:
 Total: ${fmt(s.faturamento.total)}
 Média diária: ${fmt(s.faturamento.mediaDiaria)} (${s.faturamento.diasComFechamento} dias com fechamento)
 Cartão crédito: ${fmt(s.faturamento.credito)} | Débito: ${fmt(s.faturamento.debito)} | PIX: ${fmt(s.faturamento.pix)}
-Despesas operacionais (sangrias): ${fmt(s.faturamento.despesasOperacionais)}
+Despesas operacionais do caixa: ${fmt(s.faturamento.despesasOperacionais)}
 
 === CONTAS FIXAS (MÊS ATUAL) ===
 Total: ${fmt(s.contasFixas.total)} | Pagas: ${fmt(s.contasFixas.pagas)} | Pendentes: ${fmt(s.contasFixas.pendentes)}
