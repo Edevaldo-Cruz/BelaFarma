@@ -519,25 +519,27 @@ export const CaixaProvisoes: React.FC = () => {
                   <div className="flex items-center justify-between px-8 py-4 bg-emerald-50">
                     <div className="flex items-center gap-3">
                       <TrendingUp className="w-4 h-4 text-emerald-600" />
-                      <span className="font-black text-slate-900 text-sm">Receita Bruta</span>
+                      <span className="font-black text-slate-900 text-sm">Receita Bruta (Entradas de Caixa)</span>
                     </div>
                     <span className="font-black text-emerald-700 text-lg">{fmt(dreData.dre.receitaBruta)}</span>
                   </div>
 
-                  {/* CMV */}
-                  <div className="flex items-center justify-between px-8 py-4">
-                    <div className="flex items-center gap-3 pl-4">
-                      <ArrowDownRight className="w-4 h-4 text-red-400" />
-                      <span className="font-bold text-slate-600 text-sm">(-) CMV (Custo das Mercadorias Vendidas)</span>
+                  {/* Boletos Pagos (Fornecedores/Compras) */}
+                  {dreData.dre.boletosPagos > 0 && (
+                    <div className="flex items-center justify-between px-8 py-4">
+                      <div className="flex items-center gap-3 pl-4">
+                        <ArrowDownRight className="w-4 h-4 text-red-400" />
+                        <span className="font-bold text-slate-600 text-sm">(-) Boletos Pagos (Compras/Fornecedores)</span>
+                      </div>
+                      <span className="font-black text-red-600">{fmt(dreData.dre.boletosPagos)}</span>
                     </div>
-                    <span className="font-black text-red-600">{fmt(dreData.dre.cmv)}</span>
-                  </div>
+                  )}
 
-                  {/* Lucro Bruto */}
+                  {/* Sobra Bruta de Caixa */}
                   <div className="flex items-center justify-between px-8 py-4 bg-blue-50">
                     <div className="flex items-center gap-3">
                       <DollarSign className="w-4 h-4 text-blue-600" />
-                      <span className="font-black text-slate-900 text-sm">= Lucro Bruto</span>
+                      <span className="font-black text-slate-900 text-sm">= Sobra Bruta de Caixa</span>
                       <span className="text-[10px] font-black px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
                         {pct(dreData.dre.margemBruta)} de margem
                       </span>
@@ -563,25 +565,14 @@ export const CaixaProvisoes: React.FC = () => {
                     <span className="font-bold text-red-500 text-sm">{fmt(dreData.dre.despesasOperacionais)}</span>
                   </div>
 
-                  {/* Boletos Pagos */}
-                  {dreData.dre.boletosPagos > 0 && (
-                    <div className="flex items-center justify-between px-8 py-3">
-                      <div className="flex items-center gap-3 pl-4">
-                        <ArrowDownRight className="w-4 h-4 text-red-300" />
-                        <span className="text-slate-500 text-xs font-bold">(-) Boletos Pagos no Mês</span>
-                      </div>
-                      <span className="font-bold text-red-500 text-sm">{fmt(dreData.dre.boletosPagos)}</span>
-                    </div>
-                  )}
-
-                  {/* Lucro Líquido */}
+                  {/* Resultado Líquido de Caixa */}
                   <div className={`flex items-center justify-between px-8 py-5 ${dreData.dre.lucroLiquido >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
                     <div className="flex items-center gap-3">
                       {dreData.dre.lucroLiquido >= 0
                         ? <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                         : <AlertTriangle className="w-5 h-5 text-red-600" />
                       }
-                      <span className="font-black text-slate-900 text-base">= Lucro Líquido</span>
+                      <span className="font-black text-slate-900 text-base">= Resultado Líquido (Caixa)</span>
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${dreData.dre.lucroLiquido >= 0 ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
                         {pct(dreData.dre.margemLiquida)} de margem
                       </span>
@@ -589,6 +580,15 @@ export const CaixaProvisoes: React.FC = () => {
                     <span className={`font-black text-2xl ${dreData.dre.lucroLiquido >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                       {fmt(dreData.dre.lucroLiquido)}
                     </span>
+                  </div>
+
+                  {/* CMV Informativo (Não deduzido no Regime de Caixa) */}
+                  <div className="flex items-center justify-between px-8 py-3 bg-slate-50 border-t border-slate-100">
+                    <div className="flex items-center gap-3 pl-4">
+                      <Info className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="text-slate-500 text-xs font-bold">CMV Real do Período (Apenas Informativo - Competência)</span>
+                    </div>
+                    <span className="font-bold text-slate-500 text-sm">{fmt(dreData.dre.cmv)}</span>
                   </div>
                 </div>
               </div>

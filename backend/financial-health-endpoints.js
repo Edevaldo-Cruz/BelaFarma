@@ -276,19 +276,21 @@ module.exports = function (app, db) {
         listaBoletos = boletos.map(b => ({ fornecedor: b.supplierName, valor: b.value }));
       } catch (e) { console.warn('[DRE] boletos pagos:', e.message); }
 
-      // Cálculos DRE
-      const lucroBase = usouCMVReal ? totalVendaDigifarma : receitaBruta;
-      const lucroBruto = lucroBase - cmv;
-      const margemBruta = lucroBase > 0 ? (lucroBruto / lucroBase) * 100 : 0;
+      // Cálculos DRE (Regime de Caixa)
+      const receitaTotal = receitaBruta; // Vendas totais registradas no caixa
+      const lucroBruto = receitaTotal - boletosPagos; // Sobra bruta após pagar fornecedores
+      const margemBruta = receitaTotal > 0 ? (lucroBruto / receitaTotal) * 100 : 0;
+      
+      const despesasOperacionaisEFixas = despesasFixas + despesasOperacionais;
+      const lucroLiquido = lucroBruto - despesasOperacionaisEFixas; // Resultado líquido do caixa
+      const margemLiquida = receitaTotal > 0 ? (lucroLiquido / receitaTotal) * 100 : 0;
       const despesasTotal = despesasFixas + despesasOperacionais + boletosPagos;
-      const lucroLiquido = lucroBruto - despesasTotal;
-      const margemLiquida = lucroBase > 0 ? (lucroLiquido / lucroBase) * 100 : 0;
 
       res.json({
         mes: month,
         periodo: { startDate, endDate, diasComFechamento },
         dre: {
-          receitaBruta: Math.round(lucroBase * 100) / 100,
+          receitaBruta: Math.round(receitaTotal * 100) / 100,
           cmv: Math.round(cmv * 100) / 100,
           lucroBruto: Math.round(lucroBruto * 100) / 100,
           margemBruta: Math.round(margemBruta * 10) / 10,
