@@ -40,6 +40,7 @@ import { ComprasLive } from "./components/ComprasLive";
 import { PurchaseCalendar } from "./components/PurchaseCalendar";
 import { StockManagement } from "./components/StockManagement";
 import SuppliersManager from "./components/SuppliersManager";
+import { InventoryManager } from "./components/InventoryManager";
 import { PwaUpdater } from "./components/PwaUpdater";
 import { MobileHeader } from "./components/MobileHeader";
 import { SalesReport } from "./components/SalesReport";
@@ -946,6 +947,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'debtors-report' && user.role === UserRole.ADM && (
                 <DebtorsReport />
+              )}
+              {currentView === 'inventario' && (
+                <InventoryManager user={user} />
               )}
               {currentView === 'backups' && user.role === UserRole.ADM && (
                 <BackupManager />

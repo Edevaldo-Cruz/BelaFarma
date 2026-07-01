@@ -435,6 +435,43 @@ try {
     db.exec(createQuotationListsTable);
     db.exec(createQuotationListItemsTable);
 
+    // Inventario Module Tables
+    const createSessoesInventarioTable = `
+      CREATE TABLE IF NOT EXISTS sessoes_inventario (
+        id TEXT PRIMARY KEY,
+        data_inicio TEXT NOT NULL,
+        data_fim TEXT,
+        status TEXT NOT NULL
+      );
+    `;
+
+    const createItensInventariadosTable = `
+      CREATE TABLE IF NOT EXISTS itens_inventariados (
+        id TEXT PRIMARY KEY,
+        sessao_id TEXT NOT NULL,
+        codigo_barras TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        quantidade_contada INTEGER DEFAULT 1,
+        data_hora_bip TEXT NOT NULL,
+        FOREIGN KEY(sessao_id) REFERENCES sessoes_inventario(id) ON DELETE CASCADE
+      );
+    `;
+
+    const createVendasDuranteInventarioTable = `
+      CREATE TABLE IF NOT EXISTS vendas_durante_inventario (
+        id TEXT PRIMARY KEY,
+        sessao_id TEXT NOT NULL,
+        codigo_barras TEXT NOT NULL,
+        quantidade_vendida REAL NOT NULL,
+        data_hora_venda TEXT NOT NULL,
+        FOREIGN KEY(sessao_id) REFERENCES sessoes_inventario(id) ON DELETE CASCADE
+      );
+    `;
+
+    db.exec(createSessoesInventarioTable);
+    db.exec(createItensInventariadosTable);
+    db.exec(createVendasDuranteInventarioTable);
+
     // Create indexes for fast lookups
     try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_stock_products_name ON stock_products(name);');

@@ -128,6 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'task-management', label: 'Ger. Tarefas', icon: ClipboardCheck },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
+    { id: 'inventario', label: 'Inventário Rotativo', icon: ClipboardList },
     { id: 'orders', label: 'Pedidos', icon: ShoppingCart },
     { id: 'users', label: 'Usuários', icon: UsersIcon },
     { id: 'safe', label: 'Cofre', icon: Lock },

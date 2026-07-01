@@ -3712,6 +3712,10 @@ const stockEndpoints = require('./stock-endpoints.js');
 app.use('/api/stock', stockEndpoints());
 console.log('📦 Módulo Controle de Estoque inicializado.');
 
+const inventarioEndpoints = require('./inventario-endpoints.js');
+app.use('/api/inventario', inventarioEndpoints(db));
+console.log('📋 Módulo Inventário Rotativo inicializado.');
+
 // Módulo Saúde Financeira (diagnóstico via Gemini)
 require('./financial-health-endpoints.js')(app, db);
 console.log('💊 Módulo Saúde Financeira inicializado.');
