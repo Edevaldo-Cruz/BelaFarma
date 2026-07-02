@@ -59,7 +59,7 @@ const playSound = (type: 'success' | 'error') => {
       osc1.connect(gain1);
       gain1.connect(ctx.destination);
       osc1.frequency.setValueAtTime(800, ctx.currentTime);
-      gain1.gain.setValueAtTime(0.04, ctx.currentTime);
+      gain1.gain.setValueAtTime(0.2, ctx.currentTime);
       gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
       osc1.start(ctx.currentTime);
       osc1.stop(ctx.currentTime + 0.08);
@@ -70,7 +70,7 @@ const playSound = (type: 'success' | 'error') => {
       osc2.connect(gain2);
       gain2.connect(ctx.destination);
       osc2.frequency.setValueAtTime(1000, ctx.currentTime + 0.1);
-      gain2.gain.setValueAtTime(0.04, ctx.currentTime + 0.1);
+      gain2.gain.setValueAtTime(0.2, ctx.currentTime + 0.1);
       gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
       osc2.start(ctx.currentTime + 0.1);
       osc2.stop(ctx.currentTime + 0.18);
@@ -92,7 +92,7 @@ const playSound = (type: 'success' | 'error') => {
         osc.frequency.setValueAtTime(oscFreqs[Math.floor(t / 0.3) % 2], ctx.currentTime + t);
       }
       
-      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.setValueAtTime(0.7, ctx.currentTime);
       gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + duration);
 
       osc.start(ctx.currentTime);
