@@ -562,47 +562,122 @@ function initializeWhatsAppVendasEndpoints(app, db) {
     }
   });
 
+  // Definição das palavras-chave para grupos automáticos
+  const AUTOMATIC_GROUPS = {
+    'Absorvente': ['ABSORV', 'ALWAYS', 'INTIMUS', 'SEMPRE LIVRE', 'SYMP', 'KOTEX'],
+    'Tintura de Cabelo': ['TINTURA', 'COLORAC', 'IMEDIA', 'MAJIREL', 'KOLESTON', 'COR & TON', 'BIOCOLOR', 'TINT.'],
+    'Suplemento / Vitamina': ['SUPLEMENTO', 'VITAMINA', 'CENTRUM', 'LAVITAN', 'NUTREN', 'VIT.', 'SUPLERA', 'POLIVIT', 'VITA '],
+    'Produto de Beleza': ['SHAMPOO', 'CONDICIONADOR', 'CREME FACIAL', 'HIDRATANTE', 'MAQUIAGEM', 'CERAVE', 'NIVEA', 'PROTETOR SOLAR', 'BLOQUEADOR', 'LOREAL', 'SABONETE LIQ']
+  };
+
   // 3. GET /api/whatsapp-vendas/search-products — Pesquisa no Digifarma (Firebird) e anexa fotos do SQLite
   app.get('/api/whatsapp-vendas/search-products', async (req, res) => {
-    const { q, hideOutOfStock } = req.query;
+    const { q, grupo, hideOutOfStock } = req.query;
     
-    if (!q || q.length < 2) {
+    if ((!q || q.length < 2) && !grupo) {
       return res.json({ success: true, products: [] });
     }
 
     try {
       const filterOutOfStock = hideOutOfStock === 'true';
-      console.log(`[WhatsAppVendas] Buscando produtos no Digifarma por: ${q} (ocultar sem estoque: ${filterOutOfStock})`);
-      
-      // Query no Digifarma (Firebird) por nome ou código de barras com preço promocional ativo
-      const query = `
-        SELECT FIRST 40 
-          PRODUTO_ID as ID, 
-          PRODUTO as NAME, 
-          COD_BARRAS as BARCODE, 
-          CASE 
-            WHEN PROD_PRPROMOCAO > 0 
-                 AND (INICIO_PROMOCAO IS NULL OR INICIO_PROMOCAO <= CURRENT_DATE) 
-                 AND (TERMINO_PROMOCAO IS NULL OR TERMINO_PROMOCAO >= CURRENT_DATE)
-            THEN PROD_PRPROMOCAO
-            ELSE PROD_PRVENDA
-          END as PRICE, 
-          PROD_SALDO as STOCK 
-        FROM PRODUTOS 
-        WHERE PROD_ATIVO = 'S' 
-              AND (PRODUTO LIKE ? OR COD_BARRAS = ?)
-              ${filterOutOfStock ? 'AND PROD_SALDO > 0' : ''}
-        ORDER BY CASE WHEN PROD_SALDO > 0 THEN 0 ELSE 1 END, PRODUTO
-      `;
-      
-      const term = `%${q.toUpperCase()}%`;
-      const digiProducts = await queryDigifarma(query, [term, q]);
+      let digiProducts = [];
+
+      if (grupo) {
+        console.log(`[WhatsAppVendas] Buscando produtos por grupo: ${grupo} (ocultar sem estoque: ${filterOutOfStock})`);
+        
+        // 1. Obter overrides manuais deste grupo do SQLite
+        const sqliteOverrides = db.prepare('SELECT codigo_barras FROM custom_product_groups WHERE grupo_customizado = ?').all(grupo);
+        const overrideBarcodes = sqliteOverrides.map(o => o.codigo_barras).filter(Boolean);
+
+        // 2. Construir cláusulas LIKE para o grupo automático se ele existir
+        const keywords = AUTOMATIC_GROUPS[grupo] || [];
+        let queryKeywordsSql = '';
+        const params = [];
+
+        if (keywords.length > 0) {
+          const conditions = keywords.map(kw => {
+            params.push(`%${kw.toUpperCase()}%`);
+            return 'PRODUTO LIKE ?';
+          }).join(' OR ');
+          queryKeywordsSql = `AND (${conditions})`;
+        } else if (overrideBarcodes.length === 0) {
+          // Se o grupo não tem regras automáticas e não tem overrides, retorna vazio
+          return res.json({ success: true, products: [] });
+        }
+
+        // Se houver overrides manuais para este grupo, nós os consultamos explicitamente também no Firebird
+        let queryOverrideSql = '';
+        if (overrideBarcodes.length > 0) {
+          const sliceBarcodes = overrideBarcodes.slice(0, 500);
+          const inPlaceholders = sliceBarcodes.map(() => '?').join(',');
+          queryOverrideSql = `OR COD_BARRAS IN (${inPlaceholders})`;
+          params.push(...sliceBarcodes);
+        }
+
+        // Se não há keywords automáticas, a query só vai buscar pelos overrides
+        const finalWhereClause = keywords.length > 0
+          ? `(PROD_ATIVO = 'S' ${queryKeywordsSql}) ${queryOverrideSql ? `OR (PROD_ATIVO = 'S' AND (${queryOverrideSql.substring(3)}))` : ''}`
+          : `PROD_ATIVO = 'S' AND (${queryOverrideSql.substring(3)})`;
+
+        // Executar query no Firebird (retornando até 150 itens por grupo)
+        const query = `
+          SELECT FIRST 150 
+            PRODUTO_ID as ID, 
+            PRODUTO as NAME, 
+            COD_BARRAS as BARCODE, 
+            CASE 
+              WHEN PROD_PRPROMOCAO > 0 
+                   AND (INICIO_PROMOCAO IS NULL OR INICIO_PROMOCAO <= CURRENT_DATE) 
+                   AND (TERMINO_PROMOCAO IS NULL OR TERMINO_PROMOCAO >= CURRENT_DATE)
+              THEN PROD_PRPROMOCAO
+              ELSE PROD_PRVENDA
+            END as PRICE, 
+            PROD_SALDO as STOCK 
+          FROM PRODUTOS 
+          WHERE (${finalWhereClause})
+            ${filterOutOfStock ? 'AND PROD_SALDO > 0' : ''}
+          ORDER BY CASE WHEN PROD_SALDO > 0 THEN 0 ELSE 1 END, PRODUTO
+        `;
+
+        digiProducts = await queryDigifarma(query, params);
+
+      } else {
+        console.log(`[WhatsAppVendas] Buscando produtos no Digifarma por termo: ${q} (ocultar sem estoque: ${filterOutOfStock})`);
+        
+        // Query tradicional por nome ou código de barras
+        const query = `
+          SELECT FIRST 45 
+            PRODUTO_ID as ID, 
+            PRODUTO as NAME, 
+            COD_BARRAS as BARCODE, 
+            CASE 
+              WHEN PROD_PRPROMOCAO > 0 
+                   AND (INICIO_PROMOCAO IS NULL OR INICIO_PROMOCAO <= CURRENT_DATE) 
+                   AND (TERMINO_PROMOCAO IS NULL OR TERMINO_PROMOCAO >= CURRENT_DATE)
+              THEN PROD_PRPROMOCAO
+              ELSE PROD_PRVENDA
+            END as PRICE, 
+            PROD_SALDO as STOCK 
+          FROM PRODUTOS 
+          WHERE PROD_ATIVO = 'S' 
+                AND (PRODUTO LIKE ? OR COD_BARRAS = ?)
+                ${filterOutOfStock ? 'AND PROD_SALDO > 0' : ''}
+          ORDER BY CASE WHEN PROD_SALDO > 0 THEN 0 ELSE 1 END, PRODUTO
+        `;
+        
+        const term = `%${q.toUpperCase()}%`;
+        digiProducts = await queryDigifarma(query, [term, q]);
+      }
 
       if (!Array.isArray(digiProducts)) {
         return res.json({ success: true, products: [] });
       }
 
-      // Preparar statement de fotos no SQLite
+      // 3. Buscar TODAS as associações manuais de grupos do SQLite para cruzar e excluir
+      const allOverrides = db.prepare('SELECT codigo_barras, grupo_customizado FROM custom_product_groups').all();
+      const overridesMap = new Map(allOverrides.map(o => [o.codigo_barras, o.grupo_customizado]));
+
+      // Preparar statements de fotos do SQLite
       const sqlitePhotoStmt = db.prepare(`
         SELECT image_url, category, brand 
         FROM scraped_images 
@@ -616,14 +691,26 @@ function initializeWhatsAppVendasEndpoints(app, db) {
         LIMIT 1
       `);
 
-      // Enriquecer os produtos do Digifarma com as fotos do SQLite
-      const enrichedProducts = digiProducts.map(p => {
+      // Enriquecer e filtrar produtos
+      const enrichedProducts = [];
+
+      for (const p of digiProducts) {
         const barcode = (p.BARCODE || '').trim();
+        
+        // Se a busca for por um grupo específico, precisamos garantir que o produto não tem override para OUTRO grupo
+        if (grupo) {
+          const manualGroup = overridesMap.get(barcode);
+          if (manualGroup && manualGroup !== grupo) {
+            // Tem override para outro grupo (ou para 'Nenhum'), descarta da listagem desse grupo
+            continue;
+          }
+        }
+
         let imageUrl = null;
         let category = null;
         let brand = null;
 
-        // 1. Tentar correspondência exata por Código de Barras (EAN)
+        // Tentar EAN match
         if (barcode) {
           const photoMatch = sqlitePhotoStmt.get(barcode);
           if (photoMatch) {
@@ -633,9 +720,8 @@ function initializeWhatsAppVendasEndpoints(app, db) {
           }
         }
 
-        // 2. Tentar correspondência aproximada por nome se não achou por EAN
+        // Tentar Name match
         if (!imageUrl && p.NAME) {
-          // Pega as duas primeiras palavras do produto do Digifarma
           const words = p.NAME.split(' ').slice(0, 2).join('%');
           if (words.length >= 4) {
             const nameMatch = sqliteNameStmt.get(`%${words}%`);
@@ -647,7 +733,20 @@ function initializeWhatsAppVendasEndpoints(app, db) {
           }
         }
 
-        return {
+        // Encontrar o grupo do produto (manual override ou dinâmico)
+        let finalProductGroup = overridesMap.get(barcode) || 'Nenhum';
+        if (finalProductGroup === 'Nenhum') {
+          // Classificação automática baseada no nome
+          const nameUpper = (p.NAME || '').toUpperCase();
+          for (const [groupName, kws] of Object.entries(AUTOMATIC_GROUPS)) {
+            if (kws.some(kw => nameUpper.includes(kw.toUpperCase()))) {
+              finalProductGroup = groupName;
+              break;
+            }
+          }
+        }
+
+        enrichedProducts.push({
           id: p.ID,
           name: p.NAME,
           barcode,
@@ -655,14 +754,41 @@ function initializeWhatsAppVendasEndpoints(app, db) {
           stock: p.STOCK || 0,
           imageUrl,
           category,
-          brand
-        };
-      });
+          brand,
+          customGroup: finalProductGroup // Passa o grupo atribuído para o frontend
+        });
+      }
 
       res.json({ success: true, products: enrichedProducts });
     } catch (err) {
       console.error('[WhatsAppVendas] Erro ao pesquisar produtos:', err.message);
       res.status(500).json({ error: 'Erro ao conectar ao banco de dados do Digifarma.' });
+    }
+  });
+
+  // 3b. POST /api/whatsapp-vendas/products/group — Define associação manual do grupo
+  app.post('/api/whatsapp-vendas/products/group', (req, res) => {
+    const { codigo_barras, grupo_customizado } = req.body;
+    if (!codigo_barras) {
+      return res.status(400).json({ error: 'codigo_barras é obrigatório.' });
+    }
+
+    try {
+      const grupoTrim = (grupo_customizado || '').trim();
+      if (!grupoTrim || grupoTrim === 'Nenhum') {
+        db.prepare('DELETE FROM custom_product_groups WHERE codigo_barras = ?').run(codigo_barras);
+        return res.json({ success: true, deleted: true });
+      } else {
+        db.prepare(`
+          INSERT INTO custom_product_groups (codigo_barras, grupo_customizado, manual_override)
+          VALUES (?, ?, 1)
+          ON CONFLICT(codigo_barras) DO UPDATE SET grupo_customizado = EXCLUDED.grupo_customizado, manual_override = 1
+        `).run(codigo_barras, grupoTrim);
+        return res.json({ success: true, saved: true });
+      }
+    } catch (err) {
+      console.error('[WhatsAppVendas] Erro ao associar grupo customizado:', err.message);
+      res.status(500).json({ error: 'Erro ao salvar no banco local SQLite.' });
     }
   });
 

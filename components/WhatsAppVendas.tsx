@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, CheckCircle, X, Phone,
   ShoppingBag, Pill, Image as ImageIcon, Loader2, Sparkles,
-  User, Copy, Plus, ClipboardCopy, PlusCircle, MinusCircle
+  User, Copy, Plus, ClipboardCopy, PlusCircle, MinusCircle, Tag
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -17,6 +17,7 @@ interface Product {
   imageUrl: string | null;
   category: string | null;
   brand: string | null;
+  customGroup?: string;
 }
 
 interface CartItem {
@@ -84,6 +85,7 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
 
   // Categorias de Produtos
   const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
   // Helper para classificar categoria de produto de forma dinâmica
   const getProductCategory = (prod: Product): string => {
@@ -127,28 +129,43 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
 
   // Executa busca de produtos com debounce
   useEffect(() => {
-    const delayDebounce = setTimeout(() => {
-      searchProducts(productQuery);
-    }, 400);
-    return () => clearTimeout(delayDebounce);
+    if (productQuery.length >= 2) {
+      setSelectedGroup(null); // Limpa grupo se digitar algo
+      const delayDebounce = setTimeout(() => {
+        searchProducts(productQuery, null);
+      }, 400);
+      return () => clearTimeout(delayDebounce);
+    } else if (productQuery.length === 0 && !selectedGroup) {
+      setProducts([]);
+    }
   }, [productQuery]);
 
-  // Se mudar o filtro sem estoque, executa imediatamente
+  // Executa a busca se o grupo selecionado ou o filtro sem estoque mudar
   useEffect(() => {
-    if (productQuery.length >= 2) {
-      searchProducts(productQuery);
+    if (selectedGroup) {
+      searchProducts('', selectedGroup);
+    } else if (productQuery.length >= 2) {
+      searchProducts(productQuery, null);
     }
-  }, [hideOutOfStock]);
+  }, [hideOutOfStock, selectedGroup]);
 
-  // 1. Pesquisa produtos no Digifarma
-  const searchProducts = async (queryStr: string) => {
-    if (queryStr.length < 2) {
+  // 1. Pesquisa produtos no Digifarma (por termo ou por grupo)
+  const searchProducts = async (queryStr: string, groupName: string | null = null) => {
+    if (queryStr.length < 2 && !groupName) {
       setProducts([]);
       return;
     }
     setSearchingProducts(true);
     try {
-      const res = await fetch(`/api/whatsapp-vendas/search-products?q=${encodeURIComponent(queryStr)}&hideOutOfStock=${hideOutOfStock}`);
+      let url = '/api/whatsapp-vendas/search-products?';
+      if (groupName) {
+        url += `grupo=${encodeURIComponent(groupName)}`;
+      } else {
+        url += `q=${encodeURIComponent(queryStr)}`;
+      }
+      url += `&hideOutOfStock=${hideOutOfStock}`;
+
+      const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
         const sortedProducts = (data.products || []).sort((a: Product, b: Product) => {
@@ -162,6 +179,67 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
       addToast('Erro ao pesquisar produtos no estoque.', 'error');
     } finally {
       setSearchingProducts(false);
+    }
+  };
+
+  // Copiar Todos os Produtos Encontrados como Texto Formatado para WhatsApp
+  const copyAllProductsText = () => {
+    if (filteredProducts.length === 0) return;
+    
+    let textMsg = '';
+    if (selectedGroup) {
+      textMsg = `*Drogaria BelaFarma - ${selectedGroup}s Disponíveis:*\n\n`;
+    } else {
+      textMsg = `*Drogaria BelaFarma - Produtos Disponíveis (Busca: "${productQuery}"):*\n\n`;
+    }
+
+    filteredProducts.forEach(prod => {
+      const priceFormatted = parseFloat(prod.price as any).toFixed(2).replace('.', ',');
+      const stockStatus = prod.stock > 0 ? 'Disponível' : 'Sob Encomenda (Falta)';
+      textMsg += `• *${prod.name}*\n  💵 Preço: *R$ ${priceFormatted}* (${stockStatus})\n\n`;
+    });
+
+    textMsg += `📌 *Entre em contato para reservar o seu!* 📲`;
+    
+    navigator.clipboard.writeText(textMsg)
+      .then(() => addToast('📋 Lista completa de produtos copiada!', 'success'))
+      .catch(() => addToast('Erro ao copiar lista de produtos.', 'error'));
+  };
+
+  // Salvar override de grupo do produto
+  const handleUpdateProductGroup = async (barcode: string, groupName: string) => {
+    if (!barcode) return;
+    try {
+      const res = await fetch('/api/whatsapp-vendas/products/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo_barras: barcode,
+          grupo_customizado: groupName
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Atualiza no estado local
+        setProducts(prev => prev.map(p => {
+          if (p.barcode === barcode) {
+            return { ...p, customGroup: groupName };
+          }
+          return p;
+        }));
+
+        // Se o produto saiu do grupo selecionado ativamente, remove da visualização
+        if (selectedGroup && groupName !== selectedGroup) {
+          setProducts(prev => prev.filter(p => p.barcode !== barcode));
+        }
+
+        addToast('✔ Grupo do produto atualizado!', 'success');
+      } else {
+        addToast('❌ Falha ao atualizar grupo do produto.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('❌ Erro ao atualizar grupo do produto.', 'error');
     }
   };
 
@@ -500,32 +578,84 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
             {/* Coluna Principal da Busca de Produtos */}
             <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               {/* Campo de Busca */}
-              <div className={`${isTauri ? 'p-2' : 'p-5'} border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex flex-col md:flex-row ${isTauri ? 'gap-2' : 'gap-4'} items-center justify-between`}>
-                <div className="relative flex-1 w-full">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Pesquisar produto no Digifarma (digite no mínimo 2 caracteres)..."
-                    value={productQuery}
-                    onChange={e => setProductQuery(e.target.value)}
-                    className={`w-full ${isTauri ? 'pl-10 pr-4 py-2 text-sm' : 'pl-12 pr-6 py-3.5 text-base'} rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-650 focus:bg-white dark:focus:bg-slate-850 transition-all shadow-inner`}
-                  />
+              <div className={`${isTauri ? 'p-2' : 'p-5'} border-b border-slate-100 dark:border-slate-800 flex-shrink-0 flex flex-col gap-3.5`}>
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between w-full">
+                  <div className="relative flex-1 w-full">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Pesquisar produto no Digifarma (digite no mínimo 2 caracteres)..."
+                      value={productQuery}
+                      onChange={e => setProductQuery(e.target.value)}
+                      className={`w-full ${isTauri ? 'pl-10 pr-4 py-2 text-sm' : 'pl-12 pr-6 py-3.5 text-base'} rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-650 focus:bg-white dark:focus:bg-slate-850 transition-all shadow-inner`}
+                    />
+                  </div>
+                  
+                  {/* Toggle para ocultar sem estoque */}
+                  <div className="flex items-center gap-2.5 flex-shrink-0 self-start md:self-center">
+                    <button
+                      type="button"
+                      onClick={() => setHideOutOfStock(prev => !prev)}
+                      className={`${isTauri ? 'px-3 py-2' : 'px-4 py-2.5'} rounded-xl border text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+                        hideOutOfStock
+                          ? 'bg-red-50 border-red-200 text-red-750 dark:bg-red-950/20 dark:border-red-900 dark:text-red-400'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-750'
+                      }`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full ${hideOutOfStock ? 'bg-red-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-650'}`} />
+                      Ocultar Sem Estoque
+                    </button>
+                  </div>
                 </div>
-                
-                {/* Toggle para ocultar sem estoque */}
-                <div className="flex items-center gap-2.5 flex-shrink-0 self-start md:self-center">
-                  <button
-                    type="button"
-                    onClick={() => setHideOutOfStock(prev => !prev)}
-                    className={`${isTauri ? 'px-3 py-2' : 'px-4 py-2.5'} rounded-xl border text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
-                      hideOutOfStock
-                        ? 'bg-red-50 border-red-200 text-red-750 dark:bg-red-950/20 dark:border-red-900 dark:text-red-400'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-750'
-                    }`}
-                  >
-                    <span className={`w-2.5 h-2.5 rounded-full ${hideOutOfStock ? 'bg-red-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-650'}`} />
-                    Ocultar Sem Estoque
-                  </button>
+
+                {/* Badges de Grupos Inteligentes de Vendas */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100/50 dark:border-slate-800/40">
+                  <span className="text-[11px] font-black text-slate-450 dark:text-zinc-500 uppercase tracking-widest mr-1">
+                    Grupos Rápidos:
+                  </span>
+                  {[
+                    { id: 'Absorvente', label: 'Absorventes' },
+                    { id: 'Tintura de Cabelo', label: 'Tinturas' },
+                    { id: 'Suplemento / Vitamina', label: 'Suplementos / Vit.' },
+                    { id: 'Produto de Beleza', label: 'Beleza' }
+                  ].map(grp => {
+                    const isSelected = selectedGroup === grp.id;
+                    return (
+                      <button
+                        key={grp.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedGroup(null);
+                            setProducts([]);
+                          } else {
+                            setProductQuery('');
+                            setSelectedGroup(grp.id);
+                          }
+                        }}
+                        className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 border shadow-sm ${
+                          isSelected
+                            ? 'bg-red-650 border-red-650 text-white hover:bg-red-700'
+                            : 'bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <Tag className={`w-3.5 h-3.5 ${isSelected ? 'text-red-200' : 'text-red-500'}`} />
+                        {grp.label}
+                      </button>
+                    );
+                  })}
+                  {selectedGroup && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedGroup(null);
+                        setProducts([]);
+                      }}
+                      className="text-xs font-bold text-slate-400 hover:text-red-500 transition px-2 py-1 ml-1"
+                    >
+                      Limpar Filtro
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -556,10 +686,10 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                     <Loader2 className="w-8 h-8 animate-spin text-red-600" />
                     <span className="text-sm">Buscando no Digifarma...</span>
                   </div>
-                ) : productQuery.length < 2 ? (
+                ) : (productQuery.length < 2 && !selectedGroup) ? (
                   <div className="text-center py-20 text-slate-400 text-sm flex flex-col items-center gap-3">
                     <Sparkles className="w-10 h-10 text-amber-500 animate-pulse" />
-                    <span>Digite o nome do produto ou código de barras para começar a pesquisar.</span>
+                    <span>Digite o nome do produto, código de barras ou clique em um Grupo Rápido para começar.</span>
                   </div>
                 ) : filteredProducts.length === 0 ? (
                   <div className={`text-center ${isTauri ? 'py-4' : 'py-10'} text-slate-400 text-sm italic`}>
@@ -567,6 +697,20 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                   </div>
                 ) : (
                   <div className={`flex flex-col ${isTauri ? 'gap-2' : 'gap-3 md:gap-4'}`}>
+                    {/* Botão de Cópia em Bloco */}
+                    <div className="flex justify-between items-center bg-slate-50/70 dark:bg-slate-800/30 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-850 flex-shrink-0">
+                      <span className="text-xs font-bold text-slate-550 dark:text-zinc-400">
+                        Encontrados: {filteredProducts.length} itens {selectedGroup ? `em "${selectedGroup}"` : ''}
+                      </span>
+                      <button
+                        onClick={copyAllProductsText}
+                        className="px-4 py-2 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-sm transition flex items-center gap-1.5"
+                      >
+                        <ClipboardCopy className="w-3.5 h-3.5" />
+                        Copiar Lista Inteira (Texto)
+                      </button>
+                    </div>
+
                     {filteredProducts.map(prod => {
                       const isStockOk = prod.stock > 5;
                       const hasStock = prod.stock > 0;
@@ -647,6 +791,24 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                                   Copiar Foto
                                 </button>
                               )}
+                            </div>
+
+                            {/* Seletor de Grupo Manual */}
+                            <div className="flex items-center gap-2 bg-slate-100/50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-150 dark:border-slate-705 shadow-inner">
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex-shrink-0">
+                                Grupo:
+                              </span>
+                              <select
+                                value={prod.customGroup || 'Nenhum'}
+                                onChange={(e) => handleUpdateProductGroup(prod.barcode, e.target.value)}
+                                className="w-full bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md py-1 px-1.5 text-[11px] font-bold focus:outline-none focus:border-red-500"
+                              >
+                                <option value="Nenhum">Nenhum (Padrão)</option>
+                                <option value="Absorvente">Absorvente</option>
+                                <option value="Tintura de Cabelo">Tintura de Cabelo</option>
+                                <option value="Suplemento / Vitamina">Suplemento / Vitamina</option>
+                                <option value="Produto de Beleza">Produto de Beleza</option>
+                              </select>
                             </div>
 
                             <button

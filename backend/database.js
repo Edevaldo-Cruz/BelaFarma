@@ -1288,6 +1288,19 @@ try {
     `);
     console.log('✅ Estoque Crítico: Tabela critical_products criada/verificada!');
 
+    // Criar tabela custom_product_groups para agrupamentos customizados de produtos
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS custom_product_groups (
+        codigo_barras TEXT PRIMARY KEY,
+        grupo_customizado TEXT NOT NULL,
+        manual_override INTEGER DEFAULT 1
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpg_grupo ON custom_product_groups(grupo_customizado)');
+    } catch(e) {}
+    console.log('✅ Grupos Customizados: Tabela custom_product_groups criada/verificada!');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 
