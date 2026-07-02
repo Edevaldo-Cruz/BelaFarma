@@ -59,13 +59,14 @@ module.exports = function (db) {
 
       const sessaoId = 'inv_' + Date.now();
       const dataInicio = new Date().toISOString();
+      const modoTeste = req.body.modo_teste ? 1 : 0;
 
-      db.prepare("INSERT INTO sessoes_inventario (id, data_inicio, status) VALUES (?, ?, 'aberto')")
-        .run(sessaoId, dataInicio);
+      db.prepare("INSERT INTO sessoes_inventario (id, data_inicio, status, modo_teste) VALUES (?, ?, 'aberto', ?)")
+        .run(sessaoId, dataInicio, modoTeste);
 
       res.json({
         success: true,
-        session: { id: sessaoId, data_inicio: dataInicio, status: 'aberto' }
+        session: { id: sessaoId, data_inicio: dataInicio, status: 'aberto', modo_teste: modoTeste }
       });
     } catch (err) {
       console.error('[Inventário API] Erro em /iniciar:', err);
@@ -76,7 +77,7 @@ module.exports = function (db) {
   // 3. Registrar bip de código de barras
   router.post('/bip', async (req, res) => {
     try {
-      const { codigo_barras, sessao_id, descricao } = req.body;
+      const { codigo_barras, sessao_id, descricao, quantidade } = req.body;
       if (!codigo_barras || !sessao_id) {
         return res.status(400).json({ error: 'codigo_barras e sessao_id são obrigatórios.' });
       }
@@ -86,17 +87,32 @@ module.exports = function (db) {
         return res.status(400).json({ error: 'Sessão de inventário inválida ou fechada.' });
       }
 
+      const qtyToAdd = parseInt(quantidade) || 1;
       let resolvedDesc = '';
+
+      // 1. Busca no cache local do SQLite primeiro
       try {
-        const prodResult = await queryDigifarma(
-          "SELECT PRODUTO FROM PRODUTOS WHERE COD_BARRAS = ? OR PRODUTO_ID = ?",
-          [codigo_barras, codigo_barras]
-        );
-        if (prodResult && prodResult.length > 0) {
-          resolvedDesc = prodResult[0].PRODUTO;
+        const cachedProd = db.prepare("SELECT descricao FROM digifarma_products_cache WHERE codigo_barras = ? OR produto_id = ?").get(codigo_barras, codigo_barras);
+        if (cachedProd) {
+          resolvedDesc = cachedProd.descricao;
         }
       } catch (e) {
-        console.warn(`[Inventário API] Falha ao consultar produto no Digifarma para EAN ${codigo_barras}:`, e.message);
+        console.warn(`[Inventário API] Falha ao consultar produto no cache local para EAN ${codigo_barras}:`, e.message);
+      }
+
+      // 2. Se não encontrou no cache local, busca no Digifarma (Firebird)
+      if (!resolvedDesc) {
+        try {
+          const prodResult = await queryDigifarma(
+            "SELECT PRODUTO FROM PRODUTOS WHERE COD_BARRAS = ? OR PRODUTO_ID = ?",
+            [codigo_barras, codigo_barras]
+          );
+          if (prodResult && prodResult.length > 0) {
+            resolvedDesc = prodResult[0].PRODUTO;
+          }
+        } catch (e) {
+          console.warn(`[Inventário API] Falha ao consultar produto no Digifarma para EAN ${codigo_barras}:`, e.message);
+        }
       }
 
       const finalDesc = resolvedDesc || descricao || 'Produto Desconhecido';
@@ -105,15 +121,15 @@ module.exports = function (db) {
       const existingItem = db.prepare("SELECT * FROM itens_inventariados WHERE sessao_id = ? AND codigo_barras = ?")
         .get(sessao_id, codigo_barras);
 
-      let finalQty = 1;
+      let finalQty = qtyToAdd;
       if (existingItem) {
-        finalQty = existingItem.quantidade_contada + 1;
+        finalQty = existingItem.quantidade_contada + qtyToAdd;
         db.prepare("UPDATE itens_inventariados SET quantidade_contada = ?, data_hora_bip = ? WHERE id = ?")
           .run(finalQty, timestamp, existingItem.id);
       } else {
         const itemId = 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-        db.prepare("INSERT INTO itens_inventariados (id, sessao_id, codigo_barras, descricao, quantidade_contada, data_hora_bip) VALUES (?, ?, ?, ?, 1, ?)")
-          .run(itemId, sessao_id, codigo_barras, finalDesc, timestamp);
+        db.prepare("INSERT INTO itens_inventariados (id, sessao_id, codigo_barras, descricao, quantidade_contada, data_hora_bip) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(itemId, sessao_id, codigo_barras, finalDesc, qtyToAdd, timestamp);
       }
 
       res.json({
@@ -236,15 +252,20 @@ module.exports = function (db) {
         // 1. Atualizar saldo diretamente no Digifarma (Firebird)
         let syncSuccess = false;
         let dbErr = null;
-        try {
-          const updateResult = await queryDigifarma(
-            "UPDATE PRODUTOS SET PROD_SALDO = ? WHERE COD_BARRAS = ?",
-            [estoqueCorrigido, item.codigo_barras]
-          );
+        if (session.modo_teste === 1) {
           syncSuccess = true;
-        } catch (e) {
-          dbErr = e.message;
-          console.error(`[Inventário API] Erro ao sincronizar item ${item.codigo_barras} no Firebird:`, dbErr);
+          dbErr = "Simulado (Modo de Teste)";
+        } else {
+          try {
+            const updateResult = await queryDigifarma(
+              "UPDATE PRODUTOS SET PROD_SALDO = ? WHERE COD_BARRAS = ?",
+              [estoqueCorrigido, item.codigo_barras]
+            );
+            syncSuccess = true;
+          } catch (e) {
+            dbErr = e.message;
+            console.error(`[Inventário API] Erro ao sincronizar item ${item.codigo_barras} no Firebird:`, dbErr);
+          }
         }
 
         // 2. Busca giro de estoque (últimos 30 dias) para cálculo de cobertura
@@ -309,6 +330,143 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[Inventário API] Erro ao finalizar inventário:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7. Editar quantidade de um item contado
+  router.put('/item/quantidade', (req, res) => {
+    try {
+      const { sessao_id, codigo_barras, quantidade } = req.body;
+      if (!sessao_id || !codigo_barras || quantidade === undefined) {
+        return res.status(400).json({ error: 'sessao_id, codigo_barras e quantidade são obrigatórios.' });
+      }
+      const qty = parseFloat(quantidade);
+      if (isNaN(qty) || qty < 0) {
+        return res.status(400).json({ error: 'Quantidade inválida.' });
+      }
+
+      const result = db.prepare("UPDATE itens_inventariados SET quantidade_contada = ? WHERE sessao_id = ? AND codigo_barras = ?")
+        .run(qty, sessao_id, codigo_barras);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Item não encontrado nesta sessão.' });
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao editar quantidade:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8. Excluir item contado
+  router.delete('/item', (req, res) => {
+    try {
+      const { sessao_id, codigo_barras } = req.body;
+      if (!sessao_id || !codigo_barras) {
+        return res.status(400).json({ error: 'sessao_id e codigo_barras são obrigatórios.' });
+      }
+
+      db.prepare("DELETE FROM itens_inventariados WHERE sessao_id = ? AND codigo_barras = ?")
+        .run(sessao_id, codigo_barras);
+      db.prepare("DELETE FROM vendas_durante_inventario WHERE sessao_id = ? AND codigo_barras = ?")
+        .run(sessao_id, codigo_barras);
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao excluir item:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 9. Resetar contagens da sessão ativa (limpar tudo)
+  router.post('/resetar', (req, res) => {
+    try {
+      const { sessao_id } = req.body;
+      if (!sessao_id) {
+        return res.status(400).json({ error: 'sessao_id é obrigatório.' });
+      }
+
+      db.prepare("DELETE FROM itens_inventariados WHERE sessao_id = ?").run(sessao_id);
+      db.prepare("DELETE FROM vendas_durante_inventario WHERE sessao_id = ?").run(sessao_id);
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao resetar contagem:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 10. Sincronizar catálogo do Digifarma com o cache local SQLite
+  router.post('/sincronizar-cache', async (req, res) => {
+    try {
+      console.log('[Inventário API] Iniciando sincronização do catálogo do Digifarma...');
+      
+      const products = await queryDigifarma(`
+        SELECT COD_BARRAS, PRODUTO_ID, PRODUTO, PROD_SALDO, PROD_PRVENDA 
+        FROM PRODUTOS 
+        WHERE PROD_ATIVO = 'S'
+      `);
+      
+      console.log(`[Inventário API] Obtidos ${products.length} produtos do Digifarma. Gravando no SQLite...`);
+      
+      const deleteStmt = db.prepare("DELETE FROM digifarma_products_cache");
+      const insertStmt = db.prepare(`
+        INSERT OR REPLACE INTO digifarma_products_cache 
+        (codigo_barras, produto_id, descricao, estoque_atual, preco_venda, atualizado_em) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      
+      const timestamp = new Date().toISOString();
+      
+      // Executa todas as inserções numa transação rápida
+      const runTransaction = db.transaction((prods) => {
+        deleteStmt.run();
+        for (const p of prods) {
+          const barcode = (p.COD_BARRAS || '').trim() || String(p.PRODUTO_ID);
+          if (!barcode) continue;
+          insertStmt.run(
+            barcode,
+            String(p.PRODUTO_ID),
+            (p.PRODUTO || '').trim(),
+            parseFloat(p.PROD_SALDO || 0),
+            parseFloat(p.PROD_PRVENDA || 0),
+            timestamp
+          );
+        }
+      });
+      
+      runTransaction(products);
+      console.log(`[Inventário API] Sincronização concluída: ${products.length} produtos armazenados.`);
+      
+      res.json({ success: true, count: products.length });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao sincronizar cache local:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 11. Obter lista de produtos não bipados na sessão
+  router.get('/nao-bipados', (req, res) => {
+    try {
+      const { sessao_id } = req.query;
+      if (!sessao_id) {
+        return res.status(400).json({ error: 'sessao_id é obrigatório.' });
+      }
+      
+      // Busca todos os produtos do cache local que não aparecem em itens_inventariados para esta sessão
+      const items = db.prepare(`
+        SELECT c.codigo_barras, c.descricao, c.estoque_atual, c.preco_venda 
+        FROM digifarma_products_cache c
+        LEFT JOIN itens_inventariados i ON c.codigo_barras = i.codigo_barras AND i.sessao_id = ?
+        WHERE i.id IS NULL
+        ORDER BY c.descricao ASC
+      `).all(sessao_id);
+      
+      res.json({ items });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao obter não bipados:', err);
       res.status(500).json({ error: err.message });
     }
   });

@@ -468,17 +468,38 @@ try {
       );
     `;
 
+    const createDigifarmaProductsCacheTable = `
+      CREATE TABLE IF NOT EXISTS digifarma_products_cache (
+        codigo_barras TEXT PRIMARY KEY,
+        produto_id TEXT,
+        descricao TEXT NOT NULL,
+        estoque_atual REAL,
+        preco_venda REAL,
+        atualizado_em TEXT
+      );
+    `;
+
     db.exec(createSessoesInventarioTable);
     db.exec(createItensInventariadosTable);
     db.exec(createVendasDuranteInventarioTable);
+    db.exec(createDigifarmaProductsCacheTable);
 
     // Create indexes for fast lookups
     try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_stock_products_name ON stock_products(name);');
       db.exec('CREATE INDEX IF NOT EXISTS idx_label_print_queue_status ON label_print_queue(status);');
-      console.log('Stock and Label indexes verified/created.');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_digifarma_cache_desc ON digifarma_products_cache(descricao);');
+      console.log('Stock, Label and Digifarma Cache indexes verified/created.');
     } catch (e) {
-      console.log('Stock/Label indexes already exist or failed to create:', e.message);
+      console.log('Stock/Label/Cache indexes already exist or failed to create:', e.message);
+    }
+
+    // --- Inventario Table Migrations ---
+    try {
+      db.prepare('SELECT modo_teste FROM sessoes_inventario LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE sessoes_inventario ADD COLUMN modo_teste INTEGER DEFAULT 0');
+      console.log('Added modo_teste column to sessoes_inventario table.');
     }
 
     // --- Boletos Table Migrations ---

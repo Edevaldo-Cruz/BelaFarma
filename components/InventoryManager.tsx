@@ -53,8 +53,23 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
   const [unknownBarcode, setUnknownBarcode] = useState('');
   const [unknownName, setUnknownName] = useState('');
   
-  // Relatório pós-finalização
+  // Novos Estados
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [isSyncingCache, setIsSyncingCache] = useState(false);
+  const [qtyMultiplier, setQtyMultiplier] = useState(1);
+  const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  
+  // Edição inline
+  const [editingBarcode, setEditingBarcode] = useState<string | null>(null);
+  const [editingQty, setEditingQty] = useState('');
+  
+  // Relatórios pós-finalização
   const [report, setReport] = useState<ReportItem[] | null>(null);
+  const [finishedSessionId, setFinishedSessionId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'adjustments' | 'unscanned'>('adjustments');
+  const [unscannedItems, setUnscannedItems] = useState<any[]>([]);
+  const [isLoadingUnscanned, setIsLoadingUnscanned] = useState(false);
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToast();
@@ -66,7 +81,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
 
   // Força o foco contínuo no input de código de barras
   useEffect(() => {
-    if (session && session.status === 'aberto' && !isUnknownProductOpen && !isConfirmFinalizeOpen) {
+    if (session && session.status === 'aberto' && !isUnknownProductOpen && !isConfirmFinalizeOpen && !isConfirmResetOpen && !editingBarcode) {
       const focusInput = () => {
         barcodeInputRef.current?.focus();
       };
@@ -77,7 +92,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
       document.addEventListener('click', focusInput);
       return () => document.removeEventListener('click', focusInput);
     }
-  }, [session, isUnknownProductOpen, isConfirmFinalizeOpen]);
+  }, [session, isUnknownProductOpen, isConfirmFinalizeOpen, isConfirmResetOpen, editingBarcode]);
 
   const fetchSessionStatus = async () => {
     setIsLoading(true);
@@ -101,19 +116,46 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
     }
   };
 
+  const handleSyncCache = async () => {
+    setIsSyncingCache(true);
+    try {
+      const res = await fetch('/api/inventario/sincronizar-cache', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`✔ Sincronização concluída! ${data.count} produtos salvos localmente.`, 'success');
+      } else {
+        addToast(`❌ ${data.error || 'Erro ao sincronizar banco local.'}`, 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('❌ Erro de conexão ao sincronizar banco local.', 'error');
+    } finally {
+      setIsSyncingCache(false);
+    }
+  };
+
   const handleStartInventory = async () => {
     setIsLoading(true);
     try {
       const res = await fetch('/api/inventario/iniciar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modo_teste: isTestMode })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setSession(data.session);
         setItems([]);
         setReport(null);
-        addToast('🚀 Sessão de inventário iniciada com a loja aberta!', 'success');
+        setFinishedSessionId(null);
+        if (isTestMode) {
+          addToast('🚀 Sessão de inventário iniciada no MODO DE TESTE!', 'warning');
+        } else {
+          addToast('🚀 Sessão de inventário iniciada com a loja aberta!', 'success');
+        }
       } else {
         addToast(`❌ ${data.error || 'Erro ao iniciar inventário.'}`, 'error');
       }
@@ -123,6 +165,120 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleResetInventory = async () => {
+    if (!session) return;
+    setIsResetting(true);
+    try {
+      const res = await fetch('/api/inventario/resetar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessao_id: session.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setItems([]);
+        setIsConfirmResetOpen(false);
+        addToast('🧹 Contagem limpa com sucesso!', 'success');
+      } else {
+        addToast(`❌ ${data.error || 'Erro ao resetar contagem.'}`, 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('❌ Erro de conexão ao resetar contagem.', 'error');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleUpdateItemQty = async (barcode: string, qty: number) => {
+    if (!session) return;
+    try {
+      const res = await fetch('/api/inventario/item/quantidade', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessao_id: session.id,
+          codigo_barras: barcode,
+          quantidade: qty
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setItems(prev => prev.map(item => 
+          item.codigo_barras === barcode ? { ...item, quantidade_contada: qty } : item
+        ));
+        setEditingBarcode(null);
+        addToast('✔ Quantidade atualizada!', 'success');
+      } else {
+        addToast(`❌ ${data.error || 'Erro ao atualizar quantidade.'}`, 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('❌ Erro de conexão ao atualizar quantidade.', 'error');
+    }
+  };
+
+  const handleDeleteItem = async (barcode: string) => {
+    if (!session) return;
+    try {
+      const res = await fetch('/api/inventario/item', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessao_id: session.id,
+          codigo_barras: barcode
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setItems(prev => prev.filter(item => item.codigo_barras !== barcode));
+        addToast('✔ Item removido da contagem!', 'success');
+      } else {
+        addToast(`❌ ${data.error || 'Erro ao remover item.'}`, 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('❌ Erro de conexão ao remover item.', 'error');
+    }
+  };
+
+  const fetchUnscannedItems = async (sessId: string) => {
+    setIsLoadingUnscanned(true);
+    try {
+      const res = await fetch(`/api/inventario/nao-bipados?sessao_id=${sessId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUnscannedItems(data.items || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar não bipados:', err);
+      addToast('❌ Falha ao buscar lista de produtos não encontrados.', 'error');
+    } finally {
+      setIsLoadingUnscanned(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (unscannedItems.length === 0) return;
+    
+    // Header
+    let csvContent = '\uFEFF'; // UTF-8 BOM
+    csvContent += 'Código Barras;Descrição;Estoque Atual Digifarma;Preço Venda\r\n';
+    
+    unscannedItems.forEach(item => {
+      csvContent += `"${item.codigo_barras || ''}";"${item.descricao || ''}";"${String(item.estoque_atual || 0).replace('.', ',')}";"${String(item.preco_venda || 0).replace('.', ',')}"\r\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `produtos_nao_encontrados_sessao_${finishedSessionId}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
@@ -137,7 +293,11 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
       const res = await fetch('/api/inventario/bip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo_barras: barcode, sessao_id: session.id })
+        body: JSON.stringify({ 
+          codigo_barras: barcode, 
+          sessao_id: session.id,
+          quantidade: qtyMultiplier
+        })
       });
       const data = await res.json();
 
@@ -166,7 +326,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
               return [{
                 codigo_barras: item.codigo_barras,
                 descricao: item.descricao,
-                quantidade_contada: 1,
+                quantidade_contada: qtyMultiplier,
                 quantidade_vendida: 0,
                 data_hora_bip: item.data_hora_bip
               }, ...prevItems];
@@ -183,6 +343,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
       addToast('❌ Erro de conexão ao enviar bip.', 'error');
     } finally {
       setIsSubmittingBip(false);
+      setQtyMultiplier(1); // Reset
     }
   };
 
@@ -213,7 +374,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
             return [{
               codigo_barras: unknownBarcode,
               descricao: unknownName.trim(),
-              quantidade_contada: 1,
+              quantidade_contada: qtyMultiplier,
               quantidade_vendida: 0,
               data_hora_bip: nowStr
             }, ...prevItems];
@@ -228,11 +389,14 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
     } catch (err) {
       console.error(err);
       addToast('❌ Erro de conexão ao salvar descrição.', 'error');
+    } finally {
+      setQtyMultiplier(1); // Reset
     }
   };
 
   const handleFinalizeInventory = async () => {
     if (!session) return;
+    const isTest = session.modo_teste === 1;
     setIsConfirmFinalizeOpen(false);
     setIsFinalizing(true);
 
@@ -246,9 +410,17 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
 
       if (res.ok && data.success) {
         setReport(data.relatorio);
+        setFinishedSessionId(data.sessao_id || session.id);
+        setActiveTab('adjustments');
+        fetchUnscannedItems(data.sessao_id || session.id);
+        
         setSession(null);
         setItems([]);
-        addToast('🎉 Inventário finalizado e estoques sincronizados no Digifarma!', 'success');
+        if (isTest) {
+          addToast('🎉 Inventário simulado finalizado! (Nenhuma alteração feita no Digifarma)', 'success');
+        } else {
+          addToast('🎉 Inventário finalizado e estoques sincronizados no Digifarma!', 'success');
+        }
       } else {
         addToast(`❌ ${data.error || 'Erro ao finalizar inventário.'}`, 'error');
       }
@@ -290,66 +462,148 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
           </button>
         </div>
 
-        <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-300 text-xs font-bold uppercase border-b border-slate-200 dark:border-zinc-800">
-                  <th className="p-4">Produto</th>
-                  <th className="p-4 text-center">Contado</th>
-                  <th className="p-4 text-center">Vendas PDV</th>
-                  <th className="p-4 text-center">Final Corrigido</th>
-                  <th className="p-4 text-center">Giro (30d)</th>
-                  <th className="p-4 text-center">Dias Cobertura</th>
-                  <th className="p-4 text-center">Status Giro</th>
-                  <th className="p-4 text-center">Sincronização</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-sm text-slate-700 dark:text-zinc-200 font-medium">
-                {report.map((item, index) => (
-                  <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
-                    <td className="p-4">
-                      <div className="font-bold text-slate-800 dark:text-white">{item.descricao}</div>
-                      <div className="text-xs text-slate-400 font-mono mt-0.5">{item.codigo_barras}</div>
-                    </td>
-                    <td className="p-4 text-center font-bold">{item.quantidade_contada}</td>
-                    <td className="p-4 text-center text-amber-600 font-bold">-{item.vendas_periodo}</td>
-                    <td className="p-4 text-center text-green-600 dark:text-green-400 font-bold text-base bg-green-50/20 dark:bg-green-500/5">
-                      {item.estoque_corrigido}
-                    </td>
-                    <td className="p-4 text-center">{item.giro_30d}</td>
-                    <td className="p-4 text-center">
-                      {item.dias_cobertura === 999 ? '∞' : `${item.dias_cobertura} dias`}
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className={`px-2 py-1 text-xs rounded-full font-bold ${
-                        item.status_estoque === 'Crítico' 
-                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' 
-                          : item.status_estoque === 'Sobrando'
-                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                            : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                      }`}>
-                        {item.status_estoque}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      {item.sincronizado ? (
-                        <span className="text-green-600 dark:text-green-400 font-bold flex items-center justify-center gap-1">
-                          <Check className="w-4 h-4" /> OK
-                        </span>
-                      ) : (
-                        <span className="text-red-500 font-bold flex flex-col items-center justify-center" title={item.erro_sinc}>
-                          <span className="flex items-center gap-1 text-xs"><X className="w-3.5 h-3.5" /> Erro</span>
-                          <span className="text-[10px] text-red-400 font-normal max-w-[120px] truncate">{item.erro_sinc}</span>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* Abas */}
+        <div className="flex border-b border-slate-200 dark:border-zinc-800 gap-4 text-sm font-bold">
+          <button
+            onClick={() => setActiveTab('adjustments')}
+            className={`pb-3.5 transition-all relative ${
+              activeTab === 'adjustments' 
+                ? 'text-red-500 dark:text-red-400 border-b-2 border-red-500' 
+                : 'text-slate-500 dark:text-zinc-400 hover:text-slate-700'
+            }`}
+          >
+            Relatório de Ajustes ({report.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('unscanned')}
+            className={`pb-3.5 transition-all relative ${
+              activeTab === 'unscanned' 
+                ? 'text-red-500 dark:text-red-400 border-b-2 border-red-500' 
+                : 'text-slate-500 dark:text-zinc-400 hover:text-slate-700'
+            }`}
+          >
+            Produtos Não Encontrados ({unscannedItems.length})
+          </button>
         </div>
+
+        {activeTab === 'adjustments' ? (
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-300 text-xs font-bold uppercase border-b border-slate-200 dark:border-zinc-800">
+                    <th className="p-4">Produto</th>
+                    <th className="p-4 text-center">Contado</th>
+                    <th className="p-4 text-center">Vendas PDV</th>
+                    <th className="p-4 text-center">Final Corrigido</th>
+                    <th className="p-4 text-center">Giro (30d)</th>
+                    <th className="p-4 text-center">Dias Cobertura</th>
+                    <th className="p-4 text-center">Status Giro</th>
+                    <th className="p-4 text-center">Sincronização</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-sm text-slate-700 dark:text-zinc-200 font-medium">
+                  {report.map((item, index) => (
+                    <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
+                      <td className="p-4">
+                        <div className="font-bold text-slate-800 dark:text-white">{item.descricao}</div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5">{item.codigo_barras}</div>
+                      </td>
+                      <td className="p-4 text-center font-bold">{item.quantidade_contada}</td>
+                      <td className="p-4 text-center text-amber-600 font-bold">-{item.vendas_periodo}</td>
+                      <td className="p-4 text-center text-green-600 dark:text-green-400 font-bold text-base bg-green-50/20 dark:bg-green-500/5">
+                        {item.estoque_corrigido}
+                      </td>
+                      <td className="p-4 text-center">{item.giro_30d}</td>
+                      <td className="p-4 text-center">
+                        {item.dias_cobertura === 999 ? '∞' : `${item.dias_cobertura} dias`}
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className={`px-2 py-1 text-xs rounded-full font-bold ${
+                          item.status_estoque === 'Crítico' 
+                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' 
+                            : item.status_estoque === 'Sobrando'
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                              : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                        }`}>
+                          {item.status_estoque}
+                        </span>
+                      </td>
+                      <td className="p-4 text-center">
+                        {item.sincronizado ? (
+                          <span className="text-green-600 dark:text-green-400 font-bold flex items-center justify-center gap-1">
+                            <Check className="w-4 h-4" /> OK
+                          </span>
+                        ) : (
+                          <span className="text-red-500 font-bold flex flex-col items-center justify-center" title={item.erro_sinc}>
+                            <span className="flex items-center gap-1 text-xs"><X className="w-3.5 h-3.5" /> Erro</span>
+                            <span className="text-[10px] text-red-400 font-normal max-w-[120px] truncate">{item.erro_sinc}</span>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center bg-white dark:bg-zinc-900 p-4 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm gap-2">
+              <span className="text-sm font-medium text-slate-500 dark:text-zinc-400">
+                Produtos cadastrados no Digifarma que não foram encontrados (não bipados) durante esta sessão.
+              </span>
+              {unscannedItems.length > 0 && (
+                <button
+                  onClick={handleExportCSV}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 self-start sm:self-auto"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-spreadsheet"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/><path d="M10 10h4v12h-4z"/></svg>
+                  Exportar Excel/CSV
+                </button>
+              )}
+            </div>
+
+            {isLoadingUnscanned ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl">
+                <Loader2 className="w-8 h-8 text-red-500 animate-spin" />
+                <span className="text-xs text-slate-400">Carregando lista de não bipados...</span>
+              </div>
+            ) : unscannedItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl text-slate-400">
+                <Check className="w-10 h-10 text-green-500" />
+                <span className="text-sm font-bold">Todos os produtos do catálogo foram bipados!</span>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden">
+                <div className="overflow-x-auto max-h-[500px]">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-300 text-xs font-bold uppercase border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-10">
+                        <th className="p-4">Código Barras</th>
+                        <th className="p-4">Descrição</th>
+                        <th className="p-4 text-center">Estoque Atual Digifarma</th>
+                        <th className="p-4 text-center">Preço Venda</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-sm text-slate-700 dark:text-zinc-200 font-medium">
+                      {unscannedItems.map((item, index) => (
+                        <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
+                          <td className="p-4 font-mono text-xs">{item.codigo_barras}</td>
+                          <td className="p-4 font-bold text-slate-800 dark:text-white">{item.descricao}</td>
+                          <td className="p-4 text-center text-red-500 font-bold bg-red-50/10">{item.estoque_atual}</td>
+                          <td className="p-4 text-center">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.preco_venda || 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -368,12 +622,43 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
               Faça a contagem e acerto do seu estoque com a farmácia aberta. O sistema compensará as vendas do PDV realizadas durante o período.
             </p>
           </div>
-          <button
-            onClick={handleStartInventory}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 shadow-md hover:shadow-lg transition-all"
-          >
-            <Play className="w-5 h-5 fill-white" /> Iniciar Nova Contagem
-          </button>
+          
+          <div className="w-full flex flex-col gap-4">
+            <label className="flex items-center justify-center gap-2.5 p-3.5 bg-slate-50 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-zinc-800/50 cursor-pointer select-none text-slate-700 dark:text-zinc-300 font-bold hover:bg-slate-100/50 dark:hover:bg-zinc-800/70 transition-all text-sm">
+              <input
+                type="checkbox"
+                checked={isTestMode}
+                onChange={(e) => setIsTestMode(e.target.checked)}
+                className="w-4.5 h-4.5 rounded accent-red-500"
+              />
+              Modo de Teste (Sem alterar Digifarma)
+            </label>
+            
+            <button
+              onClick={handleStartInventory}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 shadow-md hover:shadow-lg transition-all"
+            >
+              <Play className="w-5 h-5 fill-white" /> Iniciar Nova Contagem
+            </button>
+            
+            <div className="border-t border-slate-150 dark:border-zinc-800/50 my-1"></div>
+            
+            <button
+              onClick={handleSyncCache}
+              disabled={isSyncingCache}
+              className="w-full flex items-center justify-center gap-2 py-3.5 border border-slate-200 dark:border-zinc-850 hover:bg-slate-50 dark:hover:bg-zinc-800/30 text-slate-700 dark:text-zinc-200 font-bold rounded-2xl transition-all disabled:opacity-50 text-sm shadow-sm"
+            >
+              {isSyncingCache ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-red-500" /> Sincronizando catálogo...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4 text-slate-550" /> Sincronizar Banco Local
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -388,18 +673,35 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
             <Barcode className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg md:text-xl font-bold text-slate-800 dark:text-white">Inventário em Progresso...</h1>
+            <h1 className="text-lg md:text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              Inventário em Progresso...
+              {session.modo_teste === 1 && (
+                <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse uppercase tracking-wider">
+                  Modo Teste
+                </span>
+              )}
+            </h1>
             <p className="text-xs text-slate-500 dark:text-zinc-400">
               Sessão iniciada às {new Date(session.data_inicio).toLocaleTimeString('pt-BR')} — Loja Aberta
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setIsConfirmFinalizeOpen(true)}
-          className="w-full md:w-auto px-5 py-2.5 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 shadow-md hover:shadow-lg transition-all text-sm flex items-center justify-center gap-2"
-        >
-          <Check className="w-4 h-4" /> Finalizar e Compensar no Digifarma
-        </button>
+        
+        <div className="flex w-full md:w-auto gap-3 items-center">
+          <button
+            onClick={() => setIsConfirmResetOpen(true)}
+            className="px-4 py-2.5 border border-slate-200 dark:border-zinc-800 bg-white hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50 text-slate-700 dark:text-zinc-200 rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-1.5 shadow-sm"
+          >
+            <RefreshCw className="w-4 h-4 text-slate-400" /> Limpar Contagem
+          </button>
+          
+          <button
+            onClick={() => setIsConfirmFinalizeOpen(true)}
+            className="px-5 py-2.5 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 shadow-md hover:shadow-lg transition-all text-sm flex items-center justify-center gap-2"
+          >
+            <Check className="w-4 h-4" /> {session.modo_teste === 1 ? 'Finalizar Simulação' : 'Finalizar e Compensar'}
+          </button>
+        </div>
       </div>
 
       {/* Input de Captura de Código de Barras (Scanner) */}
@@ -411,13 +713,50 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
           </span>
           <h2 className="text-base font-bold text-slate-700 dark:text-zinc-200">Aponte o leitor de código de barras para o produto</h2>
         </div>
+
+        {/* Painel do Multiplicador */}
+        <div className="flex flex-wrap gap-2 items-center justify-center p-3 bg-slate-50 dark:bg-zinc-850/30 rounded-2xl border border-slate-100 dark:border-zinc-800/60 max-w-lg w-full">
+          <span className="text-xs font-bold text-slate-500 dark:text-zinc-400">Multiplicar bip:</span>
+          <input
+            type="number"
+            min="1"
+            className="w-16 px-2.5 py-1 text-center bg-white dark:bg-zinc-900 border border-slate-250 dark:border-zinc-800 rounded-lg font-bold text-slate-800 dark:text-white focus:outline-none focus:border-red-500 text-sm"
+            value={qtyMultiplier}
+            onChange={(e) => setQtyMultiplier(Math.max(1, parseInt(e.target.value) || 1))}
+          />
+          <div className="flex gap-1.5">
+            {[2, 5, 10, 20, 50].map(val => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setQtyMultiplier(val)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black border transition-all ${
+                  qtyMultiplier === val
+                    ? 'bg-red-500 border-red-500 text-white'
+                    : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-850'
+                }`}
+              >
+                x{val}
+              </button>
+            ))}
+            {qtyMultiplier > 1 && (
+              <button
+                type="button"
+                onClick={() => setQtyMultiplier(1)}
+                className="px-2 py-1 text-xs font-bold text-red-500 hover:underline ml-1"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
+        </div>
         
         <form onSubmit={handleBarcodeSubmit} className="w-full max-w-lg relative">
           <input
             ref={barcodeInputRef}
             type="text"
             className="w-full px-6 py-4 bg-slate-50 dark:bg-zinc-800/50 border-2 border-slate-200 dark:border-zinc-800 rounded-2xl font-mono text-center text-lg md:text-xl font-bold outline-none focus:border-red-500 transition-all text-slate-800 dark:text-white"
-            placeholder="Aguardando bip..."
+            placeholder={qtyMultiplier > 1 ? `Bipar ${qtyMultiplier} unidades...` : "Aguardando bip..."}
             value={barcodeInput}
             onChange={(e) => setBarcodeInput(e.target.value)}
             disabled={isSubmittingBip}
@@ -458,6 +797,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
                   <th className="p-4 text-center">Contagem</th>
                   <th className="p-4 text-center">Compensação Vendas (PDV)</th>
                   <th className="p-4 text-center">Último Bip</th>
+                  <th className="p-4 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-sm text-slate-700 dark:text-zinc-200 font-medium">
@@ -482,15 +822,79 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
                       <div className="text-xs text-slate-400 font-mono mt-0.5">{item.codigo_barras}</div>
                     </td>
                     <td className="p-4 text-center font-bold text-base text-slate-800 dark:text-white">
-                      {item.quantidade_contada}
+                      {editingBarcode === item.codigo_barras ? (
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-20 px-2 py-1 text-center bg-slate-50 dark:bg-zinc-800 border-2 border-red-500 rounded-lg font-bold text-sm text-slate-900 dark:text-white focus:outline-none"
+                          value={editingQty}
+                          onChange={(e) => setEditingQty(e.target.value)}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleUpdateItemQty(item.codigo_barras, parseFloat(editingQty) || 0);
+                            } else if (e.key === 'Escape') {
+                              setEditingBarcode(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        item.quantidade_contada
+                      )}
                     </td>
                     <td className="p-4 text-center font-bold text-amber-600">
                       <span className="flex items-center justify-center gap-1">
                         <ShoppingCart className="w-3.5 h-3.5" /> -{item.quantidade_vendida}
                       </span>
                     </td>
-                    <td className="p-4 text-center text-xs text-slate-400">
+                    <td className="p-4 text-center text-xs text-slate-400 font-mono">
                       {new Date(item.data_hora_bip).toLocaleTimeString('pt-BR')}
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {editingBarcode === item.codigo_barras ? (
+                          <>
+                            <button
+                              onClick={() => handleUpdateItemQty(item.codigo_barras, parseFloat(editingQty) || 0)}
+                              className="p-1 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors"
+                              title="Salvar"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingBarcode(null)}
+                              className="p-1 bg-slate-300 hover:bg-slate-400 text-slate-700 rounded-md transition-colors"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                setEditingBarcode(item.codigo_barras);
+                                setEditingQty(String(item.quantidade_contada));
+                              }}
+                              className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 text-blue-500 dark:text-blue-400 rounded-lg transition-colors"
+                              title="Editar quantidade"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Deseja remover "${item.descricao}" do inventário?`)) {
+                                  handleDeleteItem(item.codigo_barras);
+                                }
+                              }}
+                              className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 text-red-500 rounded-lg transition-colors"
+                              title="Excluir produto da lista"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -573,7 +977,15 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
               <p className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 rounded-xl text-amber-700 dark:text-amber-300 font-medium">
                 <strong>Regra de Compensação:</strong> Quaisquer vendas efetuadas no PDV dos itens contados após o bip correspondente serão subtraídas da contagem final para evitar furos de estoque.
               </p>
-              <p className="font-bold text-red-500">Esta ação atualizará diretamente o estoque no banco de dados Firebird do Digifarma!</p>
+              {session.modo_teste === 1 ? (
+                <p className="font-bold text-amber-600">
+                  Aviso: O Modo de Teste está ATIVO. Esta finalização apenas gerará o relatório e NÃO atualizará o saldo no Digifarma.
+                </p>
+              ) : (
+                <p className="font-bold text-red-500">
+                  Esta ação atualizará diretamente o estoque no banco de dados Firebird do Digifarma!
+                </p>
+              )}
             </div>
 
             <div className="flex gap-3 justify-end mt-2">
@@ -589,6 +1001,47 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
               >
                 {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 Confirmar e Ajustar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: Confirmar Reset (Limpar Tudo) */}
+      {isConfirmResetOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 max-w-md w-full rounded-3xl p-6 shadow-xl flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-1.5 text-red-500">
+                <AlertTriangle className="w-5 h-5" /> Confirmar Limpeza Total
+              </h3>
+              <button 
+                onClick={() => setIsConfirmResetOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="text-sm text-slate-500 dark:text-zinc-400">
+              <p>Tem certeza de que deseja **apagar todas as contagens** já realizadas nesta sessão?</p>
+              <p className="mt-1.5 text-red-500 font-bold">Esta ação não pode ser desfeita, mas a sessão continuará aberta para recomeçar.</p>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-2">
+              <button
+                onClick={() => setIsConfirmResetOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleResetInventory}
+                disabled={isResetting}
+                className="px-5 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all text-sm flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              >
+                {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Limpar Tudo
               </button>
             </div>
           </div>
