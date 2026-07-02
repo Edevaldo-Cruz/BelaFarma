@@ -45,23 +45,37 @@ const playSound = (type: 'success' | 'error') => {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
     const ctx = new AudioContextClass();
+    
+    // Força o resume caso o navegador suspenda o áudio por políticas de autoplay
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
 
     if (type === 'success') {
-      // Som de sucesso: dois bips curtos e suaves e agradáveis
+      // Som de sucesso: bip duplo ("bi-bip") rápido e suave
+      // Bip 1
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
       osc1.connect(gain1);
       gain1.connect(ctx.destination);
-      
       osc1.frequency.setValueAtTime(800, ctx.currentTime);
-      osc1.frequency.setValueAtTime(1000, ctx.currentTime + 0.08);
-      gain1.gain.setValueAtTime(0.05, ctx.currentTime);
-      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-      
+      gain1.gain.setValueAtTime(0.04, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
       osc1.start(ctx.currentTime);
-      osc1.stop(ctx.currentTime + 0.2);
+      osc1.stop(ctx.currentTime + 0.08);
+
+      // Bip 2 (um pouco depois e mais agudo)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.frequency.setValueAtTime(1000, ctx.currentTime + 0.1);
+      gain2.gain.setValueAtTime(0.04, ctx.currentTime + 0.1);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc2.start(ctx.currentTime + 0.1);
+      osc2.stop(ctx.currentTime + 0.18);
     } else if (type === 'error') {
-      // Som de erro/atenção de 3 segundos (sirene oscilante estridente)
+      // Som de erro/atenção de 3 segundos (sirene oscilante de advertência)
       const duration = 3.0;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -72,7 +86,7 @@ const playSound = (type: 'success' | 'error') => {
 
       osc.frequency.setValueAtTime(200, ctx.currentTime);
       
-      // Efeito de oscilação rápida estilo sirene de ambulância/erro
+      // Efeito de oscilação estilo sirene
       const oscFreqs = [180, 240];
       for (let t = 0; t < duration; t += 0.3) {
         osc.frequency.setValueAtTime(oscFreqs[Math.floor(t / 0.3) % 2], ctx.currentTime + t);
@@ -131,6 +145,36 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
   // Carrega a sessão ativa na montagem do componente
   useEffect(() => {
     fetchSessionStatus();
+  }, []);
+
+  // Desbloqueia o contexto de áudio do navegador na primeira interação do usuário (Autoplay policy)
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          if (ctx.state === 'suspended') {
+            ctx.resume();
+          }
+        }
+      } catch (e) {
+        console.warn('Falha ao desbloquear áudio:', e);
+      }
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+
+    window.addEventListener('click', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
+    window.addEventListener('touchstart', unlockAudio);
+
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
   }, []);
 
   // Força o foco contínuo no input de código de barras
