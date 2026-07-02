@@ -252,14 +252,36 @@ module.exports = function (db) {
       const data30AtrasStr = formatarDataFirebird(data30DiasAtras);
 
       for (const item of items) {
-        // Busca soma de vendas após o bip
-        const salesRow = db.prepare(`
-          SELECT COALESCE(SUM(quantidade_vendida), 0) as total_vendido 
-          FROM vendas_durante_inventario 
-          WHERE sessao_id = ? AND codigo_barras = ?
-        `).get(sessao_id, item.codigo_barras);
+        // PULL STRATEGY: Busca soma de vendas após o bip diretamente no Digifarma
+        let totalVendido = 0;
+        try {
+          const dateBipObj = new Date(item.data_hora_bip);
+          const dataBipStr = formatarDataFirebird(dateBipObj);
+          
+          const salesRealtime = await queryDigifarma(`
+            SELECT COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as TOTAL_VENDIDO_POS_BIP
+            FROM ITEM_VENDAS iv
+            JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+            JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+            WHERE v.CANCELADO <> 'S'
+              AND v.VENDA_DATA_HORA >= ?
+              AND p.COD_BARRAS = ?
+          `, [dataBipStr, item.codigo_barras]);
+          
+          if (salesRealtime && salesRealtime.length > 0) {
+            totalVendido = salesRealtime[0].TOTAL_VENDIDO_POS_BIP || 0;
+          }
+        } catch (e) {
+          console.warn(`[Inventário API] Erro ao buscar vendas em tempo real para item ${item.codigo_barras}:`, e.message);
+          // Fallback para a tabela local (legado)
+          const salesRow = db.prepare(`
+            SELECT COALESCE(SUM(quantidade_vendida), 0) as total_vendido 
+            FROM vendas_durante_inventario 
+            WHERE sessao_id = ? AND codigo_barras = ?
+          `).get(sessao_id, item.codigo_barras);
+          totalVendido = salesRow ? salesRow.total_vendido : 0;
+        }
 
-        const totalVendido = salesRow ? salesRow.total_vendido : 0;
         const estoqueCorrigido = Math.max(0, item.quantidade_contada - totalVendido);
 
         // 1. Atualizar saldo diretamente no Digifarma (Firebird)
