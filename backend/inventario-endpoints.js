@@ -103,10 +103,22 @@ module.exports = function (db) {
       // 2. Se não encontrou no cache local, busca no Digifarma (Firebird)
       if (!resolvedDesc) {
         try {
-          const prodResult = await queryDigifarma(
-            "SELECT PRODUTO FROM PRODUTOS WHERE COD_BARRAS = ? OR PRODUTO_ID = ?",
-            [codigo_barras, codigo_barras]
-          );
+          const isNumeric = /^\d+$/.test(codigo_barras);
+          const val = isNumeric ? parseInt(codigo_barras, 10) : NaN;
+          let prodResult = [];
+          
+          if (isNumeric && val <= 2147483647) {
+            prodResult = await queryDigifarma(
+              "SELECT PRODUTO FROM PRODUTOS WHERE COD_BARRAS = ? OR PRODUTO_ID = ?",
+              [codigo_barras, val]
+            );
+          } else {
+            prodResult = await queryDigifarma(
+              "SELECT PRODUTO FROM PRODUTOS WHERE COD_BARRAS = ?",
+              [codigo_barras]
+            );
+          }
+
           if (prodResult && prodResult.length > 0) {
             resolvedDesc = prodResult[0].PRODUTO;
           }
