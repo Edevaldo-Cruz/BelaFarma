@@ -52,6 +52,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
   const [isUnknownProductOpen, setIsUnknownProductOpen] = useState(false);
   const [unknownBarcode, setUnknownBarcode] = useState('');
   const [unknownName, setUnknownName] = useState('');
+  const [newProductPrice, setNewProductPrice] = useState('0,00');
+  const [newProductQty, setNewProductQty] = useState('1');
+  const [isLookingUpEan, setIsLookingUpEan] = useState(false);
+  const [isSavingNewProduct, setIsSavingNewProduct] = useState(false);
   
   // Novos Estados
   const [isTestMode, setIsTestMode] = useState(false);
@@ -281,6 +285,27 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
     document.body.removeChild(link);
   };
 
+  const handleExportAdjustmentsCSV = () => {
+    if (!report || report.length === 0) return;
+    
+    // Header
+    let csvContent = '\uFEFF'; // UTF-8 BOM
+    csvContent += 'Descrição;Código Barras;Quantidade Contada;Vendas Período;Estoque Corrigido;Giro 30d;Status Estoque;Sincronizado\r\n';
+    
+    report.forEach(item => {
+      csvContent += `"${item.descricao || ''}";"${item.codigo_barras || ''}";"${String(item.quantidade_contada || 0).replace('.', ',')}";"${String(item.vendas_periodo || 0).replace('.', ',')}";"${String(item.estoque_corrigido || 0).replace('.', ',')}";"${String(item.giro_30d || 0).replace('.', ',')}";"${item.status_estoque || ''}";"${item.sincronizado ? 'OK' : 'Erro'}"\r\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `relatorio_ajustes_sessao_${finishedSessionId}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const barcode = barcodeInput.trim();
@@ -305,10 +330,25 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
         const { item } = data;
         
         if (item.isUnknown) {
-          // Abre modal de vinculação de produto desconhecido
+          // Prepara modal de cadastro e inicia lookup online
           setUnknownBarcode(item.codigo_barras);
           setUnknownName('');
+          setNewProductPrice('0,00');
+          setNewProductQty(String(qtyMultiplier));
           setIsUnknownProductOpen(true);
+          
+          setIsLookingUpEan(true);
+          try {
+            const lookupRes = await fetch(`/api/inventario/lookup?ean=${item.codigo_barras}`);
+            const lookupData = await lookupRes.json();
+            if (lookupRes.ok && lookupData.success && lookupData.name) {
+              setUnknownName(lookupData.name);
+            }
+          } catch (lookupErr) {
+            console.error('Erro de lookup:', lookupErr);
+          } finally {
+            setIsLookingUpEan(false);
+          }
         } else {
           // Atualiza lista em tempo real
           setItems(prevItems => {
@@ -320,7 +360,6 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
                 quantidade_contada: item.quantidade_contada, 
                 data_hora_bip: item.data_hora_bip 
               };
-              // Reordena para o mais recente no topo
               return updated.sort((a, b) => new Date(b.data_hora_bip).getTime() - new Date(a.data_hora_bip).getTime());
             } else {
               return [{
@@ -343,54 +382,69 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
       addToast('❌ Erro de conexão ao enviar bip.', 'error');
     } finally {
       setIsSubmittingBip(false);
-      setQtyMultiplier(1); // Reset
+      setQtyMultiplier(1);
     }
   };
 
   const handleUnknownProductSave = async () => {
     if (!unknownName.trim() || !session) return;
 
+    setIsSavingNewProduct(true);
     try {
-      const res = await fetch('/api/inventario/item/descricao', {
-        method: 'PUT',
+      const price = parseFloat(newProductPrice.replace(',', '.'));
+      const qty = parseFloat(newProductQty);
+
+      const res = await fetch('/api/inventario/produtos/cadastrar', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           sessao_id: session.id, 
           codigo_barras: unknownBarcode, 
-          descricao: unknownName.trim() 
+          descricao: unknownName.trim(),
+          preco: isNaN(price) ? 0 : price,
+          estoque: isNaN(qty) ? 0 : qty
         })
       });
 
-      if (res.ok) {
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const { product } = data;
+        
         // Adiciona ou atualiza na lista local
         setItems(prevItems => {
           const index = prevItems.findIndex(i => i.codigo_barras === unknownBarcode);
           const nowStr = new Date().toISOString();
           if (index > -1) {
             const updated = [...prevItems];
-            updated[index] = { ...updated[index], descricao: unknownName.trim(), data_hora_bip: nowStr };
+            updated[index] = { 
+              ...updated[index], 
+              descricao: product.name, 
+              quantidade_contada: product.stock, 
+              data_hora_bip: nowStr 
+            };
             return updated.sort((a, b) => new Date(b.data_hora_bip).getTime() - new Date(a.data_hora_bip).getTime());
           } else {
             return [{
               codigo_barras: unknownBarcode,
-              descricao: unknownName.trim(),
-              quantidade_contada: qtyMultiplier,
+              descricao: product.name,
+              quantidade_contada: product.stock,
               quantidade_vendida: 0,
               data_hora_bip: nowStr
             }, ...prevItems];
           }
         });
 
+        addToast(`✔ Produto "${product.name}" cadastrado e contagem registrada!`, 'success');
         setIsUnknownProductOpen(false);
-        addToast('✔ Produto desconhecido cadastrado temporariamente.', 'success');
       } else {
-        addToast('❌ Falha ao salvar descrição do produto.', 'error');
+        addToast(`❌ ${data.error || 'Erro ao cadastrar produto.'}`, 'error');
       }
     } catch (err) {
       console.error(err);
-      addToast('❌ Erro de conexão ao salvar descrição.', 'error');
+      addToast('❌ Erro de conexão ao cadastrar produto.', 'error');
     } finally {
-      setQtyMultiplier(1); // Reset
+      setIsSavingNewProduct(false);
+      setQtyMultiplier(1);
     }
   };
 
@@ -487,64 +541,81 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
         </div>
 
         {activeTab === 'adjustments' ? (
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-300 text-xs font-bold uppercase border-b border-slate-200 dark:border-zinc-800">
-                    <th className="p-4">Produto</th>
-                    <th className="p-4 text-center">Contado</th>
-                    <th className="p-4 text-center">Vendas PDV</th>
-                    <th className="p-4 text-center">Final Corrigido</th>
-                    <th className="p-4 text-center">Giro (30d)</th>
-                    <th className="p-4 text-center">Dias Cobertura</th>
-                    <th className="p-4 text-center">Status Giro</th>
-                    <th className="p-4 text-center">Sincronização</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-sm text-slate-700 dark:text-zinc-200 font-medium">
-                  {report.map((item, index) => (
-                    <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
-                      <td className="p-4">
-                        <div className="font-bold text-slate-800 dark:text-white">{item.descricao}</div>
-                        <div className="text-xs text-slate-400 font-mono mt-0.5">{item.codigo_barras}</div>
-                      </td>
-                      <td className="p-4 text-center font-bold">{item.quantidade_contada}</td>
-                      <td className="p-4 text-center text-amber-600 font-bold">-{item.vendas_periodo}</td>
-                      <td className="p-4 text-center text-green-600 dark:text-green-400 font-bold text-base bg-green-50/20 dark:bg-green-500/5">
-                        {item.estoque_corrigido}
-                      </td>
-                      <td className="p-4 text-center">{item.giro_30d}</td>
-                      <td className="p-4 text-center">
-                        {item.dias_cobertura === 999 ? '∞' : `${item.dias_cobertura} dias`}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`px-2 py-1 text-xs rounded-full font-bold ${
-                          item.status_estoque === 'Crítico' 
-                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' 
-                            : item.status_estoque === 'Sobrando'
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                              : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                        }`}>
-                          {item.status_estoque}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        {item.sincronizado ? (
-                          <span className="text-green-600 dark:text-green-400 font-bold flex items-center justify-center gap-1">
-                            <Check className="w-4 h-4" /> OK
-                          </span>
-                        ) : (
-                          <span className="text-red-500 font-bold flex flex-col items-center justify-center" title={item.erro_sinc}>
-                            <span className="flex items-center gap-1 text-xs"><X className="w-3.5 h-3.5" /> Erro</span>
-                            <span className="text-[10px] text-red-400 font-normal max-w-[120px] truncate">{item.erro_sinc}</span>
-                          </span>
-                        )}
-                      </td>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center bg-white dark:bg-zinc-900 p-4 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm gap-2">
+              <span className="text-sm font-medium text-slate-500 dark:text-zinc-400">
+                Relatório de produtos contados e seus respectivos ajustes de saldo de estoque.
+              </span>
+              {report.length > 0 && (
+                <button
+                  onClick={handleExportAdjustmentsCSV}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2 self-start sm:self-auto"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-spreadsheet"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/><path d="M10 10h4v12h-4z"/></svg>
+                  Exportar Ajustes (CSV)
+                </button>
+              )}
+            </div>
+
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-300 text-xs font-bold uppercase border-b border-slate-200 dark:border-zinc-800">
+                      <th className="p-4">Produto</th>
+                      <th className="p-4 text-center">Contado</th>
+                      <th className="p-4 text-center">Vendas PDV</th>
+                      <th className="p-4 text-center">Final Corrigido</th>
+                      <th className="p-4 text-center">Giro (30d)</th>
+                      <th className="p-4 text-center">Dias Cobertura</th>
+                      <th className="p-4 text-center">Status Giro</th>
+                      <th className="p-4 text-center">Sincronização</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-sm text-slate-700 dark:text-zinc-200 font-medium">
+                    {report.map((item, index) => (
+                      <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
+                        <td className="p-4">
+                          <div className="font-bold text-slate-800 dark:text-white">{item.descricao}</div>
+                          <div className="text-xs text-slate-400 font-mono mt-0.5">{item.codigo_barras}</div>
+                        </td>
+                        <td className="p-4 text-center font-bold">{item.quantidade_contada}</td>
+                        <td className="p-4 text-center text-amber-600 font-bold">-{item.vendas_periodo}</td>
+                        <td className="p-4 text-center text-green-600 dark:text-green-400 font-bold text-base bg-green-50/20 dark:bg-green-500/5">
+                          {item.estoque_corrigido}
+                        </td>
+                        <td className="p-4 text-center">{item.giro_30d}</td>
+                        <td className="p-4 text-center">
+                          {item.dias_cobertura === 999 ? '∞' : `${item.dias_cobertura} dias`}
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={`px-2 py-1 text-xs rounded-full font-bold ${
+                            item.status_estoque === 'Crítico' 
+                              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' 
+                              : item.status_estoque === 'Sobrando'
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                          }`}>
+                            {item.status_estoque}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          {item.sincronizado ? (
+                            <span className="text-green-600 dark:text-green-400 font-bold flex items-center justify-center gap-1">
+                              <Check className="w-4 h-4" /> OK
+                            </span>
+                          ) : (
+                            <span className="text-red-500 font-bold flex flex-col items-center justify-center" title={item.erro_sinc}>
+                              <span className="flex items-center gap-1 text-xs"><X className="w-3.5 h-3.5" /> Erro</span>
+                              <span className="text-[10px] text-red-400 font-normal max-w-[120px] truncate">{item.erro_sinc}</span>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : (
@@ -928,13 +999,13 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Modal 1: Vinculação de Produto Desconhecido */}
+      {/* Modal 1: Vinculação de Produto Desconhecido / Cadastro no Digifarma */}
       {isUnknownProductOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 max-w-md w-full rounded-3xl p-6 shadow-xl flex flex-col gap-4">
             <div className="flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-3">
               <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-1.5 text-red-500">
-                <AlertCircle className="w-5 h-5" /> Produto Não Cadastrado
+                <AlertCircle className="w-5 h-5" /> Cadastrar Novo Produto no Digifarma
               </h3>
               <button 
                 onClick={() => setIsUnknownProductOpen(false)}
@@ -946,34 +1017,82 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
             
             <div className="text-sm text-slate-500 dark:text-zinc-400">
               <p>O código de barras <strong className="font-mono text-slate-700 dark:text-white">{unknownBarcode}</strong> não foi encontrado no Digifarma.</p>
-              <p className="mt-1">Digite o nome ou descrição do produto abaixo para incluí-lo na contagem:</p>
+              
+              {isLookingUpEan ? (
+                <div className="flex items-center gap-2 text-red-500 mt-2 font-bold text-xs animate-pulse">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Buscando informações do produto na internet...
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-green-600 dark:text-green-400 font-bold">
+                  ✔ Busca finalizada. Confirme e complete os dados abaixo para cadastrar:
+                </p>
+              )}
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-600 dark:text-zinc-300">Descrição do Produto:</label>
-              <input
-                type="text"
-                className="px-4 py-3 bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-800 rounded-xl outline-none focus:border-red-500 font-bold text-slate-800 dark:text-white"
-                placeholder="Ex: Cimegripe 20 caps"
-                value={unknownName}
-                onChange={(e) => setUnknownName(e.target.value)}
-                autoFocus
-              />
+            <div className="flex flex-col gap-3">
+              {/* Descrição */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-600 dark:text-zinc-300">Descrição do Produto:</label>
+                <input
+                  type="text"
+                  className="px-4 py-2.5 bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-800 rounded-xl outline-none focus:border-red-500 font-bold text-slate-800 dark:text-white text-sm"
+                  placeholder="Ex: Cimegripe 20 caps"
+                  value={unknownName}
+                  onChange={(e) => setUnknownName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Preço de Venda */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-600 dark:text-zinc-300">Preço de Venda (R$):</label>
+                  <input
+                    type="text"
+                    className="px-4 py-2.5 bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-800 rounded-xl outline-none focus:border-red-500 font-bold text-slate-800 dark:text-white text-sm"
+                    placeholder="0,00"
+                    value={newProductPrice}
+                    onChange={(e) => setNewProductPrice(e.target.value)}
+                  />
+                </div>
+
+                {/* Quantidade Contada Inicial */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-600 dark:text-zinc-300">Quant. Contada Inicial:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="px-4 py-2.5 bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-800 rounded-xl outline-none focus:border-red-500 font-bold text-slate-800 dark:text-white text-sm"
+                    value={newProductQty}
+                    onChange={(e) => setNewProductQty(e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-3 justify-end mt-2">
               <button
+                type="button"
                 onClick={() => setIsUnknownProductOpen(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all text-sm"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl font-bold transition-all text-sm"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={handleUnknownProductSave}
-                disabled={!unknownName.trim()}
-                className="px-5 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all text-sm disabled:opacity-50 flex items-center gap-1.5"
+                disabled={!unknownName.trim() || isSavingNewProduct}
+                className="px-5 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all text-sm disabled:opacity-50 flex items-center gap-1.5 shadow-md"
               >
-                <Save className="w-4 h-4" /> Salvar Item
+                {isSavingNewProduct ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Cadastrando...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" /> Cadastrar no Digifarma
+                  </>
+                )}
               </button>
             </div>
           </div>

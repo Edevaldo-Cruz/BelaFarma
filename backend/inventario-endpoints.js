@@ -1,4 +1,5 @@
 const express = require('express');
+const fetch = require('node-fetch');
 const { queryDigifarma } = require('./services/digifarma.service');
 
 function formatarDataFirebird(date) {
@@ -479,6 +480,130 @@ module.exports = function (db) {
       res.json({ items });
     } catch (err) {
       console.error('[Inventário API] Erro ao obter não bipados:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 12. Consultar produto por EAN na internet (Consulta Remédios)
+  router.get('/lookup', async (req, res) => {
+    const { ean } = req.query;
+    if (!ean) {
+      return res.status(400).json({ error: 'EAN é obrigatório.' });
+    }
+    
+    console.log(`[Inventário API] Procurando EAN ${ean} na internet (Consulta Remédios)...`);
+    try {
+      const targetUrl = `https://consultaremedios.com.br/busca?termo=${encodeURIComponent(ean)}`;
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        }
+      });
+      
+      if (!response.ok) {
+        return res.json({ success: false, error: `Consulta falhou com status ${response.status}` });
+      }
+      
+      const html = await response.text();
+      const h2Match = html.match(/<h2[^>]*class="[^"]*(?:font-medium|product|title)[^"]*"[^>]*>([\s\S]*?)<\/h2>/i) 
+                   || html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+                   
+      if (h2Match) {
+        const productName = h2Match[1].replace(/<[^>]+>/g, '').trim();
+        console.log(`[Inventário API] EAN ${ean} encontrado: ${productName}`);
+        return res.json({ success: true, name: productName });
+      }
+      
+      console.log(`[Inventário API] EAN ${ean} não encontrado no Consulta Remédios.`);
+      res.json({ success: false, error: 'Produto não encontrado na internet.' });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao pesquisar EAN na internet:', err);
+      res.json({ success: false, error: err.message });
+    }
+  });
+
+  // 13. Cadastrar produto no Digifarma (Firebird) e no cache local
+  router.post('/produtos/cadastrar', async (req, res) => {
+    try {
+      const { codigo_barras, descricao, preco, estoque, sessao_id } = req.body;
+      if (!codigo_barras || !descricao || preco === undefined) {
+        return res.status(400).json({ error: 'codigo_barras, descricao e preco são obrigatórios.' });
+      }
+      
+      const barcodeTrim = String(codigo_barras).trim();
+      const descUpper = String(descricao).trim().toUpperCase();
+      const valPrice = parseFloat(preco);
+      const valStock = parseFloat(estoque || 0);
+      
+      if (isNaN(valPrice) || valPrice < 0) {
+        return res.status(400).json({ error: 'Preço inválido.' });
+      }
+      if (isNaN(valStock) || valStock < 0) {
+        return res.status(400).json({ error: 'Estoque inválido.' });
+      }
+
+      console.log(`[Inventário API] Solicitado cadastro de produto. EAN: ${barcodeTrim}, Nome: ${descUpper}`);
+
+      // 1. Verificar se já existe no Digifarma
+      const checkExist = await queryDigifarma("SELECT PRODUTO_ID FROM PRODUTOS WHERE COD_BARRAS = ? OR PRODUTO = ?", [barcodeTrim, descUpper]);
+      if (checkExist && checkExist.length > 0) {
+        return res.status(400).json({ error: 'Produto com este código de barras ou nome já existe no Digifarma.' });
+      }
+
+      // 2. Obter próximo ID da sequence
+      const resGen = await queryDigifarma("SELECT GEN_ID(GEN_PRODUTOS, 1) as NEW_ID FROM RDB$DATABASE");
+      if (!resGen || resGen.length === 0 || !resGen[0].NEW_ID) {
+        throw new Error('Não foi possível obter o ID gerador do Digifarma.');
+      }
+      const newId = resGen[0].NEW_ID;
+      
+      // 3. Inserir no Digifarma (Firebird)
+      const insertSql = `
+        INSERT INTO PRODUTOS (
+          PRODUTO_ID, PRODUTO, COD_BARRAS, PROD_PRVENDA, PROD_SALDO, 
+          PROD_ATIVO, CATEGORIA_ID, TRIBUTACAO_ID, PADRAO_COMISSAO_ID, 
+          PROD_UNIDADE, TIPO_PRECO
+        ) VALUES (
+          ?, ?, ?, ?, ?, 
+          'S', 5, 1, 2, 
+          'UND', 'M'
+        )
+      `;
+      await queryDigifarma(insertSql, [newId, descUpper, barcodeTrim, valPrice, valStock]);
+      console.log(`[Inventário API] Produto cadastrado no Digifarma. ID: ${newId}`);
+
+      // 4. Salvar no cache local SQLite
+      const timestamp = new Date().toISOString();
+      db.prepare(`
+        INSERT OR REPLACE INTO digifarma_products_cache 
+        (codigo_barras, produto_id, descricao, estoque_atual, preco_venda, atualizado_em) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(barcodeTrim, String(newId), descUpper, valStock, valPrice, timestamp);
+      console.log('[Inventário API] Cache local SQLite atualizado.');
+
+      // 5. Se houver sessao_id e estoque > 0, insere como item inventariado
+      if (sessao_id && valStock > 0) {
+        const idBip = `${sessao_id}_${barcodeTrim}`;
+        db.prepare(`
+          INSERT INTO itens_inventariados (id, sessao_id, codigo_barras, descricao, quantidade_contada, data_hora_bip)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET quantidade_contada = quantidade_contada + EXCLUDED.quantidade_contada
+        `).run(idBip, sessao_id, barcodeTrim, descUpper, valStock, timestamp);
+        console.log(`[Inventário API] Novo produto ${barcodeTrim} adicionado à contagem ativa com estoque contada ${valStock}.`);
+      }
+
+      res.json({
+        success: true,
+        product: {
+          id: newId,
+          name: descUpper,
+          barcode: barcodeTrim,
+          price: valPrice,
+          stock: valStock
+        }
+      });
+    } catch (err) {
+      console.error('[Inventário API] Erro ao cadastrar produto:', err);
       res.status(500).json({ error: err.message });
     }
   });
