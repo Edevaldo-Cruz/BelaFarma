@@ -617,7 +617,9 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                     { id: 'Absorvente', label: 'Absorventes' },
                     { id: 'Tintura de Cabelo', label: 'Tinturas' },
                     { id: 'Suplemento / Vitamina', label: 'Suplementos / Vit.' },
-                    { id: 'Produto de Beleza', label: 'Beleza' }
+                    { id: 'Produto de Beleza', label: 'Beleza' },
+                    { id: 'Esmalte', label: 'Esmaltes' },
+                    { id: 'Creme para Cabelo', label: 'Creme Cabelo' }
                   ].map(grp => {
                     const isSelected = selectedGroup === grp.id;
                     return (
@@ -808,6 +810,8 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                                 <option value="Tintura de Cabelo">Tintura de Cabelo</option>
                                 <option value="Suplemento / Vitamina">Suplemento / Vitamina</option>
                                 <option value="Produto de Beleza">Produto de Beleza</option>
+                                <option value="Esmalte">Esmalte</option>
+                                <option value="Creme para Cabelo">Creme para Cabelo</option>
                               </select>
                             </div>
 

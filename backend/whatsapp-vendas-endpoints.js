@@ -567,7 +567,9 @@ function initializeWhatsAppVendasEndpoints(app, db) {
     'Absorvente': ['ABSORV', 'ALWAYS', 'INTIMUS', 'SEMPRE LIVRE', 'SYMP', 'KOTEX'],
     'Tintura de Cabelo': ['TINTURA', 'COLORAC', 'IMEDIA', 'MAJIREL', 'KOLESTON', 'COR & TON', 'BIOCOLOR', 'TINT.'],
     'Suplemento / Vitamina': ['SUPLEMENTO', 'VITAMINA', 'CENTRUM', 'LAVITAN', 'NUTREN', 'VIT.', 'SUPLERA', 'POLIVIT', 'VITA '],
-    'Produto de Beleza': ['SHAMPOO', 'CONDICIONADOR', 'CREME FACIAL', 'HIDRATANTE', 'MAQUIAGEM', 'CERAVE', 'NIVEA', 'PROTETOR SOLAR', 'BLOQUEADOR', 'LOREAL', 'SABONETE LIQ']
+    'Produto de Beleza': ['SHAMPOO', 'CONDICIONADOR', 'CREME FACIAL', 'HIDRATANTE', 'MAQUIAGEM', 'CERAVE', 'NIVEA', 'PROTETOR SOLAR', 'BLOQUEADOR', 'LOREAL', 'SABONETE LIQ'],
+    'Esmalte': ['ESMALTE', 'RISQUE', 'IMPALA', 'COLORAMA', 'ANITA', 'DAILUS', 'NAIL'],
+    'Creme para Cabelo': ['CREME CABELO', 'CREME P/ CABELO', 'CREME P/ PENTEAR', 'CREME PENTEAR', 'SALAON LINE', 'SALON LINE', 'SKALA', 'NOVEX', 'MASCARA CAPILAR', 'CREME TRATAMENTO', 'CREME DE CABELO', 'CREME PARA CABELO']
   };
 
   // 3. GET /api/whatsapp-vendas/search-products — Pesquisa no Digifarma (Firebird) e anexa fotos do SQLite
