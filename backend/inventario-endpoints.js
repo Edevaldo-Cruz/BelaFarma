@@ -484,40 +484,88 @@ module.exports = function (db) {
     }
   });
 
-  // 12. Consultar produto por EAN na internet (Consulta Remédios)
+  // 12. Consultar produto por EAN na internet (Consulta Remédios + Open Food/Beauty Facts)
   router.get('/lookup', async (req, res) => {
     const { ean } = req.query;
     if (!ean) {
       return res.status(400).json({ error: 'EAN é obrigatório.' });
     }
     
-    console.log(`[Inventário API] Procurando EAN ${ean} na internet (Consulta Remédios)...`);
+    console.log(`[Inventário API] Iniciando busca em cadeia para o EAN: ${ean}...`);
     try {
-      const targetUrl = `https://consultaremedios.com.br/busca?termo=${encodeURIComponent(ean)}`;
-      const response = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      // 1. Tenta Consulta Remédios
+      try {
+        console.log(`[Inventário API] Buscando no Consulta Remédios para EAN: ${ean}`);
+        const targetUrl = `https://consultaremedios.com.br/busca?termo=${encodeURIComponent(ean)}`;
+        const response = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+          }
+        });
+        
+        if (response.ok) {
+          const html = await response.text();
+          const h2Match = html.match(/<h2[^>]*class="[^"]*(?:font-medium|product|title)[^"]*"[^>]*>([\s\S]*?)<\/h2>/i) 
+                       || html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+                       
+          if (h2Match) {
+            const productName = h2Match[1].replace(/<[^>]+>/g, '').trim();
+            console.log(`[Inventário API] EAN ${ean} encontrado no Consulta Remédios: ${productName}`);
+            return res.json({ success: true, name: productName });
+          }
         }
-      });
-      
-      if (!response.ok) {
-        return res.json({ success: false, error: `Consulta falhou com status ${response.status}` });
+      } catch (crErr) {
+        console.error('[Inventário API] Erro ao buscar no Consulta Remédios:', crErr.message);
       }
-      
-      const html = await response.text();
-      const h2Match = html.match(/<h2[^>]*class="[^"]*(?:font-medium|product|title)[^"]*"[^>]*>([\s\S]*?)<\/h2>/i) 
-                   || html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
-                   
-      if (h2Match) {
-        const productName = h2Match[1].replace(/<[^>]+>/g, '').trim();
-        console.log(`[Inventário API] EAN ${ean} encontrado: ${productName}`);
-        return res.json({ success: true, name: productName });
+
+      // 2. Tenta Open Food Facts (Alimentos, Bebidas, Conveniência)
+      try {
+        console.log(`[Inventário API] Buscando no Open Food Facts para EAN: ${ean}`);
+        const urlFood = `https://world.openfoodfacts.org/api/v0/product/${ean}.json`;
+        const foodRes = await fetch(urlFood, {
+          headers: { 'User-Agent': 'BelaFarmaInventoryApp/1.0 (contact@belafarma.com.br)' }
+        });
+        if (foodRes.ok) {
+          const data = await foodRes.json();
+          if (data.status === 1 && data.product && data.product.product_name) {
+            let productName = data.product.product_name;
+            if (data.product.brands) {
+              productName = `${productName} (${data.product.brands})`;
+            }
+            console.log(`[Inventário API] EAN ${ean} encontrado no Open Food Facts: ${productName}`);
+            return res.json({ success: true, name: productName });
+          }
+        }
+      } catch (offErr) {
+        console.error('[Inventário API] Erro ao buscar no Open Food Facts:', offErr.message);
       }
-      
-      console.log(`[Inventário API] EAN ${ean} não encontrado no Consulta Remédios.`);
+
+      // 3. Tenta Open Beauty Facts (Perfumaria, Higiene, Cosméticos)
+      try {
+        console.log(`[Inventário API] Buscando no Open Beauty Facts para EAN: ${ean}`);
+        const urlBeauty = `https://world.openbeautyfacts.org/api/v0/product/${ean}.json`;
+        const beautyRes = await fetch(urlBeauty, {
+          headers: { 'User-Agent': 'BelaFarmaInventoryApp/1.0 (contact@belafarma.com.br)' }
+        });
+        if (beautyRes.ok) {
+          const data = await beautyRes.json();
+          if (data.status === 1 && data.product && data.product.product_name) {
+            let productName = data.product.product_name;
+            if (data.product.brands) {
+              productName = `${productName} (${data.product.brands})`;
+            }
+            console.log(`[Inventário API] EAN ${ean} encontrado no Open Beauty Facts: ${productName}`);
+            return res.json({ success: true, name: productName });
+          }
+        }
+      } catch (obfErr) {
+        console.error('[Inventário API] Erro ao buscar no Open Beauty Facts:', obfErr.message);
+      }
+
+      console.log(`[Inventário API] EAN ${ean} não encontrado em nenhuma fonte pública.`);
       res.json({ success: false, error: 'Produto não encontrado na internet.' });
     } catch (err) {
-      console.error('[Inventário API] Erro ao pesquisar EAN na internet:', err);
+      console.error('[Inventário API] Erro geral no lookup:', err);
       res.json({ success: false, error: err.message });
     }
   });
