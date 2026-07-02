@@ -81,7 +81,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
 
   // Força o foco contínuo no input de código de barras
   useEffect(() => {
-    if (session && session.status === 'aberto' && !isUnknownProductOpen && !isConfirmFinalizeOpen && !isConfirmResetOpen && !editingBarcode) {
+    if (session && session.status === 'aberto' && !isUnknownProductOpen && !isConfirmFinalizeOpen && !isConfirmResetOpen && !editingBarcode && !isSubmittingBip) {
       const focusInput = () => {
         barcodeInputRef.current?.focus();
       };
@@ -92,7 +92,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
       document.addEventListener('click', focusInput);
       return () => document.removeEventListener('click', focusInput);
     }
-  }, [session, isUnknownProductOpen, isConfirmFinalizeOpen, isConfirmResetOpen, editingBarcode]);
+  }, [session, isUnknownProductOpen, isConfirmFinalizeOpen, isConfirmResetOpen, editingBarcode, isSubmittingBip]);
 
   const fetchSessionStatus = async () => {
     setIsLoading(true);
