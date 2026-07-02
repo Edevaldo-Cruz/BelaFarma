@@ -39,6 +39,56 @@ interface InventoryManagerProps {
   user: User;
 }
 
+// Utilitário para tocar feedback sonoro via AudioContext nativo (sem depender de arquivos estáticos de áudio)
+const playSound = (type: 'success' | 'error') => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+
+    if (type === 'success') {
+      // Som de sucesso: dois bips curtos e suaves e agradáveis
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      
+      osc1.frequency.setValueAtTime(800, ctx.currentTime);
+      osc1.frequency.setValueAtTime(1000, ctx.currentTime + 0.08);
+      gain1.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+      
+      osc1.start(ctx.currentTime);
+      osc1.stop(ctx.currentTime + 0.2);
+    } else if (type === 'error') {
+      // Som de erro/atenção de 3 segundos (sirene oscilante estridente)
+      const duration = 3.0;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sawtooth'; // Onda dente de serra para ser bem audível/estridente
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.frequency.setValueAtTime(200, ctx.currentTime);
+      
+      // Efeito de oscilação rápida estilo sirene de ambulância/erro
+      const oscFreqs = [180, 240];
+      for (let t = 0; t < duration; t += 0.3) {
+        osc.frequency.setValueAtTime(oscFreqs[Math.floor(t / 0.3) % 2], ctx.currentTime + t);
+      }
+      
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + duration);
+    }
+  } catch (err) {
+    console.error('[Som] Erro ao reproduzir feedback sonoro:', err);
+  }
+};
+
 export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
   const [session, setSession] = useState<InventorySession | null>(null);
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -337,6 +387,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
           setNewProductQty(String(qtyMultiplier));
           setIsUnknownProductOpen(true);
           
+          // Toca som de atenção persistente (3s) para produto não cadastrado
+          playSound('error');
+          
           setIsLookingUpEan(true);
           try {
             const lookupRes = await fetch(`/api/inventario/lookup?ean=${item.codigo_barras}`);
@@ -373,13 +426,17 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
           });
           
           addToast(`✔ ${item.descricao} bipado! Total contada: ${item.quantidade_contada}`, 'success');
+          // Som agradável de sucesso ao bipar com sucesso
+          playSound('success');
         }
       } else {
         addToast(`❌ ${data.error || 'Erro ao registrar bip.'}`, 'error');
+        playSound('error');
       }
     } catch (err) {
       console.error(err);
       addToast('❌ Erro de conexão ao enviar bip.', 'error');
+      playSound('error');
     } finally {
       setIsSubmittingBip(false);
       setQtyMultiplier(1);
@@ -436,12 +493,16 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
 
         addToast(`✔ Produto "${product.name}" cadastrado e contagem registrada!`, 'success');
         setIsUnknownProductOpen(false);
+        // Som agradável de sucesso ao cadastrar com sucesso
+        playSound('success');
       } else {
         addToast(`❌ ${data.error || 'Erro ao cadastrar produto.'}`, 'error');
+        playSound('error');
       }
     } catch (err) {
       console.error(err);
       addToast('❌ Erro de conexão ao cadastrar produto.', 'error');
+      playSound('error');
     } finally {
       setIsSavingNewProduct(false);
       setQtyMultiplier(1);
