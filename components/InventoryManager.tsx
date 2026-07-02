@@ -624,15 +624,28 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
           </div>
           
           <div className="w-full flex flex-col gap-4">
-            <label className="flex items-center justify-center gap-2.5 p-3.5 bg-slate-50 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-zinc-800/50 cursor-pointer select-none text-slate-700 dark:text-zinc-300 font-bold hover:bg-slate-100/50 dark:hover:bg-zinc-800/70 transition-all text-sm">
-              <input
-                type="checkbox"
-                checked={isTestMode}
-                onChange={(e) => setIsTestMode(e.target.checked)}
-                className="w-4.5 h-4.5 rounded accent-red-500"
-              />
-              Modo de Teste (Sem alterar Digifarma)
-            </label>
+            <button
+              type="button"
+              onClick={() => setIsTestMode(!isTestMode)}
+              className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all text-left shadow-sm ${
+                isTestMode 
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400' 
+                  : 'bg-slate-50 dark:bg-zinc-800/40 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300'
+              }`}
+            >
+              <div className="flex flex-col">
+                <span className="text-sm font-bold flex items-center gap-1.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${isTestMode ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`} />
+                  Modo de Teste (Simulação)
+                </span>
+                <span className="text-[11px] text-slate-400 dark:text-zinc-500 font-medium mt-0.5">
+                  {isTestMode ? 'Nenhuma alteração de estoque no Digifarma' : 'Grava alterações reais no Digifarma'}
+                </span>
+              </div>
+              <div className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-all ${isTestMode ? 'bg-amber-500' : 'bg-slate-300 dark:bg-zinc-700'}`}>
+                <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all duration-300 ${isTestMode ? 'translate-x-6' : ''}`} />
+              </div>
+            </button>
             
             <button
               onClick={handleStartInventory}
@@ -667,6 +680,17 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ user }) => {
   // Interface de Contagem Ativa
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 bg-slate-50 dark:bg-zinc-950 rounded-2xl min-h-screen">
+      {session.modo_teste === 1 && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/35 text-amber-800 dark:text-amber-400 p-4 rounded-3xl flex items-center justify-between text-sm font-bold shadow-sm">
+          <span className="flex items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-500 animate-bounce" />
+            Modo de Teste / Simulação Ativo (As alterações NÃO serão enviadas ao Digifarma)
+          </span>
+          <span className="bg-amber-500 text-white px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider animate-pulse">
+            Simulação
+          </span>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-green-50 dark:bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 animate-pulse">
