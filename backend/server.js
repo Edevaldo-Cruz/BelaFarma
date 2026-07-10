@@ -4081,9 +4081,19 @@ app.post('/api/whatsapp/baileys/reconnect', async (req, res) => {
   if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });
   try {
     await baileys.disconnect();
+    const fs = require('fs');
+    const sessionDir = baileys.getStatus().sessionDir;
+    if (sessionDir && fs.existsSync(sessionDir)) {
+      try {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log('[Baileys] 🧹 Pasta de sessão apagada para forçar novo QR Code.');
+      } catch (err) {
+        console.error('[Baileys] Erro ao apagar pasta de sessão no reconnect:', err.message);
+      }
+    }
     await new Promise(r => setTimeout(r, 1000));
     baileys.connect(db).catch(e => console.error('[Baileys] Erro ao reconectar:', e.message));
-    res.json({ success: true, message: 'Reconexão iniciada! Aguarde o QR Code.' });
+    res.json({ success: true, message: 'Sessão resetada e reconexão iniciada! Aguarde o QR Code.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4135,9 +4145,19 @@ app.post('/api/whatsapp/secondary/reconnect', async (req, res) => {
   if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
   try {
     await baileysSecondary.disconnect();
+    const fs = require('fs');
+    const sessionDir = baileysSecondary.getStatus().sessionDir;
+    if (sessionDir && fs.existsSync(sessionDir)) {
+      try {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log('[Baileys-Secondary] 🧹 Pasta de sessão secundária apagada para forçar novo QR Code.');
+      } catch (err) {
+        console.error('[Baileys-Secondary] Erro ao apagar pasta de sessão secundária no reconnect:', err.message);
+      }
+    }
     await new Promise(r => setTimeout(r, 1000));
     baileysSecondary.connect(db).catch(e => console.error('[Baileys-Secondary] Erro ao reconectar:', e.message));
-    res.json({ success: true, message: 'Reconexão do secundário iniciada! Aguarde o QR Code.' });
+    res.json({ success: true, message: 'Sessão secundária resetada e reconexão iniciada! Aguarde o QR Code.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
