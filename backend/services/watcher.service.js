@@ -88,7 +88,7 @@ async function getSystemHealth() {
 
   // 2. Conexão Baileys Local (Principal e Secundário)
   try {
-    const baileysService = require('./baileys-service.js');
+    const baileysService = require('../baileys-service.js');
     const pStatus = baileysService.getStatus();
     status.whatsapp.principal = {
       connected: !!pStatus.connected,
@@ -100,7 +100,7 @@ async function getSystemHealth() {
   }
 
   try {
-    const secondaryService = require('./baileys-secondary-service.js');
+    const secondaryService = require('../baileys-secondary-service.js');
     const sStatus = secondaryService.getStatus();
     status.whatsapp.secundario = {
       connected: !!sStatus.connected,
@@ -152,7 +152,7 @@ async function getSystemHealth() {
     const { queryDigifarma } = require('./digifarma.service');
     
     // Timeout de 2.5 segundos para não travar o Vigilante se o servidor Digifarma local estiver offline
-    const digiPromise = queryDigifarma('SELECT FIRST 1 COD_CADASTRO FROM CADASTRO');
+    const digiPromise = queryDigifarma('SELECT 1 FROM RDB$DATABASE');
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Timeout de 2.5s na rede local do Digifarma.')), 2500)
     );
