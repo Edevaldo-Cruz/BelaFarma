@@ -69,5 +69,33 @@ async function queryDigifarma(sql, params = []) {
 }
 
 module.exports = {
-    queryDigifarma
+    queryDigifarma,
+    getDigifarmaConnection: function() {
+        return new Promise((resolve, reject) => {
+            firebird.attach(options, function(err, db) {
+                if (err) {
+                    console.error('[Digifarma DB] Connection Error:', err.message);
+                    return reject(new Error('Servidor do Digifarma Offline ou Inacessível.'));
+                }
+                
+                // Retorna um wrapper para executar queries com timeout
+                resolve({
+                    query: function(sql, params = []) {
+                        return new Promise((resQuery, rejQuery) => {
+                            db.query(sql, params, function(err, result) {
+                                if (err) {
+                                    console.error('[Digifarma DB] Query Error:', err.message);
+                                    return rejQuery(err);
+                                }
+                                resQuery(result);
+                            });
+                        });
+                    },
+                    detach: function() {
+                        try { db.detach(); } catch(e) {}
+                    }
+                });
+            });
+        });
+    }
 };

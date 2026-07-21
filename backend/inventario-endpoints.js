@@ -1,6 +1,6 @@
 const express = require('express');
 const fetch = require('node-fetch');
-const { queryDigifarma } = require('./services/digifarma.service');
+const { queryDigifarma, getDigifarmaConnection } = require('./services/digifarma.service');
 
 function formatarDataFirebird(date) {
   const pad = (num) => String(num).padStart(2, '0');
@@ -251,14 +251,22 @@ module.exports = function (db) {
       data30DiasAtras.setHours(0, 0, 0, 0);
       const data30AtrasStr = formatarDataFirebird(data30DiasAtras);
 
+      let dbFirebird = null;
+      try {
+        dbFirebird = await getDigifarmaConnection();
+      } catch (connErr) {
+        console.warn('[Inventário API] Não foi possível conectar ao Digifarma para finalização. Será usado o fallback local.', connErr.message);
+      }
+
       for (const item of items) {
         // PULL STRATEGY: Busca soma de vendas após o bip diretamente no Digifarma
         let totalVendido = 0;
         try {
+          if (!dbFirebird) throw new Error('Conexão indisponível.');
           const dateBipObj = new Date(item.data_hora_bip);
           const dataBipStr = formatarDataFirebird(dateBipObj);
           
-          const salesRealtime = await queryDigifarma(`
+          const salesRealtime = await dbFirebird.query(`
             SELECT COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as TOTAL_VENDIDO_POS_BIP
             FROM ITEM_VENDAS iv
             JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
@@ -292,7 +300,8 @@ module.exports = function (db) {
           dbErr = "Simulado (Modo de Teste)";
         } else {
           try {
-            const updateResult = await queryDigifarma(
+            if (!dbFirebird) throw new Error('Conexão indisponível.');
+            const updateResult = await dbFirebird.query(
               "UPDATE PRODUTOS SET PROD_SALDO = ? WHERE COD_BARRAS = ?",
               [estoqueCorrigido, item.codigo_barras]
             );
@@ -306,7 +315,8 @@ module.exports = function (db) {
         // 2. Busca giro de estoque (últimos 30 dias) para cálculo de cobertura
         let totalVendido30Dias = 0;
         try {
-          const salesHistory = await queryDigifarma(`
+          if (!dbFirebird) throw new Error('Conexão indisponível.');
+          const salesHistory = await dbFirebird.query(`
             SELECT COALESCE(SUM(iv.ITEMVEND_QUANT), 0) as TOTAL_SAIDAS
             FROM ITEM_VENDAS iv
             JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
@@ -350,6 +360,10 @@ module.exports = function (db) {
           sincronizado: syncSuccess,
           erro_sinc: dbErr
         });
+      }
+
+      if (dbFirebird) {
+        dbFirebird.detach();
       }
 
       // Finaliza a sessão no SQLite
