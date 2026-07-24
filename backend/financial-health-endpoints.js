@@ -854,6 +854,27 @@ async function buildSnapshot(db, days) {
   const cmvProporcional = totalFaturamento * (1 - (margemBruta / 100));
   const saldoEstimado = totalFaturamento - cmvProporcional - totalContasFixas - totalExpenses;
 
+  // 6. Foguete Amarelo
+  let fogueteAmarelo = { total: 0, vencido: 0, qtd: 0 };
+  try {
+    const foguete = db.prepare(`
+      SELECT due_date, remaining_value as value, status
+      FROM accounts_payable
+      WHERE is_foguete_amarelo = 1 AND status != 'Quitado'
+    `).all();
+
+    for (const f of foguete) {
+      const val = f.value || 0;
+      fogueteAmarelo.total += val;
+      fogueteAmarelo.qtd += 1;
+      if (f.due_date < today) {
+        fogueteAmarelo.vencido += val;
+      }
+    }
+  } catch (e) {
+    console.warn('[FinancialHealth] fogueteAmarelo query failed:', e.message);
+  }
+
   return {
     periodo: { days, cutoffStr, currentMonth },
     faturamento: {
@@ -870,6 +891,7 @@ async function buildSnapshot(db, days) {
       qtdVencidos: boletosVencidos.length, qtdAVencer: boletosAVencer.length,
       porFornecedor: boletosPorFornecedor,
     },
+    fogueteAmarelo: fogueteAmarelo,
     compras: { total: totalCompras, porDistribuidora: compraPorDistribuidora, qtdPedidos: orders.length },
     kpis: {
       margemBrutaPercent: margemBruta,
