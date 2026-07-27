@@ -8,15 +8,17 @@ const options = {
     password: 'masterkey',
     lowercase_keys: false,
     role: null,
-    pageSize: 4096,
-    timeout: 20000 // 20 seconds timeout for offline server
+    pageSize: 4096
 };
 
 /**
  * Execute a query on Digifarma Firebird DB.
  * Gracefully handles offline scenarios.
+ * Para comandos de escrita (UPDATE/INSERT/DELETE), usa db.execute() que faz
+ * auto-commit imediato sem abrir transação longa que possa travar com locks.
  * @param {string} sql 
  * @param {Array} params 
+ * @param {number} timeoutMs - Timeout em milissegundos (padrão 60000)
  * @returns {Promise<Array>}
  */
 async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
@@ -30,7 +32,6 @@ async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
                 reject(new Error(`Timeout de ${timeoutMs}ms excedido na consulta ao Digifarma.`));
             }
         }, timeoutMs);
-
 
         firebird.attach(options, function(err, db) {
             if (finished) {
@@ -50,44 +51,28 @@ async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
             const isWrite = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql);
 
             if (isWrite) {
-                db.transaction(firebird.ISOLATION_READ_COMMITTED, function(err, tr) {
+                // Para escrita, usa db.execute() que faz auto-commit
+                // Isso evita locks de transação longa que travam o Firebird
+                db.execute(sql, params, function(err, result) {
                     if (finished) {
-                        try { if (tr) tr.rollback(); db.detach(); } catch (e) {}
+                        try { db.detach(); } catch (e) {}
                         return;
                     }
+
+                    finished = true;
+                    clearTimeout(timer);
+
                     if (err) {
-                        finished = true;
-                        clearTimeout(timer);
+                        console.error('[Digifarma DB] Execute Error:', err.message);
                         try { db.detach(); } catch (e) {}
                         return reject(err);
                     }
 
-                    tr.query(sql, params, function(err, result) {
-                        if (finished) {
-                            try { tr.rollback(); db.detach(); } catch (e) {}
-                            return;
-                        }
-
-                        if (err) {
-                            finished = true;
-                            clearTimeout(timer);
-                            try { tr.rollback(); db.detach(); } catch (e) {}
-                            return reject(err);
-                        }
-
-                        tr.commit(function(err) {
-                            finished = true;
-                            clearTimeout(timer);
-                            if (err) {
-                                try { tr.rollback(); db.detach(); } catch (e) {}
-                                return reject(err);
-                            }
-                            try { db.detach(); } catch (e) {}
-                            resolve(result);
-                        });
-                    });
+                    try { db.detach(); } catch (e) {}
+                    resolve(result || []);
                 });
             } else {
+                // Para leitura, usa db.query() normal
                 db.query(sql, params, function(err, result) {
                     if (finished) {
                         try { db.detach(); } catch (e) {}
@@ -107,7 +92,6 @@ async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
                     resolve(result);
                 });
             }
-
         });
     });
 }
@@ -122,7 +106,6 @@ module.exports = {
                     return reject(new Error('Servidor do Digifarma Offline ou Inacessível.'));
                 }
                 
-                // Retorna um wrapper para executar queries com timeout
                 resolve({
                     query: function(sql, params = []) {
                         return new Promise((resQuery, rejQuery) => {
