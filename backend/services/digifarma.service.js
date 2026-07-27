@@ -12,16 +12,20 @@ const options = {
 };
 
 /**
+ * Cria um pool de conexões reutilizáveis para evitar abrir/fechar conexão a cada query.
+ */
+const pool = firebird.pool(5, options);
+
+/**
  * Execute a query on Digifarma Firebird DB.
- * Gracefully handles offline scenarios.
- * Para comandos de escrita (UPDATE/INSERT/DELETE), usa db.execute() que faz
- * auto-commit imediato sem abrir transação longa que possa travar com locks.
+ * Para comandos de escrita (UPDATE/INSERT/DELETE), abre transação explícita
+ * com commit imediato para garantir persistência.
  * @param {string} sql 
  * @param {Array} params 
- * @param {number} timeoutMs - Timeout em milissegundos (padrão 60000)
+ * @param {number} timeoutMs
  * @returns {Promise<Array>}
  */
-async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
+async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
         let finished = false;
 
@@ -33,63 +37,73 @@ async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
             }
         }, timeoutMs);
 
-        firebird.attach(options, function(err, db) {
+        const done = (err, result) => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            if (err) return reject(err);
+            resolve(result || []);
+        };
+
+        pool.get((err, db) => {
             if (finished) {
-                if (db) {
-                    try { db.detach(); } catch (e) {}
-                }
+                if (db) try { db.detach(); } catch(e) {}
                 return;
             }
 
             if (err) {
-                finished = true;
-                clearTimeout(timer);
                 console.error('[Digifarma DB] Connection Error:', err.message);
-                return reject(new Error('Servidor do Digifarma Offline ou Inacessível.'));
+                return done(new Error('Servidor do Digifarma Offline ou Inacessível.'));
             }
 
             const isWrite = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql);
 
             if (isWrite) {
-                // Para escrita, usa db.execute() que faz auto-commit
-                // Isso evita locks de transação longa que travam o Firebird
-                db.execute(sql, params, function(err, result) {
+                // Para escrita: transação explícita com commit
+                db.transaction(firebird.ISOLATION_READ_COMMITTED, function(err, tr) {
+                    if (err) {
+                        console.error('[Digifarma DB] Transaction Error:', err.message);
+                        try { db.detach(); } catch(e) {}
+                        return done(err);
+                    }
+
                     if (finished) {
-                        try { db.detach(); } catch (e) {}
+                        try { tr.rollback(function() { db.detach(); }); } catch(e) {}
                         return;
                     }
 
-                    finished = true;
-                    clearTimeout(timer);
+                    tr.query(sql, params, function(err, result) {
+                        if (finished) {
+                            try { tr.rollback(function() { db.detach(); }); } catch(e) {}
+                            return;
+                        }
 
-                    if (err) {
-                        console.error('[Digifarma DB] Execute Error:', err.message);
-                        try { db.detach(); } catch (e) {}
-                        return reject(err);
-                    }
+                        if (err) {
+                            console.error('[Digifarma DB] Write Query Error:', err.message);
+                            try { tr.rollback(function() { db.detach(); }); } catch(e) {}
+                            return done(err);
+                        }
 
-                    try { db.detach(); } catch (e) {}
-                    resolve(result || []);
+                        tr.commit(function(err) {
+                            if (err) {
+                                console.error('[Digifarma DB] Commit Error:', err.message);
+                                try { tr.rollback(function() { db.detach(); }); } catch(e) {}
+                                return done(err);
+                            }
+                            try { db.detach(); } catch(e) {}
+                            console.log('[Digifarma DB] ✅ Write committed successfully for:', sql.substring(0, 60));
+                            done(null, result);
+                        });
+                    });
                 });
             } else {
-                // Para leitura, usa db.query() normal
+                // Para leitura: query simples
                 db.query(sql, params, function(err, result) {
-                    if (finished) {
-                        try { db.detach(); } catch (e) {}
-                        return;
-                    }
-
-                    finished = true;
-                    clearTimeout(timer);
-
                     if (err) {
                         console.error('[Digifarma DB] Query Error:', err.message);
-                        try { db.detach(); } catch (e) {}
-                        return reject(err);
                     }
-
-                    try { db.detach(); } catch (e) {}
-                    resolve(result);
+                    try { db.detach(); } catch(e) {}
+                    done(err, result);
                 });
             }
         });
