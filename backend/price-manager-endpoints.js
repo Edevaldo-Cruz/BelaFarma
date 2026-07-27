@@ -396,7 +396,9 @@ module.exports = function (db) {
         // Aplica regra de arredondamento (finais 0, 5, 9)
         const finalPrice = roundUpToAcceptedCents(rawPrice);
 
+        try {
           // Atualiza Digifarma (Firebird) - Preço de Venda
+
           await queryDigifarma(
             'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
             [finalPrice, prodId]
@@ -408,12 +410,12 @@ module.exports = function (db) {
             [finalPrice, prodId]
           );
 
-
           // Atualiza cache SQLite local
           updateCacheStmt.run(finalPrice, finalPrice, finalPrice, new Date().toISOString(), prodId);
 
           successUpdates.push({ id: prodId, price: finalPrice });
         } catch (dbErr) {
+
           console.error(`[Price Manager API] Erro ao atualizar produto ${prodId} no Digifarma:`, dbErr.message);
           failedUpdates.push({ id: prodId, error: dbErr.message });
         }
