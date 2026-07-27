@@ -86,13 +86,17 @@ function buildWhereClause(query) {
   }
 
   if (categoria === 'GENERICO') {
-    whereClauses.push('(c.descricao LIKE "%GENERICO%" OR c.descricao LIKE "% GEN %" OR c.descricao LIKE "%GEN %")');
+    whereClauses.push('(c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ?)');
+    params.push('%GENERICO%', '% GEN %', '%GEN %');
   } else if (categoria === 'SIMILAR') {
-    whereClauses.push('c.descricao LIKE "%SIMILAR%"');
+    whereClauses.push('c.descricao LIKE ?');
+    params.push('%SIMILAR%');
   } else if (categoria === 'PERFUMARIA') {
-    whereClauses.push('(c.descricao LIKE "%PERFUMARIA%" OR c.descricao LIKE "%SHAMPOO%" OR c.descricao LIKE "%SABONETE%" OR c.descricao LIKE "%CREME%" OR c.descricao LIKE "%DESODORANTE%" OR c.descricao LIKE "%PROTETOR%" OR c.descricao LIKE "%FRALDA%" OR c.descricao LIKE "%PERFUME%")');
+    whereClauses.push('(c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ?)');
+    params.push('%PERFUMARIA%', '%SHAMPOO%', '%SABONETE%', '%CREME%', '%DESODORANTE%', '%PROTETOR%', '%FRALDA%', '%PERFUME%');
   } else if (categoria === 'MARCA') {
-    whereClauses.push('c.descricao NOT LIKE "%GENERICO%" AND c.descricao NOT LIKE "%SIMILAR%" AND c.descricao NOT LIKE "%PERFUMARIA%"');
+    whereClauses.push('(c.descricao NOT LIKE ? AND c.descricao NOT LIKE ? AND c.descricao NOT LIKE ?)');
+    params.push('%GENERICO%', '%SIMILAR%', '%PERFUMARIA%');
   }
 
   const whereSQL = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -158,6 +162,43 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[Price Manager API] Erro ao obter produtos:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 1b. GET /api/price-manager/stats
+   * Retorna estatísticas resumidas do catálogo
+   */
+  router.get('/stats', (req, res) => {
+    try {
+      const row = db.prepare(`
+        SELECT 
+          COUNT(1) as total,
+          SUM(CASE WHEN c.curva = 'A' THEN 1 ELSE 0 END) as curveA,
+          SUM(CASE WHEN c.curva = 'B' THEN 1 ELSE 0 END) as curveB,
+          SUM(CASE WHEN c.curva = 'C' THEN 1 ELSE 0 END) as curveC,
+          SUM(CASE WHEN c.preco_custo > 0 AND c.preco_venda < c.preco_custo THEN 1 ELSE 0 END) as belowCost,
+          SUM(CASE WHEN n.preco_proffer IS NOT NULL THEN 1 ELSE 0 END) as withNapp,
+          SUM(CASE WHEN n.preco_proffer IS NOT NULL AND ABS(c.preco_venda - n.preco_proffer) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
+        FROM digifarma_products_cache c
+        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
+      `).get();
+
+      res.json({
+        success: true,
+        data: {
+          total: row ? row.total || 0 : 0,
+          curveA: row ? row.curveA || 0 : 0,
+          curveB: row ? row.curveB || 0 : 0,
+          curveC: row ? row.curveC || 0 : 0,
+          belowCost: row ? row.belowCost || 0 : 0,
+          withNapp: row ? row.withNapp || 0 : 0,
+          discrepant: row ? row.discrepant || 0 : 0
+        }
+      });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao obter estatísticas:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -243,7 +284,6 @@ module.exports = function (db) {
           if (!barcode) continue;
           
           const prodId = String(p.PRODUTO_ID);
-          // Curva padrão é 'C' se não possuir vendas
           const curve = curveMap.get(prodId) || 'C';
           
           insertStmt.run(
@@ -400,7 +440,7 @@ module.exports = function (db) {
       }
 
       if (updates.length === 0) {
-        return res.status(400).json({ error: 'Nenhum reajuste válido pôde ser calculated para os produtos filtrados.' });
+        return res.status(400).json({ error: 'Nenhum reajuste válido pôde ser calculado para os produtos filtrados.' });
       }
 
       const successUpdates = [];

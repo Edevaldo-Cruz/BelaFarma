@@ -173,37 +173,18 @@ export const PriceManager: React.FC = () => {
   // Monitora estatísticas gerais
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch('/api/price-manager/products?limit=5000');
+      const res = await fetch('/api/price-manager/stats');
       if (res.ok) {
         const result = await res.json();
-        if (result.success && Array.isArray(result.data)) {
-          const list = result.data as Product[];
-          const counts = list.reduce((acc, p) => {
-            acc.total++;
-            if (p.curve === 'A') acc.curveA++;
-            else if (p.curve === 'B') acc.curveB++;
-            else if (p.curve === 'C') acc.curveC++;
-            
-            if (p.cost_price > 0 && p.price < p.cost_price) {
-              acc.belowCost++;
-            }
-
-            if (p.region_price !== null) {
-              acc.withNapp++;
-              const priceDiff = Math.abs(p.price - p.region_price) / p.price;
-              if (priceDiff > 0.01) {
-                acc.discrepant++;
-              }
-            }
-            return acc;
-          }, { total: 0, curveA: 0, curveB: 0, curveC: 0, withNapp: 0, discrepant: 0, belowCost: 0 });
-          setStats(counts);
+        if (result.success && result.data) {
+          setStats(result.data);
         }
       }
     } catch (err) {
       console.error('Erro ao calcular estatísticas:', err);
     }
   }, []);
+
 
   useEffect(() => {
     fetchProducts();
