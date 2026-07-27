@@ -77,7 +77,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         <div className="flex items-center gap-2 flex-shrink-0">
           {task.needsAdminAttention && (
             <div className="p-1 px-2 bg-amber-500 text-white rounded-lg flex items-center gap-1 animate-pulse shadow-lg shadow-amber-500/20">
-              <Bell size={10} className="animate-bounce" />
+              <Bell size={10} className="animate-pulse" />
               <span className="text-[8px] font-black uppercase tracking-tighter">Atenção</span>
             </div>
           )}

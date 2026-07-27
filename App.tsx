@@ -46,6 +46,7 @@ import { MobileHeader } from "./components/MobileHeader";
 import { SalesReport } from "./components/SalesReport";
 import { CriticalStockManager } from "./components/CriticalStockManager";
 import { SystemWatcher } from "./components/SystemWatcher";
+import { PriceManager } from "./components/PriceManager";
 import {
   Order,
   View,
@@ -1024,6 +1025,9 @@ const App: React.FC = () => {
                 <WhatsAppVendas />
               )}
               {currentView === 'labels' && <EtiquetasManager user={user} />}
+              {currentView === 'price-manager' && user.role === UserRole.ADM && (
+                <PriceManager />
+              )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>
           )}

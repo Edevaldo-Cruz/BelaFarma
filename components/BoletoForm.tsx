@@ -86,7 +86,7 @@ export const BoletoForm: React.FC<BoletoFormProps> = ({ user, onSave, onCancel, 
             </h2>
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-1">Pressione CTRL + ENTER para salvar ou ESC para fechar</p>
           </div>
-          <button onClick={onCancel} className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-all">
+          <button onClick={onCancel} className="p-2 text-slate-600 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all">
             <X className="w-7 h-7" />
           </button>
         </div>

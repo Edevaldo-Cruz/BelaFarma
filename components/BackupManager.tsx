@@ -199,7 +199,7 @@ export const BackupManager: React.FC = () => {
                       backups.map((backup, index) => (
                           <div key={backup.name} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between group">
                               <div className="flex items-center gap-4">
-                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${index === 0 ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${index === 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
                                       <Database className="w-5 h-5" />
                                   </div>
                                   <div>
@@ -221,7 +221,7 @@ export const BackupManager: React.FC = () => {
                               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button 
                                       onClick={() => initRestore(backup)}
-                                      className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-2"
+                                      className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-2"
                                   >
                                       <RotateCcw className="w-3 h-3" />
                                       Restaurar

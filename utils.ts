@@ -216,3 +216,27 @@ export function calculateWeeklyBudgetsCascade(
 
   return results;
 }
+
+/**
+ * Arredonda um valor numérico para cima garantindo que os centavos terminem
+ * em 0, 5 ou 9 (ex: R$ 10,12 -> R$ 10,15 | R$ 10,16 -> R$ 10,19 | R$ 10,97 -> R$ 10,99).
+ */
+export function roundUpToAcceptedCents(val: number): number {
+  if (isNaN(val) || val <= 0) return 0;
+  let totalCents = Math.round(val * 100);
+  let integerPart = Math.floor(totalCents / 100);
+  let centsPart = totalCents % 100;
+
+  let lastDigit = centsPart % 10;
+  if (lastDigit === 0 || lastDigit === 5 || lastDigit === 9) {
+    return totalCents / 100;
+  }
+  if (lastDigit > 0 && lastDigit < 5) {
+    centsPart += (5 - lastDigit);
+  } else if (lastDigit > 5 && lastDigit < 9) {
+    centsPart += (9 - lastDigit);
+  }
+
+  return (integerPart * 100 + centsPart) / 100;
+}
+

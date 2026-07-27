@@ -28,8 +28,8 @@ const agents: AIAgent[] = [
     role: 'Estrategista Digital',
     description: 'Relatórios quinzenais, datas comemorativas, ideias de promoção, curadoria de notícias e alertas climáticos para impulsionar suas vendas.',
     emoji: '📢',
-    gradient: 'from-violet-600 via-purple-600 to-indigo-600',
-    accentColor: 'violet',
+    gradient: 'from-rose-500 via-pink-500 to-orange-500',
+    accentColor: 'rose',
     available: true,
   },
   {

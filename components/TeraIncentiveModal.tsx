@@ -174,11 +174,11 @@ export const TeraIncentiveModal: React.FC<TeraIncentiveModalProps> = ({ isOpen, 
           
           {/* Header */}
           <div className="text-center space-y-1.5 mt-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-black uppercase tracking-wider animate-bounce">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-black uppercase tracking-wider animate-pulse">
               <Sparkles className="w-3.5 h-3.5" /> Foco no Objetivo
             </div>
             <h2 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-slate-50 tracking-tight leading-tight">
-              Bom dia, <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">Nayane</span>! 🚗💨
+              Bom dia, <span className="text-red-600 dark:text-red-500 font-extrabold">Nayane</span>! 🚗💨
             </h2>
             <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 font-medium">
               O seu **VW Tera** dos sonhos está cada vez mais perto. Vamos acelerar rumo a essa conquista!

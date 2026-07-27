@@ -479,10 +479,36 @@ try {
       );
     `;
 
+    const createNappPricesTable = `
+      CREATE TABLE IF NOT EXISTS napp_prices (
+        ean TEXT PRIMARY KEY,
+        produto_id TEXT,
+        preco_proffer REAL,
+        atualizado_em TEXT
+      );
+    `;
+
     db.exec(createSessoesInventarioTable);
     db.exec(createItensInventariadosTable);
     db.exec(createVendasDuranteInventarioTable);
     db.exec(createDigifarmaProductsCacheTable);
+    db.exec(createNappPricesTable);
+
+    // --- Price Manager Table Migrations ---
+    try {
+      db.prepare('SELECT curva FROM digifarma_products_cache LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN curva TEXT DEFAULT "C"');
+      console.log('Added curva column to digifarma_products_cache table.');
+    }
+
+    try {
+      db.prepare('SELECT preco_custo FROM digifarma_products_cache LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN preco_custo REAL DEFAULT 0.0');
+      console.log('Added preco_custo column to digifarma_products_cache table.');
+    }
+
 
     // Create indexes for fast lookups
     try {

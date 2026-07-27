@@ -152,15 +152,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp },
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
     { id: 'system-watcher', label: 'Vigilante', icon: Activity },
+    { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });
+
 
   // Reordena alfabeticamente exceto Dashboard (fixo no topo) e Configurações (fixo no final)
   const sortedMenuItems = [
@@ -231,6 +233,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getNotificationBtnClass = () => {
+    if (isBudgetBusted) {
+      return hasNotifications ? 'bg-amber-500/20 text-amber-300' : 'bg-red-900/40 text-red-300 hover:text-white';
+    }
+    const bgClass = hasNotifications ? 'bg-amber-100' : 'bg-slate-50';
+    const textClass = hasNotifications ? 'text-amber-800' : 'text-slate-500';
+    const hoverClass = hasNotifications ? 'hover:bg-amber-200' : 'hover:text-slate-700';
+    return bgClass + ' ' + textClass + ' ' + hoverClass + ' dark:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200 rounded-xl transition-all';
+  };
+
+  const getLogoutBtnClass = () => {
+    if (isBudgetBusted) {
+      return 'text-red-300 hover:bg-red-900/40 hover:text-white';
+    }
+    const textClass = 'text-slate-500';
+    const hoverClass = 'hover:bg-red-50 hover:text-red-650';
+    return textClass + ' ' + hoverClass + ' dark:text-slate-450 dark:hover:bg-red-900/20 dark:hover:text-red-450';
+  };
+
   return (
     <>
       {isOpen && (
@@ -266,13 +287,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="relative" ref={notificationRef}>
                 <button 
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
-                  className={`p-2.5 rounded-xl transition-all ${
-                    isBudgetBusted
-                      ? hasNotifications ? 'bg-amber-500/20 text-amber-300' : 'bg-red-900/40 text-red-300 hover:text-white'
-                      : hasNotifications ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
-                  }`}
+                  className={`p-2.5 rounded-xl transition-all ${getNotificationBtnClass()}`}
                 >
-                  <Bell size={20} className={hasNotifications ? 'animate-bounce' : ''} />
+                  <Bell size={20} className={hasNotifications ? 'animate-pulse' : ''} />
                   {hasNotifications && (
                     <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center bg-red-600 rounded-full border-2 border-white dark:border-slate-900 text-[10px] font-black text-white">
                       {totalNotifications}
@@ -394,11 +411,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }`}>
             <button
               onClick={onLogout}
-              className={`flex items-center w-full gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all ${
-                isBudgetBusted
-                  ? 'text-red-300 hover:bg-red-900/40 hover:text-white'
-                  : 'text-slate-400 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400'
-              }`}
+              className={`flex items-center w-full gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all ${getLogoutBtnClass()}`}
             >
               <LogOut className="w-5 h-5" />
               Sair do Sistema

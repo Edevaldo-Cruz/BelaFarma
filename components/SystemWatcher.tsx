@@ -263,7 +263,7 @@ export const SystemWatcher: React.FC = () => {
             disabled={isTestingAlert || !health}
             className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition-all text-sm disabled:opacity-50"
           >
-            <MessageSquare className={`w-4 h-4 ${isTestingAlert ? 'animate-bounce' : ''}`} />
+            <MessageSquare className={`w-4 h-4 ${isTestingAlert ? 'animate-pulse' : ''}`} />
             Testar Alerta no WA
           </button>
           

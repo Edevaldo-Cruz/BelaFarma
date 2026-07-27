@@ -137,7 +137,7 @@ export const FinancialArchive: React.FC<FinancialArchiveProps> = ({ orders, bole
           const sortedDays = Object.keys(itemsByDay).sort((a,b) => new Date(a).getTime() - new Date(b).getTime());
 
           return (
-            <div key={month} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm transition-all border-b-4 border-b-slate-400/10">
+            <div key={month} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-slate-50 rounded-2xl">

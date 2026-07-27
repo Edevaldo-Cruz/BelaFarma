@@ -3727,6 +3727,11 @@ console.log('📻 Módulo Rádio Bela Farma inicializado.');
 require('./medication-ai-endpoints.js')(app);
 console.log('💊 Módulo IA de Medicamentos inicializado.');
 
+const priceManagerEndpoints = require('./price-manager-endpoints.js');
+app.use('/api/price-manager', priceManagerEndpoints(db));
+console.log('💰 Módulo Monitor de Preços e Reajuste em Massa inicializado.');
+
+
 // ============================================================================
 // AGENTE DE COMPRAS IA - Inicialização
 // ============================================================================
@@ -3935,6 +3940,19 @@ cron.schedule('0 * * * *', async () => {
   }
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON-SHORTAGE-SYNC] 🔄 Sincronização de faltas agendada para rodar a cada hora.');
+
+// CRON: RASPAGEM QUINZENAL DE PREÇOS NAPP SOLUTIONS
+cron.schedule('0 0 1,15 * *', async () => {
+  console.log('[Cron Job] ⏰ Disparando raspagem automática quinzenal de preços Napp Solutions...');
+  try {
+    const { runNappScraper } = require('./services/napp-scraper.service');
+    await runNappScraper();
+  } catch (err) {
+    console.error('[Cron Job] Erro ao executar raspagem Napp:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON-NAPP-SCRAPE] 📅 Robô de raspagem Napp agendado para rodar quinzenalmente (dias 1 e 15 às 00:00).');
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARADOR DE COTAÇÕES — /api/quotation/analyze

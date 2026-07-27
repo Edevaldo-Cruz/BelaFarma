@@ -44,7 +44,7 @@ interface QuotationComparatorProps {
 
 const SUPPLIER_COLORS = [
   { dot: 'bg-blue-500',    header: 'from-blue-600 to-blue-700',    badge: 'bg-blue-100 text-blue-700 border-blue-200',    ring: 'ring-blue-400',    border: 'border-blue-300',    light: 'bg-blue-50' },
-  { dot: 'bg-violet-500',  header: 'from-violet-600 to-violet-700',badge: 'bg-violet-100 text-violet-700 border-violet-200',ring: 'ring-violet-400', border: 'border-violet-300', light: 'bg-violet-50' },
+  { dot: 'bg-teal-500',    header: 'from-teal-600 to-teal-700',  badge: 'bg-teal-100 text-teal-700 border-teal-200',    ring: 'ring-teal-400',   border: 'border-teal-300',   light: 'bg-teal-50' },
   { dot: 'bg-rose-500',    header: 'from-rose-600 to-rose-700',    badge: 'bg-rose-100 text-rose-700 border-rose-200',    ring: 'ring-rose-400',    border: 'border-rose-300',    light: 'bg-rose-50' },
   { dot: 'bg-amber-500',   header: 'from-amber-500 to-amber-600',  badge: 'bg-amber-100 text-amber-700 border-amber-200',  ring: 'ring-amber-400',   border: 'border-amber-300',   light: 'bg-amber-50' },
   { dot: 'bg-emerald-500', header: 'from-emerald-600 to-emerald-700', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', ring: 'ring-emerald-400', border: 'border-emerald-300', light: 'bg-emerald-50' },

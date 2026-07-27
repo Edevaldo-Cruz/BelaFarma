@@ -32,12 +32,8 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
   const [calcTaxes, setCalcTaxes] = useState<number>(10);
   const [calcExtraProvision, setCalcExtraProvision] = useState<number>(1500);
 
-  const now = new Date();
 
-  // Sincroniza o faturamento simulado inicial com o faturamento do mês selecionado
-  useEffect(() => {
-    setCalcSales(currentMonthSales > 0 ? currentMonthSales.toString() : salesGoal.toString());
-  }, [currentMonthSales, salesGoal]);
+  const now = new Date();
 
   useEffect(() => {
     const fetchGoals = async () => {
@@ -138,6 +134,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
       })
       .reduce((acc, curr) => acc + (curr.totalSales || 0), 0);
   }, [cashClosings, selectedMonth, selectedYear]);
+
+  // Sincroniza o faturamento simulado inicial com o faturamento do mês selecionado
+  useEffect(() => {
+    setCalcSales(currentMonthSales > 0 ? currentMonthSales.toString() : salesGoal.toString());
+  }, [currentMonthSales, salesGoal]);
 
   const fixedAccountsTotal = useMemo(() => {
     return fixedAccounts.filter(fa => fa.isActive).reduce((acc, fa) => acc + fa.value, 0);
@@ -328,14 +329,14 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
       </div>
 
       {/* PAINEL CENTRAL (BURACO) */}
-      <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[3rem] p-8 md:p-12 text-white shadow-2xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-emerald-950 to-slate-900 rounded-[3rem] p-8 md:p-12 text-white shadow-2xl relative overflow-hidden border border-emerald-900/30">
         {/* Decorative background elements */}
-        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-indigo-500 rounded-full blur-3xl opacity-20 animate-pulse"></div>
-        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-80 h-80 bg-blue-500 rounded-full blur-3xl opacity-10"></div>
+        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-emerald-550 rounded-full blur-3xl opacity-20 animate-pulse"></div>
+        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-80 h-80 bg-teal-500 rounded-full blur-3xl opacity-10"></div>
         
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center">
           <div className="col-span-2 space-y-6">
-            <h2 className="text-sm font-black text-indigo-300 uppercase tracking-[0.2em] flex items-center gap-2">
+            <h2 className="text-sm font-black text-emerald-350 dark:text-emerald-400 uppercase tracking-[0.2em] flex items-center gap-2">
               <TrendingUp className="w-4 h-4" /> Desempenho Geral do Mês
             </h2>
             <div className="space-y-2">
@@ -343,7 +344,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
                 <p className="text-4xl md:text-6xl font-black tracking-tighter">
                   {formatBRL(currentMonthSales)}
                 </p>
-                <p className="text-indigo-200 font-bold mb-2">
+                <p className="text-emerald-200 font-bold mb-2">
                   de {formatBRL(salesGoal)}
                 </p>
               </div>
@@ -354,18 +355,18 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
                   style={{ width: `${salesProgressPercent * 100}%` }}
                 ></div>
               </div>
-              <p className="text-xs text-right font-black tracking-widest text-indigo-300">
+              <p className="text-xs text-right font-black tracking-widest text-emerald-350 dark:text-emerald-400">
                 {(salesProgressPercent * 100).toFixed(1)}% ATINGIDO
               </p>
             </div>
           </div>
           
           <div className="bg-white/10 backdrop-blur-md rounded-[2rem] p-6 border border-white/10 flex flex-col items-center justify-center text-center h-full">
-            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-2">Buraco a Faturar</p>
+            <p className="text-[10px] font-black text-emerald-250 dark:text-emerald-300 uppercase tracking-widest mb-2">Buraco a Faturar</p>
             {missingSalesAmount > 0 ? (
               <>
                 <p className="text-3xl font-black text-white tracking-tighter">{formatBRL(missingSalesAmount)}</p>
-                <p className="text-xs font-bold text-indigo-300 mt-2 opacity-80">Faltam para garantir 100% das provisões do mês</p>
+                <p className="text-xs font-bold text-emerald-300 dark:text-emerald-400 mt-2 opacity-80">Faltam para garantir 100% das provisões do mês</p>
               </>
             ) : (
               <>
@@ -384,16 +385,16 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
         </h3>
         
         {isEditingSettings ? (
-          <div className="flex items-center gap-2 bg-indigo-50 p-1.5 rounded-2xl border border-indigo-100">
-             <button onClick={() => setIsEditingSettings(false)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors">
-               <X className="w-4 h-4" />
+          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-750">
+             <button onClick={() => setIsEditingSettings(false)} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                <X className="w-4 h-4" />
              </button>
-             <button onClick={handleSaveSettings} className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center gap-1">
-               <Save className="w-3 h-3" /> Salvar Metas
+             <button onClick={handleSaveSettings} className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md flex items-center gap-1">
+                <Save className="w-3 h-3" /> Salvar Metas
              </button>
           </div>
         ) : (
-          <button onClick={startEditing} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+          <button onClick={startEditing} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-xl transition-all">
              <Edit2 className="w-3 h-3" /> Configurar Valores
           </button>
         )}
@@ -591,9 +592,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, 
 
         {/* RESULTADOS DA CALCULADORA */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="bg-indigo-50/50 dark:bg-indigo-950/10 p-5 rounded-2xl border border-indigo-100/50 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-indigo-400 dark:text-indigo-500 uppercase tracking-widest">Orçamento Mensal de Compras</p>
-            <p className="text-3xl font-black text-indigo-700 dark:text-indigo-400 tracking-tighter mt-1">{formatBRL(otbMensal)}</p>
+          <div className="bg-slate-50/85 dark:bg-slate-800/30 p-5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 flex flex-col justify-center">
+            <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Orçamento Mensal de Compras</p>
+            <p className="text-3xl font-black text-slate-800 dark:text-slate-100 tracking-tighter mt-1">{formatBRL(otbMensal)}</p>
             <p className="text-[9px] text-slate-500 mt-2">Limite máximo de boletos para o mês fechar positivo.</p>
           </div>
 

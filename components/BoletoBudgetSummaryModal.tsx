@@ -374,7 +374,7 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
                     <div className="hidden md:flex flex-shrink-0 items-center justify-center w-12 h-12 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 gap-2 flex-col">
                       {stat.status === 'safe' && <CheckCircle className="w-5 h-5 text-emerald-500" />}
                       {stat.status === 'warning' && <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />}
-                      {stat.status === 'danger' && <AlertTriangle className="w-5 h-5 text-red-500 animate-bounce" />}
+                      {stat.status === 'danger' && <AlertTriangle className="w-5 h-5 text-red-500 animate-pulse" />}
                       {stat.status === 'no-budget' && <Info className="w-5 h-5 text-slate-400" />}
                     </div>
                   </div>

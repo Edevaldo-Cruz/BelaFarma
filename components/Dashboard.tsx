@@ -176,12 +176,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [boletos, monthlyLimits, isAdmin]);
 
-  const themeCardClass = React.useMemo(() => {
-    if (!isAdmin || !budgetData || budgetData.currentWeek.status === 'no-budget') return 'glass-card-neutral';
-    if (budgetData.currentWeek.status === 'safe') return 'glass-card-safe';
-    if (budgetData.currentWeek.status === 'warning') return 'glass-card-warning';
-    return 'glass-card-danger';
-  }, [isAdmin, budgetData]);
+  const themeCardClass = 'glass-card-neutral';
 
   const [iniciandoRadio, setIniciandoRadio] = React.useState(false);
   const [carregandoNoticias, setCarregandoNoticias] = React.useState(false);
@@ -470,7 +465,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       };
       return updated;
     } else {
-      const fakeTodayRecord: CashClosingRecord = {
+      const fakeTodayRecord = {
         id: 'live-today-simulated',
         date: `${todayStr}T12:00:00.000Z`,
         totalSales: liveSalesData.totalSales,
@@ -478,9 +473,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         debit: liveSalesData.debit,
         pix: liveSalesData.pix,
         totalCrediario: liveSalesData.crediario,
-        pixDirect: 0,
-        notes: 'Simulação Live'
-      };
+        pixDirect: 0
+      } as unknown as CashClosingRecord;
       return [...cashClosings, fakeTodayRecord];
     }
   }, [cashClosings, liveSalesData]);
@@ -587,7 +581,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         'from-rose-450 to-red-650'
       }`} />
       <div className={`absolute top-[40vh] -left-40 w-[350px] h-[350px] rounded-full blur-[120px] opacity-[0.05] dark:opacity-[0.03] pointer-events-none transition-all duration-1000 -z-10 bg-gradient-to-br ${
-        !isAdmin || !budgetData || budgetData.currentWeek.status === 'no-budget' ? 'from-purple-400 to-blue-500' :
+        !isAdmin || !budgetData || budgetData.currentWeek.status === 'no-budget' ? 'from-teal-400 to-blue-500' :
         budgetData.currentWeek.status === 'safe' ? 'from-teal-400 to-emerald-500' :
         budgetData.currentWeek.status === 'warning' ? 'from-yellow-400 to-amber-500' :
         'from-red-400 to-rose-650'
@@ -626,7 +620,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 disabled={carregandoNoticias}
                 className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-3 py-1.5 rounded-full shadow-md transition-all min-h-[36px]"
               >
-                <Megaphone className={`w-3.5 h-3.5 md:w-4 md:h-4 ${carregandoNoticias ? 'animate-bounce' : ''}`} />
+                <Megaphone className={`w-3.5 h-3.5 md:w-4 md:h-4 ${carregandoNoticias ? 'animate-pulse' : ''}`} />
                 <span className="hidden sm:inline">{carregandoNoticias ? 'Preparando...' : 'Notícias'}</span>
               </button>
               <button
@@ -769,32 +763,60 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Orçamento Mensal */}
-        {isAdmin && budgetData && budgetData.currentWeek.status !== 'no-budget' && (
-          <section className={`glass-card p-6 rounded-3xl shadow-md transition-all duration-300 flex flex-col justify-between h-full min-h-[160px] ${themeCardClass}`}>
-            <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
-              <Calendar className="w-4 h-4" /> Orçamento Mensal ({capitalize(currentMonthName)})
-            </h2>
-            <div className="mt-2">
-              <p className="text-3xl font-black text-slate-900 dark:text-slate-100 truncate">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.spent)}
-              </p>
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 truncate mt-1">
-                de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.limit)} limite
-              </p>
-            </div>
-            <div className="mt-4 w-full">
-              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 mb-1">
-                <span>Uso do Limite</span>
-                <span className={`${budgetData.monthly.status === 'danger' ? 'text-red-500' : budgetData.monthly.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
-                  {budgetData.monthly.percentUsed.toFixed(1)}%
+        {isAdmin && budgetData && budgetData.currentWeek.status !== 'no-budget' && (() => {
+          const budgetStatus = budgetData.monthly.status;
+          let budgetCardClass = 'glass-card-neutral';
+          let statusLabel = 'Sem Limite';
+          let statusBadgeClass = 'bg-slate-100 text-slate-700 dark:bg-slate-850 dark:text-slate-300';
+          let budgetTextColors = 'text-slate-900 dark:text-slate-100';
+
+          if (budgetStatus === 'safe') {
+            budgetCardClass = 'glass-card-safe border-emerald-500/30 dark:border-emerald-500/20';
+            statusLabel = 'Orçamento Saudável';
+            statusBadgeClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
+          } else if (budgetStatus === 'warning') {
+            budgetCardClass = 'glass-card-warning border-amber-500/30 dark:border-amber-500/20';
+            statusLabel = 'Limite Próximo';
+            statusBadgeClass = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
+          } else if (budgetStatus === 'danger') {
+            budgetCardClass = 'glass-card-danger border-red-500/40 dark:border-red-500/30 shadow-lg shadow-red-500/5';
+            statusLabel = 'Orçamento Estourado';
+            statusBadgeClass = 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-350';
+            budgetTextColors = 'text-red-650 dark:text-red-400';
+          }
+
+          return (
+            <section className={`glass-card p-6 rounded-3xl shadow-md transition-all duration-300 flex flex-col justify-between h-full min-h-[160px] ${budgetCardClass}`}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <Calendar className="w-4 h-4" /> Orçamento Mensal ({capitalize(currentMonthName)})
+                </h2>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${statusBadgeClass}`}>
+                  {statusLabel}
                 </span>
               </div>
-              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
-                <div className={`h-full transition-all duration-500 ${budgetData.monthly.status === 'danger' ? 'bg-red-500' : budgetData.monthly.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.monthly.percentUsed)}%` }} />
+              <div className="mt-2">
+                <p className={`text-3xl font-black truncate ${budgetTextColors}`}>
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.spent)}
+                </p>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 truncate mt-1">
+                  de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(budgetData.monthly.limit)} limite
+                </p>
               </div>
-            </div>
-          </section>
-        )}
+              <div className="mt-4 w-full">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 mb-1">
+                  <span>Uso do Limite</span>
+                  <span className={`${budgetStatus === 'danger' ? 'text-red-500 font-black' : budgetStatus === 'warning' ? 'text-amber-600 dark:text-amber-400 font-black' : 'text-emerald-600 dark:text-emerald-400 font-black'}`}>
+                    {budgetData.monthly.percentUsed.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className={`h-full transition-all duration-500 ${budgetStatus === 'danger' ? 'bg-red-550' : budgetStatus === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, budgetData.monthly.percentUsed)}%` }} />
+                </div>
+              </div>
+            </section>
+          );
+        })()}
       </div>
 
       
@@ -881,8 +903,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className={`p-2 rounded-xl w-fit mb-4 ${overdueCount > 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-650 dark:text-red-400 animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
             <AlertCircle className="w-6 h-6" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Pedidos em Atraso</p>
-          <p className={`text-xl xl:text-2xl font-black mt-1 truncate ${overdueCount > 0 ? 'text-red-650 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
+          <p className={`text-[10px] font-black uppercase tracking-widest ${overdueCount > 0 ? 'text-red-800 dark:text-red-300' : 'text-slate-400 dark:text-slate-500'}`}>Pedidos em Atraso</p>
+          <p className={`text-xl xl:text-2xl font-black mt-1 truncate ${overdueCount > 0 ? 'text-red-600 dark:text-red-450' : 'text-slate-900 dark:text-slate-100'}`}>{overdueCount}</p>
         </div>
 
         <div className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>

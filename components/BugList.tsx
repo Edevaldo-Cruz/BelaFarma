@@ -14,10 +14,10 @@ const BugCard: React.FC<BugCardProps> = ({ bug, user, users, onClick }) => {
   const isAdmin = user.role === 'Administrador';
 
   const priorityConfig = {
-    'Crítico': { color: 'border-red-500 bg-red-50 dark:bg-red-950/20', badge: 'bg-red-600 text-white', icon: AlertTriangle },
-    'Alto': { color: 'border-orange-500 bg-orange-50 dark:bg-orange-950/20', badge: 'bg-orange-600 text-white', icon: AlertTriangle },
-    'Médio': { color: 'border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20', badge: 'bg-yellow-600 text-white', icon: AlertTriangle },
-    'Baixo': { color: 'border-slate-300 bg-slate-50 dark:bg-slate-950/20', badge: 'bg-slate-500 text-white', icon: AlertTriangle }
+    'Crítico': { color: 'border-red-300 dark:border-red-900/30 bg-red-50/50 dark:bg-red-950/10', badge: 'bg-red-600 text-white', icon: AlertTriangle },
+    'Alto': { color: 'border-orange-300 dark:border-orange-900/30 bg-orange-50/50 dark:bg-orange-950/10', badge: 'bg-orange-600 text-white', icon: AlertTriangle },
+    'Médio': { color: 'border-yellow-300 dark:border-yellow-900/30 bg-yellow-50/50 dark:bg-yellow-950/10', badge: 'bg-yellow-600 text-white', icon: AlertTriangle },
+    'Baixo': { color: 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/10', badge: 'bg-slate-500 text-white', icon: AlertTriangle }
   };
 
   const statusConfig = {
@@ -33,7 +33,7 @@ const BugCard: React.FC<BugCardProps> = ({ bug, user, users, onClick }) => {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left p-5 border-l-4 ${config.color} rounded-2xl hover:shadow-lg transition-all group`}
+      className={`w-full text-left p-5 border ${config.color} rounded-2xl hover:shadow-lg transition-all group`}
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-start gap-3 flex-1">

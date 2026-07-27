@@ -501,7 +501,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
           {/* PAINEL DE SALDO DEVEDOR PROLABORE */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border-2 border-indigo-100 dark:border-indigo-900/30 shadow-md">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+              <h2 className="text-xs font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-2">
                 <Wallet className="w-4 h-4" /> Saldo Devedor: Prolabore
               </h2>
               {budgetStatus === 'busted' && (
@@ -546,7 +546,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
 
             <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
               <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Dívida Atual</span>
-              <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+              <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400">
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentDebt)}
               </span>
             </div>
