@@ -36,11 +36,14 @@ interface Product {
   stock: number;
   price: number;
   cost_price: number;
+  promo_price?: number;
+  normal_price?: number;
   curve: 'A' | 'B' | 'C';
   cached_at: string;
   region_price: number | null;
   region_updated_at: string | null;
 }
+
 
 interface Pagination {
   totalItems: number;
@@ -790,15 +793,23 @@ export const PriceManager: React.FC = () => {
                         {p.cost_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </td>
                       <td className="p-4 text-right font-bold text-slate-800 dark:text-slate-100 text-sm">
-                        <div className="flex items-center justify-end gap-1">
-                          {showCostWarning && (
-                            <span title="Preço de venda abaixo do preço de custo (Prejuízo)!" className="text-rose-500 hover:scale-110 transition duration-150">
-                              <AlertTriangle className="w-4 h-4 animate-bounce" />
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-center justify-end gap-1">
+                            {showCostWarning && (
+                              <span title="Preço de venda abaixo do preço de custo (Prejuízo)!" className="text-rose-500 hover:scale-110 transition duration-150">
+                                <AlertTriangle className="w-4 h-4 animate-bounce" />
+                              </span>
+                            )}
+                            <span>{p.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                          </div>
+                          {p.promo_price && p.promo_price > 0 ? (
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded mt-0.5 border border-emerald-200 dark:border-emerald-800/40">
+                              🏷️ Promoção
                             </span>
-                          )}
-                          {p.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          ) : null}
                         </div>
                       </td>
+
                       <td className="p-4 text-right font-semibold text-slate-700 dark:text-slate-300 text-sm">
                         {p.region_price !== null ? (
                           <div className="flex flex-col items-end">

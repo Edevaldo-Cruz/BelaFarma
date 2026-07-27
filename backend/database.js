@@ -509,6 +509,21 @@ try {
       console.log('Added preco_custo column to digifarma_products_cache table.');
     }
 
+    try {
+      db.prepare('SELECT preco_promocao FROM digifarma_products_cache LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN preco_promocao REAL DEFAULT 0.0');
+      console.log('Added preco_promocao column to digifarma_products_cache table.');
+    }
+
+    try {
+      db.prepare('SELECT preco_normal FROM digifarma_products_cache LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN preco_normal REAL DEFAULT 0.0');
+      console.log('Added preco_normal column to digifarma_products_cache table.');
+    }
+
+
 
     // Create indexes for fast lookups
     try {

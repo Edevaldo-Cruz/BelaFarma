@@ -31,6 +31,32 @@ function roundUpToAcceptedCents(val) {
 }
 
 /**
+ * Calcula o preço efetivo do produto (Preço de promoção se houver e ativo, caso contrário Preço de venda normal)
+ */
+function getEffectivePrice(p) {
+  const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
+  const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
+
+  if (promoPrice > 0) {
+    const now = new Date();
+    let isPromoActive = true;
+    if (p.INICIO_PROMOCAO) {
+      const inicio = new Date(p.INICIO_PROMOCAO);
+      if (now < inicio) isPromoActive = false;
+    }
+    if (p.TERMINO_PROMOCAO) {
+      const termino = new Date(p.TERMINO_PROMOCAO);
+      termino.setHours(23, 59, 59, 999);
+      if (now > termino) isPromoActive = false;
+    }
+    if (isPromoActive) {
+      return promoPrice;
+    }
+  }
+  return normalPrice;
+}
+
+/**
  * Constrói a cláusula WHERE em SQL SQLite com base nos filtros da requisição
  */
 function buildWhereClause(query) {
@@ -137,6 +163,8 @@ module.exports = function (db) {
           c.estoque_atual as stock,
           c.preco_venda as price,
           c.preco_custo as cost_price,
+          c.preco_promocao as promo_price,
+          c.preco_normal as normal_price,
           c.curva as curve,
           c.atualizado_em as cached_at,
           n.preco_proffer as region_price,
@@ -206,14 +234,24 @@ module.exports = function (db) {
   /**
    * 2. POST /api/price-manager/sync-cache
    * Recalcula a curva ABC das vendas de 60 dias no Digifarma (Firebird) e atualiza o SQLite local
+   * Considera o Preço de Promoção ativo (PROD_PRPROMOCAO) se houver, caso contrário o Preço de Venda (PROD_PRVENDA)
    */
   router.post('/sync-cache', async (req, res) => {
     try {
-      console.log('[Price Manager API] Iniciando sincronização e recálculo da Curva ABC...');
+      console.log('[Price Manager API] Iniciando sincronização e recálculo da Curva ABC (Preço de Promoção/Venda)...');
       
-      // 1. Obter todos os produtos ativos do Digifarma
+      // 1. Obter todos os produtos ativos do Digifarma incluindo preços de promoção
       const digifarmaProducts = await queryDigifarma(`
-        SELECT COD_BARRAS, PRODUTO_ID, PRODUTO, PROD_SALDO, PROD_PRVENDA, COALESCE(PROD_PRCOMPRA, VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
+        SELECT 
+          COD_BARRAS, 
+          PRODUTO_ID, 
+          PRODUTO, 
+          PROD_SALDO, 
+          PROD_PRVENDA, 
+          PROD_PRPROMOCAO,
+          INICIO_PROMOCAO,
+          TERMINO_PROMOCAO,
+          COALESCE(PROD_PRCOMPRA, VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
         FROM PRODUTOS 
         WHERE PROD_ATIVO = 'S'
       `);
@@ -232,7 +270,6 @@ module.exports = function (db) {
         WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= ?
         GROUP BY iv.PRODUTO_ID
       `, [data60dStr]);
-
 
       console.log(`[Price Manager API] Vendas registradas para ${salesRevenue.length} produtos nos últimos 60 dias.`);
 
@@ -271,8 +308,8 @@ module.exports = function (db) {
       const deleteStmt = db.prepare("DELETE FROM digifarma_products_cache");
       const insertStmt = db.prepare(`
         INSERT OR REPLACE INTO digifarma_products_cache 
-        (codigo_barras, produto_id, descricao, estoque_atual, preco_venda, preco_custo, curva, atualizado_em) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (codigo_barras, produto_id, descricao, estoque_atual, preco_venda, preco_custo, preco_promocao, preco_normal, curva, atualizado_em) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const timestamp = new Date().toISOString();
@@ -287,13 +324,19 @@ module.exports = function (db) {
           const prodId = String(p.PRODUTO_ID);
           const curve = curveMap.get(prodId) || 'C';
           
+          const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
+          const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
+          const effectivePrice = getEffectivePrice(p);
+          
           insertStmt.run(
             barcode,
             prodId,
             (p.PRODUTO || '').trim(),
             parseFloat(p.PROD_SALDO || 0),
-            parseFloat(p.PROD_PRVENDA || 0),
+            effectivePrice,
             parseFloat(p.PROD_PRCOMPRA || 0),
+            promoPrice,
+            normalPrice,
             curve,
             timestamp
           );
@@ -301,11 +344,11 @@ module.exports = function (db) {
       });
 
       runTransaction(digifarmaProducts);
-      console.log(`[Price Manager API] Cache atualizado: ${digifarmaProducts.length} produtos gravados.`);
+      console.log(`[Price Manager API] Cache atualizado: ${digifarmaProducts.length} produtos gravados (considerando Preço de Promoção/Venda).`);
 
       res.json({
         success: true,
-        message: 'Cache atualizado e Curva ABC recalculada com sucesso!',
+        message: 'Cache atualizado e Curva ABC recalculada com sucesso (Preço de Promoção considerado quando ativo)!',
         count: digifarmaProducts.length
       });
 
@@ -321,7 +364,7 @@ module.exports = function (db) {
    */
   router.post('/update-prices', async (req, res) => {
     try {
-      const { updates } = req.body; // Array de objetos { id: '...', price: 19.90 }
+      const { updates } = req.body;
       
       if (!Array.isArray(updates) || updates.length === 0) {
         return res.status(400).json({ error: 'Nenhum reajuste de preço foi enviado.' });
@@ -334,7 +377,10 @@ module.exports = function (db) {
 
       const updateCacheStmt = db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, atualizado_em = ?
+        SET preco_venda = ?,
+            preco_normal = ?,
+            preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END,
+            atualizado_em = ?
         WHERE produto_id = ?
       `);
 
@@ -351,14 +397,17 @@ module.exports = function (db) {
         const finalPrice = roundUpToAcceptedCents(rawPrice);
 
         try {
-          // Atualiza Digifarma (Firebird)
+          // Atualiza Digifarma (Firebird) - atualiza preço de venda e promoção se existente
           await queryDigifarma(
-            'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
-            [finalPrice, prodId]
+            `UPDATE PRODUTOS 
+             SET PROD_PRVENDA = ?,
+                 PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO IS NOT NULL AND PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END
+             WHERE PRODUTO_ID = ?`, 
+            [finalPrice, finalPrice, prodId]
           );
 
           // Atualiza cache SQLite local
-          updateCacheStmt.run(finalPrice, new Date().toISOString(), prodId);
+          updateCacheStmt.run(finalPrice, finalPrice, finalPrice, new Date().toISOString(), prodId);
 
           successUpdates.push({ id: prodId, price: finalPrice });
         } catch (dbErr) {
@@ -449,18 +498,24 @@ module.exports = function (db) {
 
       const updateCacheStmt = db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, atualizado_em = ?
+        SET preco_venda = ?,
+            preco_normal = ?,
+            preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END,
+            atualizado_em = ?
         WHERE produto_id = ?
       `);
 
       for (const item of updates) {
         try {
           await queryDigifarma(
-            'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
-            [item.price, item.id]
+            `UPDATE PRODUTOS 
+             SET PROD_PRVENDA = ?,
+                 PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO IS NOT NULL AND PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END
+             WHERE PRODUTO_ID = ?`, 
+            [item.price, item.price, item.id]
           );
 
-          updateCacheStmt.run(item.price, new Date().toISOString(), item.id);
+          updateCacheStmt.run(item.price, item.price, item.price, new Date().toISOString(), item.id);
           successUpdates.push(item);
         } catch (dbErr) {
           console.error(`[Price Manager API] Erro ao atualizar produto ${item.id} no Digifarma:`, dbErr.message);
