@@ -47,24 +47,67 @@ async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
                 return reject(new Error('Servidor do Digifarma Offline ou Inacessível.'));
             }
 
-            db.query(sql, params, function(err, result) {
-                if (finished) {
+            const isWrite = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql);
+
+            if (isWrite) {
+                db.transaction(firebird.ISOLATION_READ_COMMITTED, function(err, tr) {
+                    if (finished) {
+                        try { if (tr) tr.rollback(); db.detach(); } catch (e) {}
+                        return;
+                    }
+                    if (err) {
+                        finished = true;
+                        clearTimeout(timer);
+                        try { db.detach(); } catch (e) {}
+                        return reject(err);
+                    }
+
+                    tr.query(sql, params, function(err, result) {
+                        if (finished) {
+                            try { tr.rollback(); db.detach(); } catch (e) {}
+                            return;
+                        }
+
+                        if (err) {
+                            finished = true;
+                            clearTimeout(timer);
+                            try { tr.rollback(); db.detach(); } catch (e) {}
+                            return reject(err);
+                        }
+
+                        tr.commit(function(err) {
+                            finished = true;
+                            clearTimeout(timer);
+                            if (err) {
+                                try { tr.rollback(); db.detach(); } catch (e) {}
+                                return reject(err);
+                            }
+                            try { db.detach(); } catch (e) {}
+                            resolve(result);
+                        });
+                    });
+                });
+            } else {
+                db.query(sql, params, function(err, result) {
+                    if (finished) {
+                        try { db.detach(); } catch (e) {}
+                        return;
+                    }
+
+                    finished = true;
+                    clearTimeout(timer);
+
+                    if (err) {
+                        console.error('[Digifarma DB] Query Error:', err.message);
+                        try { db.detach(); } catch (e) {}
+                        return reject(err);
+                    }
+
                     try { db.detach(); } catch (e) {}
-                    return;
-                }
+                    resolve(result);
+                });
+            }
 
-                finished = true;
-                clearTimeout(timer);
-
-                if (err) {
-                    console.error('[Digifarma DB] Query Error:', err.message);
-                    db.detach();
-                    return reject(err);
-                }
-
-                db.detach();
-                resolve(result);
-            });
         });
     });
 }

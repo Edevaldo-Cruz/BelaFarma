@@ -396,15 +396,18 @@ module.exports = function (db) {
         // Aplica regra de arredondamento (finais 0, 5, 9)
         const finalPrice = roundUpToAcceptedCents(rawPrice);
 
-        try {
-          // Atualiza Digifarma (Firebird) - atualiza preço de venda e promoção se existente
+          // Atualiza Digifarma (Firebird) - Preço de Venda
           await queryDigifarma(
-            `UPDATE PRODUTOS 
-             SET PROD_PRVENDA = ?,
-                 PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO IS NOT NULL AND PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END
-             WHERE PRODUTO_ID = ?`, 
-            [finalPrice, finalPrice, prodId]
+            'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
+            [finalPrice, prodId]
           );
+
+          // Atualiza Preço de Promoção se o produto possuir promoção ativa
+          await queryDigifarma(
+            'UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', 
+            [finalPrice, prodId]
+          );
+
 
           // Atualiza cache SQLite local
           updateCacheStmt.run(finalPrice, finalPrice, finalPrice, new Date().toISOString(), prodId);
@@ -508,12 +511,15 @@ module.exports = function (db) {
       for (const item of updates) {
         try {
           await queryDigifarma(
-            `UPDATE PRODUTOS 
-             SET PROD_PRVENDA = ?,
-                 PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO IS NOT NULL AND PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END
-             WHERE PRODUTO_ID = ?`, 
-            [item.price, item.price, item.id]
+            'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
+            [item.price, item.id]
           );
+
+          await queryDigifarma(
+            'UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', 
+            [item.price, item.id]
+          );
+
 
           updateCacheStmt.run(item.price, item.price, item.price, new Date().toISOString(), item.id);
           successUpdates.push(item);
