@@ -63,7 +63,6 @@ function buildWhereClause(query) {
   const search = query.search || '';
   const curva = query.curva || 'ALL';
   const filterNapp = query.filterNapp || 'ALL';
-  const stockFilter = query.stockFilter || 'ALL';
   const costFilter = query.costFilter || 'ALL';
   const minPrice = parseFloat(query.minPrice);
   const maxPrice = parseFloat(query.maxPrice);
@@ -71,6 +70,8 @@ function buildWhereClause(query) {
 
   let whereClauses = [];
   let params = [];
+
+  whereClauses.push('c.estoque_atual > 0');
 
   if (search) {
     whereClauses.push('(c.descricao LIKE ? OR c.codigo_barras LIKE ? OR c.produto_id LIKE ?)');
@@ -89,12 +90,6 @@ function buildWhereClause(query) {
     whereClauses.push('n.preco_proffer IS NULL');
   } else if (filterNapp === 'DISCREPANT') {
     whereClauses.push('n.preco_proffer IS NOT NULL AND ABS(c.preco_venda - n.preco_proffer) / c.preco_venda > 0.01');
-  }
-
-  if (stockFilter === 'IN_STOCK') {
-    whereClauses.push('c.estoque_atual > 0');
-  } else if (stockFilter === 'OUT_OF_STOCK') {
-    whereClauses.push('c.estoque_atual <= 0');
   }
 
   if (costFilter === 'BELOW_COST') {
@@ -159,6 +154,7 @@ module.exports = function (db) {
         SELECT 
           c.codigo_barras as ean,
           c.produto_id as id,
+          c.categoria_id,
           c.descricao as name,
           c.estoque_atual as stock,
           c.preco_venda as price,
@@ -245,6 +241,7 @@ module.exports = function (db) {
         SELECT 
           COD_BARRAS, 
           PRODUTO_ID, 
+          CATEGORIA_ID,
           PRODUTO, 
           PROD_SALDO, 
           PROD_PRVENDA, 
@@ -308,8 +305,8 @@ module.exports = function (db) {
       const deleteStmt = db.prepare("DELETE FROM digifarma_products_cache");
       const insertStmt = db.prepare(`
         INSERT OR REPLACE INTO digifarma_products_cache 
-        (codigo_barras, produto_id, descricao, estoque_atual, preco_venda, preco_custo, preco_promocao, preco_normal, curva, atualizado_em) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (codigo_barras, produto_id, categoria_id, descricao, estoque_atual, preco_venda, preco_custo, preco_promocao, preco_normal, curva, atualizado_em) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const timestamp = new Date().toISOString();
@@ -331,6 +328,7 @@ module.exports = function (db) {
           insertStmt.run(
             barcode,
             prodId,
+            parseInt(p.CATEGORIA_ID) || 0,
             (p.PRODUTO || '').trim(),
             parseFloat(p.PROD_SALDO || 0),
             effectivePrice,
@@ -581,6 +579,48 @@ module.exports = function (db) {
       res.json(getScrapeStatus());
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 6. GET /api/price-manager/categories
+   * Retorna lista de categorias do Firebird
+   */
+  router.get('/categories', async (req, res) => {
+    try {
+        const categories = await queryDigifarma('SELECT CATEGORIA_ID, CATEGORIA FROM CATEGORIA ORDER BY CATEGORIA');
+        res.json({
+            success: true,
+            data: categories.map(c => ({ id: c.CATEGORIA_ID, name: (c.CATEGORIA || '').trim() }))
+        });
+    } catch (err) {
+        console.error('[Price Manager API] Erro ao buscar categorias:', err);
+        res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 7. POST /api/price-manager/update-category
+   * Atualiza a categoria de um produto no Firebird e no cache
+   */
+  router.post('/update-category', async (req, res) => {
+    try {
+        const { productId, categoryId } = req.body;
+        if (!productId || categoryId === undefined) {
+            return res.status(400).json({ error: 'productId e categoryId são obrigatórios.' });
+        }
+        await queryDigifarma(
+            'UPDATE PRODUTOS SET CATEGORIA_ID = ? WHERE PRODUTO_ID = ?',
+            [parseInt(categoryId), parseInt(productId)]
+        );
+        // Atualiza cache SQLite local
+        db.prepare('UPDATE digifarma_products_cache SET categoria_id = ? WHERE produto_id = ?')
+            .run(parseInt(categoryId), String(productId));
+        
+        res.json({ success: true, message: 'Categoria atualizada com sucesso!' });
+    } catch (err) {
+        console.error('[Price Manager API] Erro ao atualizar categoria:', err);
+        res.status(500).json({ error: err.message });
     }
   });
 

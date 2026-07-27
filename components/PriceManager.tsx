@@ -32,6 +32,7 @@ import { roundUpToAcceptedCents } from '../utils';
 interface Product {
   ean: string;
   id: string;
+  categoria_id?: number;
   name: string;
   stock: number;
   price: number;
@@ -116,6 +117,8 @@ export const PriceManager: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [singleOpType, setSingleOpType] = useState<'manual' | 'percentage' | 'region'>('manual');
   const [singleValue, setSingleValue] = useState('');
+  const [singleCategoryId, setSingleCategoryId] = useState<number>(0);
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [savingSingleProduct, setSavingSingleProduct] = useState(false);
 
   // Estatísticas rápidas calculadas do cache
@@ -188,6 +191,20 @@ export const PriceManager: React.FC = () => {
     }
   }, []);
 
+  // Busca lista de categorias do Digifarma
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/price-manager/categories');
+      if (res.ok) {
+        const result = await res.json();
+        if (result.success && Array.isArray(result.data)) {
+          setCategories(result.data);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar categorias:', err);
+    }
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -196,7 +213,8 @@ export const PriceManager: React.FC = () => {
   useEffect(() => {
     fetchStats();
     fetchScrapeStatus();
-  }, [fetchStats, fetchScrapeStatus]);
+    fetchCategories();
+  }, [fetchStats, fetchScrapeStatus, fetchCategories]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -390,7 +408,20 @@ export const PriceManager: React.FC = () => {
       if (!res.ok) throw new Error('Erro na requisição com o servidor.');
       const result = await res.json();
       if (result.success && result.successCount > 0) {
-        addToast(`✔ Preço do produto #${editingProduct.id} atualizado para R$ ${finalPrice.toFixed(2).replace('.', ',')} no Digifarma!`, 'success');
+        // Se a categoria mudou, atualiza no Digifarma
+        if (singleCategoryId && singleCategoryId !== editingProduct.categoria_id) {
+          try {
+            await fetch('/api/price-manager/update-category', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ productId: editingProduct.id, categoryId: singleCategoryId })
+            });
+          } catch (catErr) {
+            console.error('Erro ao atualizar categoria:', catErr);
+          }
+        }
+
+        addToast(`✔ Produto #${editingProduct.id} atualizado no Digifarma!`, 'success');
         setEditingProduct(null);
         setSingleValue('');
         fetchProducts();
@@ -609,20 +640,6 @@ export const PriceManager: React.FC = () => {
             </select>
           </div>
 
-          {/* Filtro Estoque */}
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Estoque</label>
-            <select
-              value={stockFilter}
-              onChange={(e) => { setStockFilter(e.target.value as any); setPage(1); }}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-2 rounded-xl text-xs font-medium focus:outline-none"
-            >
-              <option value="ALL">Qualquer Estoque</option>
-              <option value="IN_STOCK">Com Estoque (&gt;0)</option>
-              <option value="OUT_OF_STOCK">Sem Estoque (&lt;=0)</option>
-            </select>
-          </div>
-
           {/* Filtro Alerta Margem/Custo */}
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Alerta Margem</label>
@@ -833,6 +850,7 @@ export const PriceManager: React.FC = () => {
                             setEditingProduct(p);
                             setSingleOpType('manual');
                             setSingleValue(p.price.toFixed(2));
+                            setSingleCategoryId(p.categoria_id || 0);
                           }}
                           className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded-xl text-xs font-bold transition flex items-center gap-1 mx-auto border border-emerald-200 dark:border-emerald-800"
                           title="Ajustar preço deste produto"
@@ -1062,10 +1080,29 @@ export const PriceManager: React.FC = () => {
 
             <div className="mb-4">
               <h4 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm mb-1">{editingProduct.name}</h4>
-              <div className="flex items-center gap-4 text-xs font-medium text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-4 text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">
                 <span>Estoque: <strong>{editingProduct.stock} un</strong></span>
                 <span>•</span>
                 <span>Curva ABC: <strong className="text-emerald-500">{editingProduct.curve}</strong></span>
+              </div>
+
+              {/* Seletor de Categoria do Digifarma */}
+              <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
+                  Categoria no Digifarma
+                </label>
+                <select
+                  value={singleCategoryId}
+                  onChange={(e) => setSingleCategoryId(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-xs focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
+                >
+                  <option value={0}>Sem Categoria / Manter</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name} (ID: {cat.id})
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

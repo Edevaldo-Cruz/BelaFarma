@@ -496,6 +496,13 @@ try {
 
     // --- Price Manager Table Migrations ---
     try {
+      db.prepare('SELECT categoria_id FROM digifarma_products_cache LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN categoria_id INTEGER DEFAULT 0');
+      console.log('Added categoria_id column to digifarma_products_cache table.');
+    }
+
+    try {
       db.prepare('SELECT curva FROM digifarma_products_cache LIMIT 1').get();
     } catch (e) {
       db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN curva TEXT DEFAULT "C"');
@@ -522,6 +529,14 @@ try {
       db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN preco_normal REAL DEFAULT 0.0');
       console.log('Added preco_normal column to digifarma_products_cache table.');
     }
+
+    try {
+      db.prepare('SELECT categoria_id FROM digifarma_products_cache LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN categoria_id INTEGER DEFAULT 0');
+      console.log('Added categoria_id column to digifarma_products_cache table.');
+    }
+
 
 
 
