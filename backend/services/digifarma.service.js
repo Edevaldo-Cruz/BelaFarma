@@ -19,17 +19,18 @@ const options = {
  * @param {Array} params 
  * @returns {Promise<Array>}
  */
-async function queryDigifarma(sql, params = []) {
+async function queryDigifarma(sql, params = [], timeoutMs = 60000) {
     return new Promise((resolve, reject) => {
         let finished = false;
 
         const timer = setTimeout(() => {
             if (!finished) {
                 finished = true;
-                console.error('[Digifarma DB] Query Timeout (20000ms exceeded) for SQL:', sql);
-                reject(new Error('Timeout de 20000ms excedido na consulta ao Digifarma.'));
+                console.error(`[Digifarma DB] Query Timeout (${timeoutMs}ms exceeded) for SQL:`, sql);
+                reject(new Error(`Timeout de ${timeoutMs}ms excedido na consulta ao Digifarma.`));
             }
-        }, 20000);
+        }, timeoutMs);
+
 
         firebird.attach(options, function(err, db) {
             if (finished) {
