@@ -152,6 +152,15 @@ async function connect(db) {
           return;
         }
 
+        // Se der "QR refs attempts ended" ou timeout no QR code, limpa a sessão pendente e reinicia para gerar novo QR
+        if (reason.includes('QR refs attempts ended') || statusCode === DisconnectReason?.timedOut) {
+          console.warn('[Baileys] ⌛ Tentativas de QR Code expiradas. Apagando sessão pendente para gerar novo QR...');
+          try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
+          lastError = 'QR Code expirado. Gerando novo QR Code...';
+          reconnectTimer = setTimeout(connect, 3000);
+          return;
+        }
+
         console.warn(`[Baileys] 🔄 Desconectado (${statusCode} - ${reason}). Reconectando em 8s...`);
         lastError = `Desconectado: ${reason}`;
         reconnectTimer = setTimeout(connect, 8000);

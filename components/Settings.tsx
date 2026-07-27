@@ -114,7 +114,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
       const res = await fetch('/api/whatsapp/baileys/qrcode');
       if (res.ok) {
         const data = await res.json();
-        setBaileysStatus((prev: any) => prev ? { ...prev, hasQR: data.hasQR, qrCode: data.qrCode } : null);
+        setBaileysStatus((prev: any) => prev ? { ...prev, hasQR: data.hasQR, qrCode: data.qrCode } : { connected: false, connecting: true, hasQR: data.hasQR, qrCode: data.qrCode });
       }
     } catch (err) {
       console.error('Error fetching Baileys QR Code:', err);
@@ -139,7 +139,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
       const res = await fetch('/api/whatsapp/secondary/qrcode');
       if (res.ok) {
         const data = await res.json();
-        setSecondaryStatus((prev: any) => prev ? { ...prev, hasQR: data.hasQR, qrCode: data.qrCode } : null);
+        setSecondaryStatus((prev: any) => prev ? { ...prev, hasQR: data.hasQR, qrCode: data.qrCode } : { connected: false, connecting: true, hasQR: data.hasQR, qrCode: data.qrCode });
       }
     } catch (err) {
       console.error('Error fetching Secondary QR Code:', err);
