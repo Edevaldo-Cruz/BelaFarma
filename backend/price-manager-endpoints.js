@@ -226,12 +226,13 @@ module.exports = function (db) {
       const data60dStr = formatarDataFirebird(data60DiasAtras);
 
       const salesRevenue = await queryDigifarma(`
-        SELECT iv.PRODUTO_ID, SUM(iv.ITEM_QTDE * iv.ITEM_VALOR_UNITARIO) as TOTAL_REVENUE
+        SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT * iv.ITEMVEND_PRVENDA) as TOTAL_REVENUE
         FROM ITEM_VENDAS iv
         INNER JOIN CAB_VENDAS cv ON cv.VENDA_NOTA_ID = iv.VENDA_NOTA_ID
         WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= ?
         GROUP BY iv.PRODUTO_ID
       `, [data60dStr]);
+
 
       console.log(`[Price Manager API] Vendas registradas para ${salesRevenue.length} produtos nos últimos 60 dias.`);
 
