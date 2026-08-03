@@ -113,5 +113,42 @@ module.exports = (db) => {
     }
   });
 
+  // POST /api/system/visitors/record - Registra um acesso ao Dashboard e retorna estatísticas
+  router.post('/visitors/record', (req, res) => {
+    try {
+      const userName = req.body?.userName || 'Anônimo';
+      const now = new Date();
+      const visitedAt = now.toISOString();
+      const dateStr = now.toISOString().split('T')[0];
+
+      db.prepare(`
+        INSERT INTO page_visitors (visited_at, date_str, user_name)
+        VALUES (?, ?, ?)
+      `).run(visitedAt, dateStr, userName);
+
+      const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM page_visitors WHERE date_str = ?`).get(dateStr).count;
+      const totalVisits = db.prepare(`SELECT COUNT(*) as count FROM page_visitors`).get().count;
+
+      res.json({ success: true, todayVisits, totalVisits });
+    } catch (err) {
+      console.error('[VISITOR-COUNTER] Erro ao registrar visita:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/system/visitors/stats - Retorna o total de visitas de hoje e acumulado
+  router.get('/visitors/stats', (req, res) => {
+    try {
+      const dateStr = new Date().toISOString().split('T')[0];
+      const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM page_visitors WHERE date_str = ?`).get(dateStr).count;
+      const totalVisits = db.prepare(`SELECT COUNT(*) as count FROM page_visitors`).get().count;
+
+      res.json({ todayVisits, totalVisits });
+    } catch (err) {
+      console.error('[VISITOR-COUNTER] Erro ao buscar estatísticas:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };

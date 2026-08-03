@@ -20,6 +20,7 @@ let isConnecting  = false;  // true durante inicialização
 let lastQR        = null;   // Último QR Code em base64 (para exibir na interface)
 let lastError     = null;   // Último erro registrado
 let reconnectTimer = null;  // Timer de reconexão
+let savedDb       = null;   // Referência salva do banco de dados
 
 // Inicialização lazy do Baileys
 let makeWASocket, useMultiFileAuthState, DisconnectReason, Boom, downloadMediaMessage;
@@ -43,11 +44,16 @@ function loadBaileys() {
 // CONNECT — inicia ou reconecta a sessão
 // ──────────────────────────────────────────────────────────
 async function connect(db) {
-  if (isConnecting) return;
+  if (db) savedDb = db;
+  if (isConnecting) {
+    console.log('[Baileys-Secondary] Conexão já em andamento...');
+    return;
+  }
   if (!loadBaileys()) return;
 
   isConnecting = true;
   lastError    = null;
+  lastQR       = null;
 
   try {
     if (!fs.existsSync(SESSION_DIR)) {
@@ -135,28 +141,30 @@ async function connect(db) {
         isConnecting = false;
 
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const reason = lastDisconnect?.error?.message || 'desconhecido';
+        const reason = lastDisconnect?.error?.message || String(lastDisconnect?.error || 'desconhecido');
 
-        if (statusCode === DisconnectReason?.loggedOut) {
-          console.warn('[Baileys-Secondary] ⚠️ Sessão secundária encerrada (logout). Apagando dados...');
+        console.warn(`[Baileys-Secondary] ⚠️ Conexão fechada. Código: ${statusCode}, Motivo: ${reason}`);
+
+        const isLoggedOut = statusCode === DisconnectReason?.loggedOut ||
+                            statusCode === DisconnectReason?.badSession ||
+                            reason.includes('QR refs attempts ended') ||
+                            statusCode === DisconnectReason?.timedOut ||
+                            !sock?.user;
+
+        if (isLoggedOut) {
+          console.warn('[Baileys-Secondary] 🧹 Sessão secundária inválida ou QR expirado. Apagando pasta de sessão para forçar novo QR Code...');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
-          lastError = 'Sessão encerrada. Escaneie o QR Code novamente.';
-          reconnectTimer = setTimeout(() => connect(db), 5000);
+          lastError = 'Sessão encerrada ou QR expirado. Gerando novo QR Code...';
+          lastQR = null;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(() => connect(savedDb), 4000);
           return;
         }
 
-        // Se der "QR refs attempts ended" ou timeout no QR code, limpa a sessão pendente e reinicia para gerar novo QR
-        if (reason.includes('QR refs attempts ended') || statusCode === DisconnectReason?.timedOut) {
-          console.warn('[Baileys-Secondary] ⌛ Tentativas de QR Code expiradas. Apagando sessão pendente para gerar novo QR...');
-          try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
-          lastError = 'QR Code expirado. Gerando novo QR Code...';
-          reconnectTimer = setTimeout(() => connect(db), 3000);
-          return;
-        }
-
-        console.warn(`[Baileys-Secondary] 🔄 Desconectado (${statusCode} - ${reason}). Reconectando em 8s...`);
+        console.warn(`[Baileys-Secondary] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 6s...`);
         lastError = `Desconectado: ${reason}`;
-        reconnectTimer = setTimeout(() => connect(db), 8000);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => connect(savedDb), 6000);
       }
     });
 
@@ -317,7 +325,8 @@ async function connect(db) {
     isConnecting = false;
     lastError    = err.message;
     console.error('[Baileys-Secondary] ❌ Erro ao iniciar:', err.message);
-    reconnectTimer = setTimeout(() => connect(db), 10000);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => connect(savedDb), 10000);
   }
 }
 
@@ -325,14 +334,20 @@ async function connect(db) {
 // DISCONNECT — encerra a conexão manualmente
 // ──────────────────────────────────────────────────────────
 async function disconnect() {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (sock) {
+    try { sock.ev.removeAllListeners(); } catch (e) {}
+    try { sock.ws?.close(); } catch (e) {}
     try { await sock.logout(); } catch(e) {}
     sock = null;
   }
   isConnected  = false;
   isConnecting = false;
-  console.log('[Baileys-Secondary] 🔌 Desconectado manualmente.');
+  lastQR       = null;
+  console.log('[Baileys-Secondary] 🔌 Desconectado manualmente e limpo.');
 }
 
 // ──────────────────────────────────────────────────────────

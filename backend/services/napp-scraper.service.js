@@ -2,7 +2,7 @@ const puppeteer = require('puppeteer');
 const db = require('../database');
 const watcher = require('./watcher.service');
 
-// Estado global simples para monitorar o status do scraping em tempo real
+// Estado global para monitorar o status do scraping em tempo real
 let scrapeStatus = {
   running: false,
   totalItems: 0,
@@ -14,40 +14,25 @@ let scrapeStatus = {
   lastError: null
 };
 
-/**
- * Função utilitária para aguardar um tempo específico (delay)
- */
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Retorna o status atual da raspagem
- */
 function getScrapeStatus() {
   return scrapeStatus;
 }
 
 /**
- * Executa o robô de raspagem na plataforma Napp Solutions.
- * Busca os preços sugeridos (proffer) dos produtos com EAN cadastrados no cache.
- * @param {Array} eans Opcional. Lista específica de EANs para consultar. Se nulo, consulta todos da curva A/B/C.
+ * Executa o robô de raspagem na plataforma Napp Solutions / Proffer.
+ * Extrai a Matriz de Preços Regionais (Foco: Preço Médio em Farmácias Independentes).
+ * @param {Array} eans Opcional. Lista específica de EANs para consultar.
  */
 async function runNappScraper(eans = null) {
   if (scrapeStatus.running) {
-    console.warn('[Napp Scraper] Já existe um processo de raspagem em execução.');
+    console.warn('[Napp Scraper] ⚠️ Já existe um processo de raspagem em execução.');
     return scrapeStatus;
   }
 
   const email = process.env.NAPP_EMAIL;
   const password = process.env.NAPP_PASSWORD;
-  const loginUrl = process.env.NAPP_LOGIN_URL || 'https://proffer.napp.solutions/login';
-  const searchUrl = process.env.NAPP_SEARCH_URL || 'https://proffer.napp.solutions/produtos';
-
-  // Seletores CSS configuráveis por .env
-  const emailSelector = process.env.NAPP_SELECTOR_EMAIL || 'input[type="email"], #email, input[name="email"]';
-  const passwordSelector = process.env.NAPP_SELECTOR_PASSWORD || 'input[type="password"], #password, input[name="password"]';
-  const loginBtnSelector = process.env.NAPP_SELECTOR_LOGIN_BTN || 'button[type="submit"], .btn-login, #btn-submit';
-  const searchInputSelector = process.env.NAPP_SELECTOR_SEARCH || 'input[type="search"], input[placeholder*="Buscar"], #search-input';
-  const priceSelector = process.env.NAPP_SELECTOR_PRICE || '.proffer-price, .price-value, td.price, .valor-sugerido';
 
   if (!email || !password) {
     const errorMsg = 'Credenciais da plataforma Napp (NAPP_EMAIL/NAPP_PASSWORD) não configuradas no .env.';
@@ -67,52 +52,22 @@ async function runNappScraper(eans = null) {
     lastError: null
   };
 
-  console.log('[Napp Scraper] 🔄 Iniciando raspagem de preços Napp...');
+  console.log('[Napp Scraper] 🔄 Iniciando raspagem da Matriz de Preços Regionais Proffer (Farmácias Independentes)...');
 
-  let itemsToScrape = [];
   try {
-    if (Array.isArray(eans) && eans.length > 0) {
-      itemsToScrape = eans.map(ean => ({ codigo_barras: ean }));
-    } else {
-      // Por padrão, buscar todos os produtos ativos do cache local que têm EAN de 13 dígitos
-      itemsToScrape = db.prepare(`
-        SELECT codigo_barras, produto_id 
-        FROM digifarma_products_cache 
-        WHERE LENGTH(codigo_barras) >= 12
-        ORDER BY CASE curva WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END
-      `).all();
-    }
-
-    scrapeStatus.totalItems = itemsToScrape.length;
-    if (scrapeStatus.totalItems === 0) {
-      const msg = 'Nenhum produto com EAN válido encontrado no cache para pesquisar.';
-      console.log(`[Napp Scraper] ${msg}`);
-      scrapeStatus.running = false;
-      scrapeStatus.endTime = new Date().toISOString();
-      watcher.registerServiceRun('napp_scraper', 'SUCCESS', msg);
-      return scrapeStatus;
-    }
-
-    console.log(`[Napp Scraper] Total de produtos a consultar: ${scrapeStatus.totalItems}`);
-
-    // Configuração de inicialização do Puppeteer
     const launchOptions = {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     };
 
-    // No Raspberry Pi 4 (linux ARM), o Puppeteer precisa usar o Chromium do sistema
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
       launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-      console.log(`[Napp Scraper] Usando Chromium do sistema em: ${launchOptions.executablePath}`);
     } else if (process.platform === 'linux') {
-      // Tenta caminhos comuns no Raspberry Pi / Debian
       const commonPaths = ['/usr/bin/chromium-browser', '/usr/bin/chromium', '/usr/bin/google-chrome'];
       const fs = require('fs');
       for (const p of commonPaths) {
         if (fs.existsSync(p)) {
           launchOptions.executablePath = p;
-          console.log(`[Napp Scraper] Chromium linux detectado em: ${p}`);
           break;
         }
       }
@@ -120,114 +75,158 @@ async function runNappScraper(eans = null) {
 
     const browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
-    
-    // Configura um viewport e user-agent padrão de navegador desktop
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setViewport({ width: 1600, height: 1000 });
 
-    try {
-      // 1. Realizar Login
-      console.log(`[Napp Scraper] Acessando tela de login: ${loginUrl}`);
-      await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    const marketPricesMap = new Map(); // ean -> preco_medio_independentes
 
-      // Esperar e preencher e-mail
-      await page.waitForSelector(emailSelector, { timeout: 10000 });
-      await page.type(emailSelector, email, { delay: 50 });
-
-      // Preencher senha
-      await page.waitForSelector(passwordSelector, { timeout: 10000 });
-      await page.type(passwordSelector, password, { delay: 50 });
-
-      // Clicar em login
-      console.log('[Napp Scraper] Submetendo formulário de login...');
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
-        page.click(loginBtnSelector)
-      ]);
-
-      console.log('[Napp Scraper] Login efetuado com sucesso!');
-      await delay(2000);
-
-      // Preparar query de inserção no SQLite
-      const insertStmt = db.prepare(`
-        INSERT OR REPLACE INTO napp_prices (ean, produto_id, preco_proffer, atualizado_em)
-        VALUES (?, ?, ?, ?)
-      `);
-
-      // 2. Iterar sobre os produtos e pesquisar o EAN
-      for (const item of itemsToScrape) {
-        if (!scrapeStatus.running) {
-          console.log('[Napp Scraper] Processo cancelado externamente.');
-          break;
-        }
-
-        const ean = item.codigo_barras;
-        const prodId = item.produto_id;
-        scrapeStatus.currentProgress++;
-
+    // Capturar dados RPC do dataset Looker Studio (contém preço médio de mercado para farmácias independentes)
+    page.on('response', async res => {
+      const url = res.url();
+      if (url.includes('batchedDataV2') || url.includes('getData')) {
         try {
-          console.log(`[Napp Scraper] [${scrapeStatus.currentProgress}/${scrapeStatus.totalItems}] Consultando EAN: ${ean}`);
-          
-          // Navega para a página de produtos ou busca direta
-          // Dependendo da Napp, podemos fazer uma URL de busca direta: ex: searchUrl + '?q=' + ean
-          const searchPageUrl = searchUrl.includes('?') ? `${searchUrl}&q=${ean}` : `${searchUrl}?q=${ean}`;
-          await page.goto(searchPageUrl, { waitUntil: 'networkidle2', timeout: 15000 });
-          await delay(1000);
+          const text = await res.text();
+          const cleanJson = text.replace(/^\)\]\}'/, '').trim();
+          const json = JSON.parse(cleanJson);
 
-          // Verifica se o seletor de preço está visível
-          const priceElement = await page.waitForSelector(priceSelector, { timeout: 4000 });
-          if (priceElement) {
-            const priceText = await page.evaluate(el => el.textContent, priceElement);
-            
-            // Sanitizar o preço extraído (Ex: R$ 25,90 -> 25.90)
-            const cleanPriceStr = priceText.replace(/[^\d,.-]/g, '').replace(',', '.');
-            const profferPrice = parseFloat(cleanPriceStr);
+          if (json.dataResponse) {
+            for (const dr of json.dataResponse) {
+              for (const ds of (dr.dataSubset || [])) {
+                const table = ds.dataset?.tableDataset;
+                if (table && table.column && table.column.length >= 4) {
+                  const cols = table.column;
+                  let productCol = null;
+                  let marketPriceCol = null;
 
-            if (!isNaN(profferPrice) && profferPrice > 0) {
-              // Salvar no SQLite
-              insertStmt.run(ean, prodId, profferPrice, new Date().toISOString());
-              scrapeStatus.successCount++;
-              console.log(`[Napp Scraper] EAN ${ean} -> Preço Proffer: R$ ${profferPrice}`);
-            } else {
-              throw new Error(`Preço inválido extraído: "${priceText}"`);
+                  // Identificar coluna de texto com EAN/Produto e coluna numérica com preço médio mercado
+                  cols.forEach(col => {
+                    if (col.stringColumn?.values) {
+                      const sampleStr = col.stringColumn.values.find(v => typeof v === 'string' && v.match(/\d{8,14}/));
+                      if (sampleStr) productCol = col.stringColumn.values;
+                    }
+                    if (col.doubleColumn?.values && col.doubleColumn.values.length > 5) {
+                      // Se for coluna de preços com valores plausíveis (ex: 2 a 300)
+                      if (!marketPriceCol || col.doubleColumn.values.some(v => v > 1 && v < 500)) {
+                        marketPriceCol = col.doubleColumn.values;
+                      }
+                    }
+                  });
+
+                  if (productCol && marketPriceCol) {
+                    productCol.forEach((prodStr, idx) => {
+                      if (!prodStr) return;
+                      const match = prodStr.match(/\b(\d{8,14})\b/);
+                      if (match) {
+                        const ean = match[1];
+                        const price = marketPriceCol[idx];
+                        if (price && typeof price === 'number' && price > 0) {
+                          marketPricesMap.set(ean, Math.round(price * 100) / 100);
+                        }
+                      }
+                    });
+                  }
+                }
+              }
             }
-          } else {
-            throw new Error('Preço não encontrado na página de resultados.');
           }
-        } catch (itemErr) {
-          scrapeStatus.failedCount++;
-          console.warn(`[Napp Scraper] ⚠️ Falha ao obter preço para EAN ${ean}:`, itemErr.message);
-        }
-
-        // Delay para não sobrecarregar e evitar bloqueios (1.5 segundos)
-        await delay(1500);
+        } catch (e) {}
       }
+    });
 
-    } catch (flowErr) {
-      scrapeStatus.lastError = flowErr.message;
-      console.error('[Napp Scraper] ❌ Falha crítica no fluxo de raspagem:', flowErr.message);
-    } finally {
-      await browser.close();
-      console.log('[Napp Scraper] Puppeteer fechado.');
+    console.log('[Napp Scraper] Acessando relatório Proffer Painel de Mercado...');
+    const embedUrl = 'https://datastudio.google.com/embed/reporting/ea0ed2d1-00d0-4e47-9fc6-8c5028e6af02/page/NtRGD?params=%7B%22ds0.store_ref%22:%226b2be7f8-dea7-4da9-99e1-60139701736e%22,%22ds0.store_group%22:%225599%22,%22ds1.store_ref%22:%226b2be7f8-dea7-4da9-99e1-60139701736e%22,%22ds1.store_group%22:%225599%22,%22ds2.store_ref%22:%226b2be7f8-dea7-4da9-99e1-60139701736e%22,%22ds3.store_ref%22:%226b2be7f8-dea7-4da9-99e1-60139701736e%22,%22ds4.store_ref%22:%226b2be7f8-dea7-4da9-99e1-60139701736e%22,%22ds4.store_group%22:%225599%22,%22ds6.store_ref%22:%226b2be7f8-dea7-4da9-99e1-60139701736e%22,%22ds6.store_group%22:%225599%22%7D';
+    
+    await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+    await delay(12000);
+
+    await browser.close();
+
+    console.log(`[Napp Scraper] Proffer Regional Matrix capturado! Total de preços médios em farmácias independentes: ${marketPricesMap.size}`);
+
+    // Autenticar via API REST Napp para catálogo complementar
+    const loginRes = await fetch('https://api-app-public.nappsolutions.com/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const loginData = await loginRes.json();
+    const token = loginData.token;
+    const sellerId = '20a28238-fea5-11f0-b8ef-cb8fa8305438';
+
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO napp_prices (ean, produto_id, preco_proffer, atualizado_em)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    const digifarmaProducts = db.prepare(`
+      SELECT codigo_barras, produto_id FROM digifarma_products_cache WHERE LENGTH(codigo_barras) >= 12
+    `).all();
+    const eanToProdIdMap = new Map();
+    digifarmaProducts.forEach(p => eanToProdIdMap.set(p.codigo_barras, p.produto_id));
+
+    // Processar os itens capturados no mapa de preços médios
+    for (const [ean, profferPrice] of marketPricesMap.entries()) {
+      if (Array.isArray(eans) && eans.length > 0 && !eans.includes(ean)) continue;
+
+      const prodId = eanToProdIdMap.get(ean) || null;
+      insertStmt.run(ean, prodId, profferPrice, new Date().toISOString());
+      scrapeStatus.successCount++;
+      scrapeStatus.currentProgress++;
     }
 
+    // Se houver mais itens no catálogo Napp, complementar com preço base
+    if (token) {
+      const catRes = await fetch(`https://api-app-public.nappsolutions.com/v2/sellers/${sellerId}/catalogs?limit=100&offset=0`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (catRes.ok) {
+        const catData = await catRes.json();
+        const totalItems = catData?.pagination?.total || 0;
+        scrapeStatus.totalItems = Math.max(totalItems, marketPricesMap.size);
+
+        let offset = 0;
+        while (offset < totalItems && scrapeStatus.running) {
+          const res = await fetch(`https://api-app-public.nappsolutions.com/v2/sellers/${sellerId}/catalogs?limit=100&offset=${offset}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            for (const item of (data.data || [])) {
+              const ean = item.ean || item.sku;
+              if (!ean || marketPricesMap.has(ean)) continue; // Priorizar o Preço Médio de Farmácias Independentes
+
+              const price = parseFloat(item.price || item.list_price || 0);
+              if (price > 0) {
+                const prodId = eanToProdIdMap.get(ean) || item.id || null;
+                insertStmt.run(ean, prodId, price, new Date().toISOString());
+                scrapeStatus.successCount++;
+              }
+              scrapeStatus.currentProgress++;
+            }
+          }
+          offset += 100;
+          await delay(100);
+        }
+      }
+    }
+
+    scrapeStatus.running = false;
+    scrapeStatus.endTime = new Date().toISOString();
+    const successMsg = `Sincronização Napp (Preço Médio Farmácias Independentes) concluída com sucesso! Total processado: ${scrapeStatus.successCount} produtos.`;
+    console.log(`[Napp Scraper] ✅ ${successMsg}`);
+    watcher.registerServiceRun('napp_scraper', 'SUCCESS', successMsg);
+    return scrapeStatus;
+
   } catch (err) {
+    console.error('[Napp Scraper] ❌ Erro ao executar raspagem Napp:', err.message);
+    scrapeStatus.running = false;
+    scrapeStatus.endTime = new Date().toISOString();
     scrapeStatus.lastError = err.message;
-    console.error('[Napp Scraper] ❌ Erro geral:', err.message);
+    watcher.registerServiceRun('napp_scraper', 'FAILED', err.message);
+    return { error: err.message };
   }
-
-  scrapeStatus.running = false;
-  scrapeStatus.endTime = new Date().toISOString();
-
-  // Log final no watcher
-  const finalMessage = `Concluído. Sucesso: ${scrapeStatus.successCount} | Falhas: ${scrapeStatus.failedCount}`;
-  console.log(`[Napp Scraper] ✅ ${finalMessage}`);
-  watcher.registerServiceRun('napp_scraper', scrapeStatus.lastError ? 'FAILED' : 'SUCCESS', finalMessage);
-
-  return scrapeStatus;
 }
 
 module.exports = {
-  getScrapeStatus,
-  runNappScraper
+  runNappScraper,
+  getScrapeStatus
 };

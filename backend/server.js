@@ -3941,9 +3941,9 @@ cron.schedule('0 * * * *', async () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON-SHORTAGE-SYNC] 🔄 Sincronização de faltas agendada para rodar a cada hora.');
 
-// CRON: RASPAGEM QUINZENAL DE PREÇOS NAPP SOLUTIONS
-cron.schedule('0 0 1,15 * *', async () => {
-  console.log('[Cron Job] ⏰ Disparando raspagem automática quinzenal de preços Napp Solutions...');
+// CRON: RASPAGEM SEMANAL DE PREÇOS NAPP SOLUTIONS (TODO DOMINGO ÀS 02:00)
+cron.schedule('0 2 * * 0', async () => {
+  console.log('[Cron Job] ⏰ Disparando raspagem automática semanal de preços Napp Solutions...');
   try {
     const { runNappScraper } = require('./services/napp-scraper.service');
     await runNappScraper();
@@ -3951,7 +3951,7 @@ cron.schedule('0 0 1,15 * *', async () => {
     console.error('[Cron Job] Erro ao executar raspagem Napp:', err.message);
   }
 }, { timezone: 'America/Sao_Paulo' });
-console.log('[CRON-NAPP-SCRAPE] 📅 Robô de raspagem Napp agendado para rodar quinzenalmente (dias 1 e 15 às 00:00).');
+console.log('[CRON-NAPP-SCRAPE] 📅 Robô de raspagem Napp agendado para rodar semanalmente (todo domingo às 02:00).');
 
 
 // ─────────────────────────────────────────────────────────────────────────────

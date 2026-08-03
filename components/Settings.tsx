@@ -190,11 +190,15 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const handleBaileysReconnect = async () => {
     if (!confirm('Deseja realmente desconectar a sessão do WhatsApp Principal (PIX dos clientes) e gerar um novo QR Code?')) return;
     setBaileysReconnecting(true);
+    setBaileysStatus({ connected: false, connecting: true, hasQR: false, qrCode: null });
     try {
       const res = await fetch('/api/whatsapp/baileys/reconnect', { method: 'POST' });
       if (res.ok) {
         addToast('Sessão Principal desconectada. Aguardando novo QR Code...', 'success');
-        fetchBaileysStatus();
+        setTimeout(() => {
+          fetchBaileysStatus();
+          fetchQRCode();
+        }, 1500);
       } else {
         throw new Error('Failed to reconnect');
       }
@@ -208,11 +212,15 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const handleSecondaryReconnect = async () => {
     if (!confirm('Deseja realmente desconectar a sessão do WhatsApp Secundário (Etiquetas e disparos) e gerar um novo QR Code?')) return;
     setSecondaryReconnecting(true);
+    setSecondaryStatus({ connected: false, connecting: true, hasQR: false, qrCode: null });
     try {
       const res = await fetch('/api/whatsapp/secondary/reconnect', { method: 'POST' });
       if (res.ok) {
         addToast('Sessão Secundária desconectada. Aguardando novo QR Code...', 'success');
-        fetchSecondaryStatus();
+        setTimeout(() => {
+          fetchSecondaryStatus();
+          fetchSecondaryQRCode();
+        }, 1500);
       } else {
         throw new Error('Failed to reconnect');
       }

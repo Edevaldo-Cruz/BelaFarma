@@ -1357,6 +1357,20 @@ try {
     } catch(e) {}
     console.log('✅ Grupos Customizados: Tabela custom_product_groups criada/verificada!');
 
+    // Criar tabela page_visitors para contador de acessos do Dashboard
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS page_visitors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        visited_at TEXT NOT NULL,
+        date_str TEXT NOT NULL,
+        user_name TEXT
+      );
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_pv_date ON page_visitors(date_str)');
+    } catch(e) {}
+    console.log('✅ Contador de Visitantes: Tabela page_visitors criada/verificada!');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 
