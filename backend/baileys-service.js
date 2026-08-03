@@ -26,16 +26,18 @@ let savedDb       = null;   // Referência salva do banco de dados
 // Inicialização lazy: carrega o Baileys somente quando
 // o módulo já foi instalado (evita crash se faltou npm install)
 // ──────────────────────────────────────────────────────────
-let makeWASocket, useMultiFileAuthState, DisconnectReason, Boom, downloadMediaMessage;
+let makeWASocket, useMultiFileAuthState, DisconnectReason, Boom, downloadMediaMessage, Browsers, fetchLatestBaileysVersion;
 
 function loadBaileys() {
   try {
     const baileys = require('@whiskeysockets/baileys');
-    makeWASocket       = baileys.default || baileys.makeWASocket || baileys;
+    makeWASocket          = baileys.default || baileys.makeWASocket || baileys;
     useMultiFileAuthState = baileys.useMultiFileAuthState;
-    DisconnectReason   = baileys.DisconnectReason;
-    downloadMediaMessage = baileys.downloadMediaMessage;
-    Boom               = require('@hapi/boom');
+    DisconnectReason      = baileys.DisconnectReason;
+    downloadMediaMessage  = baileys.downloadMediaMessage;
+    Browsers              = baileys.Browsers;
+    fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+    Boom                  = require('@hapi/boom');
     return true;
   } catch (e) {
     console.error('[Baileys] ❌ Módulo @whiskeysockets/baileys não encontrado:', e.message);
@@ -66,11 +68,23 @@ async function connect(db) {
 
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
 
+    let version = [2, 3000, 1015901307];
+    if (fetchLatestBaileysVersion) {
+      try {
+        const fetched = await fetchLatestBaileysVersion();
+        version = fetched.version;
+        console.log(`[Baileys] 🌐 Versão do WhatsApp Web obtida: v${version.join('.')}`);
+      } catch (verErr) {
+        console.warn('[Baileys] Não foi possível buscar versão mais recente do WA Web, usando fallback:', verErr.message);
+      }
+    }
+
     sock = makeWASocket({
+      version,
       auth: state,
       printQRInTerminal: true,       // Imprime QR no log do Docker tb
-      browser: ['BelaFarma', 'Chrome', '120.0'],
-      connectTimeoutMs: 30000,
+      browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '22.04.4'],
+      connectTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
       retryRequestDelayMs: 2000,
       logger: { level: 'silent',     // Silencia logs verbosos do Baileys
