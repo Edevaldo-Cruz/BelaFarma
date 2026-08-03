@@ -87,12 +87,13 @@ async function connect(db) {
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
       retryRequestDelayMs: 2000,
-      logger: { level: 'silent',     // Silencia logs verbosos do Baileys
+      logger: {
+        level: 'silent',
         trace: () => {}, debug: () => {}, info: () => {},
-        warn:  (m) => console.warn('[Baileys-internal]', m),
-        error: (m) => console.error('[Baileys-internal]', m),
-        fatal: (m) => console.error('[Baileys-internal FATAL]', m),
-        child: () => ({ trace:()=>{}, debug:()=>{}, info:()=>{}, warn:()=>{}, error:()=>{}, fatal:()=>{} })
+        warn:  (...m) => console.warn('[Baileys-internal WARN]', ...m),
+        error: (...m) => console.error('[Baileys-internal ERROR]', ...m),
+        fatal: (...m) => console.error('[Baileys-internal FATAL]', ...m),
+        child: function() { return this; }
       }
     });
 

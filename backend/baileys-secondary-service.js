@@ -83,12 +83,13 @@ async function connect(db) {
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
       retryRequestDelayMs: 2000,
-      logger: { level: 'silent',
+      logger: {
+        level: 'silent',
         trace: () => {}, debug: () => {}, info: () => {},
-        warn:  (m) => console.warn('[Baileys-Sec-internal]', m),
-        error: (m) => console.error('[Baileys-Sec-internal]', m),
-        fatal: (m) => console.error('[Baileys-Sec-internal FATAL]', m),
-        child: () => ({ trace:()=>{}, debug:()=>{}, info:()=>{}, warn:()=>{}, error:()=>{}, fatal:()=>{} })
+        warn:  (...m) => console.warn('[Baileys-Sec-internal WARN]', ...m),
+        error: (...m) => console.error('[Baileys-Sec-internal ERROR]', ...m),
+        fatal: (...m) => console.error('[Baileys-Sec-internal FATAL]', ...m),
+        child: function() { return this; }
       }
     });
 
