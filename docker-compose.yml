@@ -30,6 +30,8 @@ services:
       - ./mensagens:/usr/src/app/mensagens
       # Sessão do Baileys (persistente entre restarts e deploys)
       - ./data/baileys-session:/usr/src/app/data/baileys-session
+      # Sessão do Baileys Secundário (persistente entre restarts e deploys)
+      - ./data/baileys-session-secondary:/usr/src/app/data/baileys-session-secondary
       # Pasta de uploads (persistente para salvar as imagens do banco de ofertas)
       - ./uploads:/usr/src/app/uploads
 

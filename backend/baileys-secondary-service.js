@@ -101,14 +101,19 @@ async function connect(db) {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        lastQR = qr;
-        isConnected = false;
+        isConnected  = false;
+        isConnecting = false; // Libera a trava — já temos um socket ativo esperando scan
         console.log('[Baileys-Secondary] 📲 QR Code gerado! Escaneie pelo WhatsApp Secundário.');
+        lastQR = qr;
         try {
           const QRCode = require('qrcode');
-          lastQR = await QRCode.toDataURL(qr);
+          const dataUrl = await QRCode.toDataURL(qr);
+          // Só substitui se o QR atual ainda é o mesmo (evita race condition)
+          if (lastQR === qr) {
+            lastQR = dataUrl;
+          }
         } catch (e) {
-          lastQR = qr;
+          console.warn('[Baileys-Secondary] Falha ao converter QR para base64, usando raw:', e.message);
         }
       }
 
@@ -160,14 +165,13 @@ async function connect(db) {
 
         console.warn(`[Baileys-Secondary] ⚠️ Conexão fechada. Código: ${statusCode}, Motivo: ${reason}`);
 
-        const isLoggedOut = statusCode === DisconnectReason?.loggedOut ||
-                            statusCode === DisconnectReason?.badSession ||
-                            reason.includes('QR refs attempts ended') ||
-                            statusCode === DisconnectReason?.timedOut ||
-                            !sock?.user;
+        // Casos onde a sessão deve ser APAGADA e recriada do zero
+        const needsFullReset = statusCode === DisconnectReason?.loggedOut ||
+                               statusCode === DisconnectReason?.badSession ||
+                               reason.includes('QR refs attempts ended');
 
-        if (isLoggedOut) {
-          console.warn('[Baileys-Secondary] 🧹 Sessão secundária inválida ou QR expirado. Apagando pasta de sessão para forçar novo QR Code...');
+        if (needsFullReset) {
+          console.warn('[Baileys-Secondary] 🧹 Sessão secundária inválida ou QR expirado completamente. Apagando pasta de sessão...');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
           lastError = 'Sessão encerrada ou QR expirado. Gerando novo QR Code...';
           lastQR = null;
@@ -176,10 +180,11 @@ async function connect(db) {
           return;
         }
 
-        console.warn(`[Baileys-Secondary] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 6s...`);
+        // Desconexão temporária — NÃO apaga o QR nem a sessão
+        console.warn(`[Baileys-Secondary] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 5s...`);
         lastError = `Desconectado: ${reason}`;
         if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => connect(savedDb), 6000);
+        reconnectTimer = setTimeout(() => connect(savedDb), 5000);
       }
     });
 
@@ -355,8 +360,13 @@ async function disconnect() {
   }
   if (sock) {
     try { sock.ev.removeAllListeners(); } catch (e) {}
+    // Só tenta logout se estava autenticado — evita travar em sessões sem scan
+    if (isConnected) {
+      try { await sock.logout(); } catch (e) {
+        console.warn('[Baileys-Secondary] Erro no logout (ignorado):', e.message);
+      }
+    }
     try { sock.ws?.close(); } catch (e) {}
-    try { await sock.logout(); } catch(e) {}
     sock = null;
   }
   isConnected  = false;

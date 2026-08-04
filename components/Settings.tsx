@@ -109,18 +109,6 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     }
   };
 
-  const fetchQRCode = async () => {
-    try {
-      const res = await fetch('/api/whatsapp/baileys/qrcode');
-      if (res.ok) {
-        const data = await res.json();
-        setBaileysStatus((prev: any) => prev ? { ...prev, hasQR: data.hasQR, qrCode: data.qrCode } : { connected: false, connecting: true, hasQR: data.hasQR, qrCode: data.qrCode });
-      }
-    } catch (err) {
-      console.error('Error fetching Baileys QR Code:', err);
-    }
-  };
-
   // --- WhatsApp Secundário ---
   const fetchSecondaryStatus = async () => {
     try {
@@ -134,19 +122,9 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     }
   };
 
-  const fetchSecondaryQRCode = async () => {
-    try {
-      const res = await fetch('/api/whatsapp/secondary/qrcode');
-      if (res.ok) {
-        const data = await res.json();
-        setSecondaryStatus((prev: any) => prev ? { ...prev, hasQR: data.hasQR, qrCode: data.qrCode } : { connected: false, connecting: true, hasQR: data.hasQR, qrCode: data.qrCode });
-      }
-    } catch (err) {
-      console.error('Error fetching Secondary QR Code:', err);
-    }
-  };
-
-  // Poll status de ambas as instâncias
+  // Poll unificado: /status já retorna hasQR e qrCode.
+  // Quando desconectado, pollar mais rápido (3s) para capturar o QR assim que gerado.
+  // Quando conectado, pollar devagar (15s) só para manter o status atualizado.
   React.useEffect(() => {
     if (user.role !== UserRole.ADM) return;
     
@@ -154,38 +132,26 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     fetchSecondaryStatus();
     fetchSystemHealth();
 
+    const pollFrequency = (baileysStatus?.connected && secondaryStatus?.connected) ? 15000 : 3000;
+
     const interval = setInterval(() => {
       fetchBaileysStatus();
       fetchSecondaryStatus();
-      fetchSystemHealth();
-    }, 10000); // Poll status a cada 10 segundos
+      // Health check a cada 15s apenas
+      if (pollFrequency >= 15000) fetchSystemHealth();
+    }, pollFrequency);
 
     return () => clearInterval(interval);
-  }, [user.role]);
+  }, [user.role, baileysStatus?.connected, secondaryStatus?.connected]);
 
-  // Fast poll QR Code Principal se desconectado
+  // Health check separado a cada 30s quando em poll rápido
   React.useEffect(() => {
     if (user.role !== UserRole.ADM) return;
-    if (baileysStatus && baileysStatus.connected) return;
-
-    const qrInterval = setInterval(() => {
-      fetchQRCode();
-    }, 4000); // Poll QR Code a cada 4 segundos quando desconectado
-
-    return () => clearInterval(qrInterval);
-  }, [user.role, baileysStatus?.connected]);
-
-  // Fast poll QR Code Secundário se desconectado
-  React.useEffect(() => {
-    if (user.role !== UserRole.ADM) return;
-    if (secondaryStatus && secondaryStatus.connected) return;
-
-    const qrInterval = setInterval(() => {
-      fetchSecondaryQRCode();
-    }, 4000); // Poll QR Code a cada 4 segundos quando desconectado
-
-    return () => clearInterval(qrInterval);
-  }, [user.role, secondaryStatus?.connected]);
+    if (baileysStatus?.connected && secondaryStatus?.connected) return;
+    
+    const healthInterval = setInterval(fetchSystemHealth, 30000);
+    return () => clearInterval(healthInterval);
+  }, [user.role, baileysStatus?.connected, secondaryStatus?.connected]);
 
   const handleBaileysReconnect = async () => {
     if (!confirm('Deseja realmente desconectar a sessão do WhatsApp Principal (PIX dos clientes) e gerar um novo QR Code?')) return;
@@ -197,8 +163,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
         addToast('Sessão Principal desconectada. Aguardando novo QR Code...', 'success');
         setTimeout(() => {
           fetchBaileysStatus();
-          fetchQRCode();
-        }, 1500);
+        }, 2000);
       } else {
         throw new Error('Failed to reconnect');
       }
@@ -219,8 +184,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
         addToast('Sessão Secundária desconectada. Aguardando novo QR Code...', 'success');
         setTimeout(() => {
           fetchSecondaryStatus();
-          fetchSecondaryQRCode();
-        }, 1500);
+        }, 2000);
       } else {
         throw new Error('Failed to reconnect');
       }
@@ -455,8 +419,17 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
                           </div>
                         ) : (
                           <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-4 text-center text-slate-400 bg-slate-50 gap-1.5">
-                            <RefreshCw className="w-6 h-6 animate-spin text-slate-300" />
-                            <span className="text-[8px] font-black uppercase tracking-widest leading-tight">Carregando...</span>
+                            {baileysStatus?.error ? (
+                              <>
+                                <span className="text-red-500 text-[8px] font-black uppercase tracking-widest leading-tight">Erro</span>
+                                <span className="text-[7px] text-red-400 leading-tight break-all">{baileysStatus.error}</span>
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-6 h-6 animate-spin text-slate-300" />
+                                <span className="text-[8px] font-black uppercase tracking-widest leading-tight">Carregando...</span>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -548,8 +521,17 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
                           </div>
                         ) : (
                           <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-4 text-center text-slate-400 bg-slate-50 gap-1.5">
-                            <RefreshCw className="w-6 h-6 animate-spin text-slate-300" />
-                            <span className="text-[8px] font-black uppercase tracking-widest leading-tight">Carregando...</span>
+                            {secondaryStatus?.error ? (
+                              <>
+                                <span className="text-red-500 text-[8px] font-black uppercase tracking-widest leading-tight">Erro</span>
+                                <span className="text-[7px] text-red-400 leading-tight break-all">{secondaryStatus.error}</span>
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-6 h-6 animate-spin text-slate-300" />
+                                <span className="text-[8px] font-black uppercase tracking-widest leading-tight">Carregando...</span>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>

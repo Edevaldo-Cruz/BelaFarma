@@ -105,15 +105,21 @@ async function connect(db) {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        lastQR = qr;
-        isConnected = false;
+        isConnected  = false;
+        isConnecting = false; // Libera a trava — já temos um socket ativo esperando scan
         console.log('[Baileys] 📲 QR Code gerado! Escaneie pelo WhatsApp → Aparelhos Conectados.');
-        // Gera também como imagem base64 para a interface web
+        // Gera imagem base64 para a interface web (guarda raw como fallback imediato)
+        lastQR = qr;
         try {
           const QRCode = require('qrcode');
-          lastQR = await QRCode.toDataURL(qr);
+          const dataUrl = await QRCode.toDataURL(qr);
+          // Só substitui se o QR atual ainda é o mesmo (evita race condition)
+          if (lastQR === qr) {
+            lastQR = dataUrl;
+          }
         } catch (e) {
-          lastQR = qr; // Fallback: string raw
+          // Mantém o QR raw como fallback — será exibido como texto, mas não trava
+          console.warn('[Baileys] Falha ao converter QR para base64, usando raw:', e.message);
         }
       }
 
@@ -165,15 +171,16 @@ async function connect(db) {
 
         console.warn(`[Baileys] ⚠️ Conexão fechada. Código: ${statusCode}, Motivo: ${reason}`);
 
-        // Se não estiver logado me / me.id for indefinido OU se for erro de logout / sessão inválida / timeout QR
-        const isLoggedOut = statusCode === DisconnectReason?.loggedOut ||
-                            statusCode === DisconnectReason?.badSession ||
-                            reason.includes('QR refs attempts ended') ||
-                            statusCode === DisconnectReason?.timedOut ||
-                            !sock?.user;
+        // Casos onde a sessão deve ser APAGADA e recriada do zero:
+        // - loggedOut: usuário desvinculou o aparelho
+        // - badSession: sessão corrompida
+        // - QR refs attempts ended: todas as 5 tentativas de QR expiraram
+        const needsFullReset = statusCode === DisconnectReason?.loggedOut ||
+                               statusCode === DisconnectReason?.badSession ||
+                               reason.includes('QR refs attempts ended');
 
-        if (isLoggedOut) {
-          console.warn('[Baileys] 🧹 Sessão inválida ou QR expirado. Apagando pasta de sessão para forçar novo QR Code...');
+        if (needsFullReset) {
+          console.warn('[Baileys] 🧹 Sessão inválida ou QR expirado completamente. Apagando pasta de sessão para forçar novo QR Code...');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
           lastError = 'Sessão encerrada ou QR expirado. Gerando novo QR Code...';
           lastQR = null;
@@ -182,10 +189,12 @@ async function connect(db) {
           return;
         }
 
-        console.warn(`[Baileys] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 6s...`);
+        // Desconexão temporária (timeout, rede, etc.) — NÃO apaga o QR nem a sessão
+        // O Baileys vai reconectar e o QR que já foi gerado continua disponível
+        console.warn(`[Baileys] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 5s...`);
         lastError = `Desconectado: ${reason}`;
         if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => connect(savedDb), 6000);
+        reconnectTimer = setTimeout(() => connect(savedDb), 5000);
       }
     });
 
@@ -389,8 +398,13 @@ async function disconnect() {
   }
   if (sock) {
     try { sock.ev.removeAllListeners(); } catch (e) {}
+    // Só tenta logout se estava autenticado — evita travar em sessões sem scan
+    if (isConnected) {
+      try { await sock.logout(); } catch (e) {
+        console.warn('[Baileys] Erro no logout (ignorado):', e.message);
+      }
+    }
     try { sock.ws?.close(); } catch (e) {}
-    try { await sock.logout(); } catch (e) {}
     sock = null;
   }
   isConnected  = false;
