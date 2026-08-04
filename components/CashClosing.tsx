@@ -107,6 +107,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       setDebit(data.debit || 0);
       setPix(data.pix || 0);
 
+      // Preenche a lista de crediários do dia vindos do Digifarma (se houver)
+      if (Array.isArray(data.crediarioList) && data.crediarioList.length > 0) {
+        setCrediarioList(data.crediarioList);
+      }
+
       // Preenche o fundo de caixa com o valor do Digifarma (se existir)
       if (data.fundoCaixa !== undefined) {
         setInitialCash(data.fundoCaixa);

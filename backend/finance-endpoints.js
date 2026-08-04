@@ -235,6 +235,20 @@ module.exports = function (db) {
       // O valor líquido real é a soma de todos os recebimentos reais de hoje
       const totalSales = dinheiro + credit + debit + pix + crediario + outros;
 
+      // Buscar lista de crediários do dia no Digifarma
+      let crediarioList = [];
+      try {
+        const { listarCrediarioDoDia } = require('./services/crediario.service');
+        crediarioList = await listarCrediarioDoDia(businessDayStart);
+      } catch (cErr) {
+        console.warn('[Finance] Erro ao buscar crediários do dia no Digifarma:', cErr.message);
+      }
+
+      // Se não encontrou no pagResult mas há itens em crediarioList, soma o total
+      if (crediario === 0 && crediarioList.length > 0) {
+        crediario = crediarioList.reduce((acc, item) => acc + (item.val || 0), 0);
+      }
+
       const payload = {
         totalSales,
         dinheiro,
@@ -242,6 +256,7 @@ module.exports = function (db) {
         debit,
         pix,
         crediario,
+        crediarioList,
         outros,
         qtdVendas,
         fundoCaixa
