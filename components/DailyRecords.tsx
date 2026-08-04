@@ -197,6 +197,38 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
     }
   }, [dailyRecords, user.name]);
 
+  // Buscar crediários do dia no Digifarma ao montar a tela de Lançamentos Diários
+  useEffect(() => {
+    const syncDigifarmaCrediario = async () => {
+      try {
+        const response = await fetch('/api/finance-agent/live-closing');
+        if (!response.ok) return;
+        const data = await response.json();
+        
+        if (Array.isArray(data.crediarioList) && data.crediarioList.length > 0) {
+          setTodayRecord(prev => {
+            if (!prev) return prev;
+            
+            // Mesclar mantendo lançamentos manuais + adicionando do Digifarma (evitando duplicados por ID)
+            const existingIds = new Set((prev.crediarioList || []).map(item => item.id));
+            const newDigiItems = data.crediarioList.filter((item: any) => !existingIds.has(item.id));
+            
+            if (newDigiItems.length === 0) return prev;
+            
+            return {
+              ...prev,
+              crediarioList: [...(prev.crediarioList || []), ...newDigiItems]
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Erro ao sincronizar crediário do dia do Digifarma:', err);
+      }
+    };
+
+    syncDigifarmaCrediario();
+  }, []);
+
   // Fetch customers for crediário dropdown
   useEffect(() => {
     const fetchCustomers = async () => {
