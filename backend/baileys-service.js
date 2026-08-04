@@ -58,7 +58,7 @@ async function connect(db) {
   if (!loadBaileys()) return;
 
   isConnecting = true;
-  lastError    = null;
+  // NÃO limpa lastError aqui — mantém visível até QR gerado ou conexão aberta
   lastQR       = null;
 
   try {
@@ -107,6 +107,7 @@ async function connect(db) {
       if (qr) {
         isConnected  = false;
         isConnecting = false; // Libera a trava — já temos um socket ativo esperando scan
+        lastError    = null;  // Limpa erro anterior — QR foi gerado com sucesso
         console.log('[Baileys] 📲 QR Code gerado! Escaneie pelo WhatsApp → Aparelhos Conectados.');
         // Gera imagem base64 para a interface web (guarda raw como fallback imediato)
         lastQR = qr;
@@ -182,7 +183,7 @@ async function connect(db) {
         if (needsFullReset) {
           console.warn('[Baileys] 🧹 Sessão inválida ou QR expirado completamente. Apagando pasta de sessão para forçar novo QR Code...');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
-          lastError = 'Sessão encerrada ou QR expirado. Gerando novo QR Code...';
+          lastError = `Reset: código ${statusCode} — ${reason}`;
           lastQR = null;
           if (reconnectTimer) clearTimeout(reconnectTimer);
           reconnectTimer = setTimeout(() => connect(savedDb), 4000);
