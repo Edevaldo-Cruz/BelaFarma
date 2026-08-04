@@ -201,7 +201,7 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
   useEffect(() => {
     const syncDigifarmaCrediario = async () => {
       try {
-        const response = await fetch('/api/finance-agent/live-closing');
+        const response = await fetch('/api/finance-agent/live-closing?refresh=true');
         if (!response.ok) return;
         const data = await response.json();
         

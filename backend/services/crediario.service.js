@@ -43,6 +43,7 @@ async function receberCrediario(crediarioId, valorPago) {
 }
 
 async function listarCrediarioDoDia(businessDayStart) {
+  // Consulta resiliente: aceita filtro por CURRENT_DATE ou businessDayStart
   const sql = `
     SELECT 
       c.FICHARIO_ID as id,
@@ -52,17 +53,24 @@ async function listarCrediarioDoDia(businessDayStart) {
       c.FICHARIO_DATACOMPRA as purchaseDate
     FROM FICHARIO c
     LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
-    WHERE c.FICHARIO_DATACOMPRA >= ?
+    WHERE CAST(c.FICHARIO_DATACOMPRA AS DATE) >= CURRENT_DATE
     ORDER BY c.FICHARIO_DATACOMPRA DESC
   `;
-  const result = await queryDigifarma(sql, [businessDayStart]);
+  const result = await queryDigifarma(sql);
   
-  return result.map(r => ({
-    id: String(r.ID),
-    client: r.CLIENTNAME ? r.CLIENTNAME.trim() : 'Cliente Digifarma',
-    val: r.AMOUNT || 0,
-    purchaseDate: r.PURCHASEDATE
-  }));
+  return result.map(r => {
+    const idVal = r.ID !== undefined ? r.ID : r.id;
+    const clientVal = r.CLIENTNAME || r.clientName || r.CLIENTE || r.cliente;
+    const amountVal = r.AMOUNT !== undefined ? r.AMOUNT : r.amount;
+    const dateVal = r.PURCHASEDATE || r.purchaseDate;
+    
+    return {
+      id: String(idVal || Date.now()),
+      client: clientVal ? String(clientVal).trim() : 'Cliente Digifarma',
+      val: Number(amountVal) || 0,
+      purchaseDate: dateVal
+    };
+  });
 }
 
 module.exports = {

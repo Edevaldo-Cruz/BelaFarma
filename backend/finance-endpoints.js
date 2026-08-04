@@ -143,8 +143,9 @@ module.exports = function (db) {
   // Para Cartão (id=4), a coluna BANDEIRA contém "DEBITO" ou "CREDITO"
   router.get('/live-closing', async (req, res) => {
     try {
+      const forceRefresh = req.query.refresh === 'true';
       const nowMs = Date.now();
-      if (liveClosingCache && (nowMs - liveClosingCacheTime < CACHE_TTL_MS)) {
+      if (!forceRefresh && liveClosingCache && (nowMs - liveClosingCacheTime < CACHE_TTL_MS)) {
         console.log('[Finance] ⚡ Retornando fechamento de hoje via cache (TTL 2m)');
         return res.json(liveClosingCache);
       }
