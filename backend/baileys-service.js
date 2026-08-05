@@ -522,30 +522,43 @@ async function listGroups() {
 // ──────────────────────────────────────────────────────────
 // SEND STATUS — posta no status do WhatsApp (My Status)
 // ──────────────────────────────────────────────────────────
-async function sendStatus(imagePath, caption = '') {
+async function sendStatus(imagePath, caption = '', statusJidList = null) {
   if (!isConnected || !sock) {
     throw new Error('Baileys não está conectado ao WhatsApp.');
   }
 
-  if (!fs.existsSync(imagePath)) {
-    throw new Error(`Imagem não encontrada: ${imagePath}`);
+  let fullPath = imagePath;
+  if (!fs.existsSync(fullPath)) {
+    const candidates = [
+      path.join(process.cwd(), imagePath),
+      path.join(process.cwd(), imagePath.replace(/^[\/\\]public/, '')),
+      path.join(process.cwd(), 'uploads', path.basename(imagePath)),
+      path.join(__dirname, '..', imagePath.replace(/^[\/\\]public/, '')),
+      path.join(__dirname, 'public', imagePath)
+    ];
+    const found = candidates.find(c => fs.existsSync(c));
+    if (found) {
+      fullPath = found;
+    } else {
+      throw new Error(`Imagem não encontrada: ${imagePath}`);
+    }
   }
 
-  const imageBuffer = fs.readFileSync(imagePath);
+  const imageBuffer = fs.readFileSync(fullPath);
+
+  const options = {};
+  if (statusJidList && Array.isArray(statusJidList) && statusJidList.length > 0) {
+    options.statusJidList = statusJidList;
+  }
 
   // Enviar para o status@broadcast
   await sock.sendMessage('status@broadcast', {
     image: imageBuffer,
     caption: caption || undefined,
-    mimetype: imagePath.endsWith('.png') ? 'image/png' : 'image/jpeg'
-  }, {
-    statusJidList: [
-      // Envia para o próprio número também para aparecer no celular
-      sock.user.id.split(':')[0] + '@s.whatsapp.net'
-    ]
-  });
+    mimetype: fullPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+  }, options);
 
-  console.log(`[Baileys] ✅ Status postado com sucesso.`);
+  console.log(`[Baileys] ✅ Status postado com sucesso (${fullPath}).`);
   return { success: true };
 }
 

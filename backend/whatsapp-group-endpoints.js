@@ -737,10 +737,9 @@ Responda apenas com o JSON.`;
          return res.status(400).json({ error: 'A oferta precisa de uma imagem para ser postada no Status.' });
       }
 
-      const fullPath = path.join(__dirname, 'public', offer.mediaPath);
       let caption = offer.aiCaption || `Oferta: ${offer.productName} por R$${offer.price.toFixed(2)}!`;
 
-      await baileys.sendStatus(fullPath, caption);
+      await baileys.sendStatus(offer.mediaPath, caption);
 
       res.json({ success: true, message: 'Status postado com sucesso via Baileys!' });
     } catch (err) {

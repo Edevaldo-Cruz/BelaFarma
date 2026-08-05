@@ -110,10 +110,8 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
         continue;
       }
 
-      const fullPath = path.join(__dirname, '..', 'public', offer.mediaPath);
-
       try {
-        await baileys.sendStatus(fullPath, caption);
+        await baileys.sendStatus(offer.mediaPath, caption);
         sucessoCount++;
         console.log(`[WhatsAppStatus Baileys] ✅ Status ${i + 1} postado com sucesso!`);
       } catch (reqErr) {
