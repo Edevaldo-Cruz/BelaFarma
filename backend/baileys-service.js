@@ -529,12 +529,18 @@ async function sendStatus(imagePath, caption = '', statusJidList = null) {
 
   let fullPath = imagePath;
   if (!fs.existsSync(fullPath)) {
+    const filename = path.basename(imagePath);
     const candidates = [
       path.join(process.cwd(), imagePath),
-      path.join(process.cwd(), imagePath.replace(/^[\/\\]public/, '')),
-      path.join(process.cwd(), 'uploads', path.basename(imagePath)),
-      path.join(__dirname, '..', imagePath.replace(/^[\/\\]public/, '')),
-      path.join(__dirname, 'public', imagePath)
+      path.join(process.cwd(), 'data', 'uploads', filename),
+      path.join(process.cwd(), 'uploads', filename),
+      path.join(process.cwd(), 'public', 'uploads', filename),
+      path.join(__dirname, 'data', 'uploads', filename),
+      path.join(__dirname, 'uploads', filename),
+      path.join(__dirname, 'public', 'uploads', filename),
+      path.join(__dirname, '..', 'data', 'uploads', filename),
+      path.join(__dirname, '..', 'uploads', filename),
+      path.join(__dirname, '..', 'public', 'uploads', filename)
     ];
     const found = candidates.find(c => fs.existsSync(c));
     if (found) {
