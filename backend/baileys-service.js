@@ -310,18 +310,27 @@ async function connect(db) {
           if (remoteJid.endsWith('@g.us')) return; // Ignora mensagens de grupos
 
           const phone = remoteJid.split('@')[0];
-          const messageType = Object.keys(msg.message)[0];
+
+          // Desembrulha mensagens envelopadas (ViewOnce, Ephemeral, DocumentWithCaption, etc.)
+          let contentMsg = msg.message;
+          if (contentMsg?.viewOnceMessage?.message) contentMsg = contentMsg.viewOnceMessage.message;
+          else if (contentMsg?.viewOnceMessageV2?.message) contentMsg = contentMsg.viewOnceMessageV2.message;
+          else if (contentMsg?.viewOnceMessageV2Extension?.message) contentMsg = contentMsg.viewOnceMessageV2Extension.message;
+          else if (contentMsg?.ephemeralMessage?.message) contentMsg = contentMsg.ephemeralMessage.message;
+          else if (contentMsg?.documentWithCaptionMessage?.message) contentMsg = contentMsg.documentWithCaptionMessage.message;
+
+          const messageType = Object.keys(contentMsg)[0] || '';
           
           // 1. Extração de Texto
           let text = null;
           if (messageType === 'conversation') {
-            text = msg.message.conversation;
+            text = contentMsg.conversation;
           } else if (messageType === 'extendedTextMessage') {
-            text = msg.message.extendedTextMessage.text;
-          } else if (messageType === 'imageMessage' && msg.message.imageMessage.caption) {
-            text = msg.message.imageMessage.caption;
-          } else if (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.caption) {
-            text = msg.message.documentWithCaptionMessage.message.documentMessage.caption;
+            text = contentMsg.extendedTextMessage?.text;
+          } else if (messageType === 'imageMessage' && contentMsg.imageMessage?.caption) {
+            text = contentMsg.imageMessage.caption;
+          } else if (messageType === 'documentMessage' && contentMsg.documentMessage?.caption) {
+            text = contentMsg.documentMessage.caption;
           }
 
           const cleanText = text ? text.toLowerCase().trim() : '';
@@ -329,7 +338,7 @@ async function connect(db) {
           // Salva no SQLite local para a plataforma de vendas (histórico)
           if (db) {
             try {
-              const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : messageType === 'imageMessage' ? '[📷 Imagem]' : '[Outra mídia]');
+              const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : (messageType === 'imageMessage' || messageType === 'documentMessage') ? '[📷 Mídia]' : '[Outra mídia]');
               const timestampMs = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
               const fromMeVal = msg.key.fromMe ? 1 : 0;
               db.prepare(`
@@ -344,12 +353,14 @@ async function connect(db) {
           // Se a mensagem foi enviada por nós (fromMe), não processa para PixBot
           if (msg.key.fromMe) return;
 
-          // Verifica se é imagem ou documento com imagem
+          // Verifica se é imagem ou documento de imagem/pdf
           const isImage = !!(
             messageType === 'imageMessage' || 
-            (messageType === 'documentMessage' && msg.message.documentMessage?.mimetype?.startsWith('image/')) ||
-            (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage?.message?.documentMessage?.mimetype?.startsWith('image/')) ||
-            Object.keys(msg.message || {}).some(key => key.endsWith('Message') && msg.message[key]?.mimetype?.startsWith('image/'))
+            (messageType === 'documentMessage' && (
+              contentMsg.documentMessage?.mimetype?.startsWith('image/') ||
+              contentMsg.documentMessage?.mimetype?.includes('pdf')
+            )) ||
+            Object.keys(contentMsg || {}).some(key => key.endsWith('Message') && contentMsg[key]?.mimetype?.startsWith('image/'))
           );
 
           // ── FLUXO DE IMAGEM (AUDITORIA PIX) ──────────────────
@@ -367,8 +378,8 @@ async function connect(db) {
             );
 
             const base64Image = buffer.toString('base64');
-            const mimeType = msg.message?.imageMessage?.mimetype || 
-                            msg.message?.documentMessage?.mimetype || 
+            const mimeType = contentMsg.imageMessage?.mimetype || 
+                            contentMsg.documentMessage?.mimetype || 
                             'image/jpeg';
             
             console.log(`[Baileys] 🔍 Tentando auditoria PIX via PixBot...`);
