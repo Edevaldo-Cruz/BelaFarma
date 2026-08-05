@@ -341,10 +341,11 @@ async function connect(db) {
               const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : (messageType === 'imageMessage' || messageType === 'documentMessage') ? '[📷 Mídia]' : '[Outra mídia]');
               const timestampMs = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
               const fromMeVal = msg.key.fromMe ? 1 : 0;
+              const rawJson = JSON.stringify(msg);
               db.prepare(`
-                INSERT OR IGNORE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-              `).run(msg.key.id, phone, fromMeVal, textContent, timestampMs);
+                INSERT OR REPLACE INTO whatsapp_messages (id, phone, fromMe, messageText, rawMessage, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+              `).run(msg.key.id, phone, fromMeVal, textContent, rawJson, timestampMs);
             } catch (dbErr) {
               console.warn('[Baileys] Falha ao salvar mensagem no SQLite:', dbErr.message);
             }
@@ -590,7 +591,7 @@ async function varrerPixDoDia() {
   if (savedDb) {
     try {
       rows = savedDb.prepare(`
-        SELECT id, phone, messageText, timestamp
+        SELECT id, phone, messageText, rawMessage, timestamp
         FROM whatsapp_messages
         WHERE timestamp >= ? AND fromMe = 0
         ORDER BY timestamp DESC
@@ -623,28 +624,31 @@ async function varrerPixDoDia() {
         continue;
       }
 
-      console.log(`[Baileys-PixScan] 📸 Baixando imagem retroativa da mensagem ${row.id} (${row.phone})...`);
+      console.log(`[Baileys-PixScan] 📸 Tentando baixar mídia da mensagem ${row.id} (${row.phone})...`);
 
-      // Estrutura a chave e objeto da mensagem para o downloadMediaMessage do Baileys
-      const fakeMsg = {
-        key: {
-          remoteJid: `${row.phone}@s.whatsapp.net`,
-          fromMe: false,
-          id: row.id
-        },
-        message: {
-          imageMessage: {
-            url: ''
-          }
-        }
-      };
+      // Tentar reconstruir a mensagem a partir do rawMessage salvo ou chave
+      let msgToDownload = null;
+      if (row.rawMessage) {
+        try { msgToDownload = JSON.parse(row.rawMessage); } catch (e) {}
+      }
+
+      if (!msgToDownload) {
+        msgToDownload = {
+          key: {
+            remoteJid: `${row.phone}@s.whatsapp.net`,
+            fromMe: false,
+            id: row.id
+          },
+          message: { imageMessage: { url: '' } }
+        };
+      }
 
       auditadas++;
 
       // Tenta baixar a mídia usando o helper do Baileys
       try {
         const buffer = await downloadMediaMessage(
-          fakeMsg,
+          msgToDownload,
           'buffer',
           { },
           { 
