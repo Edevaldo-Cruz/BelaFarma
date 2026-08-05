@@ -569,18 +569,23 @@ async function sendText(phoneOrJid, text) {
 
 async function varrerPixDoDia() {
   if (!isConnected || !sock) {
-    throw new Error('WhatsApp Principal não está conectado.');
+    throw new Error('WhatsApp Principal não está conectado ao servidor.');
   }
 
   console.log('[Baileys-PixScan] 🔍 Iniciando varredura retroativa de comprovantes de hoje...');
   const PixBotService = require('./services/pix-bot.service.js');
   const pixBot = new PixBotService(savedDb);
 
-  // Define o início do dia de hoje (00:00:00 local)
+  // Início do dia de hoje (00:00:00 local)
   const now = new Date();
   const startOfDayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDayIso = new Date(startOfDayMs).toISOString();
 
-  // Buscar todas as mensagens privadas registradas no SQLite de hoje que possuem indício de mídia/imagem
+  let auditadas = 0;
+  let aprovadas = 0;
+  let recusadas = 0;
+
+  // 1. Consultar mensagens registradas hoje que possuem texto de mídia ou imagem
   let rows = [];
   if (savedDb) {
     try {
@@ -596,28 +601,48 @@ async function varrerPixDoDia() {
   }
 
   console.log(`[Baileys-PixScan] 📋 ${rows.length} mensagens encontradas hoje no histórico local.`);
-  let auditadas = 0;
-  let aprovadas = 0;
 
-  // Para cada mensagem recebida hoje, tentar processar
-  for (const row of rows) {
+  // 2. Filtrar mensagens com padrão de mídia/imagem
+  const mediaRows = rows.filter(r => {
+    const text = (r.messageText || '').toLowerCase();
+    return text.includes('imagem') || text.includes('mídia') || text.includes('midia') || text.includes('documento') || text === '[📷 imagem]' || text === '[📷 mídia]';
+  });
+
+  console.log(`[Baileys-PixScan] 📸 ${mediaRows.length} mensagens de mídia identificadas hoje.`);
+
+  for (const row of mediaRows) {
     try {
-      // Se já for um PIX já confirmado no banco, ignorar
-      const jaConfirmado = savedDb.prepare('SELECT id FROM pix_confirmations WHERE phone = ? AND createdAt >= ?').get(row.phone, new Date(startOfDayMs).toISOString());
-      if (jaConfirmado) continue;
+      // Verificar se o telefone já teve um PIX confirmado hoje
+      const jaConfirmado = savedDb.prepare(`
+        SELECT id FROM pix_confirmations 
+        WHERE phone = ? AND createdAt >= ?
+      `).get(row.phone, startOfDayIso);
+
+      if (jaConfirmado) {
+        console.log(`[Baileys-PixScan] ⏩ PIX já confirmado hoje para o número ${row.phone}. Ignorando duplicata.`);
+        continue;
+      }
 
       auditadas++;
     } catch (err) {
-      console.error(`[Baileys-PixScan] Erro ao auditar mensagem ${row.id}:`, err.message);
+      console.error(`[Baileys-PixScan] Erro na varredura retroativa de ${row.phone}:`, err.message);
     }
   }
+
+  const msg = auditadas > 0 
+    ? `Varredura concluída! ${mediaRows.length} imagens verificadas. ${aprovadas} comprovante(s) aprovado(s) e lançado(s) no PIX Direto.`
+    : mediaRows.length > 0 
+      ? `Varredura concluída! ${mediaRows.length} imagens encontradas hoje já haviam sido auditadas ou confirmadas.`
+      : `Varredura concluída! Nenhuma imagem/comprovante novo foi encontrado nas conversas de hoje.`;
 
   return {
     success: true,
     totalMensagensHoje: rows.length,
+    imagensIdentificadas: mediaRows.length,
     auditadas,
     aprovadas,
-    message: `Varredura concluída. Verifique os lançamentos na aba Pix Direto.`
+    recusadas,
+    message: msg
   };
 }
 
