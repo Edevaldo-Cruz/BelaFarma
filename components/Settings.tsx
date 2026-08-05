@@ -375,14 +375,37 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
                       <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl text-emerald-800 text-xs font-medium leading-relaxed">
                         🎉 <strong>Auditor de PIX Ativo!</strong> Conectado ao WhatsApp oficial da drogaria. Comprovantes enviados pelos clientes serão auditados instantaneamente pelo PixBot.
                       </div>
-                      <button
-                        onClick={handleBaileysReconnect}
-                        disabled={baileysReconnecting}
-                        className="w-full justify-center px-4 py-3 bg-red-50 hover:bg-red-100 border border-red-100 text-red-600 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-40 flex items-center gap-2"
-                      >
-                        <Power className="w-4 h-4" />
-                        Desconectar WhatsApp Principal
-                      </button>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Deseja iniciar a varredura retroativa de todas as imagens enviadas hoje pelos clientes para buscar comprovantes de PIX?')) return;
+                            try {
+                              addToast('🔍 Varredura iniciada! Analisando mensagens de hoje...', 'info');
+                              const res = await fetch('/api/whatsapp/baileys/varrer-pix-hoje', { method: 'POST' });
+                              if (res.ok) {
+                                const data = await res.json();
+                                addToast(`✅ ${data.message || 'Varredura de PIX concluída!'}`, 'success');
+                              } else {
+                                throw new Error('Erro na API');
+                              }
+                            } catch (e) {
+                              addToast('❌ Falha ao iniciar varredura de PIX de hoje.', 'error');
+                            }
+                          }}
+                          className="flex-1 justify-center px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs uppercase tracking-wide transition-all flex items-center gap-2 shadow-sm"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Varrer Comprovantes PIX de Hoje
+                        </button>
+                        <button
+                          onClick={handleBaileysReconnect}
+                          disabled={baileysReconnecting}
+                          className="px-4 py-3 bg-red-50 hover:bg-red-100 border border-red-100 text-red-600 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-40 flex items-center gap-2"
+                        >
+                          <Power className="w-4 h-4" />
+                          Desconectar
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">

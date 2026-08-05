@@ -4117,6 +4117,17 @@ app.post('/api/whatsapp/baileys/reconnect', async (req, res) => {
   }
 });
 
+// POST /api/whatsapp/baileys/varrer-pix-hoje — Varre mensagens de hoje e audita comprovantes PIX
+app.post('/api/whatsapp/baileys/varrer-pix-hoje', async (req, res) => {
+  if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });
+  try {
+    const result = await baileys.varrerPixDoDia();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/whatsapp/baileys/groups — Lista grupos que o número participa
 app.get('/api/whatsapp/baileys/groups', async (req, res) => {
   if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });

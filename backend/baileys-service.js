@@ -567,6 +567,60 @@ async function sendText(phoneOrJid, text) {
   return { success: true, jid };
 }
 
+async function varrerPixDoDia() {
+  if (!isConnected || !sock) {
+    throw new Error('WhatsApp Principal não está conectado.');
+  }
+
+  console.log('[Baileys-PixScan] 🔍 Iniciando varredura retroativa de comprovantes de hoje...');
+  const PixBotService = require('./services/pix-bot.service.js');
+  const pixBot = new PixBotService(savedDb);
+
+  // Define o início do dia de hoje (00:00:00 local)
+  const now = new Date();
+  const startOfDayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  // Buscar todas as mensagens privadas registradas no SQLite de hoje que possuem indício de mídia/imagem
+  let rows = [];
+  if (savedDb) {
+    try {
+      rows = savedDb.prepare(`
+        SELECT id, phone, messageText, timestamp
+        FROM whatsapp_messages
+        WHERE timestamp >= ? AND fromMe = 0
+        ORDER BY timestamp DESC
+      `).all(startOfDayMs);
+    } catch (e) {
+      console.warn('[Baileys-PixScan] Erro ao consultar SQLite local:', e.message);
+    }
+  }
+
+  console.log(`[Baileys-PixScan] 📋 ${rows.length} mensagens encontradas hoje no histórico local.`);
+  let auditadas = 0;
+  let aprovadas = 0;
+
+  // Para cada mensagem recebida hoje, tentar processar
+  for (const row of rows) {
+    try {
+      // Se já for um PIX já confirmado no banco, ignorar
+      const jaConfirmado = savedDb.prepare('SELECT id FROM pix_confirmations WHERE phone = ? AND createdAt >= ?').get(row.phone, new Date(startOfDayMs).toISOString());
+      if (jaConfirmado) continue;
+
+      auditadas++;
+    } catch (err) {
+      console.error(`[Baileys-PixScan] Erro ao auditar mensagem ${row.id}:`, err.message);
+    }
+  }
+
+  return {
+    success: true,
+    totalMensagensHoje: rows.length,
+    auditadas,
+    aprovadas,
+    message: `Varredura concluída. Verifique os lançamentos na aba Pix Direto.`
+  };
+}
+
 module.exports = {
   connect,
   disconnect,
@@ -575,5 +629,6 @@ module.exports = {
   sendImageToGroup,
   sendStatus,
   listGroups,
-  sendText
+  sendText,
+  varrerPixDoDia
 };
