@@ -552,10 +552,36 @@ async function sendStatus(imagePath, caption = '', statusJidList = null) {
 
   const imageBuffer = fs.readFileSync(fullPath);
 
-  const options = {};
+  let jidList = [];
   if (statusJidList && Array.isArray(statusJidList) && statusJidList.length > 0) {
-    options.statusJidList = statusJidList;
+    jidList = statusJidList;
+  } else {
+    // Adiciona o próprio número para aparecer em "Meu Status" no celular
+    const ownJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+    jidList.push(ownJid);
+
+    // Adiciona números conhecidos do banco de dados local
+    if (savedDb) {
+      try {
+        const rows = savedDb.prepare(`
+          SELECT DISTINCT phone FROM whatsapp_messages WHERE phone IS NOT NULL AND phone != ''
+        `).all();
+        rows.forEach(r => {
+          const clean = r.phone.replace(/\D/g, '');
+          if (clean.length >= 10) {
+            const jid = `${clean}@s.whatsapp.net`;
+            if (!jidList.includes(jid)) jidList.push(jid);
+          }
+        });
+      } catch (e) {
+        console.warn('[Baileys] Erro ao carregar contatos para statusJidList:', e.message);
+      }
+    }
   }
+
+  const options = {
+    statusJidList: jidList
+  };
 
   // Enviar para o status@broadcast
   await sock.sendMessage('status@broadcast', {
@@ -564,7 +590,7 @@ async function sendStatus(imagePath, caption = '', statusJidList = null) {
     mimetype: fullPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
   }, options);
 
-  console.log(`[Baileys] ✅ Status postado com sucesso (${fullPath}).`);
+  console.log(`[Baileys] ✅ Status postado com sucesso para ${jidList.length} destinatários (${fullPath}).`);
   return { success: true };
 }
 
