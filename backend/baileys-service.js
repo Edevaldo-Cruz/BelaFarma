@@ -623,7 +623,49 @@ async function varrerPixDoDia() {
         continue;
       }
 
+      console.log(`[Baileys-PixScan] 📸 Baixando imagem retroativa da mensagem ${row.id} (${row.phone})...`);
+
+      // Estrutura a chave e objeto da mensagem para o downloadMediaMessage do Baileys
+      const fakeMsg = {
+        key: {
+          remoteJid: `${row.phone}@s.whatsapp.net`,
+          fromMe: false,
+          id: row.id
+        },
+        message: {
+          imageMessage: {
+            url: ''
+          }
+        }
+      };
+
       auditadas++;
+
+      // Tenta baixar a mídia usando o helper do Baileys
+      try {
+        const buffer = await downloadMediaMessage(
+          fakeMsg,
+          'buffer',
+          { },
+          { 
+            logger: sock.logger,
+            reuploadRequest: sock.updateMediaMessage
+          }
+        );
+
+        if (buffer && buffer.length > 0) {
+          const base64Image = buffer.toString('base64');
+          console.log(`[Baileys-PixScan] 🔍 Enviando imagem de ${row.phone} para auditoria IA...`);
+          const aprovado = await pixBot.processBaileysImage(base64Image, 'image/jpeg', row.phone, row.id);
+          if (aprovado) {
+            aprovadas++;
+          } else {
+            recusadas++;
+          }
+        }
+      } catch (dlErr) {
+        console.warn(`[Baileys-PixScan] Não foi possível baixar mídia da mensagem ${row.id} (pode ter sido apagada ou expirado no WhatsApp):`, dlErr.message);
+      }
     } catch (err) {
       console.error(`[Baileys-PixScan] Erro na varredura retroativa de ${row.phone}:`, err.message);
     }
