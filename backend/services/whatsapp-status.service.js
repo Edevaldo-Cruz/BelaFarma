@@ -82,15 +82,8 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
 
     console.log(`[WhatsAppStatus] IA selecionou ${selectedList.length} ofertas para o Status.`);
 
-    // 4. Loop de Envio via Baileys
+    // 4. Loop de Enfileiramento para o RPA Agent (ou Baileys)
     let sucessoCount = 0;
-    const baileys = require('./baileys-service');
-    const status = baileys.getStatus();
-    
-    if (!status.connected) {
-       console.error('[WhatsAppStatus] ❌ Baileys não está conectado. Abortando.');
-       return;
-    }
     
     for (let i = 0; i < selectedList.length; i++) {
       const item = selectedList[i];
@@ -101,26 +94,28 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
         continue;
       }
 
-      console.log(`[WhatsAppStatus Baileys] Postando ${i + 1}/${selectedList.length}: ${offer.productName}`);
+      console.log(`[WhatsAppStatus] Enfileirando ${i + 1}/${selectedList.length}: ${offer.productName}`);
 
       let caption = item.shortCaption;
 
       if (!offer.mediaPath) {
-        console.warn(`[WhatsAppStatus Baileys] ⚠️ Oferta sem imagem. Pulando...`);
+        console.warn(`[WhatsAppStatus] ⚠️ Oferta sem imagem. Pulando...`);
         continue;
       }
 
       try {
-        await baileys.sendStatus(offer.mediaPath, caption);
-        sucessoCount++;
-        console.log(`[WhatsAppStatus Baileys] ✅ Status ${i + 1} postado com sucesso!`);
-      } catch (reqErr) {
-        console.error(`[WhatsAppStatus Baileys] ❌ Falha ao postar status:`, reqErr.message);
-      }
+        const postId = `status-${Date.now()}-${i}`;
+        const now = new Date().toISOString();
+        db.prepare(`
+          INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt, type)
+          VALUES (?, 'status', 'Status do WhatsApp', ?, ?, ?, 'Pendente', ?, 'status')
+        `).run(postId, caption, offer.mediaPath, now, now);
 
-      // Adiciona um delay de 5 a 8 segundos entre os envios para ser humanizado e não sobrecarregar
-      const randomDelay = Math.floor(Math.random() * 3000) + 5000;
-      await delay(randomDelay);
+        sucessoCount++;
+        console.log(`[WhatsAppStatus] ✅ Status ${i + 1} enfileirado com sucesso (ID: ${postId})!`);
+      } catch (reqErr) {
+        console.error(`[WhatsAppStatus] ❌ Falha ao enfileirar status:`, reqErr.message);
+      }
     }
 
     console.log(`[WhatsAppStatus] 🎉 Rotina de Status finalizada! Postados: ${sucessoCount}/${selectedList.length}.`);

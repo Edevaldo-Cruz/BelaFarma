@@ -1103,11 +1103,11 @@ try {
     `);
     console.log('Message campaigns table verified/created.');
 
-    // Tabela: whatsapp_group_posts (Agendamento de postagens em grupos)
+    // Tabela: whatsapp_group_posts (Agendamento de postagens em grupos e status)
     db.exec(`
       CREATE TABLE IF NOT EXISTS whatsapp_group_posts (
         id TEXT PRIMARY KEY,
-        groupId TEXT NOT NULL,
+        groupId TEXT,
         groupName TEXT,
         content TEXT NOT NULL,
         mediaPath TEXT,
@@ -1115,9 +1115,15 @@ try {
         status TEXT DEFAULT 'Pendente',
         errorMessage TEXT,
         createdAt TEXT NOT NULL,
-        sentAt TEXT
+        sentAt TEXT,
+        type TEXT DEFAULT 'group'
       )
     `);
+    try {
+      db.exec(`ALTER TABLE whatsapp_group_posts ADD COLUMN type TEXT DEFAULT 'group'`);
+    } catch (e) {
+      // Coluna já existe
+    }
     console.log('WhatsApp group posts table verified/created.');
 
     // Tabela: whatsapp_offers_bank (Banco de imagens/textos de ofertas)

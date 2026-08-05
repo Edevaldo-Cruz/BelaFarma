@@ -496,6 +496,7 @@ function initializeWhatsAppGroupEndpoints(app) {
         hasPending: true,
         post: {
           id: oldestPending.id,
+          type: oldestPending.type || 'group',
           groupId: oldestPending.groupId,
           groupName: oldestPending.groupName,
           content: oldestPending.content,
@@ -717,7 +718,7 @@ Responda apenas com o JSON.`;
     }
   });
 
-  // Disparar uma única oferta para o Status via Baileys
+  // Disparar uma única oferta para o Status via Fila do RPA / Baileys
   app.post('/api/whatsapp/offers-bank/:id/status', async (req, res) => {
     try {
       const offerId = req.params.id;
@@ -727,23 +728,23 @@ Responda apenas com o JSON.`;
         return res.status(404).json({ error: 'Oferta não encontrada.' });
       }
 
-      const baileys = require('./baileys-service');
-      const status = baileys.getStatus();
-      if (!status.connected) {
-         return res.status(500).json({ error: 'WhatsApp via Baileys não está conectado no backend.' });
-      }
-
       if (!offer.mediaPath) {
          return res.status(400).json({ error: 'A oferta precisa de uma imagem para ser postada no Status.' });
       }
 
       let caption = offer.aiCaption || `Oferta: ${offer.productName} por R$${offer.price.toFixed(2)}!`;
 
-      await baileys.sendStatus(offer.mediaPath, caption);
+      // Enfileira na fila para o RPA Agent (Puppeteer)
+      const postId = `status-single-${Date.now()}`;
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt, type)
+        VALUES (?, 'status', 'Status do WhatsApp', ?, ?, ?, 'Pendente', ?, 'status')
+      `).run(postId, caption, offer.mediaPath, now, now);
 
-      res.json({ success: true, message: 'Status postado com sucesso via Baileys!' });
+      res.json({ success: true, message: 'Status enfileirado para envio pelo RPA Agent!', postId });
     } catch (err) {
-      console.error('[RoboOfertas Baileys] Erro:', err.message);
+      console.error('[RoboOfertas Status] Erro:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
