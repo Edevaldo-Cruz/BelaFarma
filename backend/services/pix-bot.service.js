@@ -397,8 +397,8 @@ class PixBotService {
    */
   recordPixDirect(value, senderName, date) {
     try {
-      // Buscar registro do dia
-      let record = this.db.prepare('SELECT * FROM daily_records WHERE date = ?').get(date);
+      // Buscar registro não fechado do dia (aceita formato YYYY-MM-DD ou ISO)
+      let record = this.db.prepare('SELECT * FROM daily_records WHERE date LIKE ? AND lancado = 0 LIMIT 1').get(`${date}%`);
       
       const newEntry = {
         id: Date.now().toString(),
