@@ -4117,15 +4117,17 @@ app.post('/api/whatsapp/baileys/reconnect', async (req, res) => {
   }
 });
 
-// POST /api/whatsapp/baileys/varrer-pix-hoje — Varre mensagens de hoje e audita comprovantes PIX
+// POST /api/whatsapp/baileys/varrer-pix-hoje — Varre mensagens de hoje e audita comprovantes PIX em background
 app.post('/api/whatsapp/baileys/varrer-pix-hoje', async (req, res) => {
   if (!baileys) return res.status(503).json({ error: 'Serviço Baileys não disponível.' });
-  try {
-    const result = await baileys.varrerPixDoDia();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  
+  // Responde imediatamente a requisição para evitar estouro de timeout do navegador (QUIC protocol / HTTP timeout)
+  res.json({ success: true, message: 'Varredura de comprovantes iniciada em segundo plano! As imagens estão sendo analisadas pela IA...' });
+  
+  // Executa o processamento em background
+  baileys.varrerPixDoDia().catch(err => {
+    console.error('[Baileys-PixScan] Erro durante varredura em background:', err.message);
+  });
 });
 
 // GET /api/whatsapp/baileys/groups — Lista grupos que o número participa
