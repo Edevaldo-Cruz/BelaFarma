@@ -253,67 +253,66 @@ async function startAgent() {
           await page.screenshot({ path: path.join(__dirname, 'debug_status_1_inicio.png') });
           console.log('📸 Screenshot: debug_status_1_inicio.png');
 
-          // 1. Abre a guia de Status
-          console.log(`📱 Clicando no ícone da guia de Status...`);
-          const clickedStatusTab = await page.evaluate(() => {
-            // 0. Busca pelo SVG com title "wds-ic-status" (fornecido pelo HTML do WhatsApp Web)
+          // 1. Abre a guia de Status via clique físico do mouse nas coordenadas do ícone
+          console.log(`📱 Obter coordenadas do ícone de Status (${post.groupName})...`);
+          const statusRect = await page.evaluate(() => {
+            // Busca 0: title "wds-ic-status"
             const svgTitles = Array.from(document.querySelectorAll('svg title'));
             const statusTitle = svgTitles.find(t => t.textContent && t.textContent.trim() === 'wds-ic-status');
+            let el = null;
             if (statusTitle) {
-              const btn = statusTitle.closest('button') || statusTitle.closest('div[role="button"]') || statusTitle.closest('span') || statusTitle;
-              btn.click();
-              return 'wds-ic-status-svg';
+              el = statusTitle.closest('button') || statusTitle.closest('div[role="button"]') || statusTitle.closest('span') || statusTitle;
             }
 
-            // 1. Busca específica por data-icon
-            const statusIcon = document.querySelector('span[data-icon="status-v3"]') ||
-                               document.querySelector('span[data-icon="status-v4"]') ||
-                               document.querySelector('span[data-icon="status-outline"]') ||
-                               document.querySelector('span[data-icon="status-unread"]') ||
-                               document.querySelector('span[data-icon*="status"]');
-            if (statusIcon) {
-              const btn = statusIcon.closest('button') || statusIcon.closest('div[role="button"]') || statusIcon;
-              btn.click();
-              return 'statusIconDataAttr';
+            // Busca 1: por data-icon
+            if (!el) {
+              el = document.querySelector('span[data-icon="status-v3"]') ||
+                   document.querySelector('span[data-icon="status-v4"]') ||
+                   document.querySelector('span[data-icon="status-outline"]') ||
+                   document.querySelector('span[data-icon="status-unread"]') ||
+                   document.querySelector('span[data-icon*="status"]');
             }
 
-            const allElements = Array.from(document.querySelectorAll('button, div[role="button"], span[data-icon], a'));
-            const statusEl = allElements.find(el => {
-              const label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-icon') || '').toLowerCase();
-              return label.includes('status') || label.includes('atualizações') || label.includes('updates');
-            });
-            if (statusEl) {
-              statusEl.click();
-              return 'statusAriaLabel';
+            // Busca 2: por aria-label
+            if (!el) {
+              const allElements = Array.from(document.querySelectorAll('button, div[role="button"], span[data-icon], a'));
+              el = allElements.find(item => {
+                const label = (item.getAttribute('aria-label') || item.getAttribute('title') || item.getAttribute('data-icon') || '').toLowerCase();
+                return label.includes('status') || label.includes('atualizações') || label.includes('updates');
+              });
             }
-            return false;
+
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+            }
+            return null;
           });
 
-          if (clickedStatusTab) {
-            console.log(`🎯 Guia de Status clicada com sucesso! (${clickedStatusTab})`);
+          if (statusRect) {
+            console.log(`🎯 Executando clique FÍSICO do mouse no ícone de Status em (${Math.round(statusRect.x)}, ${Math.round(statusRect.y)})...`);
+            await page.mouse.click(statusRect.x, statusRect.y);
           } else {
-            console.warn('⚠️ Ícone de Status não localizado por seletor.');
+            console.warn('⚠️ Não foi possível encontrar as coordenadas físicas da guia de Status.');
           }
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 2500));
 
           // Screenshot: após clicar na guia Status
           await page.screenshot({ path: path.join(__dirname, 'debug_status_2_apos_aba.png') });
           console.log('📸 Screenshot: debug_status_2_apos_aba.png');
 
-          // 1.5 Clica no botão de adicionar Status (+) ou em "Meu status"
-          console.log('➕ Procurando o botão "+" de novo Status...');
-          const addStatusClicked = await page.evaluate(() => {
-            // 1. Tenta achar pelo ícone de plus (+) no cabeçalho do Status
+          // 1.5 Clica no botão de adicionar Status (+) via clique físico
+          console.log('➕ Obter coordenadas físicas do botão "+" de novo Status...');
+          const plusRect = await page.evaluate(() => {
             const plusIcon = document.querySelector('span[data-icon="plus"]') ||
                              document.querySelector('span[data-icon="add-status"]') ||
                              document.querySelector('span[data-icon="plus-large"]');
             if (plusIcon) {
-              const btn = plusIcon.closest('button') || plusIcon.closest('div[role="button"]') || plusIcon.parentElement || plusIcon;
-              btn.click();
-              return 'plusIcon';
+              const el = plusIcon.closest('button') || plusIcon.closest('div[role="button"]') || plusIcon.parentElement || plusIcon;
+              const rect = el.getBoundingClientRect();
+              return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
             }
 
-            // 2. Tenta encontrar o container clicável de "Meu status"
             const spans = Array.from(document.querySelectorAll('span'));
             const myStatusSpan = spans.find(s => s.innerText && s.innerText.toLowerCase().trim() === 'meu status');
             if (myStatusSpan) {
@@ -321,14 +320,20 @@ async function startAgent() {
                              myStatusSpan.closest('div[tabindex]') || 
                              myStatusSpan.parentElement.parentElement;
               if (target) {
-                target.click();
-                return 'myStatusContainer';
+                const rect = target.getBoundingClientRect();
+                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
               }
             }
-            return false;
+            return null;
           });
-          console.log(`➕ Resultado do clique em adicionar status: ${addStatusClicked}`);
-          await new Promise(r => setTimeout(r, 2000));
+
+          if (plusRect) {
+            console.log(`🎯 Executando clique FÍSICO do mouse no botão "+" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
+            await page.mouse.click(plusRect.x, plusRect.y);
+          } else {
+            console.warn('⚠️ Botão "+" não localizado por coordenadas.');
+          }
+          await new Promise(r => setTimeout(r, 2500));
 
           // Screenshot: após clicar no botão + / Meu Status
           await page.screenshot({ path: path.join(__dirname, 'debug_status_3_meu_status.png') });
