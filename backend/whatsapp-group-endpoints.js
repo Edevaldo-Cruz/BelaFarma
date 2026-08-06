@@ -477,7 +477,7 @@ function initializeWhatsAppGroupEndpoints(app) {
     try {
       const now = new Date().toISOString();
       const oldestPending = await db.prepare(
-        'SELECT * FROM whatsapp_group_posts WHERE status = ? AND scheduledAt <= ? ORDER BY scheduledAt ASC LIMIT 1'
+        "SELECT * FROM whatsapp_group_posts WHERE status = ? AND scheduledAt <= ? ORDER BY CASE WHEN type = 'status' THEN 0 ELSE 1 END, scheduledAt ASC LIMIT 1"
       ).get('Pendente', now);
 
       if (!oldestPending) {

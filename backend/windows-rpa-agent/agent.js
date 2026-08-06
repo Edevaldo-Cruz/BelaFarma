@@ -252,21 +252,24 @@ async function startAgent() {
           // 1. Abre a guia de Status
           console.log(`📱 Tentando abrir a guia de Status...`);
           const clickedStatusTab = await page.evaluate(() => {
-            const btn = document.querySelector('span[data-icon="status-v3"]') ||
-                        document.querySelector('span[data-icon="status-outline"]') ||
-                        document.querySelector('button[aria-label*="Status"]') ||
-                        Array.from(document.querySelectorAll('button')).find(b => (b.ariaLabel || '').includes('Status') || (b.title || '').includes('Status'));
-            if (btn) {
-              btn.click();
+            const allElements = Array.from(document.querySelectorAll('button, div[role="button"], span[data-icon], a'));
+            const statusEl = allElements.find(el => {
+              const label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-icon') || '').toLowerCase();
+              return label.includes('status') || label.includes('atualizações') || label.includes('updates');
+            });
+            if (statusEl) {
+              statusEl.click();
               return true;
             }
             return false;
           });
 
-          if (!clickedStatusTab) {
+          if (clickedStatusTab) {
+            console.log('🎯 Guia de Status clicada com sucesso!');
+          } else {
             console.warn('⚠️ Ícone de Status não localizado por seletor, enviando comando de colar direto...');
           }
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 2500));
 
           // 2. Envia a imagem (Clipboard + Colar + Legenda)
           if (tempFilePath) {
