@@ -256,7 +256,16 @@ async function startAgent() {
           // 1. Abre a guia de Status
           console.log(`📱 Clicando no ícone da guia de Status...`);
           const clickedStatusTab = await page.evaluate(() => {
-            // Busca específica pelo ícone exato de Status da barra lateral
+            // 0. Busca pelo SVG com title "wds-ic-status" (fornecido pelo HTML do WhatsApp Web)
+            const svgTitles = Array.from(document.querySelectorAll('svg title'));
+            const statusTitle = svgTitles.find(t => t.textContent && t.textContent.trim() === 'wds-ic-status');
+            if (statusTitle) {
+              const btn = statusTitle.closest('button') || statusTitle.closest('div[role="button"]') || statusTitle.closest('span') || statusTitle;
+              btn.click();
+              return 'wds-ic-status-svg';
+            }
+
+            // 1. Busca específica por data-icon
             const statusIcon = document.querySelector('span[data-icon="status-v3"]') ||
                                document.querySelector('span[data-icon="status-v4"]') ||
                                document.querySelector('span[data-icon="status-outline"]') ||
