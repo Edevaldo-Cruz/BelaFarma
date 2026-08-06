@@ -305,32 +305,12 @@ async function startAgent() {
           await page.screenshot({ path: path.join(__dirname, 'debug_status_2_apos_aba.png') });
           console.log('📸 Screenshot: debug_status_2_apos_aba.png');
 
-          // 1.5 Clica no botão "Meu status" / "Clique para atualizar seu status" via clique físico
-          console.log('➕ Obter coordenadas físicas da opção "Clique para atualizar seu status"...');
+          // 1.5 Clica no botão "Meu status" / botão "+" e intercepta o seletor de arquivos nativo (fileChooser)
+          console.log('➕ Obter coordenadas físicas da opção "Clique para atualizar seu status" ou botão "+"...');
           const plusRect = await page.evaluate(() => {
-            const allElements = Array.from(document.querySelectorAll('span, div, p'));
+            const allElements = Array.from(document.querySelectorAll('span, div, p, button'));
             
-            // Busca 1: Texto exato do subtexto "Clique para atualizar seu status"
-            const subtext = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
-            if (subtext) {
-              const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement || subtext;
-              const rect = target.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'subtext' };
-              }
-            }
-
-            // Busca 2: Texto "Meu status"
-            const myStatus = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase() === 'meu status');
-            if (myStatus) {
-              const target = myStatus.closest('div[role="button"]') || myStatus.closest('div[tabindex]') || myStatus.parentElement || myStatus;
-              const rect = target.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'myStatusText' };
-              }
-            }
-
-            // Busca 3: Ícone de plus (+) no cabeçalho
+            // Busca 1: Ícone de plus (+) no cabeçalho ao lado de Status
             const plusIcon = document.querySelector('span[data-icon="plus"]') ||
                              document.querySelector('span[data-icon="add-status"]') ||
                              document.querySelector('span[data-icon="plus-large"]');
@@ -342,12 +322,46 @@ async function startAgent() {
               }
             }
 
+            // Busca 2: Texto exato do subtexto "Clique para atualizar seu status"
+            const subtext = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
+            if (subtext) {
+              const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement || subtext;
+              const rect = target.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'subtext' };
+              }
+            }
+
+            // Busca 3: Texto "Meu status"
+            const myStatus = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase() === 'meu status');
+            if (myStatus) {
+              const target = myStatus.closest('div[role="button"]') || myStatus.closest('div[tabindex]') || myStatus.parentElement || myStatus;
+              const rect = target.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'myStatusText' };
+              }
+            }
+
             return null;
           });
 
           if (plusRect) {
             console.log(`🎯 Executando clique FÍSICO do mouse no botão "${plusRect.label}" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
-            await page.mouse.click(plusRect.x, plusRect.y);
+            
+            // Intercepta o FileChooser do navegador caso a janela de arquivos abra
+            try {
+              const [fileChooser] = await Promise.all([
+                page.waitForFileChooser({ timeout: 3500 }).catch(() => null),
+                page.mouse.click(plusRect.x, plusRect.y)
+              ]);
+
+              if (fileChooser && tempFilePath) {
+                console.log('🎉 FileChooser capturado com sucesso! Injetando arquivo de imagem...');
+                await fileChooser.accept([tempFilePath]);
+              }
+            } catch (fcErr) {
+              console.warn('⚠️ FileChooser não disparou, tentando métodos alternativos...', fcErr.message);
+            }
           } else {
             console.warn('⚠️ Botão "+" não localizado por coordenadas.');
           }
@@ -384,9 +398,13 @@ async function startAgent() {
 
             if (fileInput) {
               console.log('📁 Input de arquivo nativo localizado! Injetando imagem via uploadFile...');
-              await fileInput.uploadFile(tempFilePath);
+              try {
+                await fileInput.uploadFile(tempFilePath);
+              } catch (uErr) {
+                console.warn('⚠️ uploadFile falhou:', uErr.message);
+              }
             } else {
-              console.log('📋 Input nativo não achado de primeira. Forçando copiar imagem para Área de Transferência e colar...');
+              console.log('📋 Input nativo não achado. Forçando copiar imagem para Área de Transferência e colar...');
               copyImageToClipboard(tempFilePath);
               await new Promise(r => setTimeout(r, 1000));
 
