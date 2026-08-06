@@ -315,40 +315,41 @@ async function startAgent() {
           // Screenshot: após clicar na guia Status
           await safeScreenshot(page, 'debug_status_2_apos_aba.png');
 
-          // 1.5 Clica no elemento "Meu status" ("Clique para atualizar seu status") via clique físico
-          console.log('➕ Obter coordenadas físicas da opção "Meu status" / "Clique para atualizar seu status"...');
+          // 1.5 Clica na opção de adicionar Status ("Meu status" ou o ícone circular verde com +)
+          console.log('➕ Obter coordenadas físicas da opção "Meu status" / botão "+"...');
           const plusRect = await page.evaluate(() => {
-            const allElements = Array.from(document.querySelectorAll('div, span, p'));
+            // Busca 1: Ícone de soma "+" verde em "Meu status" (span com data-icon="add-status", "plus", ou svg de mais)
+            const addBadge = document.querySelector('span[data-icon="add-status"]') ||
+                             document.querySelector('span[data-icon="plus-large"]') ||
+                             document.querySelector('span[data-icon="plus-alt"]');
+            if (addBadge) {
+              const rect = addBadge.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'addBadge' };
+              }
+            }
 
-            // Busca 1 (PRIORITÁRIA): Texto do subtexto "Clique para atualizar seu status"
-            const subtext = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
+            // Busca 2: O item de lista "Meu status" no painel da esquerda
+            const allSpans = Array.from(document.querySelectorAll('span, div'));
+            const subtext = allSpans.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
             if (subtext) {
-              const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement || subtext;
-              const rect = target.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'subtext' };
-              }
-            }
-
-            // Busca 2: Texto "Meu status" na lista de status
-            const myStatus = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase() === 'meu status');
-            if (myStatus) {
-              const target = myStatus.closest('div[role="button"]') || myStatus.closest('div[tabindex]') || myStatus.parentElement || myStatus;
-              const rect = target.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'myStatusText' };
-              }
-            }
-
-            // Busca 3: Botão "+" específico dentro do painel de Status (não da barra global)
-            const statusHeader = document.querySelector('header');
-            if (statusHeader) {
-              const plusIcon = statusHeader.querySelector('span[data-icon="plus"]');
-              if (plusIcon) {
-                const el = plusIcon.closest('button') || plusIcon.closest('div[role="button"]') || plusIcon;
-                const rect = el.getBoundingClientRect();
+              const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement;
+              if (target) {
+                const rect = target.getBoundingClientRect();
                 if (rect.width > 0 && rect.height > 0) {
-                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'statusHeaderPlus' };
+                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'subtextRow' };
+                }
+              }
+            }
+
+            // Busca 3: O texto "Meu status"
+            const myStatusText = allSpans.find(el => el.innerText && el.innerText.trim().toLowerCase() === 'meu status');
+            if (myStatusText) {
+              const target = myStatusText.closest('div[role="button"]') || myStatusText.closest('div[tabindex]') || myStatusText.parentElement;
+              if (target) {
+                const rect = target.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'myStatusTextRow' };
                 }
               }
             }
@@ -357,46 +358,62 @@ async function startAgent() {
           });
 
           if (plusRect) {
-            console.log(`🎯 Executando clique FÍSICO do mouse no botão "${plusRect.label}" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
+            console.log(`🎯 Executando clique FÍSICO do mouse em "${plusRect.label}" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
             
-            // Intercepta o FileChooser do navegador caso a janela de arquivos abra
+            // Tenta capturar o seletor de arquivos nativo ou popup de menu ao clicar
             try {
               const [fileChooser] = await Promise.all([
-                page.waitForFileChooser({ timeout: 3500 }).catch(() => null),
+                page.waitForFileChooser({ timeout: 3000 }).catch(() => null),
                 page.mouse.click(plusRect.x, plusRect.y)
               ]);
 
               if (fileChooser && tempFilePath) {
-                console.log('🎉 FileChooser capturado com sucesso! Injetando arquivo de imagem...');
+                console.log('🎉 FileChooser capturado! Injetando imagem...');
                 await fileChooser.accept([tempFilePath]);
               }
             } catch (fcErr) {
-              console.warn('⚠️ FileChooser não disparou, tentando métodos alternativos...', fcErr.message);
+              console.warn('⚠️ FileChooser não abriu imediatamente:', fcErr.message);
             }
           } else {
-            console.warn('⚠️ Botão "+" não localizado por coordenadas.');
+            console.warn('⚠️ Opção "Meu status" não localizada.');
           }
           await new Promise(r => setTimeout(r, 2000));
 
-          // Screenshot: após clicar no botão + / Meu Status
+          // Screenshot: após clicar no Meu Status
           await safeScreenshot(page, 'debug_status_3_meu_status.png');
 
-          // Clica na opção "Fotos e vídeos" se abrir um popup de menu
-          console.log('🖼️ Procurando opção "Fotos e vídeos" no menu flutuante...');
-          const clickedPhotoMenu = await page.evaluate(() => {
-            const menuOptions = Array.from(document.querySelectorAll('div[role="button"], li, span, button'));
-            const photoOption = menuOptions.find(el => {
+          // Se tiver um modal/popover aberto com "Fotos e vídeos" (ou ícone de foto), clica nele
+          console.log('🖼️ Procurando botão ou menu de "Fotos e vídeos"...');
+          const photoMenuTarget = await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('div[role="button"], li, span, button, aria-label'));
+            // Procura item de menu com ícone ou texto de foto/vídeo/mídia
+            const item = items.find(el => {
               const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
-              return txt.includes('fotos') || txt.includes('mídia') || txt.includes('imagem') || txt.includes('vídeos');
+              return (txt.includes('foto') || txt.includes('vídeo') || txt.includes('mídia')) && !txt.includes('pesquise');
             });
-            if (photoOption) {
-              photoOption.click();
-              return true;
+            if (item) {
+              const rect = item.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+              }
             }
-            return false;
+            return null;
           });
-          console.log(`🖼️ Menu "Fotos e vídeos" clicado: ${clickedPhotoMenu}`);
-          await new Promise(r => setTimeout(r, 1500));
+
+          if (photoMenuTarget) {
+            console.log(`🎯 Clicando na opção "Fotos e vídeos" em (${Math.round(photoMenuTarget.x)}, ${Math.round(photoMenuTarget.y)})...`);
+            try {
+              const [fileChooser] = await Promise.all([
+                page.waitForFileChooser({ timeout: 3000 }).catch(() => null),
+                page.mouse.click(photoMenuTarget.x, photoMenuTarget.y)
+              ]);
+              if (fileChooser && tempFilePath) {
+                console.log('🎉 FileChooser capturado no menu "Fotos e vídeos"! Injetando imagem...');
+                await fileChooser.accept([tempFilePath]);
+              }
+            } catch (e) {}
+            await new Promise(r => setTimeout(r, 1500));
+          }
 
           // 2. Envia a imagem (uploadFile direto no input[type="file"] ou Clipboard + Colar)
           if (tempFilePath) {
