@@ -315,24 +315,12 @@ async function startAgent() {
           // Screenshot: após clicar na guia Status
           await safeScreenshot(page, 'debug_status_2_apos_aba.png');
 
-          // 1.5 Clica no botão "Meu status" / botão "+" e intercepta o seletor de arquivos nativo (fileChooser)
-          console.log('➕ Obter coordenadas físicas da opção "Clique para atualizar seu status" ou botão "+"...');
+          // 1.5 Clica no elemento "Meu status" ("Clique para atualizar seu status") via clique físico
+          console.log('➕ Obter coordenadas físicas da opção "Meu status" / "Clique para atualizar seu status"...');
           const plusRect = await page.evaluate(() => {
-            const allElements = Array.from(document.querySelectorAll('span, div, p, button'));
-            
-            // Busca 1: Ícone de plus (+) no cabeçalho ao lado de Status
-            const plusIcon = document.querySelector('span[data-icon="plus"]') ||
-                             document.querySelector('span[data-icon="add-status"]') ||
-                             document.querySelector('span[data-icon="plus-large"]');
-            if (plusIcon) {
-              const el = plusIcon.closest('button') || plusIcon.closest('div[role="button"]') || plusIcon.parentElement || plusIcon;
-              const rect = el.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'plusIcon' };
-              }
-            }
+            const allElements = Array.from(document.querySelectorAll('div, span, p'));
 
-            // Busca 2: Texto exato do subtexto "Clique para atualizar seu status"
+            // Busca 1 (PRIORITÁRIA): Texto do subtexto "Clique para atualizar seu status"
             const subtext = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
             if (subtext) {
               const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement || subtext;
@@ -342,13 +330,26 @@ async function startAgent() {
               }
             }
 
-            // Busca 3: Texto "Meu status"
+            // Busca 2: Texto "Meu status" na lista de status
             const myStatus = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase() === 'meu status');
             if (myStatus) {
               const target = myStatus.closest('div[role="button"]') || myStatus.closest('div[tabindex]') || myStatus.parentElement || myStatus;
               const rect = target.getBoundingClientRect();
               if (rect.width > 0 && rect.height > 0) {
                 return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'myStatusText' };
+              }
+            }
+
+            // Busca 3: Botão "+" específico dentro do painel de Status (não da barra global)
+            const statusHeader = document.querySelector('header');
+            if (statusHeader) {
+              const plusIcon = statusHeader.querySelector('span[data-icon="plus"]');
+              if (plusIcon) {
+                const el = plusIcon.closest('button') || plusIcon.closest('div[role="button"]') || plusIcon;
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'statusHeaderPlus' };
+                }
               }
             }
 
