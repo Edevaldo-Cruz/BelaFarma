@@ -249,6 +249,10 @@ async function startAgent() {
         if (post.type === 'status') {
           console.log(`🚀 Iniciando automação de envio de STATUS no navegador...`);
 
+          // Screenshot: estado inicial
+          await page.screenshot({ path: path.join(__dirname, 'debug_status_1_inicio.png') });
+          console.log('📸 Screenshot: debug_status_1_inicio.png');
+
           // 1. Abre a guia de Status
           console.log(`📱 Tentando abrir a guia de Status...`);
           const clickedStatusTab = await page.evaluate(() => {
@@ -271,25 +275,66 @@ async function startAgent() {
           }
           await new Promise(r => setTimeout(r, 2000));
 
-          // 1.5 Clica em "Meu status" / "Adicionar status"
-          console.log('➕ Clicando no elemento "Meu status"...');
-          await page.evaluate(() => {
-            const items = Array.from(document.querySelectorAll('div, button, span'));
-            const myStatus = items.find(el => {
-              const text = (el.getAttribute('title') || el.getAttribute('aria-label') || el.innerText || '').toLowerCase();
-              return text.includes('meu status') || text.includes('adicionar ao meu status') || text.includes('novo status');
-            });
-            if (myStatus) {
-              myStatus.click();
-              return true;
+          // Screenshot: após clicar na guia Status
+          await page.screenshot({ path: path.join(__dirname, 'debug_status_2_apos_aba.png') });
+          console.log('📸 Screenshot: debug_status_2_apos_aba.png');
+
+          // 1.5 Clica no botão de adicionar Status (+) ou em "Meu status"
+          console.log('➕ Procurando o botão "+" de novo Status...');
+          const addStatusClicked = await page.evaluate(() => {
+            // 1. Tenta achar pelo ícone de plus (+) no cabeçalho do Status
+            const plusIcon = document.querySelector('span[data-icon="plus"]') ||
+                             document.querySelector('span[data-icon="add-status"]') ||
+                             document.querySelector('span[data-icon="plus-large"]');
+            if (plusIcon) {
+              const btn = plusIcon.closest('button') || plusIcon.closest('div[role="button"]') || plusIcon.parentElement || plusIcon;
+              btn.click();
+              return 'plusIcon';
+            }
+
+            // 2. Tenta encontrar o container clicável de "Meu status"
+            const spans = Array.from(document.querySelectorAll('span'));
+            const myStatusSpan = spans.find(s => s.innerText && s.innerText.toLowerCase().trim() === 'meu status');
+            if (myStatusSpan) {
+              const target = myStatusSpan.closest('div[role="button"]') || 
+                             myStatusSpan.closest('div[tabindex]') || 
+                             myStatusSpan.parentElement.parentElement;
+              if (target) {
+                target.click();
+                return 'myStatusContainer';
+              }
             }
             return false;
           });
+          console.log(`➕ Resultado do clique em adicionar status: ${addStatusClicked}`);
           await new Promise(r => setTimeout(r, 2000));
 
-          // 2. Envia a imagem (uploadFile direto ou Clipboard + Colar)
+          // Screenshot: após clicar no botão + / Meu Status
+          await page.screenshot({ path: path.join(__dirname, 'debug_status_3_meu_status.png') });
+          console.log('📸 Screenshot: debug_status_3_meu_status.png');
+
+          // Se tiver um menu flutuante (ex: "Fotos e vídeos"), clica nele
+          await page.evaluate(() => {
+            const menuOptions = Array.from(document.querySelectorAll('div, button, span, li'));
+            const photoOption = menuOptions.find(el => {
+              const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
+              return txt.includes('fotos') || txt.includes('mídia') || txt.includes('imagem');
+            });
+            if (photoOption) {
+              photoOption.click();
+            }
+          });
+          await new Promise(r => setTimeout(r, 1000));
+
+          // 2. Envia a imagem (uploadFile direto no input[type="file"] ou Clipboard + Colar)
           if (tempFilePath) {
-            const fileInput = await page.$('input[type="file"]');
+            let fileInput = await page.$('input[type="file"]');
+            if (!fileInput) {
+              // Tenta forçar a busca de qualquer input file na página
+              const inputs = await page.$$('input[type="file"]');
+              if (inputs.length > 0) fileInput = inputs[inputs.length - 1];
+            }
+
             if (fileInput) {
               console.log('📁 Input de arquivo nativo localizado! Injetando imagem via uploadFile...');
               await fileInput.uploadFile(tempFilePath);
@@ -306,6 +351,10 @@ async function startAgent() {
 
             console.log('⏳ Aguardando abertura do editor de Status...');
             await new Promise(r => setTimeout(r, 4000));
+
+            // Screenshot: após colar/upload da imagem
+            await page.screenshot({ path: path.join(__dirname, 'debug_status_4_imagem.png') });
+            console.log('📸 Screenshot: debug_status_4_imagem.png');
 
             if (post.content) {
               console.log('✍️ Escrevendo legenda do Status...');
