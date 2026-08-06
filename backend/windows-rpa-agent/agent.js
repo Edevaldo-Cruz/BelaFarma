@@ -267,20 +267,42 @@ async function startAgent() {
           if (clickedStatusTab) {
             console.log('🎯 Guia de Status clicada com sucesso!');
           } else {
-            console.warn('⚠️ Ícone de Status não localizado por seletor, enviando comando de colar direto...');
+            console.warn('⚠️ Ícone de Status não localizado por seletor.');
           }
-          await new Promise(r => setTimeout(r, 2500));
+          await new Promise(r => setTimeout(r, 2000));
 
-          // 2. Envia a imagem (Clipboard + Colar + Legenda)
+          // 1.5 Clica em "Meu status" / "Adicionar status"
+          console.log('➕ Clicando no elemento "Meu status"...');
+          await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('div, button, span'));
+            const myStatus = items.find(el => {
+              const text = (el.getAttribute('title') || el.getAttribute('aria-label') || el.innerText || '').toLowerCase();
+              return text.includes('meu status') || text.includes('adicionar ao meu status') || text.includes('novo status');
+            });
+            if (myStatus) {
+              myStatus.click();
+              return true;
+            }
+            return false;
+          });
+          await new Promise(r => setTimeout(r, 2000));
+
+          // 2. Envia a imagem (uploadFile direto ou Clipboard + Colar)
           if (tempFilePath) {
-            console.log('📋 Copiando imagem para a Área de Transferência do Windows...');
-            copyImageToClipboard(tempFilePath);
-            await new Promise(r => setTimeout(r, 1000));
+            const fileInput = await page.$('input[type="file"]');
+            if (fileInput) {
+              console.log('📁 Input de arquivo nativo localizado! Injetando imagem via uploadFile...');
+              await fileInput.uploadFile(tempFilePath);
+            } else {
+              console.log('📋 Copiando imagem para a Área de Transferência do Windows...');
+              copyImageToClipboard(tempFilePath);
+              await new Promise(r => setTimeout(r, 1000));
 
-            console.log('📋 Colando imagem no WhatsApp (Ctrl + V)...');
-            await page.keyboard.down('Control');
-            await page.keyboard.press('V');
-            await page.keyboard.up('Control');
+              console.log('📋 Colando imagem no WhatsApp (Ctrl + V)...');
+              await page.keyboard.down('Control');
+              await page.keyboard.press('V');
+              await page.keyboard.up('Control');
+            }
 
             console.log('⏳ Aguardando abertura do editor de Status...');
             await new Promise(r => setTimeout(r, 4000));
