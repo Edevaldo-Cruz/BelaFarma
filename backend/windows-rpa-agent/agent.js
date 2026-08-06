@@ -244,7 +244,11 @@ async function startAgent() {
 
       // Executa o disparo no WhatsApp Web (Status ou Grupo)
       try {
-        await page.bringToFront();
+        try {
+          await page.bringToFront();
+        } catch (e) {
+          // Ignora se o Chromium não suportar bringToFront no modo atual
+        }
 
         if (post.type === 'status') {
           console.log(`🚀 Iniciando automação de envio de STATUS no navegador...`);
