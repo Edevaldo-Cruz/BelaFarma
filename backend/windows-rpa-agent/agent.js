@@ -97,6 +97,18 @@ function isSessionPresent() {
   }
 }
 
+// Helper seguro para capturar screenshots de debug sem derrubar a execução
+async function safeScreenshot(page, filename) {
+  try {
+    if (page && !page.isClosed()) {
+      await page.screenshot({ path: path.join(__dirname, filename) });
+      console.log(`📸 Screenshot: ${filename}`);
+    }
+  } catch (err) {
+    // Ignora silenciosamente se o screenshot falhar
+  }
+}
+
 async function startAgent() {
   const sessionPresent = isSessionPresent();
   const shouldRunHeadless = headless && sessionPresent;
@@ -254,8 +266,7 @@ async function startAgent() {
           console.log(`🚀 Iniciando automação de envio de STATUS no navegador...`);
 
           // Screenshot: estado inicial
-          await page.screenshot({ path: path.join(__dirname, 'debug_status_1_inicio.png') });
-          console.log('📸 Screenshot: debug_status_1_inicio.png');
+          await safeScreenshot(page, 'debug_status_1_inicio.png');
 
           // 1. Abre a guia de Status via clique físico do mouse nas coordenadas do ícone
           console.log(`📱 Obter coordenadas do ícone de Status (${post.groupName})...`);
@@ -302,8 +313,7 @@ async function startAgent() {
           await new Promise(r => setTimeout(r, 2500));
 
           // Screenshot: após clicar na guia Status
-          await page.screenshot({ path: path.join(__dirname, 'debug_status_2_apos_aba.png') });
-          console.log('📸 Screenshot: debug_status_2_apos_aba.png');
+          await safeScreenshot(page, 'debug_status_2_apos_aba.png');
 
           // 1.5 Clica no botão "Meu status" / botão "+" e intercepta o seletor de arquivos nativo (fileChooser)
           console.log('➕ Obter coordenadas físicas da opção "Clique para atualizar seu status" ou botão "+"...');
@@ -368,8 +378,7 @@ async function startAgent() {
           await new Promise(r => setTimeout(r, 2000));
 
           // Screenshot: após clicar no botão + / Meu Status
-          await page.screenshot({ path: path.join(__dirname, 'debug_status_3_meu_status.png') });
-          console.log('📸 Screenshot: debug_status_3_meu_status.png');
+          await safeScreenshot(page, 'debug_status_3_meu_status.png');
 
           // Clica na opção "Fotos e vídeos" se abrir um popup de menu
           console.log('🖼️ Procurando opção "Fotos e vídeos" no menu flutuante...');
@@ -418,8 +427,7 @@ async function startAgent() {
             await new Promise(r => setTimeout(r, 4000));
 
             // Screenshot: após colar/upload da imagem
-            await page.screenshot({ path: path.join(__dirname, 'debug_status_4_imagem.png') });
-            console.log('📸 Screenshot: debug_status_4_imagem.png');
+            await safeScreenshot(page, 'debug_status_4_imagem.png');
 
             if (post.content) {
               console.log('✍️ Escrevendo legenda do Status...');
