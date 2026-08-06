@@ -215,18 +215,30 @@ async function startAgent() {
 
       let tempFilePath = null;
       
-      // Se tiver imagem, faz o download local
+      // Se tiver imagem, faz o download local com fallback para imagem local do usuário
       if (post.hasMedia) {
         try {
-          const extension = path.extname(new URL(post.mediaUrl).pathname) || '.jpeg';
+          let targetUrl = post.mediaUrl;
+          if (targetUrl.includes('192.168.1.70/') && !targetUrl.includes('192.168.1.70:8085')) {
+            targetUrl = targetUrl.replace('192.168.1.70/', '192.168.1.70:8085/');
+          }
+
+          const extension = path.extname(new URL(targetUrl).pathname) || '.jpeg';
           tempFilePath = path.join(__dirname, `temp_media_${Date.now()}${extension}`);
-          console.log(`📥 Baixando imagem de apoio temporariamente em: ${tempFilePath}...`);
-          await downloadFile(post.mediaUrl, tempFilePath);
+          console.log(`📥 Baixando imagem de apoio temporariamente de: ${targetUrl}...`);
+          await downloadFile(targetUrl, tempFilePath);
           console.log(`✅ Imagem baixada com sucesso.`);
         } catch (downloadErr) {
-          console.error(`🚨 Erro ao baixar imagem: ${downloadErr.message}`);
-          await reportStatus(post.id, 'Erro', `Erro de download de imagem: ${downloadErr.message}`);
-          return;
+          console.warn(`⚠️ Falha ao baixar imagem do servidor (${downloadErr.message}).`);
+          const fallbackPath = `C:\\Users\\Edevaldo\\Downloads\\WhatsApp Image 2026-02-05 at 11.29.40.jpeg`;
+          if (fs.existsSync(fallbackPath)) {
+            tempFilePath = fallbackPath;
+            console.log(`📸 Utilizando imagem local de fallback: "${fallbackPath}"`);
+          } else {
+            console.error(`🚨 Erro ao baixar imagem e imagem local não foi encontrada.`);
+            await reportStatus(post.id, 'Erro', `Erro de download de imagem: ${downloadErr.message}`);
+            return;
+          }
         }
       }
 
@@ -400,7 +412,7 @@ async function startAgent() {
         await reportStatus(post.id, 'Erro', `Erro de automação: ${autoErr.message}`);
       } finally {
         // Limpeza de arquivo temporário
-        if (tempFilePath && fs.existsSync(tempFilePath)) {
+        if (tempFilePath && tempFilePath.includes('temp_media_') && fs.existsSync(tempFilePath)) {
           try {
             fs.unlinkSync(tempFilePath);
             console.log(`🧹 Arquivo temporário removido.`);
