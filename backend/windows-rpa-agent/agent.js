@@ -254,8 +254,20 @@ async function startAgent() {
           console.log('📸 Screenshot: debug_status_1_inicio.png');
 
           // 1. Abre a guia de Status
-          console.log(`📱 Tentando abrir a guia de Status...`);
+          console.log(`📱 Clicando no ícone da guia de Status...`);
           const clickedStatusTab = await page.evaluate(() => {
+            // Busca específica pelo ícone exato de Status da barra lateral
+            const statusIcon = document.querySelector('span[data-icon="status-v3"]') ||
+                               document.querySelector('span[data-icon="status-v4"]') ||
+                               document.querySelector('span[data-icon="status-outline"]') ||
+                               document.querySelector('span[data-icon="status-unread"]') ||
+                               document.querySelector('span[data-icon*="status"]');
+            if (statusIcon) {
+              const btn = statusIcon.closest('button') || statusIcon.closest('div[role="button"]') || statusIcon;
+              btn.click();
+              return 'statusIconDataAttr';
+            }
+
             const allElements = Array.from(document.querySelectorAll('button, div[role="button"], span[data-icon], a'));
             const statusEl = allElements.find(el => {
               const label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-icon') || '').toLowerCase();
@@ -263,13 +275,13 @@ async function startAgent() {
             });
             if (statusEl) {
               statusEl.click();
-              return true;
+              return 'statusAriaLabel';
             }
             return false;
           });
 
           if (clickedStatusTab) {
-            console.log('🎯 Guia de Status clicada com sucesso!');
+            console.log(`🎯 Guia de Status clicada com sucesso! (${clickedStatusTab})`);
           } else {
             console.warn('⚠️ Ícone de Status não localizado por seletor.');
           }
