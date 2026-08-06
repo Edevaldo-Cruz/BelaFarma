@@ -308,8 +308,9 @@ async function startAgent() {
           // 1.5 Clica no botão "Meu status" / "Clique para atualizar seu status" via clique físico
           console.log('➕ Obter coordenadas físicas da opção "Clique para atualizar seu status"...');
           const plusRect = await page.evaluate(() => {
-            // Busca 1: Texto exato do subtexto "Clique para atualizar seu status"
             const allElements = Array.from(document.querySelectorAll('span, div, p'));
+            
+            // Busca 1: Texto exato do subtexto "Clique para atualizar seu status"
             const subtext = allElements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
             if (subtext) {
               const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement || subtext;
@@ -345,35 +346,38 @@ async function startAgent() {
           });
 
           if (plusRect) {
-            console.log(`🎯 Executando clique FÍSICO do mouse no botão "+" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
+            console.log(`🎯 Executando clique FÍSICO do mouse no botão "${plusRect.label}" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
             await page.mouse.click(plusRect.x, plusRect.y);
           } else {
             console.warn('⚠️ Botão "+" não localizado por coordenadas.');
           }
-          await new Promise(r => setTimeout(r, 2500));
+          await new Promise(r => setTimeout(r, 2000));
 
           // Screenshot: após clicar no botão + / Meu Status
           await page.screenshot({ path: path.join(__dirname, 'debug_status_3_meu_status.png') });
           console.log('📸 Screenshot: debug_status_3_meu_status.png');
 
-          // Se tiver um menu flutuante (ex: "Fotos e vídeos"), clica nele
-          await page.evaluate(() => {
-            const menuOptions = Array.from(document.querySelectorAll('div, button, span, li'));
+          // Clica na opção "Fotos e vídeos" se abrir um popup de menu
+          console.log('🖼️ Procurando opção "Fotos e vídeos" no menu flutuante...');
+          const clickedPhotoMenu = await page.evaluate(() => {
+            const menuOptions = Array.from(document.querySelectorAll('div[role="button"], li, span, button'));
             const photoOption = menuOptions.find(el => {
               const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
-              return txt.includes('fotos') || txt.includes('mídia') || txt.includes('imagem');
+              return txt.includes('fotos') || txt.includes('mídia') || txt.includes('imagem') || txt.includes('vídeos');
             });
             if (photoOption) {
               photoOption.click();
+              return true;
             }
+            return false;
           });
-          await new Promise(r => setTimeout(r, 1000));
+          console.log(`🖼️ Menu "Fotos e vídeos" clicado: ${clickedPhotoMenu}`);
+          await new Promise(r => setTimeout(r, 1500));
 
           // 2. Envia a imagem (uploadFile direto no input[type="file"] ou Clipboard + Colar)
           if (tempFilePath) {
             let fileInput = await page.$('input[type="file"]');
             if (!fileInput) {
-              // Tenta forçar a busca de qualquer input file na página
               const inputs = await page.$$('input[type="file"]');
               if (inputs.length > 0) fileInput = inputs[inputs.length - 1];
             }
@@ -382,7 +386,7 @@ async function startAgent() {
               console.log('📁 Input de arquivo nativo localizado! Injetando imagem via uploadFile...');
               await fileInput.uploadFile(tempFilePath);
             } else {
-              console.log('📋 Copiando imagem para a Área de Transferência do Windows...');
+              console.log('📋 Input nativo não achado de primeira. Forçando copiar imagem para Área de Transferência e colar...');
               copyImageToClipboard(tempFilePath);
               await new Promise(r => setTimeout(r, 1000));
 
@@ -406,12 +410,22 @@ async function startAgent() {
             }
 
             console.log('🚀 Enviando Status!');
-            try {
-              await page.waitForSelector('span[data-icon="send"]', { timeout: 4000 });
-              await page.click('span[data-icon="send"]');
-              console.log('🎯 Clique físico no botão de enviar concluído com sucesso!');
-            } catch (clickErr) {
-              console.log('⚠️ Botão enviar não localizado por clique, pressionando Enter...');
+            const sendClicked = await page.evaluate(() => {
+              const sendBtn = document.querySelector('span[data-icon="send"]') ||
+                              document.querySelector('button[aria-label*="Enviar"]') ||
+                              document.querySelector('div[role="button"][aria-label*="Enviar"]');
+              if (sendBtn) {
+                const target = sendBtn.closest('button') || sendBtn.closest('div[role="button"]') || sendBtn;
+                target.click();
+                return true;
+              }
+              return false;
+            });
+
+            if (sendClicked) {
+              console.log('🎯 Botão de enviar clicado com sucesso!');
+            } else {
+              console.log('⚠️ Botão enviar não localizado por seletor, pressionando Enter...');
               await page.keyboard.press('Enter');
             }
           } else {
