@@ -370,71 +370,83 @@ async function startAgent() {
           // Screenshot: após clicar na guia Status
           await safeScreenshot(page, 'debug_status_2_apos_aba.png');
 
-          // 1.5 Clica na opção de adicionar Status ("Meu status" ou o ícone circular verde com +)
-          console.log('➕ Obter coordenadas físicas da opção "Meu status" / botão "+"...');
-          const plusRect = await page.evaluate(() => {
-            // Busca 1: Ícone de soma "+" verde em "Meu status" (span com data-icon="add-status", "plus", ou svg de mais)
-            const addBadge = document.querySelector('span[data-icon="add-status"]') ||
-                             document.querySelector('span[data-icon="plus-large"]') ||
-                             document.querySelector('span[data-icon="plus-alt"]');
-            if (addBadge) {
-              const rect = addBadge.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'addBadge' };
-              }
+          // 1.5 Tenta método duplo: Clipboard Paste (Ctrl + V) + clique em "Meu status"
+          if (tempFilePath) {
+            console.log('📋 Copiando imagem da oferta para a Área de Transferência do Windows...');
+            try {
+              copyImageToClipboard(tempFilePath);
+              await new Promise(r => setTimeout(r, 800));
+            } catch (clipErr) {
+              console.warn('⚠️ Não foi possível copiar para o clipboard:', clipErr.message);
             }
+          }
 
-            // Busca 2: O item de lista "Meu status" no painel da esquerda
-            const allSpans = Array.from(document.querySelectorAll('span, div'));
-            const subtext = allSpans.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
-            if (subtext) {
-              const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement;
-              if (target) {
-                const rect = target.getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0) {
-                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'subtextRow' };
-                }
-              }
-            }
+          // Injeta a foto via Ctrl + V na tela de Status (método direto e infalível no WhatsApp Web)
+          console.log('📋 Focando página e enviando comando de Colar (Ctrl + V)...');
+          await page.keyboard.down('Control');
+          await page.keyboard.press('V');
+          await page.keyboard.up('Control');
+          await new Promise(r => setTimeout(r, 2500));
 
-            // Busca 3: O texto "Meu status"
-            const myStatusText = allSpans.find(el => el.innerText && el.innerText.trim().toLowerCase() === 'meu status');
-            if (myStatusText) {
-              const target = myStatusText.closest('div[role="button"]') || myStatusText.closest('div[tabindex]') || myStatusText.parentElement;
-              if (target) {
-                const rect = target.getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0) {
-                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'myStatusTextRow' };
-                }
-              }
-            }
-
-            return null;
+          // 1.6 Tenta também o clique no elemento "Meu status" se o editor ainda não abriu
+          console.log('➕ Verificando se é necessário clicar em "Meu status" / botão "+"...');
+          const isEditorOpen = await page.evaluate(() => {
+            return !!document.querySelector('span[data-icon="send"]') ||
+                   !!document.querySelector('button[aria-label*="Enviar"]') ||
+                   !!document.querySelector('div[contenteditable="true"]');
           });
 
-          if (plusRect) {
-            console.log(`🎯 Executando clique FÍSICO do mouse em "${plusRect.label}" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
-            
-            // Tenta capturar o seletor de arquivos nativo ou popup de menu ao clicar
-            try {
-              const [fileChooser] = await Promise.all([
-                page.waitForFileChooser({ timeout: 3000 }).catch(() => null),
-                page.mouse.click(plusRect.x, plusRect.y)
-              ]);
-
-              if (fileChooser && tempFilePath) {
-                console.log('🎉 FileChooser capturado! Injetando imagem...');
-                await fileChooser.accept([tempFilePath]);
+          if (!isEditorOpen) {
+            console.log('ℹ️ Editor não abriu só com Ctrl+V, tentando clique físico no botão de adicionar Status...');
+            const plusRect = await page.evaluate(() => {
+              const addBadge = document.querySelector('span[data-icon="add-status"]') ||
+                               document.querySelector('span[data-icon="plus-large"]') ||
+                               document.querySelector('span[data-icon="plus-alt"]');
+              if (addBadge) {
+                const rect = addBadge.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'addBadge' };
+                }
               }
-            } catch (fcErr) {
-              console.warn('⚠️ FileChooser não abriu imediatamente:', fcErr.message);
-            }
-          } else {
-            console.warn('⚠️ Opção "Meu status" não localizada.');
-          }
-          await new Promise(r => setTimeout(r, 2000));
 
-          // Screenshot: após clicar no Meu Status
+              const allSpans = Array.from(document.querySelectorAll('span, div'));
+              const subtext = allSpans.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('clique para atualizar seu status'));
+              if (subtext) {
+                const target = subtext.closest('div[role="button"]') || subtext.closest('div[tabindex]') || subtext.parentElement;
+                if (target) {
+                  const rect = target.getBoundingClientRect();
+                  if (rect.width > 0 && rect.height > 0) {
+                    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: 'subtextRow' };
+                  }
+                }
+              }
+
+              return null;
+            });
+
+            if (plusRect) {
+              console.log(`🎯 Executando clique FÍSICO do mouse em "${plusRect.label}" em (${Math.round(plusRect.x)}, ${Math.round(plusRect.y)})...`);
+              try {
+                const [fileChooser] = await Promise.all([
+                  page.waitForFileChooser({ timeout: 3000 }).catch(() => null),
+                  page.mouse.click(plusRect.x, plusRect.y)
+                ]);
+                if (fileChooser && tempFilePath) {
+                  console.log('🎉 FileChooser capturado! Injetando imagem...');
+                  await fileChooser.accept([tempFilePath]);
+                }
+              } catch (fcErr) {}
+            }
+
+            // Tenta novo Ctrl+V após clicar
+            await new Promise(r => setTimeout(r, 1500));
+            await page.keyboard.down('Control');
+            await page.keyboard.press('V');
+            await page.keyboard.up('Control');
+            await new Promise(r => setTimeout(r, 2000));
+          }
+
+          // Screenshot: após tentativa de colagem/clique do Status
           await safeScreenshot(page, 'debug_status_3_meu_status.png');
 
           // Se tiver um modal/popover aberto com "Fotos e vídeos" (ou ícone de foto), clica nele
