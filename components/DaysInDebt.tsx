@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { DollarSign, Search, Plus, Calendar as CalendarIcon, TrendingUp, AlertCircle, ArrowRight, Wallet, Receipt } from 'lucide-react';
-import { Boleto, Order, FixedAccount, FixedAccountPayment, CashClosingRecord } from '../types';
+import { DollarSign, Search, Plus, Calendar as CalendarIcon, TrendingUp, AlertCircle, ArrowRight, Wallet, Receipt, Check, CheckCircle, Clock, RotateCcw, X } from 'lucide-react';
+import { Boleto, Order, FixedAccount, FixedAccountPayment, CashClosingRecord, BoletoStatus } from '../types';
 import Calendar from 'react-calendar';
+import { useToast } from './ToastContext';
 type CalendarValue = Date | Date[] | null;
 import 'react-calendar/dist/Calendar.css';
 import './DaysInDebt.css';
@@ -11,6 +12,9 @@ interface DaysInDebtProps {
   orders: Order[];
   fixedAccounts: FixedAccount[];
   cashClosings: CashClosingRecord[];
+  onAddBoleto?: (boleto: Partial<Boleto>) => Promise<void> | void;
+  onUpdateBoletoStatus?: (boletoId: string, status: BoletoStatus) => Promise<void> | void;
+  onRefreshData?: () => void;
 }
 
 interface DebtCardInfo {
@@ -22,10 +26,29 @@ interface DebtCardInfo {
   }[];
 }
 
-export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAccounts, cashClosings }) => {
+export const DaysInDebt: React.FC<DaysInDebtProps> = ({ 
+  boletos, 
+  orders, 
+  fixedAccounts, 
+  cashClosings,
+  onAddBoleto,
+  onUpdateBoletoStatus,
+  onRefreshData
+}) => {
+  const { addToast } = useToast();
+
   // Mudança para array de strings YYYY-MM-DD para seleção múltipla
   const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([new Date().toISOString().split('T')[0]]); 
-  // Mantemos selectedDate apenas para compatibilidade se algo quebrar, mas vamos usar selectedDateStrings primariamente ou anular o uso do value do Calendar padrão.
+
+  // --- Modal de Lançar Novo Boleto ---
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newBoletoSupplier, setNewBoletoSupplier] = useState('');
+  const [newBoletoValue, setNewBoletoValue] = useState(0);
+  const [newBoletoValueInput, setNewBoletoValueInput] = useState('0,00');
+  const [newBoletoDueDate, setNewBoletoDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [newBoletoInvoice, setNewBoletoInvoice] = useState('');
+  const [newBoletoInstallments, setNewBoletoInstallments] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const toggleDate = (date: Date, event: React.MouseEvent<HTMLButtonElement>) => {
     const year = date.getFullYear();
@@ -238,6 +261,147 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     );
   };
 
+  // --- Modal Helpers ---
+  const handleOpenAddModal = (targetDate?: string) => {
+    const initialDate = targetDate || (selectedDateStrings.length > 0 ? selectedDateStrings[0] : new Date().toISOString().split('T')[0]);
+    setNewBoletoDueDate(initialDate);
+    setNewBoletoSupplier('');
+    setNewBoletoValue(0);
+    setNewBoletoValueInput('0,00');
+    setNewBoletoInvoice('');
+    setNewBoletoInstallments(1);
+    setIsAddModalOpen(true);
+  };
+
+  const handleChangeNewBoletoValue = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value === '') {
+      setNewBoletoValue(0);
+      setNewBoletoValueInput('0,00');
+      return;
+    }
+    const numericValue = parseInt(value, 10) / 100;
+    setNewBoletoValue(numericValue);
+    setNewBoletoValueInput(
+      new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(numericValue)
+    );
+  };
+
+  const handleSaveBoleto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBoletoSupplier.trim()) {
+      addToast('Por favor, informe o fornecedor.', 'warning');
+      return;
+    }
+    if (newBoletoValue <= 0) {
+      addToast('Por favor, informe um valor maior que zero.', 'warning');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const numInstallments = Math.max(1, newBoletoInstallments);
+      const installmentValue = Math.round((newBoletoValue / numInstallments) * 100) / 100;
+      
+      const [yearStr, monthStr, dayStr] = newBoletoDueDate.split('-');
+      const baseYear = parseInt(yearStr, 10);
+      const baseMonth = parseInt(monthStr, 10) - 1; // 0-indexed
+      const baseDay = parseInt(dayStr, 10);
+
+      for (let i = 0; i < numInstallments; i++) {
+        const dueDateObj = new Date(baseYear, baseMonth + i, baseDay);
+        const yStr = dueDateObj.getFullYear();
+        const mStr = String(dueDateObj.getMonth() + 1).padStart(2, '0');
+        const dStr = String(dueDateObj.getDate()).padStart(2, '0');
+        const calculatedDueDate = `${yStr}-${mStr}-${dStr}`;
+
+        const boletoPayload: Partial<Boleto> = {
+          id: `boleto-${Date.now()}-${i + 1}-${Math.random().toString(36).substring(2, 6)}`,
+          supplierName: newBoletoSupplier.trim(),
+          due_date: calculatedDueDate,
+          value: installmentValue,
+          status: BoletoStatus.PENDENTE,
+          invoice_number: newBoletoInvoice.trim() || undefined,
+          installment_number: i + 1
+        };
+
+        if (onAddBoleto) {
+          await onAddBoleto(boletoPayload);
+        } else {
+          const res = await fetch('/api/boletos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(boletoPayload)
+          });
+          if (!res.ok) throw new Error('Falha ao criar boleto');
+        }
+      }
+
+      addToast(
+        numInstallments > 1 
+          ? `${numInstallments} parcelas do boleto lançadas com sucesso!` 
+          : 'Boleto lançado no calendário com sucesso!', 
+        'success'
+      );
+
+      if (onRefreshData) onRefreshData();
+      setIsAddModalOpen(false);
+    } catch (err: any) {
+      console.error('Erro ao salvar boleto:', err);
+      addToast('Erro ao salvar boleto no servidor.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleStatus = async (item: any) => {
+    const isFixed = item.isFixed;
+    const currentStatus = item.status;
+    const newStatus = currentStatus === 'Pago' || currentStatus === BoletoStatus.PAGO ? BoletoStatus.PENDENTE : BoletoStatus.PAGO;
+
+    try {
+      if (isFixed) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const paidAtValue = newStatus === BoletoStatus.PAGO ? todayStr : null;
+        const res = await fetch(`/api/fixed-account-payments/${item.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus, paidAt: paidAtValue })
+        });
+        if (!res.ok) throw new Error('Falha ao atualizar conta fixa');
+
+        // Update local state for fixed payments
+        setFixedPayments(prev => prev.map(fp => fp.id === item.id ? { ...fp, status: newStatus as any, paidAt: paidAtValue } : fp));
+      } else {
+        if (onUpdateBoletoStatus) {
+          await onUpdateBoletoStatus(item.id, newStatus);
+        } else {
+          const res = await fetch(`/api/boletos/${item.id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+          });
+          if (!res.ok) throw new Error('Falha ao atualizar status do boleto');
+        }
+      }
+
+      addToast(
+        newStatus === BoletoStatus.PAGO 
+          ? `Lançamento de ${item.supplierName} marcado como PAGO!` 
+          : `Lançamento de ${item.supplierName} marcado como PENDENTE.`, 
+        'success'
+      );
+      
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      console.error('Erro ao atualizar status:', err);
+      addToast('Erro ao atualizar status.', 'error');
+    }
+  };
+
   const handleSimulate = () => {
     const installmentValue = totalValue / (installments || 1);
     const daysArray = days.split(',').map(d => parseInt(d.trim(), 10)).filter(d => !isNaN(d));
@@ -249,6 +413,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       mainDate.setHours(0, 0, 0, 0);
 
       const mainDateBoletos = boletos.filter(b => {
+        if (b.status === BoletoStatus.PAGO) return false;
         const d = new Date(b.due_date);
         d.setHours(0, 0, 0, 0);
         return d.getTime() === mainDate.getTime();
@@ -268,6 +433,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
         surroundingDate.setDate(mainDate.getDate() + i);
         
         const surroundingBoletos = boletos.filter(b => {
+          if (b.status === BoletoStatus.PAGO) return false;
           const d = new Date(b.due_date);
           d.setHours(0, 0, 0, 0);
           return d.getTime() === surroundingDate.getTime();
@@ -285,7 +451,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   };
 
   const paymentDates = useMemo(() => {
-    const dates = new Set(boletos.map(b => {
+    const dates = new Set(boletos.filter(b => b.status !== BoletoStatus.PAGO).map(b => {
       const d = new Date(b.due_date);
       d.setHours(0, 0, 0, 0);
       return d.getTime();
@@ -301,12 +467,12 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     return dates;
   }, [boletos, fixedPayments]);
 
-  // Calculate values per day for color intensity
+  // Calculate values per day for color intensity (only pending debt)
   const dayValues = useMemo(() => {
     const values = new Map<string, number>();
     
-    // Add boleto values
-    boletos.forEach(b => {
+    // Add pending boleto values
+    boletos.filter(b => b.status !== BoletoStatus.PAGO).forEach(b => {
       const dateStr = b.due_date.split('T')[0];
       const current = values.get(dateStr) || 0;
       values.set(dateStr, current + b.value);
@@ -340,7 +506,9 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
 
 
   const totalPendingBalance = useMemo(() => {
-    const boletosTotal = boletos.reduce((acc, b) => acc + b.value, 0);
+    const boletosTotal = boletos
+      .filter(b => b.status !== BoletoStatus.PAGO)
+      .reduce((acc, b) => acc + b.value, 0);
     const fixedTotal = fixedPayments
       .filter(fp => fp.status === 'Pendente')
       .reduce((acc, fp) => acc + fp.value, 0);
@@ -367,14 +535,6 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       // Calculate how many standard deviations away from the mean
       const deviationFromMean = (dayValue - avgValue) / (stdDeviation || 1);
       
-      // Classification based on standard deviations:
-      // Much below average (< -1 std dev): Very light orange
-      // Below average (-1 to -0.5 std dev): Light orange
-      // Near average (-0.5 to 0.5 std dev): Yellow/neutral
-      // Above average (0.5 to 1 std dev): Light red
-      // Well above average (1 to 1.5 std dev): Medium red
-      // Much above average (> 1.5 std dev): Dark red
-      
       if (deviationFromMean >= 1.5) return classes + 'has-payment deviation-very-high';
       if (deviationFromMean >= 1.0) return classes + 'has-payment deviation-high';
       if (deviationFromMean >= 0.5) return classes + 'has-payment deviation-above-avg';
@@ -395,13 +555,13 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       const matchedBoletos = boletos.filter(b => b.due_date.split('T')[0] === dateStr);
       
       const matchedFixedPayments = fixedPayments
-        .filter(fp => fp.status === 'Pendente' && fp.dueDate === dateStr)
+        .filter(fp => fp.dueDate === dateStr)
         .map(fp => ({
           id: fp.id,
           supplierName: `[FIXA] ${fp.fixedAccountName}`,
           value: fp.value,
           due_date: fp.dueDate,
-          status: 'Pendente' as any,
+          status: fp.status || 'Pendente',
           isFixed: true
         }));
       
@@ -417,6 +577,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
   const selectedTotal = useMemo(() => {
     return Object.values(selectedBoletosByDate)
       .flat()
+      .filter((item: any) => item.status !== BoletoStatus.PAGO && item.status !== 'Pago')
       .reduce((acc, item: any) => acc + item.value, 0);
   }, [selectedBoletosByDate]);
 
@@ -447,13 +608,11 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
       const julyStart = new Date('2026-07-01T00:00:00');
       
       if (date >= julyStart) {
-        // A partir de Julho/2026: 100% das contas fixas (R$ 691,44) + Férias/13º (R$ 58,33) = R$ 749,77/dia
         return total + 749.77; 
       } else if (date >= juneStart) {
-        // Junho/2026: 100% Prolabore + 50% Outras Fixas (R$ 495,72) + Férias/13º (R$ 58,33) = R$ 554,05/dia
         return total + 554.05; 
       }
-      return total; // Sem provisão antes de Junho/2026
+      return total;
     }, 0);
   }, [selectedDateStrings]);
 
@@ -462,19 +621,147 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700 pb-20">
+      {/* MODAL LANÇAR BOLETO */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-red-50/50 dark:bg-red-900/10">
+              <div>
+                <h2 className="text-xl font-black uppercase tracking-tight text-red-700 dark:text-red-400 flex items-center gap-2">
+                  <Plus className="w-5 h-5" /> Lançar Boleto no Calendário
+                </h2>
+                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-0.5">
+                  Cadastrar compromisso no calendário
+                </p>
+              </div>
+              <button
+                onClick={() => setIsAddModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBoleto} className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">
+                  Fornecedor / Favorecido *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Medley, Santa Cruz, Eurofarma..."
+                  value={newBoletoSupplier}
+                  onChange={(e) => setNewBoletoSupplier(e.target.value)}
+                  className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-bold text-slate-900 dark:text-slate-100 outline-none focus:border-red-500 transition-all text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">
+                    Valor (R$) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">R$</span>
+                    <input
+                      type="text"
+                      required
+                      value={newBoletoValueInput}
+                      onChange={handleChangeNewBoletoValue}
+                      className="w-full pl-11 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-black text-slate-900 dark:text-slate-100 text-lg outline-none focus:border-red-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">
+                    Vencimento *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={newBoletoDueDate}
+                    onChange={(e) => setNewBoletoDueDate(e.target.value)}
+                    className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-bold text-slate-900 dark:text-slate-100 text-sm outline-none focus:border-red-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">
+                    Nº da Nota / Fatura
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Opcional"
+                    value={newBoletoInvoice}
+                    onChange={(e) => setNewBoletoInvoice(e.target.value)}
+                    className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-bold text-slate-900 dark:text-slate-100 text-sm outline-none focus:border-red-500 transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">
+                    Parcelas
+                  </label>
+                  <select
+                    value={newBoletoInstallments}
+                    onChange={(e) => setNewBoletoInstallments(Number(e.target.value))}
+                    className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-bold text-slate-900 dark:text-slate-100 text-sm outline-none focus:border-red-500 transition-all"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
+                      <option key={n} value={n}>
+                        {n}x {n > 1 ? `(R$ ${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2 }).format(newBoletoValue / n)} / mês)` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-6 py-3 text-xs font-black uppercase text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase text-xs tracking-wider shadow-lg transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Salvando...' : 'Salvar Boleto(s)'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Dias Comprometidos</h1>
           <p className="text-slate-500 dark:text-slate-400 font-bold italic text-sm">Controle de fluxo de caixa e compromissos futuros.</p>
         </div>
-        <div className="flex flex-col items-end">
-           <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total a Pagar (Boletos + Fixas Mês)</span>
-           <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/10 px-6 py-3 rounded-2xl border border-red-100 dark:border-red-900/30 shadow-sm">
-             <DollarSign className="w-6 h-6 text-red-600 dark:text-red-400" />
-             <span className="text-2xl font-black text-red-700 dark:text-red-400 tracking-tighter">
-               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendingBalance)}
-             </span>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+           <button
+             onClick={() => handleOpenAddModal()}
+             className="flex items-center gap-2 px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg transition-all active:scale-95"
+           >
+             <Plus className="w-5 h-5" /> Lançar Boleto
+           </button>
+           <div className="flex flex-col items-end">
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total a Pagar (Pendente Mês)</span>
+              <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/10 px-6 py-3 rounded-2xl border border-red-100 dark:border-red-900/30 shadow-sm">
+                <DollarSign className="w-6 h-6 text-red-600 dark:text-red-400" />
+                <span className="text-2xl font-black text-red-700 dark:text-red-400 tracking-tighter">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendingBalance)}
+                </span>
+              </div>
            </div>
         </div>
       </header>
@@ -483,7 +770,15 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
         {/* CALENDAR E PAINEL DE DÍVIDA SECTION */}
         <section className="space-y-6">
           <div className="space-y-4">
-            <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Calendário de Pagamentos</h2>
+            <div className="flex items-center justify-between px-2">
+              <h2 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Calendário de Pagamentos</h2>
+              <button
+                onClick={() => handleOpenAddModal()}
+                className="text-[10px] font-black uppercase text-red-600 dark:text-red-400 hover:underline flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Adicionar Boleto
+              </button>
+            </div>
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl transition-all duration-300 hover:shadow-2xl">
               <Calendar
                 onClickDay={toggleDate}
@@ -587,7 +882,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
 
                 {/* Total Selecionado */}
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center min-w-[160px]">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Despesas</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Despesas a Pagar</span>
                   <span className="text-lg font-black text-red-600 dark:text-red-400">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedTotal)}
                   </span>
@@ -617,65 +912,138 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
             {selectedDateStrings.length > 0 ? (
                selectedDateStrings.sort().map(dateStr => {
                  const items = selectedBoletosByDate[dateStr] || [];
-                 if (items.length === 0) return null; // Skip days with no items if you prefer, or show "Sem pagamentos"
-
                  const [year, month, day] = dateStr.split('-');
                  const formattedDate = `${day}/${month}/${year}`;
                  const dayTotal = items.reduce((acc, i: any) => acc + i.value, 0);
 
                  return (
-                   <div key={dateStr} className="space-y-2">
-                     <div className="flex items-center gap-2 mb-2 px-2">
-                        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
-                        <span className="text-xs font-black text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{formattedDate}</span>
-                        <span className="text-xs font-bold text-slate-400 dark:text-slate-500">
-                          ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dayTotal)})
-                        </span>
-                        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
+                   <div key={dateStr} className="space-y-3">
+                     <div className="flex items-center justify-between px-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">{formattedDate}</span>
+                          <span className="text-xs font-bold text-slate-400 dark:text-slate-500">
+                            (Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dayTotal)})
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleOpenAddModal(dateStr)}
+                          className="text-[10px] font-black uppercase tracking-wider text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Boleto para este dia
+                        </button>
                      </div>
                      
-                     {items.map((boleto: any) => {
-                       const isFixed = boleto.isFixed;
-                       const rowClasses = isFixed 
-                         ? "group bg-blue-50/40 dark:bg-blue-900/10 p-6 rounded-[2rem] border border-blue-200 dark:border-blue-800 flex justify-between items-center transition-all hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md"
-                         : "group bg-white dark:bg-slate-900/50 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md";
-                       
-                       const iconClasses = isFixed
-                         ? "p-3 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform"
-                         : "p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform";
+                     {items.length > 0 ? (
+                       items.map((boleto: any) => {
+                         const isFixed = boleto.isFixed;
+                         const isPaid = boleto.status === 'Pago' || boleto.status === BoletoStatus.PAGO;
+                         
+                         const todayStr = new Date().toISOString().split('T')[0];
+                         const isOverdue = !isPaid && dateStr < todayStr;
 
-                       const valueClasses = isFixed
-                         ? "font-black text-xl text-blue-700 dark:text-blue-400"
-                         : "font-black text-xl text-red-600 dark:text-red-400";
+                         const rowClasses = isPaid
+                           ? "group bg-emerald-50/40 dark:bg-emerald-900/10 p-5 rounded-[2rem] border border-emerald-200/70 dark:border-emerald-800/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:shadow-md"
+                           : isFixed 
+                             ? "group bg-blue-50/40 dark:bg-blue-900/10 p-5 rounded-[2rem] border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md"
+                             : "group bg-white dark:bg-slate-900/50 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-red-200 dark:hover:border-red-900/50 hover:shadow-md";
+                         
+                         const iconClasses = isPaid
+                           ? "p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-2xl"
+                           : isFixed
+                             ? "p-3 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform"
+                             : "p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl group-hover:scale-110 transition-transform";
 
-                       return (
-                        <div key={boleto.id} className={rowClasses}>
-                          <div className="flex items-center gap-4">
-                            <div className={iconClasses}>
-                              <Receipt className="w-5 h-5" />
+                         return (
+                          <div key={boleto.id} className={rowClasses}>
+                            <div className="flex items-center gap-4">
+                              <div className={iconClasses}>
+                                {isPaid ? <CheckCircle className="w-5 h-5" /> : <Receipt className="w-5 h-5" />}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-base">
+                                    {boleto.supplierName}
+                                  </p>
+
+                                  {isPaid ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
+                                      <Check className="w-3 h-3" /> Pago
+                                    </span>
+                                  ) : isOverdue ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 animate-pulse">
+                                      <AlertCircle className="w-3 h-3" /> Vencido
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                                      <Clock className="w-3 h-3" /> Pendente
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-0.5">
+                                  Vencimento em {formattedDate} {boleto.invoice_number ? `• NF: ${boleto.invoice_number}` : ''}
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tighter text-lg">{boleto.supplierName}</p>
-                              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">
-                                Vencimento em {formattedDate}
-                              </p>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+                              <span className={
+                                isPaid 
+                                  ? "font-black text-lg text-emerald-600 dark:text-emerald-400 line-through opacity-80" 
+                                  : isFixed 
+                                    ? "font-black text-xl text-blue-700 dark:text-blue-400" 
+                                    : "font-black text-xl text-red-600 dark:text-red-400"
+                              }>
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
+                              </span>
+
+                              <button
+                                onClick={() => handleToggleStatus(boleto)}
+                                title={isPaid ? "Marcar como Pendente" : "Marcar como Pago"}
+                                className={
+                                  isPaid
+                                    ? "flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-black uppercase rounded-xl transition-all active:scale-95"
+                                    : "flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase rounded-xl shadow-md transition-all active:scale-95"
+                                }
+                              >
+                                {isPaid ? (
+                                  <>
+                                    <RotateCcw className="w-3.5 h-3.5" /> Pendente
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-4 h-4" /> Marcar Pago
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <span className={valueClasses}>
-                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(boleto.value)}
-                            </span>
-                          </div>
-                        </div>
-                       );
-                     })}
+                         );
+                       })
+                     ) : (
+                       <div className="bg-slate-50/50 dark:bg-slate-800/20 p-6 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center flex flex-col items-center justify-center gap-2">
+                         <p className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">Nenhum pagamento cadastrado para este dia.</p>
+                         <button
+                           onClick={() => handleOpenAddModal(dateStr)}
+                           className="text-xs font-black uppercase text-red-600 dark:text-red-400 hover:underline flex items-center gap-1 mt-1"
+                         >
+                           <Plus className="w-4 h-4" /> Lançar Boleto agora
+                         </button>
+                       </div>
+                     )}
                    </div>
                  );
                })
             ) : (
               <div className="bg-slate-50 dark:bg-slate-800/20 p-12 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-800 text-center flex flex-col items-center gap-4">
                 <AlertCircle className="w-10 h-10 text-slate-300 dark:text-slate-700" />
-                <p className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">Selecione dias para ver detalhes.</p>
+                <p className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">Selecione um dia no calendário para ver e lançar compromissos.</p>
+                <button
+                  onClick={() => handleOpenAddModal()}
+                  className="px-6 py-3 bg-red-600 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-md hover:bg-red-700 transition-all"
+                >
+                  Lançar Boleto
+                </button>
               </div>
             )}
           </div>
@@ -781,3 +1149,4 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({ boletos, orders, fixedAc
     </div>
   );
 };
+

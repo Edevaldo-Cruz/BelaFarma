@@ -944,7 +944,15 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'days-in-debt' && user.role === UserRole.ADM && (
-                <DaysInDebt boletos={boletos} orders={orders} fixedAccounts={fixedAccounts} cashClosings={cashClosings} />
+                <DaysInDebt 
+                  boletos={boletos} 
+                  orders={orders} 
+                  fixedAccounts={fixedAccounts} 
+                  cashClosings={cashClosings} 
+                  onAddBoleto={addBoleto}
+                  onUpdateBoletoStatus={updateBoletoStatus}
+                  onRefreshData={fetchData}
+                />
               )}
               {currentView === 'debtors-report' && user.role === UserRole.ADM && (
                 <DebtorsReport />

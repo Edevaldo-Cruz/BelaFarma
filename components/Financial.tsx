@@ -414,6 +414,9 @@ export const Financial: React.FC<FinancialProps> = ({
             orders={orders}
             fixedAccounts={fixedAccounts}
             cashClosings={cashClosings}
+            onAddBoleto={onAddBoleto}
+            onUpdateBoletoStatus={onUpdateBoletoStatus}
+            onRefreshData={() => onLog("Financeiro", "Atualizou dados no calendário de dias comprometidos")}
           />
         </div>
       )}
