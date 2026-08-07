@@ -109,6 +109,61 @@ async function safeScreenshot(page, filename) {
   }
 }
 
+// Helper para retornar o WhatsApp Web para a página principal de Conversas (Chats)
+async function returnToChatsTab(page) {
+  try {
+    if (!page || page.isClosed()) return;
+    console.log('🏠 Resetando visão do WhatsApp: Retornando para a página de Conversas (Chats)...');
+
+    // 1. Pressiona Escape para fechar modais/editores abertos
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('Escape');
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    // 2. Clica no ícone de "Conversas / Chats" no menu lateral
+    const resetSuccess = await page.evaluate(() => {
+      // Busca por ícone de chat (span data-icon="chat" ou "conversations")
+      const chatIcon = document.querySelector('span[data-icon="chat"]') ||
+                       document.querySelector('span[data-icon="conversations"]') ||
+                       document.querySelector('span[data-icon="menu-chat"]');
+      if (chatIcon) {
+        const btn = chatIcon.closest('button') || chatIcon.closest('div[role="button"]') || chatIcon.parentElement;
+        if (btn) {
+          btn.click();
+          return true;
+        }
+      }
+
+      // Busca por aria-label / title "Conversas" ou "Chats"
+      const allBtns = Array.from(document.querySelectorAll('button, div[role="button"], a'));
+      const chatBtn = allBtns.find(b => {
+        const label = (b.getAttribute('aria-label') || b.getAttribute('title') || '').toLowerCase();
+        return label === 'conversas' || label === 'chats';
+      });
+      if (chatBtn) {
+        chatBtn.click();
+        return true;
+      }
+
+      return false;
+    });
+
+    if (resetSuccess) {
+      console.log('✅ WhatsApp resetado com sucesso para a aba de Conversas!');
+    } else {
+      console.log('ℹ️ Usando atalho de teclado global para focar nas conversas...');
+      await page.keyboard.down('Control');
+      await page.keyboard.down('Alt');
+      await page.keyboard.press('/');
+      await page.keyboard.up('Alt');
+      await page.keyboard.up('Control');
+    }
+  } catch (err) {
+    console.warn('⚠️ Aviso ao resetar para a tela de conversas:', err.message);
+  }
+}
+
 async function startAgent() {
   const sessionPresent = isSessionPresent();
   const shouldRunHeadless = headless && sessionPresent;
@@ -485,6 +540,7 @@ async function startAgent() {
         } else {
           // ENVIO PARA GRUPO (Comportamento padrão)
           console.log(`🚀 Iniciando automação de envio em GRUPO no navegador...`);
+          await returnToChatsTab(page);
 
           // 1. Abre a busca de chats
           console.log(`🔍 Focando na pesquisa do WhatsApp (Ctrl + Alt + /)...`);
@@ -586,6 +642,9 @@ async function startAgent() {
         console.error(`🚨 Erro durante automação RPA no navegador: ${autoErr.message}`);
         await reportStatus(post.id, 'Erro', `Erro de automação: ${autoErr.message}`);
       } finally {
+        // Sempre reseta a visão do WhatsApp Web de volta para a aba principal de Conversas (Chats)
+        await returnToChatsTab(page);
+
         // Limpeza de arquivo temporário
         if (tempFilePath && tempFilePath.includes('temp_media_') && fs.existsSync(tempFilePath)) {
           try {
