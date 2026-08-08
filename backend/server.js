@@ -3684,6 +3684,31 @@ initializeWhatsAppCRMEndpoints(app, db);
 const { initializeWhatsAppVendasEndpoints } = require('./whatsapp-vendas-endpoints.js');
 initializeWhatsAppVendasEndpoints(app, db);
 
+// Módulo de Gestão & Documentação de Deliveries (IA)
+const { initializeDeliveryEndpoints } = require('./delivery-endpoints.js');
+const { scanDeliveriesFromWhatsApp } = require('./services/whatsapp-delivery-service.js');
+initializeDeliveryEndpoints(app, db);
+
+// Varredura inicial automática do mês atual no boot (15s após inicialização)
+setTimeout(async () => {
+  try {
+    console.log('[BOOT-DELIVERY] 📅 Executando varredura inicial do mês atual via IA...');
+    await scanDeliveriesFromWhatsApp(db, { currentMonth: true });
+  } catch (bootErr) {
+    console.error('[BOOT-DELIVERY] ⚠️ Erro na varredura inicial do mês:', bootErr.message);
+  }
+}, 15000);
+
+// Cron de varredura automática de Deliveries a cada 10 minutos
+setInterval(async () => {
+  try {
+    console.log('[CRON-DELIVERY] Running periodic background delivery scan via AI...');
+    await scanDeliveriesFromWhatsApp(db, { hours: 24 });
+  } catch (err) {
+    console.error('[CRON-DELIVERY] Error in background delivery scan:', err.message);
+  }
+}, 10 * 60 * 1000);
+
 // Sincronização de Fotos do Módulo WhatsApp Vendas (Cron & Inicialização)
 const whatsappVendasSync = require('./services/whatsapp-vendas-sync.js');
 whatsappVendasSync.initSyncCron();

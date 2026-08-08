@@ -1266,6 +1266,39 @@ try {
     } catch (e) { /* índices já existem */ }
     console.log('✅ CRM WhatsApp: Tabela whatsapp_messages atualizada com rawMessage!');
 
+    // Tabela para armazenar os pedidos de entrega (Deliveries) e orçamentos não fechados identificados via IA
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS deliveries (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        customer_name TEXT,
+        delivery_address TEXT,
+        items TEXT,
+        total_amount REAL DEFAULT 0,
+        payment_method TEXT,
+        status TEXT DEFAULT 'Pendente',
+        sale_closed INTEGER DEFAULT 1,
+        unclosed_reason TEXT,
+        last_message_id TEXT,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try {
+      db.exec('ALTER TABLE deliveries ADD COLUMN sale_closed INTEGER DEFAULT 1');
+    } catch (e) { /* coluna já existe */ }
+    try {
+      db.exec('ALTER TABLE deliveries ADD COLUMN unclosed_reason TEXT');
+    } catch (e) { /* coluna já existe */ }
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_phone ON deliveries(phone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_closed ON deliveries(sale_closed)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_created ON deliveries(created_at)');
+    } catch (e) { /* índices já existem */ }
+    console.log('✅ Tabela deliveries atualizada para suportar auditoria de Vendas Fechadas x Não Fechadas!');
+
     // Migration: adicionar coluna source em customers (usada no webhook)
     try {
       db.prepare('SELECT source FROM customers LIMIT 1').get();

@@ -539,3 +539,41 @@ export interface MessageSchedule {
   lastRun?: string;
   createdAt: string;
 }
+
+export type DeliveryStatus = 'Pendente' | 'Em Rota' | 'Entregue' | 'Nao_Fechado' | 'Cancelado';
+
+export interface Delivery {
+  id: string;
+  phone: string;
+  customer_name?: string;
+  delivery_address?: string;
+  items?: string;
+  total_amount: number;
+  payment_method?: string;
+  status: DeliveryStatus;
+  sale_closed?: number; // 1 = Fechado, 0 = Não Fechado
+  unclosed_reason?: string; // Preço Alto, Falta de Estoque, Sem Resposta, etc.
+  last_message_id?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeliveryMetrics {
+  totalContacts: number;
+  closedSalesCount: number;
+  closedSalesAmount: number;
+  unclosedSalesCount: number;
+  unclosedSalesAmount: number;
+  conversionRate: number;
+  averageTicket: number;
+  byPaymentMethod: Record<string, number>;
+  byStatus: {
+    Pendente: number;
+    'Em Rota': number;
+    Entregue: number;
+    Nao_Fechado: number;
+    Cancelado: number;
+  };
+  byUnclosedReason: Record<string, number>;
+}
