@@ -292,13 +292,13 @@ async function runScheduledGroupPostsJob(db) {
     const now = new Date().toISOString();
     const pendingPosts = db.prepare(`
       SELECT * FROM whatsapp_group_posts 
-      WHERE status IN ('Pendente') AND scheduledAt <= ?
+      WHERE status IN ('Pendente') AND (type IS NULL OR type != 'status') AND scheduledAt <= ?
       ORDER BY scheduledAt ASC
     `).all(now);
 
     if (pendingPosts.length === 0) return;
 
-    console.log(`[MessageScheduler] 📱 Baileys processando ${pendingPosts.length} postagem(ns) pendente(s) (Status/Grupos)...`);
+    console.log(`[MessageScheduler] 📱 Baileys processando ${pendingPosts.length} postagem(ns) pendente(s) de Grupos...`);
 
     for (const post of pendingPosts) {
       // Marca como 'Processando' para evitar corrida de execução
@@ -309,20 +309,11 @@ async function runScheduledGroupPostsJob(db) {
           ? path.join(process.cwd(), 'public', path.basename(post.mediaPath))
           : null;
 
-        if (post.type === 'status') {
-          console.log(`[MessageScheduler] 🚀 Baileys enviando Status: ${post.id}`);
-          if (absolutePath && fs.existsSync(absolutePath)) {
-            await baileys.sendStatus(absolutePath, post.content);
-          } else {
-            console.warn(`[MessageScheduler] ⚠️ Status sem mídia válida: ${post.mediaPath}`);
-          }
+        console.log(`[MessageScheduler] 🚀 Baileys enviando para o Grupo "${post.groupName}": ${post.id}`);
+        if (absolutePath && fs.existsSync(absolutePath)) {
+          await baileys.sendImageToGroup(post.groupName, absolutePath, post.content);
         } else {
-          console.log(`[MessageScheduler] 🚀 Baileys enviando para o Grupo "${post.groupName}": ${post.id}`);
-          if (absolutePath && fs.existsSync(absolutePath)) {
-            await baileys.sendImageToGroup(post.groupName, absolutePath, post.content);
-          } else {
-            await baileys.sendTextToGroup(post.groupName, post.content);
-          }
+          await baileys.sendTextToGroup(post.groupName, post.content);
         }
 
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Enviado', sentAt = ? WHERE id = ?")

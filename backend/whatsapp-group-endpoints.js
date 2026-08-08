@@ -718,7 +718,7 @@ Responda apenas com o JSON.`;
     }
   });
 
-  // Disparar uma única oferta para o Status via Baileys (imediato) ou Fila RPA
+  // Disparar uma única oferta para o Status via Fila do Robô Windows (Puppeteer)
   app.post('/api/whatsapp/offers-bank/:id/status', async (req, res) => {
     try {
       const offerId = req.params.id;
@@ -734,32 +734,7 @@ Responda apenas com o JSON.`;
 
       let caption = offer.aiCaption || `Oferta: ${offer.productName} por R$${offer.price.toFixed(2)}!`;
 
-      // ── Tenta enviar via Baileys imediatamente (servidor 24h) ──
-      let baileys = null;
-      try { baileys = require('./baileys-service.js'); } catch(e) {}
-      const baileysStatus = baileys ? baileys.getStatus() : null;
-
-      if (baileys && baileysStatus && baileysStatus.connected) {
-        console.log(`[RoboOfertas Status] 🚀 Tentando postar Status via Baileys diretamente...`);
-        try {
-          const absoluteMediaPath = path.join(uploadDir, path.basename(offer.mediaPath));
-          await baileys.sendStatus(absoluteMediaPath, caption);
-          
-          const postId = `status-baileys-${Date.now()}`;
-          const now = new Date().toISOString();
-          await db.prepare(`
-            INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, sentAt, createdAt, type)
-            VALUES (?, 'status', 'Status do WhatsApp', ?, ?, ?, 'Enviado', ?, ?, 'status')
-          `).run(postId, caption, offer.mediaPath, now, now, now);
-
-          console.log(`[RoboOfertas Status] ✅ Status postado com SUCESSO via Baileys!`);
-          return res.json({ success: true, message: 'Status postado via Baileys (servidor 24h)!', method: 'baileys', postId });
-        } catch (bErr) {
-          console.warn(`[RoboOfertas Status] ⚠️ Falha no Baileys (${bErr.message}). Colocando na fila do Robô Windows...`);
-        }
-      }
-
-      // ── Fallback: Enfileira para o Robô Windows (Puppeteer) ──
+      // Enfileira na fila para o Robô Windows (Puppeteer - único método que publica no Meu Status visível)
       const postId = `status-single-${Date.now()}`;
       const now = new Date().toISOString();
       db.prepare(`
@@ -767,7 +742,7 @@ Responda apenas com o JSON.`;
         VALUES (?, 'status', 'Status do WhatsApp', ?, ?, ?, 'Pendente', ?, 'status')
       `).run(postId, caption, offer.mediaPath, now, now);
 
-      res.json({ success: true, message: 'Status colocado na fila do Robô Windows.', method: 'windows-agent', postId });
+      res.json({ success: true, message: 'Status enfileirado para envio pelo Robô Windows!', postId });
     } catch (err) {
       console.error('[RoboOfertas Status] Erro:', err.message);
       res.status(500).json({ error: err.message });
