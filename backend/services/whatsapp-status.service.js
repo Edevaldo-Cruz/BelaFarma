@@ -106,15 +106,37 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
       try {
         const postId = `status-${Date.now()}-${i}`;
         const now = new Date().toISOString();
+
+        // Tenta disparo imediato via Baileys (servidor 24h)
+        let baileysSent = false;
+        try {
+          const baileys = require('../baileys-service.js');
+          const baileysStatus = baileys ? baileys.getStatus() : null;
+          if (baileys && baileysStatus && baileysStatus.connected) {
+            const absolutePath = path.join(process.cwd(), 'public', offer.mediaPath);
+            await baileys.sendStatus(absolutePath, caption);
+            baileysSent = true;
+            console.log(`[WhatsAppStatus] 🚀 Status ${i + 1} postado DIRETO via Baileys!`);
+          }
+        } catch (bErr) {
+          console.warn(`[WhatsAppStatus] ⚠️ Baileys falhou para status ${i + 1} (${bErr.message}). Colocando na fila RPA...`);
+        }
+
+        const initialStatus = baileysSent ? 'Enviado' : 'Pendente';
+        const sentAt = baileysSent ? now : null;
+
         db.prepare(`
-          INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, createdAt, type)
-          VALUES (?, 'status', 'Status do WhatsApp', ?, ?, ?, 'Pendente', ?, 'status')
-        `).run(postId, caption, offer.mediaPath, now, now);
+          INSERT INTO whatsapp_group_posts (id, groupId, groupName, content, mediaPath, scheduledAt, status, sentAt, createdAt, type)
+          VALUES (?, 'status', 'Status do WhatsApp', ?, ?, ?, ?, ?, ?, 'status')
+        `).run(postId, caption, offer.mediaPath, now, initialStatus, sentAt, now);
 
         sucessoCount++;
-        console.log(`[WhatsAppStatus] ✅ Status ${i + 1} enfileirado com sucesso (ID: ${postId})!`);
+        console.log(`[WhatsAppStatus] ✅ Status ${i + 1} registrado com sucesso (ID: ${postId}, Status: ${initialStatus})!`);
+
+        // Pequena pausa entre postagens no status para o servidor do WA processar
+        await delay(3000);
       } catch (reqErr) {
-        console.error(`[WhatsAppStatus] ❌ Falha ao enfileirar status:`, reqErr.message);
+        console.error(`[WhatsAppStatus] ❌ Falha ao processar status:`, reqErr.message);
       }
     }
 

@@ -280,61 +280,62 @@ let rpaRunning = false;
  * Executa o job de postagens agendadas em grupos
  */
 async function runScheduledGroupPostsJob(db) {
-  // DESABILITADO NO SERVIDOR DEBIAN: O Windows RPA Agent local do usuário agora consulta e dispara esses posts!
-  return;
-
-  // Se o RPA ainda estiver rodando do minuto anterior, pula esta execução
-  if (rpaRunning) {
-    console.log('[MessageScheduler] ⏳ RPA ainda em execução, aguardando próximo ciclo...');
-    return;
-  }
-
   try {
+    const baileys = require('./baileys-service.js');
+    const baileysStatus = baileys ? baileys.getStatus() : null;
+
+    // Se o Baileys não estiver conectado ao WhatsApp, o Windows RPA Agent assume a fila
+    if (!baileys || !baileysStatus || !baileysStatus.connected) {
+      return;
+    }
+
     const now = new Date().toISOString();
     const pendingPosts = db.prepare(`
       SELECT * FROM whatsapp_group_posts 
-      WHERE status IN ('Pendente', 'Processando') AND scheduledAt <= ?
+      WHERE status IN ('Pendente') AND scheduledAt <= ?
+      ORDER BY scheduledAt ASC
     `).all(now);
 
     if (pendingPosts.length === 0) return;
 
-    console.log(`[MessageScheduler] 📱 Enviando ${pendingPosts.length} postagem(ns) agendada(s) para grupos...`);
-
-    rpaRunning = true;
+    console.log(`[MessageScheduler] 📱 Baileys processando ${pendingPosts.length} postagem(ns) pendente(s) (Status/Grupos)...`);
 
     for (const post of pendingPosts) {
-      const targetGroupId = post.groupId; // Sempre usar o ID (JID) para a API
+      // Marca como 'Processando' para evitar corrida de execução
+      db.prepare("UPDATE whatsapp_group_posts SET status = 'Processando' WHERE id = ?").run(post.id);
 
-      // Marca como 'Processando' IMEDIATAMENTE para evitar que outro tick do cron pegue o mesmo post
-      db.prepare("UPDATE whatsapp_group_posts SET status = 'Processando' WHERE id = ?")
-        .run(post.id);
+      try {
+        const absolutePath = post.mediaPath
+          ? path.join(process.cwd(), 'public', path.basename(post.mediaPath))
+          : null;
 
-      // Preferência pelo NOME do grupo para o RPA, pois ele pesquisa pelo texto na tela
-      const targetName = post.groupName || post.groupId;
+        if (post.type === 'status') {
+          console.log(`[MessageScheduler] 🚀 Baileys enviando Status: ${post.id}`);
+          if (absolutePath && fs.existsSync(absolutePath)) {
+            await baileys.sendStatus(absolutePath, post.content);
+          } else {
+            console.warn(`[MessageScheduler] ⚠️ Status sem mídia válida: ${post.mediaPath}`);
+          }
+        } else {
+          console.log(`[MessageScheduler] 🚀 Baileys enviando para o Grupo "${post.groupName}": ${post.id}`);
+          if (absolutePath && fs.existsSync(absolutePath)) {
+            await baileys.sendImageToGroup(post.groupName, absolutePath, post.content);
+          } else {
+            await baileys.sendTextToGroup(post.groupName, post.content);
+          }
+        }
 
-      console.log(`[MessageScheduler] 🚀 Acionando RPA (Navegador) para o grupo: "${targetName}"`);
-      
-      const result = await rpaWhatsapp.sendGroupMessage(
-        targetName, 
-        post.content, 
-        post.mediaPath
-      );
-
-
-      if (result.success) {
         db.prepare("UPDATE whatsapp_group_posts SET status = 'Enviado', sentAt = ? WHERE id = ?")
           .run(new Date().toISOString(), post.id);
-        console.log(`[MessageScheduler] ✅ Post ${post.id} enviado para o grupo "${targetGroupId}"`);
-      } else {
-        db.prepare("UPDATE whatsapp_group_posts SET status = 'Erro', errorMessage = ? WHERE id = ?")
-          .run(result.error || 'Erro desconhecido', post.id);
-        console.error(`[MessageScheduler] ❌ Falha ao enviar post ${post.id} no grupo "${targetGroupId}": ${result.error}`);
+        console.log(`[MessageScheduler] ✅ Post ${post.id} (${post.type || 'grupo'}) enviado com sucesso via Baileys!`);
+      } catch (postErr) {
+        console.error(`[MessageScheduler] ❌ Erro ao enviar post ${post.id} via Baileys:`, postErr.message);
+        db.prepare("UPDATE whatsapp_group_posts SET status = 'Pendente', errorMessage = ? WHERE id = ?")
+          .run(`Baileys error: ${postErr.message}`, post.id);
       }
     }
   } catch (error) {
-    console.error('[MessageScheduler] Erro no job de postagens em grupos:', error.message);
-  } finally {
-    rpaRunning = false;
+    console.error('[MessageScheduler] Erro no job de postagens agendadas:', error.message);
   }
 }
 

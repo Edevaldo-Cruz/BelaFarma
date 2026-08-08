@@ -556,22 +556,35 @@ async function sendStatus(imagePath, caption = '', statusJidList = null) {
   if (statusJidList && Array.isArray(statusJidList) && statusJidList.length > 0) {
     jidList = statusJidList;
   } else {
-    // Adiciona o próprio número para aparecer em "Meu Status" no celular
-    const ownJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-    jidList.push(ownJid);
+    // Adiciona o próprio número limpo para aparecer em "Meu Status" no celular
+    const rawUser = sock.user?.id || '';
+    const cleanOwn = rawUser.replace(/@.*$/, '').replace(/\D/g, '');
+    if (cleanOwn.length >= 10) {
+      jidList.push(`${cleanOwn}@s.whatsapp.net`);
+    }
 
-    // Adiciona números conhecidos do banco de dados local
+    // Adiciona contatos salvos no banco de dados
     if (savedDb) {
       try {
-        const rows = savedDb.prepare(`
-          SELECT DISTINCT phone FROM whatsapp_messages WHERE phone IS NOT NULL AND phone != ''
-        `).all();
-        rows.forEach(r => {
-          const clean = r.phone.replace(/\D/g, '');
-          if (clean.length >= 10) {
-            const jid = `${clean}@s.whatsapp.net`;
-            if (!jidList.includes(jid)) jidList.push(jid);
-          }
+        const phones = new Set();
+
+        // 1. Tabela de clientes (customers)
+        const custRows = savedDb.prepare(`SELECT phone FROM customers WHERE phone IS NOT NULL AND phone != ''`).all();
+        custRows.forEach(r => {
+          const c = r.phone.replace(/\D/g, '');
+          if (c.length >= 10) phones.add(c);
+        });
+
+        // 2. Histórico de mensagens (whatsapp_messages)
+        const msgRows = savedDb.prepare(`SELECT DISTINCT phone FROM whatsapp_messages WHERE phone IS NOT NULL AND phone != ''`).all();
+        msgRows.forEach(r => {
+          const c = r.phone.replace(/\D/g, '');
+          if (c.length >= 10) phones.add(c);
+        });
+
+        phones.forEach(phoneNum => {
+          const jid = `${phoneNum}@s.whatsapp.net`;
+          if (!jidList.includes(jid)) jidList.push(jid);
         });
       } catch (e) {
         console.warn('[Baileys] Erro ao carregar contatos para statusJidList:', e.message);
