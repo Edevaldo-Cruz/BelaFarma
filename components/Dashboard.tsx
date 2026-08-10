@@ -1628,7 +1628,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* 🛵 SEÇÃO DE MONITORAMENTO DE DELIVERIES (IA) */}
-      <DeliveryWidget onOpenChat={() => onNavigate('whatsapp_vendas')} />
+      <DeliveryWidget onOpenChat={() => onNavigate('whatsapp-vendas')} />
 
       {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
       <section className={`glass-card rounded-3xl p-6 shadow-sm space-y-6 ${themeCardClass}`}>

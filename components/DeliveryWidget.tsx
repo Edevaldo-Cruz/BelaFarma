@@ -56,6 +56,8 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [filterClosed, setFilterClosed] = useState<'all' | 'closed' | 'unclosed'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [editingDelivery, setEditingDelivery] = useState<Partial<Delivery> | null>(null);
 
   const fetchDeliveries = async () => {
     setLoading(true);
