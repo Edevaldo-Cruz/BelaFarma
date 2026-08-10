@@ -51,12 +51,13 @@ function copyImageToClipboard(imagePath) {
     if (!fs.existsSync(absolutePath)) {
       throw new Error(`Arquivo não encontrado para copiar: ${absolutePath}`);
     }
-    // Comando PowerShell ultra-estável para copiar imagem para clipboard no Windows
-    const psCommand = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('${absolutePath}'))"`;
+    // Comando PowerShell ultra-estável com a flag -Sta exigida pelo Windows Forms Clipboard
+    const psCommand = `powershell -Sta -command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('${absolutePath}'))"`;
     execSync(psCommand, { stdio: 'inherit' });
     return true;
   } catch (err) {
-    throw new Error(`Erro ao copiar imagem para a área de transferência do Windows: ${err.message}`);
+    console.warn(`⚠️ Erro ao copiar imagem para clipboard via PowerShell: ${err.message}`);
+    return false;
   }
 }
 
@@ -449,14 +450,28 @@ async function startAgent() {
           // Screenshot: após tentativa de colagem/clique do Status
           await safeScreenshot(page, 'debug_status_3_meu_status.png');
 
-          // Se tiver um modal/popover aberto com "Fotos e vídeos" (ou ícone de foto), clica nele
-          console.log('🖼️ Procurando botão ou menu de "Fotos e vídeos"...');
+          // Tenta injetar a foto diretamente em qualquer input de arquivo presente no DOM
+          try {
+            const fileInputs = await page.$$('input[type="file"]');
+            if (fileInputs && fileInputs.length > 0) {
+              console.log(`📁 Encontrado(s) ${fileInputs.length} input(s) de arquivo no DOM. Injetando foto diretamente...`);
+              for (const input of fileInputs) {
+                try {
+                  await input.uploadFile(tempFilePath);
+                  console.log('🎉 Imagem injetada com sucesso via uploadFile nativo!');
+                } catch (uErr) {}
+              }
+            }
+          } catch (domErr) {}
+
+          // Se tiver um popover de menu aberto especificamente com "Fotos e vídeos", clica nele (ignorando a galeria de mídia global)
+          console.log('🖼️ Procurando opção de menu "Fotos e vídeos"...');
           const photoMenuTarget = await page.evaluate(() => {
-            const items = Array.from(document.querySelectorAll('div[role="button"], li, span, button, aria-label'));
-            // Procura item de menu com ícone ou texto de foto/vídeo/mídia
+            const items = Array.from(document.querySelectorAll('div[role="button"], li, span, button'));
             const item = items.find(el => {
               const txt = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
-              return (txt.includes('foto') || txt.includes('vídeo') || txt.includes('mídia')) && !txt.includes('pesquise');
+              return (txt.includes('fotos e vídeos') || txt.includes('fotos e videos') || txt.includes('fotos ou vídeos')) &&
+                     !txt.includes('todas as conversas') && !txt.includes('pesquise');
             });
             if (item) {
               const rect = item.getBoundingClientRect();
