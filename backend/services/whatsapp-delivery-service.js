@@ -77,7 +77,86 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
 /**
  * Executa a varredura das conversas no SQLite local e extrai entregas + vendas não fechadas
  */
+async function syncMessagesFromEvolution(db) {
+  const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+  const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+  const EVOLUTION_MAIN_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belafarma_principal';
+
+  try {
+    console.log(`[DeliveryAIService] 🔄 Sincronizando mensagens reais da Evolution API (${EVOLUTION_MAIN_INSTANCE})...`);
+    const chatsRes = await fetch(`${EVOLUTION_API_URL}/chat/findChats/${EVOLUTION_MAIN_INSTANCE}`, {
+      headers: { 'apikey': EVOLUTION_API_KEY }
+    });
+
+    if (!chatsRes.ok) {
+      console.warn(`[DeliveryAIService] ⚠️ Evolution API findChats respondeu status ${chatsRes.status}`);
+      return;
+    }
+
+    const chatsData = await chatsRes.json();
+    const chatsList = Array.isArray(chatsData) ? chatsData : (chatsData.chats || chatsData.data || []);
+
+    const individualChats = chatsList.filter(c => {
+      const jid = c.id || c.remoteJid || '';
+      return jid && !jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes(':');
+    }).slice(0, 30);
+
+    let syncedCount = 0;
+
+    for (const chat of individualChats) {
+      const jid = chat.id || chat.remoteJid;
+      const phone = jid.split('@')[0];
+
+      try {
+        const msgsRes = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${EVOLUTION_MAIN_INSTANCE}`, {
+          method: 'POST',
+          headers: {
+            'apikey': EVOLUTION_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            where: { key: { remoteJid: jid } },
+            limit: 30
+          })
+        });
+
+        if (msgsRes.ok) {
+          const msgsData = await msgsRes.json();
+          const records = Array.isArray(msgsData) ? msgsData : (msgsData.records || msgsData.data || []);
+
+          for (const m of records) {
+            const msgId = m.key?.id || `msg_${m.messageTimestamp}_${Math.random()}`;
+            const fromMe = m.key?.fromMe ? 1 : 0;
+            let text = '';
+            if (m.message) {
+              text = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
+            }
+            if (!text) continue;
+
+            const ts = (m.messageTimestamp ? m.messageTimestamp * 1000 : Date.now());
+
+            db.prepare(`
+              INSERT OR REPLACE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
+              VALUES (?, ?, ?, ?, ?)
+            `).run(msgId, phone, fromMe, text, ts);
+
+            syncedCount++;
+          }
+        }
+      } catch (errMsg) {
+        /* ignora falha individual */
+      }
+    }
+    console.log(`[DeliveryAIService] ✅ Sincronizadas ${syncedCount} mensagens reais da Evolution API no SQLite.`);
+  } catch (errSync) {
+    console.warn(`[DeliveryAIService] ⚠️ Não foi possível sincronizar via Evolution API:`, errSync.message);
+  }
+}
+
 async function scanDeliveriesFromWhatsApp(db, options = {}) {
+  // Sincronizar mensagens reais da Evolution API primeiro
+  await syncMessagesFromEvolution(db);
+
   const now = new Date();
   let timeLimit = 0;
   let chatLimit = 60;
