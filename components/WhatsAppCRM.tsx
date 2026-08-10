@@ -45,6 +45,7 @@ interface ProductHistory {
 interface CustomerDetail {
   customer: WACCustomer;
   productHistory: ProductHistory[];
+  chatMessages?: Array<{ id: string; fromMe: number | boolean; text: string; timestamp: number }>;
   summary: {
     total: number;
     byStatus: {
@@ -136,7 +137,7 @@ function CustomerDetailModal({
 }) {
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'comprado' | 'pesquisado' | 'nao_encontrado' | 'cancelado'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'comprado' | 'pesquisado' | 'nao_encontrado' | 'cancelado' | 'conversa'>('all');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -261,6 +262,7 @@ function CustomerDetailModal({
     { key: 'pesquisado', label: 'Pesquisados', count: detail?.summary.byStatus.pesquisado.length || 0 },
     { key: 'nao_encontrado', label: 'Não Encontrados', count: detail?.summary.byStatus.nao_encontrado.length || 0 },
     { key: 'cancelado', label: 'Cancelados', count: detail?.summary.byStatus.cancelado.length || 0 },
+    { key: 'conversa', label: '💬 Conversa WA', count: detail?.chatMessages?.length || 0 },
   ];
 
   return (
@@ -445,6 +447,37 @@ function CustomerDetailModal({
                       Salvar Produto no Histórico
                     </button>
                   </div>
+                </div>
+              ) : activeTab === 'conversa' ? (
+                <div className="space-y-3 p-2">
+                  {!detail?.chatMessages || detail.chatMessages.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 space-y-2">
+                      <MessageSquare className="w-10 h-10 mx-auto opacity-30 text-emerald-500" />
+                      <p className="font-bold text-slate-600 dark:text-slate-300">Nenhuma mensagem registrada no sistema</p>
+                      <p className="text-xs">As mensagens recebidas ou enviadas via WhatsApp para este número ficarão registradas aqui.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar">
+                      {detail.chatMessages.map((msg, idx) => {
+                        const isMe = msg.fromMe === 1 || msg.fromMe === true;
+                        const hora = new Date(msg.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                        return (
+                          <div key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${
+                              isMe 
+                                ? 'bg-emerald-600 text-white rounded-br-none' 
+                                : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-bl-none'
+                            }`}>
+                              <p className="whitespace-pre-wrap font-medium">{msg.text}</p>
+                              <div className={`text-[10px] mt-1 text-right font-mono ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>
+                                {hora}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="text-center py-10 text-slate-400">

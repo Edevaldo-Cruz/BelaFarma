@@ -485,9 +485,27 @@ Regras:
         cancelado: productHistory.filter(p => p.status === 'cancelado'),
       };
 
+      // Buscar histórico de mensagens de WhatsApp salvas para este cliente
+      const cleanPhoneStr = customer.phone ? customer.phone.replace(/\D/g, '') : '';
+      const phoneSuffix = cleanPhoneStr.length >= 8 ? cleanPhoneStr.slice(-8) : cleanPhoneStr;
+
+      let chatMessages = [];
+      try {
+        chatMessages = db.prepare(`
+          SELECT id, fromMe, messageText as text, timestamp
+          FROM whatsapp_messages
+          WHERE phone = ? OR phone = ? OR (phone IS NOT NULL AND phone LIKE ?)
+          ORDER BY timestamp ASC
+          LIMIT 100
+        `).all(customer.phone, cleanPhoneStr, `%${phoneSuffix}`);
+      } catch (msgErr) {
+        console.warn('[WhatsAppCRM] Erro ao buscar mensagens do cliente:', msgErr.message);
+      }
+
       res.json({
         customer,
         productHistory,
+        chatMessages,
         summary: {
           total: productHistory.length,
           byStatus,
