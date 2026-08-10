@@ -1339,6 +1339,12 @@ try {
       console.log('✅ Migration: coluna whatsapp_name adicionada em customers.');
     }
 
+    // Migration: Limpeza de LIDs/Grupos inválidos em customers
+    try {
+      db.exec("DELETE FROM customers WHERE phone LIKE '120363%' OR LENGTH(phone) > 15 OR phone LIKE '%@g.us%' OR phone LIKE '%@lid%'");
+      console.log('✅ Migration: Limpeza de LIDs/Grupos em customers concluída!');
+    } catch (e) {}
+
     // Migration: adicionar colunas de CRM Preditivo (Uso Contínuo e Cruzamento de Faltas) em whatsapp_product_history
     try {
       db.prepare('SELECT is_continuous_use FROM whatsapp_product_history LIMIT 1').get();

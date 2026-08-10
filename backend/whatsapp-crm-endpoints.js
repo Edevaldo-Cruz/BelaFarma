@@ -20,11 +20,8 @@ function formatToUserPhone(phone) {
   if (!phone) return '';
   let clean = phone.replace(/\D/g, '');
   
-  // Ignorar LIDs e números inválidos
-  // O WhatsApp pode retornar LIDs de sincronização gigantes (ex: 157853084065991)
-  // Celulares brasileiros normais têm entre 10 e 11 dígitos (sem DDI) ou 12 e 13 (com DDI 55).
-  // Se após limpar, o comprimento for maior que 13 ou menor que 10, descartamos.
-  if (clean.length > 13 || clean.length < 10) return '';
+  // Ignorar LIDs e números de Grupos inválidos (120363...)
+  if (clean.startsWith('120363') || clean.length > 13 || clean.length < 10) return '';
   
   // Remover o DDI brasileiro (55) se estiver presente
   if (clean.startsWith('55') && (clean.length === 12 || clean.length === 13)) {
@@ -498,6 +495,55 @@ Regras:
           ORDER BY timestamp ASC
           LIMIT 100
         `).all(customer.phone, cleanPhoneStr, `%${phoneSuffix}`);
+
+        // Se não houver mensagens locais salvas no SQLite, busca ao vivo da Evolution API
+        if (chatMessages.length === 0 && cleanPhoneStr && !cleanPhoneStr.startsWith('120363')) {
+          const formattedJid = cleanPhoneStr.length >= 12 ? `${cleanPhoneStr}@s.whatsapp.net` : `55${cleanPhoneStr}@s.whatsapp.net`;
+          try {
+            const evoRes = await fetch(`${API_URL}/chat/findMessages/${EVOLUTION_MAIN_INSTANCE}`, {
+              method: 'POST',
+              headers: {
+                'apikey': API_KEY,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                where: { key: { remoteJid: formattedJid } },
+                limit: 40
+              })
+            });
+
+            if (evoRes.ok) {
+              const evoData = await evoRes.json();
+              const records = Array.isArray(evoData) ? evoData : (evoData.records || evoData.data || []);
+              for (const m of records) {
+                const msgId = m.key?.id || `msg_${m.messageTimestamp}_${Math.random()}`;
+                const fromMe = m.key?.fromMe ? 1 : 0;
+                let text = '';
+                if (m.message) {
+                  text = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
+                }
+                if (!text) continue;
+                const ts = m.messageTimestamp ? m.messageTimestamp * 1000 : Date.now();
+
+                db.prepare(`
+                  INSERT OR REPLACE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
+                  VALUES (?, ?, ?, ?, ?)
+                `).run(msgId, cleanPhoneStr, fromMe, text, ts);
+              }
+
+              // Re-consulta o SQLite após gravar
+              chatMessages = db.prepare(`
+                SELECT id, fromMe, messageText as text, timestamp
+                FROM whatsapp_messages
+                WHERE phone = ? OR phone = ? OR (phone IS NOT NULL AND phone LIKE ?)
+                ORDER BY timestamp ASC
+                LIMIT 100
+              `).all(customer.phone, cleanPhoneStr, `%${phoneSuffix}`);
+            }
+          } catch (evoErr) {
+            console.warn('[WhatsAppCRM] ⚠️ Falha ao sincronizar mensagens da Evolution API ao vivo:', evoErr.message);
+          }
+        }
       } catch (msgErr) {
         console.warn('[WhatsAppCRM] Erro ao buscar mensagens do cliente:', msgErr.message);
       }

@@ -137,7 +137,7 @@ function CustomerDetailModal({
 }) {
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'comprado' | 'pesquisado' | 'nao_encontrado' | 'cancelado' | 'conversa'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'comprado' | 'pesquisado' | 'nao_encontrado' | 'cancelado' | 'conversa'>('conversa');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -257,12 +257,12 @@ function CustomerDetailModal({
   ) || [];
 
   const tabs = [
-    { key: 'all', label: 'Todos', count: detail?.summary.total || 0 },
+    { key: 'conversa', label: '💬 Conversa WA', count: detail?.chatMessages?.length || 0 },
+    { key: 'all', label: 'Todos Produtos', count: detail?.summary.total || 0 },
     { key: 'comprado', label: 'Comprados', count: detail?.summary.byStatus.comprado.length || 0 },
     { key: 'pesquisado', label: 'Pesquisados', count: detail?.summary.byStatus.pesquisado.length || 0 },
     { key: 'nao_encontrado', label: 'Não Encontrados', count: detail?.summary.byStatus.nao_encontrado.length || 0 },
     { key: 'cancelado', label: 'Cancelados', count: detail?.summary.byStatus.cancelado.length || 0 },
-    { key: 'conversa', label: '💬 Conversa WA', count: detail?.chatMessages?.length || 0 },
   ];
 
   return (
