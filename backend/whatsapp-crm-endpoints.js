@@ -463,7 +463,7 @@ Regras:
   /**
    * Retorna o detalhe completo de um cliente com todo o histórico de produtos.
    */
-  app.get('/api/whatsapp/crm-customers/:id', (req, res) => {
+  app.get('/api/whatsapp/crm-customers/:id', async (req, res) => {
     try {
       const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
       if (!customer) return res.status(404).json({ error: 'Cliente não encontrado' });
