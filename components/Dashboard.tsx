@@ -55,7 +55,7 @@ import FinancialEvolutionChart from './FinancialEvolutionChart';
 import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
 import { OrderStatusModal } from './OrderStatusModal';
-import { DeliveryWidget } from './DeliveryWidget';
+import { DeliverySummaryChart } from './DeliverySummaryChart';
 import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount, MonthlyLimit } from '../types';
 import { calculateWeeklyBudgetsCascade } from '../utils';
 
@@ -1628,7 +1628,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* 🛵 SEÇÃO DE MONITORAMENTO DE DELIVERIES (IA) */}
-      <DeliveryWidget onOpenChat={() => onNavigate('whatsapp-vendas')} />
+      <DeliverySummaryChart onNavigate={onNavigate} />
 
       {/* 🎯 SEÇÃO DE PÓS-VENDA INTELIGENTE NO DASHBOARD */}
       <section className={`glass-card rounded-3xl p-6 shadow-sm space-y-6 ${themeCardClass}`}>

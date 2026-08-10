@@ -34,6 +34,7 @@ import { CaixaProvisoes } from "./components/CaixaProvisoes";
 import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import { WhatsAppVendas } from "./components/WhatsAppVendas";
+import { DeliveriesPage } from "./components/DeliveriesPage";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { EtiquetasManager } from "./components/EtiquetasManager";
 import { ComprasLive } from "./components/ComprasLive";
@@ -1031,6 +1032,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'whatsapp-vendas' && (
                 <WhatsAppVendas />
+              )}
+              {currentView === 'deliveries' && (
+                <DeliveriesPage onNavigate={handleNavigate} />
               )}
               {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (

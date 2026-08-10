@@ -486,8 +486,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager';
-
+export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager';
 
 // ============================================================================
 // SISTEMA DE MENSAGENS WHATSAPP - Interfaces
