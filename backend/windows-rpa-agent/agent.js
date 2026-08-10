@@ -318,8 +318,13 @@ async function startAgent() {
           // Ignora se o Chromium não suportar bringToFront no modo atual
         }
 
-        if (post.type === 'status') {
-          console.log(`🚀 Iniciando automação de envio de STATUS no navegador...`);
+        if (post.type !== 'status') {
+          console.log(`ℹ️ [RPA Agent] Ignorando post de Grupo (${post.id}). O envio de grupos é feito exclusivamente via Baileys 24h no servidor.`);
+          await reportStatus(post.id, 'Pendente', 'Post de grupo ignorado pelo RPA Agent (gerenciado via Baileys)');
+          continue;
+        }
+
+        console.log(`🚀 Iniciando automação de envio de STATUS no navegador...`);
 
           // Screenshot: estado inicial
           await safeScreenshot(page, 'debug_status_1_inicio.png');
