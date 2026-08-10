@@ -36,6 +36,7 @@ import {
   Radio, // Added for Rádio Bela Farma
   ContactRound, // Added for CRM WhatsApp
   Sparkles, // Added for Tera Incentive
+  Printer, // Added for Labels
   Activity, // Added for Vigilante
   Calendar, // Added for Purchase Calendar
   Truck, // Added for Deliveries
