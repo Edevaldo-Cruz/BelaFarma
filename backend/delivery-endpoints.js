@@ -15,8 +15,16 @@ function initializeDeliveryEndpoints(app, db) {
       } else if (period === '30days') {
         timeClause = "AND created_at >= datetime('now', '-30 days')";
       } else if (period === 'month') {
-        // Mês atual (do dia 1 às 00:00 até agora)
+        // Mês atual
         timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')";
+      } else if (period === 'prev_month') {
+        // Mês anterior
+        timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', '-1 month', 'localtime')";
+      } else if (period && period.match(/^\d{4}-\d{2}$/)) {
+        // Mês específico YYYY-MM (ex: 2026-07)
+        timeClause = `AND strftime('%Y-%m', created_at, 'localtime') = '${period}'`;
+      } else if (period === 'all') {
+        timeClause = '';
       }
 
       let statusClause = '';

@@ -52,7 +52,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
 
   const [loading, setLoading] = useState<boolean>(true);
   const [scanning, setScanning] = useState<boolean>(false);
-  const [period, setPeriod] = useState<'today' | '7days' | '30days' | 'month'>('month');
+  const [period, setPeriod] = useState<'today' | '7days' | '30days' | 'month' | 'prev_month' | 'all' | string>('month');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [filterClosed, setFilterClosed] = useState<'all' | 'closed' | 'unclosed'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -321,38 +321,38 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
       {/* ── BARRA DE FILTROS E PESQUISA ────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
         {/* Seletor de Período */}
-        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-lg border border-slate-800 w-full sm:w-auto">
+        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-lg border border-slate-800 w-full sm:w-auto overflow-x-auto">
           <button
             onClick={() => setPeriod('month')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
               period === 'month' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
             }`}
           >
             Este Mês
           </button>
           <button
-            onClick={() => setPeriod('today')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-              period === 'today' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            onClick={() => setPeriod('prev_month')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
+              period === 'prev_month' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
             }`}
           >
-            Hoje
-          </button>
-          <button
-            onClick={() => setPeriod('7days')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-              period === '7days' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            7 Dias
+            Mês Anterior
           </button>
           <button
             onClick={() => setPeriod('30days')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
               period === '30days' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
             }`}
           >
             30 Dias
+          </button>
+          <button
+            onClick={() => setPeriod('all')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
+              period === 'all' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Histórico Completo
           </button>
         </div>
 
