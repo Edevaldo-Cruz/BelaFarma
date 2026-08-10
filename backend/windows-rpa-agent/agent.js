@@ -283,30 +283,33 @@ async function startAgent() {
 
       let tempFilePath = null;
       
-      // Se tiver imagem, faz o download local com fallback resiliente
+      // Se tiver imagem, faz o download local temporário
       if (post.hasMedia) {
         try {
           let targetUrl = post.mediaUrl;
-          if (targetUrl.includes('192.168.1.70') && !targetUrl.includes(':8085')) {
-            targetUrl = targetUrl.replace('192.168.1.70', '192.168.1.70:8085');
+          if (targetUrl.includes('192.168.1.70/') && !targetUrl.includes('192.168.1.70:8085')) {
+            targetUrl = targetUrl.replace('192.168.1.70/', '192.168.1.70:8085/');
           }
 
-          const cleanPath = new URL(targetUrl).pathname;
-          const extension = path.extname(cleanPath) || '.jpeg';
+          const extension = path.extname(new URL(targetUrl).pathname) || '.jpeg';
           tempFilePath = path.join(__dirname, `temp_media_${Date.now()}${extension}`);
-          console.log(`📥 Baixando imagem de apoio do servidor: ${targetUrl}...`);
+          console.log(`📥 Baixando imagem da oferta de: ${targetUrl}...`);
           await downloadFile(targetUrl, tempFilePath);
-          console.log(`✅ Imagem salva com sucesso em: "${tempFilePath}" (${fs.statSync(tempFilePath).size} bytes)`);
+          console.log(`✅ Imagem baixada com sucesso no computador local (${tempFilePath}).`);
         } catch (downloadErr) {
-          console.warn(`⚠️ Falha ao baixar imagem do servidor (${downloadErr.message}).`);
-          // Fallback seguro usando qualquer imagem salva temporariamente na pasta do agente
-          const localFiles = fs.readdirSync(__dirname).filter(f => f.startsWith('temp_media_') || f.endsWith('.png') || f.endsWith('.jpeg'));
-          if (localFiles.length > 0) {
-            tempFilePath = path.join(__dirname, localFiles[0]);
-            console.log(`📸 Utilizando imagem local de apoio: "${tempFilePath}"`);
-          } else {
-            console.error(`🚨 Erro ao baixar imagem da oferta e nenhuma imagem alternativa localizada.`);
-            await reportStatus(post.id, 'Erro', `Erro de download de imagem: ${downloadErr.message}`);
+          console.warn(`⚠️ Falha ao baixar da URL principal (${downloadErr.message}). Tentando URL direta da Raspberry Pi...`);
+          try {
+            // Tenta URL com IP e porta explícitos
+            const filename = path.basename(new URL(post.mediaUrl).pathname);
+            const directUrl = `${serverUrl.replace(/\/$/, '')}/uploads/${filename}`;
+            const extension = path.extname(filename) || '.jpeg';
+            tempFilePath = path.join(__dirname, `temp_media_${Date.now()}${extension}`);
+            console.log(`📥 Tentando download direto de: ${directUrl}...`);
+            await downloadFile(directUrl, tempFilePath);
+            console.log(`✅ Imagem baixada com sucesso via URL direta!`);
+          } catch (retryErr) {
+            console.error(`🚨 Erro de download de imagem no computador local: ${retryErr.message}`);
+            await reportStatus(post.id, 'Erro', `Erro de download de imagem: ${retryErr.message}`);
             return;
           }
         }

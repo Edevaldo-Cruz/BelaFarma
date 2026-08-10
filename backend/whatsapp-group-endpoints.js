@@ -484,12 +484,16 @@ function initializeWhatsAppGroupEndpoints(app) {
         return res.json({ hasPending: false });
       }
 
-      // Constrói a URL completa para a mídia (se houver)
+      // Constrói a URL completa para a mídia garantindo a porta 8085
       let mediaUrl = null;
       if (oldestPending.mediaPath) {
-        const protocol = req.protocol;
-        const host = req.get('host');
-        mediaUrl = `${protocol}://${host}${oldestPending.mediaPath}`;
+        let cleanHost = req.get('host') || '192.168.1.70:8085';
+        if (cleanHost.includes('192.168.1.70') && !cleanHost.includes(':8085')) {
+          cleanHost = '192.168.1.70:8085';
+        }
+        const protocol = req.protocol || 'http';
+        const cleanPath = oldestPending.mediaPath.startsWith('/') ? oldestPending.mediaPath : '/' + oldestPending.mediaPath;
+        mediaUrl = `${protocol}://${cleanHost}${cleanPath}`;
       }
 
       res.json({
