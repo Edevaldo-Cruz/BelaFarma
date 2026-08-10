@@ -256,6 +256,26 @@ function initializeDeliveryEndpoints(app, db) {
       res.status(500).json({ error: 'Erro ao deletar registro.', details: err.message });
     }
   });
+
+  // ─── AGENDAMENTO AUTOMÁTICO: Varredura periódica a cada 30 minutos ────────
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      console.log('[DeliveryAIService] ⏰ Executando varredura periódica automática de 30 minutos...');
+      await scanDeliveriesFromWhatsApp(db, { hours: 48 });
+      console.log('[DeliveryAIService] ✅ Varredura periódica de 30 min concluída!');
+    } catch (err) {
+      console.warn('[DeliveryAIService] ⚠️ Erro na varredura periódica:', err.message);
+    }
+  }, THIRTY_MINUTES_MS);
+
+  // Executa uma varredura automática inicial 1 minuto após o servidor inicializar
+  setTimeout(async () => {
+    try {
+      console.log('[DeliveryAIService] 🚀 Executando varredura inicial pós-inicialização do servidor...');
+      await scanDeliveriesFromWhatsApp(db, { hours: 48 });
+    } catch (err) {}
+  }, 60 * 1000);
 }
 
 module.exports = {

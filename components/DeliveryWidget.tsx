@@ -227,7 +227,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
                 Auditoria de Deliveries & Perdas do Mês ({currentMonthName})
               </h2>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                <Sparkles className="w-3.5 h-3.5" /> IA Ativa
+                <Sparkles className="w-3.5 h-3.5" /> Varredura Auto (30m) 🔄
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
