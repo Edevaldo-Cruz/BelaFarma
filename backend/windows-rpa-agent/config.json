@@ -1,8 +1,8 @@
 {
-  "serverUrl": "https://app.drogariabelafarma.com.br",
+  "serverUrl": "http://192.168.1.70:8085",
   "token": "BelafarmaSul2026",
   "pollingIntervalSeconds": 15,
   "chromeSessionDir": "../whatsapp-session-rpa",
   "executablePath": "",
-  "headless": true
+  "headless": false
 }

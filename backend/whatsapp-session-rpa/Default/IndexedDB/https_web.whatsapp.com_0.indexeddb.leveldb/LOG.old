@@ -1,35 +1,3 @@
-2026/05/23-19:55:56.583 5a10 Reusing MANIFEST F:\Documentos\Desenvolvimento\BelaFarma\backend\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/05/23-19:55:56.585 5a10 Recovering log #936
-2026/05/23-19:55:56.766 5a10 Reusing old log F:\Documentos\Desenvolvimento\BelaFarma\backend\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000936.log 
-2026/05/23-19:56:05.199 5a10 Manual compaction at level-0 from '\x00%\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00&\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/05/23-19:56:05.199 5a10 Manual compaction at level-1 from '\x00%\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00&\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/05/23-19:56:05.204 5a10 Level-0 table #958: started
-2026/05/23-19:56:05.364 36dc Current memtable full; waiting...
-2026/05/23-19:56:05.494 5a10 Level-0 table #958: 776560 bytes OK
-2026/05/23-19:56:05.643 5a10 Delete type=0 #936
-2026/05/23-19:56:05.644 5a10 Level-0 table #960: started
-2026/05/23-19:56:05.937 5a10 Level-0 table #960: 1642503 bytes OK
-2026/05/23-19:56:05.944 36dc Current memtable full; waiting...
-2026/05/23-19:56:06.161 5a10 Delete type=0 #957
-2026/05/23-19:56:07.204 5a10 Level-0 table #962: started
-2026/05/23-19:56:08.558 36dc Current memtable full; waiting...
-2026/05/23-19:56:08.760 5a10 Level-0 table #962: 1578783 bytes OK
-2026/05/23-19:56:09.066 5a10 Delete type=0 #959
-2026/05/23-19:56:09.190 3cf0 Manual compaction at level-0 from '\x00'\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00(\x00\x00\x00' @ 0 : 0; will stop at '\x00#\x01\x1f\x03\x00\x90\x0fp"\xe2yB\x00\x03\x00\x00\x00\x00\x00T\x9d@' @ 4732314 : 0
-2026/05/23-19:56:09.190 3cf0 Compacting 3@0 + 0@1 files
-2026/05/23-19:56:09.387 3cf0 Level-0 table #965: started
-2026/05/23-19:56:09.545 36dc Current memtable full; waiting...
-2026/05/23-19:56:09.684 3cf0 Level-0 table #965: 1497214 bytes OK
-2026/05/23-19:56:09.820 3cf0 Delete type=0 #961
-2026/05/23-19:56:09.822 3cf0 Level-0 table #967: started
-2026/05/23-19:56:10.079 3cf0 Level-0 table #967: 1377030 bytes OK
-2026/05/23-19:56:10.247 3cf0 Delete type=0 #963
-2026/05/23-19:56:10.610 3cf0 Generated table #964@0: 80796 keys, 2226328 bytes
-2026/05/23-19:56:11.253 3cf0 Generated table #968@0: 6290 keys, 181571 bytes
-2026/05/23-19:56:11.805 3cf0 Generated table #969@0: 78402 keys, 1251859 bytes
-2026/05/23-19:56:11.805 3cf0 Compacted 3@0 + 0@1 files => 3659758 bytes
-2026/05/23-19:56:11.938 3cf0 compacted to: files[ 2 3 20 0 0 0 0 ]
-2026/05/23-19:56:11.939 5a10 Manual compaction at level-0 from '\x00#\x01\x1f\x03\x00\x90\x0fp"\xe2yB\x00\x03\x00\x00\x00\x00\x00T\x9d@' @ 4732314 : 0 .. '\x00(\x00\x00\x00' @ 0 : 0; will stop at '\x00#\x01 \x03\x00\x00\x00\x00\xc0\x84\xdf@\x00\x03\x00\x00\x00\x00\x00\xc6\xa1@' @ 4806722 : 0
-2026/05/23-19:56:11.939 5a10 Compacting 2@0 + 3@1 files
-2026/05/23-19:56:12.523 5a10 Generated table #970@0: 87097 keys, 2233642 bytes
-2026/05/23-19:56:13.976 5a10 Generated table #971@0: 71723 keys, 2032342 bytes
+2026/08/07-13:29:07.603 5aec Reusing MANIFEST F:\Documentos\Desenvolvimento\BelaFarma\backend\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/08/07-13:29:07.604 5aec Recovering log #1266
+2026/08/07-13:29:07.607 5aec Reusing old log F:\Documentos\Desenvolvimento\BelaFarma\backend\whatsapp-session-rpa\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/001266.log 

@@ -268,11 +268,12 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
             stats.unclosedSalesAmount += totalAmount;
           }
 
-          // Checar se já existe registro recente deste telefone no banco (no mês ou últimas 30d)
+          // Checar se já existe registro recente deste telefone no banco (nas últimas 12h)
+          // Isso evita sobrescrever um pedido de dias atrás caso o cliente volte a comprar hoje
           const existing = db.prepare(`
             SELECT id, status, total_amount, sale_closed
             FROM deliveries
-            WHERE phone = ? AND created_at >= datetime('now', '-30 days')
+            WHERE phone = ? AND created_at >= datetime('now', '-12 hours')
             ORDER BY created_at DESC
             LIMIT 1
           `).get(cleanPhone);
