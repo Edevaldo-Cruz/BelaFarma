@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 title BELAFARMA - Windows RPA Agent
 color 0A
 
