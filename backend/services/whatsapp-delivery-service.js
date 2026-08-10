@@ -99,7 +99,7 @@ async function syncMessagesFromEvolution(db) {
     const individualChats = chatsList.filter(c => {
       const jid = c.id || c.remoteJid || '';
       return jid && !jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes(':');
-    }).slice(0, 30);
+    }).slice(0, 150);
 
     let syncedCount = 0;
 
@@ -116,7 +116,7 @@ async function syncMessagesFromEvolution(db) {
           },
           body: JSON.stringify({
             where: { key: { remoteJid: jid } },
-            limit: 30
+            limit: 50
           })
         });
 
@@ -161,13 +161,13 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
 
   const now = new Date();
   let timeLimit = 0;
-  let chatLimit = 60;
+  let chatLimit = 200;
 
   if (options.currentMonth) {
     // Pegar desde o primeiro dia do mês atual às 00:00:00
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     timeLimit = startOfMonth;
-    chatLimit = 150;
+    chatLimit = 500;
     console.log(`[DeliveryAIService] 📅 Varredura COMPLETA do MÊS ATUAL (${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})...`);
   } else {
     const hoursToAnalyze = options.hours || 48;
@@ -213,11 +213,14 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
       } catch (e) { /* ignora */ }
 
       const messages = db.prepare(`
-        SELECT id, fromMe, messageText, timestamp
-        FROM whatsapp_messages
-        WHERE phone = ?
+        SELECT * FROM (
+          SELECT id, fromMe, messageText, timestamp
+          FROM whatsapp_messages
+          WHERE phone = ?
+          ORDER BY timestamp DESC
+          LIMIT 50
+        )
         ORDER BY timestamp ASC
-        LIMIT 40
       `).all(chat.phone);
 
       if (!messages || messages.length === 0) continue;
