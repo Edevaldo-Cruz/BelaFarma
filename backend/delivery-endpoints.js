@@ -9,14 +9,18 @@ function initializeDeliveryEndpoints(app, db) {
 
       let timeClause = '';
       if (period === 'today') {
-        timeClause = "AND date(created_at, 'localtime') = date('now', 'localtime')";
+        timeClause = `AND (
+          date(created_at, 'localtime') = date('now', 'localtime') OR
+          date(created_at) = date('now') OR
+          created_at >= date('now', 'start of day') OR
+          created_at LIKE date('now', 'localtime') || '%'
+        )`;
       } else if (period === '7days') {
         timeClause = "AND created_at >= datetime('now', '-7 days')";
       } else if (period === '30days') {
         timeClause = "AND created_at >= datetime('now', '-30 days')";
       } else if (period === 'month') {
-        // Mês atual
-        timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')";
+        timeClause = "AND (strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') OR strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now'))";
       } else if (period === 'prev_month') {
         // Mês anterior
         timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', '-1 month', 'localtime')";

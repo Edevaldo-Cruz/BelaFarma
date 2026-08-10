@@ -133,7 +133,9 @@ async function syncMessagesFromEvolution(db) {
             }
             if (!text) continue;
 
-            const ts = (m.messageTimestamp ? m.messageTimestamp * 1000 : Date.now());
+            let rawTs = m.messageTimestamp || Date.now();
+            if (typeof rawTs === 'string') rawTs = parseInt(rawTs, 10);
+            const ts = (rawTs > 0 && rawTs < 10000000000) ? rawTs * 1000 : (rawTs || Date.now());
 
             db.prepare(`
               INSERT OR REPLACE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
@@ -189,7 +191,7 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
       FROM whatsapp_messages
       WHERE timestamp >= ? AND phone IS NOT NULL AND phone != ''
       GROUP BY phone
-      HAVING msgCount >= 2
+      HAVING msgCount >= 1
       ORDER BY lastTimestamp DESC
       LIMIT ?
     `).all(timeLimit, chatLimit);
