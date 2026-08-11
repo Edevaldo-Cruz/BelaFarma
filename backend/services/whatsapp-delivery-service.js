@@ -99,7 +99,7 @@ async function syncMessagesFromEvolution(db) {
     const individualChats = chatsList.filter(c => {
       const jid = c.id || c.remoteJid || '';
       return jid && !jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes(':');
-    }).slice(0, 150);
+    }).slice(0, 1000);
 
     // Salvar contatos cacheados para recuperar nomes
     try {
@@ -257,6 +257,16 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
 
       const lastMsgId = messages[messages.length - 1].id || `msg_${messages[messages.length - 1].timestamp}`;
 
+      // Task 3: Não agrupar de 12 em 12 horas. Cada novo avanço da conversa é um novo pedido.
+      // Movemos essa checagem para ANTES de chamar a IA, economizando absurdamente o tempo de processamento e limite de requisições.
+      const existing = db.prepare(`
+        SELECT id FROM deliveries WHERE phone = ? AND last_message_id = ? LIMIT 1
+      `).get(cleanPhone, lastMsgId);
+
+      if (existing) {
+        continue;
+      }
+
       const transcript = messages.map(m => {
         const sender = m.fromMe === 1 ? 'Atendente BelaFarma' : customerName;
         const hora = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -301,17 +311,6 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
 
           const unclosedReason = !isClosed ? (result.unclosed_reason || 'Sem Resposta do Cliente') : null;
           const notes = result.notes || '';
-
-          // Task 3: Não agrupar de 12 em 12 horas. Cada novo avanço da conversa é um novo pedido.
-          // Só ignoramos se a última mensagem da conversa for EXATAMENTE a mesma já salva (evita loop da varredura de 30min).
-          const existing = db.prepare(`
-            SELECT id FROM deliveries WHERE phone = ? AND last_message_id = ? LIMIT 1
-          `).get(cleanPhone, lastMsgId);
-
-          if (existing) {
-            // O chat não avançou desde a última varredura. Ignorar para não criar cópia idêntica.
-            continue;
-          }
 
           if (isClosed) {
             stats.closedSalesCount++;

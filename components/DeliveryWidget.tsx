@@ -435,6 +435,19 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
             <tbody className="divide-y divide-slate-800/60 bg-slate-900/40">
               {deliveries.map((deliv) => {
                 const isClosed = deliv.sale_closed === 1 && deliv.status !== 'Nao_Fechado' && deliv.status !== 'Cancelado';
+                
+                // Define the best name to display
+                let displayName = deliv.phone;
+                const hasValidCustomerName = deliv.customer_name && deliv.customer_name !== 'Cliente WhatsApp' && !/^\d{10,}$/.test(deliv.customer_name);
+                
+                if (deliv.wa_name) {
+                  displayName = deliv.wa_name;
+                } else if (hasValidCustomerName) {
+                  displayName = deliv.customer_name;
+                }
+
+                const showPhoneBelow = displayName !== deliv.phone;
+                const orderDate = deliv.created_at ? new Date(deliv.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute:'2-digit' }) : '';
 
                 return (
                   <tr key={deliv.id} className="hover:bg-slate-800/40 transition">
@@ -442,11 +455,16 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
                     <td className="px-4 py-3 font-medium text-white">
                       <div className="flex flex-col">
                         <span className="font-semibold text-slate-100">
-                          {deliv.customer_name && deliv.customer_name !== 'Cliente WhatsApp' ? deliv.customer_name : deliv.phone}
+                          {displayName}
                         </span>
-                        {deliv.customer_name && deliv.customer_name !== 'Cliente WhatsApp' && (
+                        {showPhoneBelow && (
                           <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                             <Phone className="w-3 h-3 text-emerald-400" /> {deliv.phone}
+                          </span>
+                        )}
+                        {orderDate && (
+                          <span className="text-[10px] text-slate-500 mt-1">
+                            {orderDate}
                           </span>
                         )}
                       </div>

@@ -57,10 +57,11 @@ function initializeDeliveryEndpoints(app, db) {
       }
 
       const sql = `
-        SELECT *
-        FROM deliveries
+        SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name
+        FROM deliveries d
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net'
         WHERE 1=1 ${timeClause} ${statusClause} ${closedClause} ${searchClause}
-        ORDER BY created_at DESC
+        ORDER BY d.created_at DESC
       `;
 
       const deliveries = db.prepare(sql).all(...params);
