@@ -293,12 +293,12 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
           // Task 2: Medicamento não identificado não deve ser considerado
           // FLEXIBILIZAÇÃO: Não descartamos se a venda foi FECHADA (pois a negociação pode ter ocorrido por áudio/foto)
           // ou se a IA identificou que é uma receita/imagem.
+          const isClosed = result.sale_closed !== false;
+          
           const invalidItems = !itemsStr || itemsStr.trim() === '' || itemsStr.toLowerCase().includes('produtos consultados') || itemsStr.toLowerCase().includes('não identificado') || itemsStr.toLowerCase().includes('não informado');
           if (invalidItems && !isClosed) {
             continue;
           }
-
-          const isClosed = result.sale_closed !== false;
           const finalName = (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName;
           const totalAmount = parseFloat(result.total_amount) || 0;
           const address = result.delivery_address || (result.is_delivery ? 'Endereço a confirmar' : 'Balcão / Loja');
