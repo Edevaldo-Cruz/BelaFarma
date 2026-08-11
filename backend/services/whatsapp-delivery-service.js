@@ -346,6 +346,9 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
         stats.errors++;
         console.error(`[DeliveryAIService] ⚠️ Erro ao auditar chat de ${cleanPhone}:`, aiErr.message);
       }
+      
+      // Delay de 3 segundos para evitar 429 Too Many Requests (Gemini/OpenAI)
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     console.log(`[DeliveryAIService] ✅ Auditoria concluída. Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount} (R$ ${stats.unclosedSalesAmount.toFixed(2)})`);
