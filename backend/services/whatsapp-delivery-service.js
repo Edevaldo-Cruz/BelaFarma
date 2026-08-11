@@ -44,7 +44,7 @@ Determine 2 pontos cruciais:
    - "customer_name": Nome do cliente (se mencionado) ou "Cliente".
    - "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
    - "delivery_address": Endereço de entrega (se informado) ou null.
-   - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados. IMPORTANTE: Se o cliente não mencionou nomes explícitos de medicamentos/produtos, responda com "". Não invente nomes.
+   - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados. IMPORTANTE: Se a conversa mencionar ou indicar o envio de uma foto, receita ou áudio (sem texto claro do nome), escreva "Receita / Imagem". Deixe vazio ("") APENAS se for uma conversa sem menção a produtos/receitas (ex: só "Bom dia").
    - "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
    - "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
    - "status": 
@@ -281,7 +281,10 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
           const itemsStr = result.items || '';
           
           // Task 2: Medicamento não identificado não deve ser considerado
-          if (!itemsStr || itemsStr.trim() === '' || itemsStr.toLowerCase().includes('produtos consultados') || itemsStr.toLowerCase().includes('não identificado') || itemsStr.toLowerCase().includes('não informado')) {
+          // FLEXIBILIZAÇÃO: Não descartamos se a venda foi FECHADA (pois a negociação pode ter ocorrido por áudio/foto)
+          // ou se a IA identificou que é uma receita/imagem.
+          const invalidItems = !itemsStr || itemsStr.trim() === '' || itemsStr.toLowerCase().includes('produtos consultados') || itemsStr.toLowerCase().includes('não identificado') || itemsStr.toLowerCase().includes('não informado');
+          if (invalidItems && !isClosed) {
             continue;
           }
 
