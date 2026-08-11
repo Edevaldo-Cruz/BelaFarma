@@ -44,7 +44,7 @@ Determine 2 pontos cruciais:
    - "customer_name": Nome do cliente (se mencionado) ou "Cliente".
    - "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
    - "delivery_address": Endereço de entrega (se informado) ou null.
-   - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados.
+   - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados. IMPORTANTE: Se o cliente não mencionou nomes explícitos de medicamentos/produtos, responda com "". Não invente nomes.
    - "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
    - "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
    - "status": 
@@ -248,11 +248,17 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
         const result = parseJsonFromAiResponse(aiResponseText);
 
         if (result && (result.total_amount > 0 || result.items || result.delivery_address)) {
+          const itemsStr = result.items || '';
+          
+          // Task 2: Medicamento não identificado não deve ser considerado
+          if (!itemsStr || itemsStr.trim() === '' || itemsStr.toLowerCase().includes('produtos consultados') || itemsStr.toLowerCase().includes('não identificado')) {
+            continue;
+          }
+
           const isClosed = result.sale_closed !== false;
           const finalName = (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName;
           const totalAmount = parseFloat(result.total_amount) || 0;
           const address = result.delivery_address || (result.is_delivery ? 'Endereço a confirmar' : 'Balcão / Loja');
-          const itemsStr = result.items || 'Produtos consultados';
           const paymentMethod = result.payment_method || 'A combinar';
           
           let status = result.status;
@@ -263,6 +269,17 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
           const unclosedReason = !isClosed ? (result.unclosed_reason || 'Sem Resposta do Cliente') : null;
           const notes = result.notes || '';
 
+          // Task 3: Não agrupar de 12 em 12 horas. Cada novo avanço da conversa é um novo pedido.
+          // Só ignoramos se a última mensagem da conversa for EXATAMENTE a mesma já salva (evita loop da varredura de 30min).
+          const existing = db.prepare(`
+            SELECT id FROM deliveries WHERE phone = ? AND last_message_id = ? LIMIT 1
+          `).get(cleanPhone, lastMsgId);
+
+          if (existing) {
+            // O chat não avançou desde a última varredura. Ignorar para não criar cópia idêntica.
+            continue;
+          }
+
           if (isClosed) {
             stats.closedSalesCount++;
             stats.closedSalesAmount += totalAmount;
@@ -271,67 +288,27 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
             stats.unclosedSalesAmount += totalAmount;
           }
 
-          // Checar se já existe registro recente deste telefone no banco (nas últimas 12h)
-          // Isso evita sobrescrever um pedido de dias atrás caso o cliente volte a comprar hoje
-          const existing = db.prepare(`
-            SELECT id, status, total_amount, sale_closed
-            FROM deliveries
-            WHERE phone = ? AND created_at >= datetime('now', '-12 hours')
-            ORDER BY created_at DESC
-            LIMIT 1
-          `).get(cleanPhone);
-
-          if (existing) {
-            db.prepare(`
-              UPDATE deliveries
-              SET customer_name = ?,
-                  delivery_address = ?,
-                  items = ?,
-                  total_amount = ?,
-                  payment_method = ?,
-                  status = ?,
-                  sale_closed = ?,
-                  unclosed_reason = ?,
-                  last_message_id = ?,
-                  notes = ?,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE id = ?
-            `).run(
-              finalName,
-              address,
-              itemsStr,
-              totalAmount > 0 ? totalAmount : existing.total_amount,
-              paymentMethod,
-              status,
-              isClosed ? 1 : 0,
-              unclosedReason,
-              lastMsgId,
-              notes,
-              existing.id
-            );
-          } else {
-            const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-            db.prepare(`
-              INSERT INTO deliveries (
-                id, phone, customer_name, delivery_address, items,
-                total_amount, payment_method, status, sale_closed, unclosed_reason,
-                last_message_id, notes
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              deliveryId,
-              cleanPhone,
-              finalName,
-              address,
-              itemsStr,
-              totalAmount,
-              paymentMethod,
-              status,
-              isClosed ? 1 : 0,
-              unclosedReason,
-              lastMsgId,
-              notes
-            );
-          }
+          const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          db.prepare(`
+            INSERT INTO deliveries (
+              id, phone, customer_name, delivery_address, items,
+              total_amount, payment_method, status, sale_closed, unclosed_reason,
+              last_message_id, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            deliveryId,
+            cleanPhone,
+            finalName,
+            address,
+            itemsStr,
+            totalAmount,
+            paymentMethod,
+            status,
+            isClosed ? 1 : 0,
+            unclosedReason,
+            lastMsgId,
+            notes
+          );
         }
       } catch (aiErr) {
         stats.errors++;

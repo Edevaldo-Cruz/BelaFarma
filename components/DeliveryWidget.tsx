@@ -224,7 +224,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
           <div>
             <div className="flex items-center space-x-2">
               <h2 className="text-xl font-bold tracking-tight text-white">
-                Auditoria de Deliveries & Perdas do Mês ({currentMonthName})
+                Auditoria de Pedidos & Perdas do Mês ({currentMonthName})
               </h2>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 <Sparkles className="w-3.5 h-3.5" /> Varredura Auto (30m) 🔄
@@ -283,9 +283,9 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
-          {/* Faturamento em Deliveries */}
+          {/* Faturamento em Pedidos */}
           <div className="bg-slate-900/80 border border-emerald-500/20 rounded-xl p-3.5">
-            <span className="text-[11px] font-semibold uppercase text-emerald-400 tracking-wider">🟢 Faturamento Deliveries</span>
+            <span className="text-[11px] font-semibold uppercase text-emerald-400 tracking-wider">🟢 Faturamento Pedidos</span>
             <div className="text-2xl font-black text-emerald-400 mt-1">
               R$ {metrics.closedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
@@ -322,6 +322,14 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
         {/* Seletor de Período */}
         <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-lg border border-slate-800 w-full sm:w-auto overflow-x-auto">
+          <button
+            onClick={() => setPeriod('today')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
+              period === 'today' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Hoje
+          </button>
           <button
             onClick={() => setPeriod('month')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
@@ -433,10 +441,14 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
                     {/* Cliente */}
                     <td className="px-4 py-3 font-medium text-white">
                       <div className="flex flex-col">
-                        <span className="font-semibold text-slate-100">{deliv.customer_name || 'Cliente WhatsApp'}</span>
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                          <Phone className="w-3 h-3 text-emerald-400" /> {deliv.phone}
+                        <span className="font-semibold text-slate-100">
+                          {deliv.customer_name && deliv.customer_name !== 'Cliente WhatsApp' ? deliv.customer_name : deliv.phone}
                         </span>
+                        {deliv.customer_name && deliv.customer_name !== 'Cliente WhatsApp' && (
+                          <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3 text-emerald-400" /> {deliv.phone}
+                          </span>
+                        )}
                       </div>
                     </td>
 

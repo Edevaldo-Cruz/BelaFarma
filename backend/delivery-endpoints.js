@@ -23,7 +23,7 @@ function initializeDeliveryEndpoints(app, db) {
         timeClause = "AND (strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') OR strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now'))";
       } else if (period === 'prev_month') {
         // Mês anterior
-        timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', '-1 month', 'localtime')";
+        timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')";
       } else if (period && period.match(/^\d{4}-\d{2}$/)) {
         // Mês específico YYYY-MM (ex: 2026-07)
         timeClause = `AND strftime('%Y-%m', created_at, 'localtime') = '${period}'`;
