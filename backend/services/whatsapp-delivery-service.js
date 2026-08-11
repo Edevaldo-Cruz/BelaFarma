@@ -101,6 +101,30 @@ async function syncMessagesFromEvolution(db) {
       return jid && !jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes(':');
     }).slice(0, 150);
 
+    // Salvar contatos cacheados para recuperar nomes
+    try {
+      const insertContact = db.prepare(`
+        INSERT INTO whatsapp_contacts (id, name, pushName, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET 
+          name = excluded.name,
+          pushName = excluded.pushName,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+      db.transaction((chats) => {
+        for (const c of chats) {
+          const jid = c.id || c.remoteJid;
+          const name = c.name || (c.contact && c.contact.name) || '';
+          const pushName = c.pushName || (c.contact && c.contact.pushName) || '';
+          if (name || pushName) {
+            insertContact.run(jid, name, pushName);
+          }
+        }
+      })(individualChats);
+    } catch (err) {
+      console.warn('[DeliveryAIService] ⚠️ Erro ao salvar cache de contatos:', err.message);
+    }
+
     let syncedCount = 0;
 
     for (const chat of individualChats) {
@@ -209,6 +233,12 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
         const cust = db.prepare('SELECT name FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
         if (cust && cust.name && cust.name.trim() !== '') {
           customerName = cust.name;
+        } else {
+          // Fallback to whatsapp_contacts cache
+          const waContact = db.prepare('SELECT name, pushName FROM whatsapp_contacts WHERE id = ?').get(chat.phone + '@s.whatsapp.net');
+          if (waContact) {
+            customerName = waContact.name || waContact.pushName || 'Cliente WhatsApp';
+          }
         }
       } catch (e) { /* ignora */ }
 
@@ -251,7 +281,7 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
           const itemsStr = result.items || '';
           
           // Task 2: Medicamento não identificado não deve ser considerado
-          if (!itemsStr || itemsStr.trim() === '' || itemsStr.toLowerCase().includes('produtos consultados') || itemsStr.toLowerCase().includes('não identificado')) {
+          if (!itemsStr || itemsStr.trim() === '' || itemsStr.toLowerCase().includes('produtos consultados') || itemsStr.toLowerCase().includes('não identificado') || itemsStr.toLowerCase().includes('não informado')) {
             continue;
           }
 
