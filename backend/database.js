@@ -1267,7 +1267,8 @@ try {
     console.log('✅ CRM WhatsApp: Tabela whatsapp_messages atualizada com rawMessage!');
 
     // Tabela para armazenar os pedidos de entrega (Deliveries) e orçamentos não fechados identificados via IA
-    db.exec(`      // Evolution API WhatsApp Contacts Cache
+    db.exec(`
+      -- Evolution API WhatsApp Contacts Cache
       CREATE TABLE IF NOT EXISTS whatsapp_contacts (
         id TEXT PRIMARY KEY,
         name TEXT,
