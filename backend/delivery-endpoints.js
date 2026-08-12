@@ -249,6 +249,46 @@ function initializeDeliveryEndpoints(app, db) {
     }
   });
 
+  // GET /api/deliveries/chat-history/:phone - Buscar histórico recente de mensagens do WhatsApp
+  app.get('/api/deliveries/chat-history/:phone', (req, res) => {
+    try {
+      const { phone } = req.params;
+      const cleanPhone = phone.replace(/\D/g, '');
+
+      const messages = db.prepare(`
+        SELECT * FROM (
+          SELECT id, fromMe, messageText, timestamp
+          FROM whatsapp_messages
+          WHERE phone = ? OR phone = ?
+          ORDER BY timestamp DESC
+          LIMIT 30
+        )
+        ORDER BY timestamp ASC
+      `).all(cleanPhone, phone);
+
+      const cust = db.prepare('SELECT name FROM customers WHERE phone LIKE ? OR phone = ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`, cleanPhone);
+      const waContact = db.prepare('SELECT name, pushName FROM whatsapp_contacts WHERE id = ? OR id = ? LIMIT 1').get(cleanPhone, phone + '@s.whatsapp.net');
+      const senderName = cust?.name || waContact?.pushName || waContact?.name || 'Cliente WhatsApp';
+
+      const formatted = messages.map(m => ({
+        id: m.id,
+        fromMe: m.fromMe === 1,
+        sender: m.fromMe === 1 ? 'Atendente BelaFarma' : senderName,
+        text: m.messageText,
+        time: new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }));
+
+      res.json({
+        success: true,
+        count: formatted.length,
+        messages: formatted
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao buscar histórico de mensagens:', err);
+      res.status(500).json({ error: 'Erro ao carregar histórico de mensagens.', details: err.message });
+    }
+  });
+
   // POST /api/deliveries/:id/submit-review - Submeter formulário de revisão de atendimento
   app.post('/api/deliveries/:id/submit-review', (req, res) => {
     try {

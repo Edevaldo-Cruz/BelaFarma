@@ -630,8 +630,53 @@ async function syncAndEnqueueChats(db, options = {}) {
   }
 }
 
+const DELIVERY_AUDIT_SYSTEM_PROMPT = `
+Você é o auditor financeiro e de vendas da Drogaria BelaFarma.
+Sua missão é analisar o diálogo no WhatsApp entre o Cliente e a Farmácia e classificar a conversa:
+
+Determine os detalhes do atendimento e identifique individualmente CADA produto cotado/pedido:
+
+1. "customer_name": Nome do cliente (se mencionado) ou "Cliente".
+2. "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
+3. "delivery_address": Endereço de entrega (se informado) ou null.
+4. "items": Resumo em texto dos produtos (ex: "2x Dipirona 500mg, 1x Dorflex").
+5. "products_identified": Lista estruturada com CADA PRODUTO citado:
+   - "name": Nome claro do produto/medicamento.
+   - "quantity": Quantidade mencionada (ex: "1 caixa", "2 un").
+   - "price": Valor unitário ou total estimado em R$ (número).
+   - "status": "accepted" se o cliente comprou/aceitou, ou "rejected" se recusou/não levou.
+   - "rejection_reason": Se "status" for "rejected", motivo provável: "Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", ou "Outro".
+6. "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
+7. "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
+8. "unclosed_reason": Se a venda não foi fechada, motivo geral ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação").
+9. "notes": Resumo direto de 1 linha sobre a negociação.
+
+RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
+{
+  "sale_closed": true ou false,
+  "is_delivery": true ou false,
+  "customer_name": "Nome do cliente",
+  "delivery_address": "Endereço ou null",
+  "items": "Descrição resumida dos produtos",
+  "products_identified": [
+    {
+      "name": "Dipirona 500mg",
+      "quantity": "2 caixas",
+      "price": 12.50,
+      "status": "accepted",
+      "rejection_reason": null
+    }
+  ],
+  "total_amount": 0.00,
+  "payment_method": "Pix | Cartão | Dinheiro | Crediário | Outro",
+  "status": "Pendente | Em Rota | Entregue | Nao_Fechado | Cancelado",
+  "unclosed_reason": "Preço Alto | Falta de Estoque | Sem Resposta do Cliente | Desistiu | Apenas Cotação | null",
+  "notes": "Observação curta sobre o atendimento"
+}
+`;
+
 /**
- * Analisa uma única conversa sob demanda usando a IA quando o atendente clica em Cotação ou Pedido
+ * Analisa uma única conversa WhatsApp usando a IA sob demanda.
  */
 async function analyzeSingleChatWithAI(db, deliveryId, targetType = 'cotacao') {
   const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(deliveryId);
@@ -646,10 +691,20 @@ async function analyzeSingleChatWithAI(db, deliveryId, targetType = 'cotacao') {
       FROM whatsapp_messages
       WHERE phone = ? OR phone = ?
       ORDER BY timestamp DESC
-      LIMIT 50
+      LIMIT 30
     )
     ORDER BY timestamp ASC
   `).all(cleanPhone, delivery.phone);
+
+  const customerName = delivery.customer_name || 'Cliente WhatsApp';
+
+  const chatMessagesForFrontend = messages.map(m => ({
+    id: m.id,
+    fromMe: m.fromMe === 1,
+    sender: m.fromMe === 1 ? 'Atendente BelaFarma' : customerName,
+    text: m.messageText,
+    time: new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }));
 
   if (!messages || messages.length === 0) {
     return {
@@ -659,11 +714,12 @@ async function analyzeSingleChatWithAI(db, deliveryId, targetType = 'cotacao') {
       payment_method: delivery.payment_method || 'PIX',
       unclosed_reason: delivery.unclosed_reason || 'Preço',
       products_discussed: [],
-      notes: delivery.notes || ''
+      products_identified: [],
+      notes: delivery.notes || '',
+      chat_messages: []
     };
   }
 
-  const customerName = delivery.customer_name || 'Cliente WhatsApp';
   const transcript = messages.map(m => {
     const sender = m.fromMe === 1 ? 'Atendente BelaFarma' : customerName;
     const hora = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -677,7 +733,7 @@ Analise a conversa WhatsApp com o cliente (${customerName} - Tel: ${cleanPhone})
 ${transcript}
 --- FIM ---
 
-Analise e extraia os dados em JSON.
+Analise e extraia os dados em JSON conforme instruído.
 `;
 
   try {
@@ -685,19 +741,25 @@ Analise e extraia os dados em JSON.
     const result = parseJsonFromAiResponse(aiResponseText) || {};
 
     const itemsStr = result.items || '';
-    const discussedProducts = Array.isArray(result.products_discussed)
-      ? result.products_discussed
-      : (itemsStr ? [itemsStr] : []);
+    const productsIdentified = Array.isArray(result.products_identified)
+      ? result.products_identified
+      : [];
+
+    const discussedProducts = productsIdentified.length > 0
+      ? productsIdentified.map(p => p.name)
+      : (Array.isArray(result.products_discussed) ? result.products_discussed : (itemsStr ? [itemsStr] : []));
 
     const updatedData = {
       customer_name: (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName,
       delivery_address: result.delivery_address || '',
       items: itemsStr,
       products_discussed: discussedProducts,
+      products_identified: productsIdentified,
       total_amount: parseFloat(result.total_amount) || 0,
       payment_method: result.payment_method || 'PIX',
-      unclosed_reason: result.unclosed_reason || (targetType === 'cotacao' ? 'Preço' : null),
-      notes: result.notes || ''
+      unclosed_reason: result.unclosed_reason || (targetType === 'cotacao' ? 'Preço Alto' : null),
+      notes: result.notes || '',
+      chat_messages: chatMessagesForFrontend
     };
 
     // Atualiza o registro no banco com a análise da IA
@@ -727,8 +789,19 @@ Analise e extraia os dados em JSON.
 
     return updatedData;
   } catch (err) {
-    console.error(`[DeliveryAIService] ⚠️ Erro ao analisar conversa de ${cleanPhone} com IA:`, err.message);
-    throw err;
+    console.error('[DeliveryAIService] Erro ao analisar conversa com IA:', err);
+    return {
+      customer_name: customerName,
+      delivery_address: delivery.delivery_address || '',
+      items: delivery.items || '',
+      total_amount: delivery.total_amount || 0,
+      payment_method: delivery.payment_method || 'PIX',
+      unclosed_reason: delivery.unclosed_reason || 'Preço Alto',
+      products_discussed: [],
+      products_identified: [],
+      notes: delivery.notes || '',
+      chat_messages: chatMessagesForFrontend
+    };
   }
 }
 

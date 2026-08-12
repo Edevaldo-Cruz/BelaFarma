@@ -541,6 +541,22 @@ export interface MessageSchedule {
 
 export type DeliveryStatus = 'Pendente' | 'Em Rota' | 'Entregue' | 'Nao_Fechado' | 'Cancelado';
 
+export interface ProductIdentified {
+  name: string;
+  quantity?: string;
+  price?: number;
+  status: 'accepted' | 'rejected';
+  rejection_reason?: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  fromMe: boolean;
+  sender: string;
+  text: string;
+  time: string;
+}
+
 export interface Delivery {
   id: string;
   phone: string;
@@ -566,6 +582,8 @@ export interface Delivery {
   rejection_details_json?: string;
   reviewed_by?: string;
   reviewed_at?: string;
+  products_identified?: ProductIdentified[];
+  chat_messages?: ChatMessage[];
 }
 
 export interface DeliveryMetrics {
