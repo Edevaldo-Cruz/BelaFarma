@@ -455,6 +455,255 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
   return stats;
 }
 
+/**
+ * Sincroniza conversas da Evolution API e coloca na fila de pendentes (sem chamar a IA em lote)
+ */
+async function syncAndEnqueueChats(db, options = {}) {
+  await syncMessagesFromEvolution(db);
+
+  let minTimestamp = options.minTimestamp;
+  if (!minTimestamp) {
+    if (options.startDate) {
+      minTimestamp = new Date(`${options.startDate}T00:00:00`).getTime();
+    } else {
+      // Padrão: 01 de Agosto de 2026 às 00:00:00
+      minTimestamp = new Date('2026-08-01T00:00:00').getTime();
+    }
+  }
+
+  console.log(`[DeliveryAIService] 📥 Buscando conversas desde ${new Date(minTimestamp).toLocaleDateString('pt-BR')} para enfileirar...`);
+
+  try {
+    const recentChats = db.prepare(`
+      SELECT phone, MAX(timestamp) as lastTimestamp, COUNT(*) as msgCount
+      FROM whatsapp_messages
+      WHERE timestamp >= ? AND phone IS NOT NULL AND phone != ''
+      GROUP BY phone
+      HAVING msgCount >= 1
+      ORDER BY lastTimestamp DESC
+      LIMIT 1000
+    `).all(minTimestamp);
+
+    let enqueuedCount = 0;
+
+    for (const chat of recentChats) {
+      const cleanPhone = formatPhone(chat.phone);
+      if (!cleanPhone) continue;
+
+      const messages = db.prepare(`
+        SELECT * FROM (
+          SELECT id, fromMe, messageText, timestamp
+          FROM whatsapp_messages
+          WHERE phone = ?
+          ORDER BY timestamp DESC
+          LIMIT 50
+        )
+        ORDER BY timestamp ASC
+      `).all(chat.phone);
+
+      if (!messages || messages.length === 0) continue;
+
+      const lastMsg = messages[messages.length - 1];
+      const lastMsgId = lastMsg.id || `msg_${lastMsg.timestamp}`;
+      const lastSnippet = lastMsg.messageText ? lastMsg.messageText.substring(0, 100) : '';
+
+      // Nome do cliente
+      let customerName = 'Cliente WhatsApp';
+      try {
+        const cust = db.prepare('SELECT name FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+        if (cust && cust.name && cust.name.trim() !== '') {
+          customerName = cust.name;
+        } else {
+          const waContact = db.prepare('SELECT name, pushName FROM whatsapp_contacts WHERE id = ?').get(chat.phone + '@s.whatsapp.net');
+          if (waContact) {
+            customerName = waContact.name || waContact.pushName || 'Cliente WhatsApp';
+          }
+        }
+      } catch (e) {}
+
+      // Métricas da conversa
+      const timestamps = messages.map(m => m.timestamp);
+      const chatMinTs = Math.min(...timestamps);
+      const chatMaxTs = Math.max(...timestamps);
+      const chatDurationSeconds = messages.length > 1 ? Math.round((chatMaxTs - chatMinTs) / 1000) : 0;
+      const chatMessageCount = messages.length;
+
+      // Verificação de Novo Cliente
+      let isNewCustomer = 1;
+      try {
+        const phoneSuffix = cleanPhone.length >= 8 ? cleanPhone.slice(-8) : cleanPhone;
+        const hasPriorClosedDelivery = db.prepare(`
+          SELECT id FROM deliveries WHERE phone = ? AND sale_closed = 1 LIMIT 1
+        `).get(cleanPhone);
+
+        const hasCustomerRecord = db.prepare(`
+          SELECT id FROM customers WHERE phone LIKE ? OR phone = ? LIMIT 1
+        `).get(`%${phoneSuffix}%`, cleanPhone);
+
+        const hasPriorSale = db.prepare(`
+          SELECT s.id FROM sales s
+          JOIN customers c ON s.customer_id = c.id
+          WHERE (c.phone LIKE ? OR c.phone = ?) AND s.status = 'Finalizada'
+          LIMIT 1
+        `).get(`%${phoneSuffix}%`, cleanPhone);
+
+        if (hasPriorClosedDelivery || hasCustomerRecord || hasPriorSale) {
+          isNewCustomer = 0;
+        }
+      } catch (errCust) {}
+
+      // Verifica se já existe registro dessa conversa
+      const existing = db.prepare(`
+        SELECT id, review_status FROM deliveries WHERE phone = ? LIMIT 1
+      `).get(cleanPhone);
+
+      if (!existing) {
+        const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        db.prepare(`
+          INSERT INTO deliveries (
+            id, phone, customer_name, delivery_address, items,
+            total_amount, payment_method, status, sale_closed, unclosed_reason,
+            last_message_id, notes,
+            review_status, is_new_customer, chat_duration_seconds, chat_message_count, discussed_products_json,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'unixepoch', 'localtime'))
+        `).run(
+          deliveryId,
+          cleanPhone,
+          customerName,
+          null,
+          lastSnippet,
+          0,
+          null,
+          'Pendente',
+          0,
+          null,
+          lastMsgId,
+          `Última mensagem: "${lastSnippet}"`,
+          'pending_review',
+          isNewCustomer,
+          chatDurationSeconds,
+          chatMessageCount,
+          JSON.stringify([]),
+          Math.round(lastMsg.timestamp / 1000)
+        );
+        enqueuedCount++;
+      }
+    }
+
+    console.log(`[DeliveryAIService] ✅ Enfileiramento concluído. ${enqueuedCount} novas conversas pendentes adicionadas.`);
+    return { enqueuedCount, totalProcessed: recentChats.length };
+  } catch (err) {
+    console.error('[DeliveryAIService] ❌ Erro ao sincronizar e enfileirar conversas:', err);
+    throw err;
+  }
+}
+
+/**
+ * Analisa uma única conversa sob demanda usando a IA quando o atendente clica em Cotação ou Pedido
+ */
+async function analyzeSingleChatWithAI(db, deliveryId, targetType = 'cotacao') {
+  const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(deliveryId);
+  if (!delivery) {
+    throw new Error('Registro de entrega/conversa não encontrado.');
+  }
+
+  const cleanPhone = formatPhone(delivery.phone);
+  const messages = db.prepare(`
+    SELECT * FROM (
+      SELECT id, fromMe, messageText, timestamp
+      FROM whatsapp_messages
+      WHERE phone = ? OR phone = ?
+      ORDER BY timestamp DESC
+      LIMIT 50
+    )
+    ORDER BY timestamp ASC
+  `).all(cleanPhone, delivery.phone);
+
+  if (!messages || messages.length === 0) {
+    return {
+      delivery_address: delivery.delivery_address || '',
+      items: delivery.items || '',
+      total_amount: delivery.total_amount || 0,
+      payment_method: delivery.payment_method || 'PIX',
+      unclosed_reason: delivery.unclosed_reason || 'Preço',
+      products_discussed: [],
+      notes: delivery.notes || ''
+    };
+  }
+
+  const customerName = delivery.customer_name || 'Cliente WhatsApp';
+  const transcript = messages.map(m => {
+    const sender = m.fromMe === 1 ? 'Atendente BelaFarma' : customerName;
+    const hora = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return `[${hora}] ${sender}: ${m.messageText}`;
+  }).join('\n');
+
+  const userPrompt = `
+Analise a conversa WhatsApp com o cliente (${customerName} - Tel: ${cleanPhone}) para o tipo de registro "${targetType.toUpperCase()}":
+
+--- CONVERSA ---
+${transcript}
+--- FIM ---
+
+Analise e extraia os dados em JSON.
+`;
+
+  try {
+    const aiResponseText = await callAI(userPrompt, DELIVERY_AUDIT_SYSTEM_PROMPT, { temperature: 0.2 });
+    const result = parseJsonFromAiResponse(aiResponseText) || {};
+
+    const itemsStr = result.items || '';
+    const discussedProducts = Array.isArray(result.products_discussed)
+      ? result.products_discussed
+      : (itemsStr ? [itemsStr] : []);
+
+    const updatedData = {
+      customer_name: (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName,
+      delivery_address: result.delivery_address || '',
+      items: itemsStr,
+      products_discussed: discussedProducts,
+      total_amount: parseFloat(result.total_amount) || 0,
+      payment_method: result.payment_method || 'PIX',
+      unclosed_reason: result.unclosed_reason || (targetType === 'cotacao' ? 'Preço' : null),
+      notes: result.notes || ''
+    };
+
+    // Atualiza o registro no banco com a análise da IA
+    db.prepare(`
+      UPDATE deliveries SET
+        customer_name = ?,
+        delivery_address = ?,
+        items = ?,
+        total_amount = ?,
+        payment_method = ?,
+        unclosed_reason = ?,
+        notes = ?,
+        discussed_products_json = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      updatedData.customer_name,
+      updatedData.delivery_address,
+      updatedData.items,
+      updatedData.total_amount,
+      updatedData.payment_method,
+      updatedData.unclosed_reason,
+      updatedData.notes,
+      JSON.stringify(updatedData.products_discussed),
+      deliveryId
+    );
+
+    return updatedData;
+  } catch (err) {
+    console.error(`[DeliveryAIService] ⚠️ Erro ao analisar conversa de ${cleanPhone} com IA:`, err.message);
+    throw err;
+  }
+}
+
 module.exports = {
-  scanDeliveriesFromWhatsApp
+  scanDeliveriesFromWhatsApp,
+  syncAndEnqueueChats,
+  analyzeSingleChatWithAI
 };
+

@@ -23,18 +23,20 @@ import { Delivery } from '../types';
 
 export interface PendingReviewModalProps {
   delivery: Delivery | null;
+  initialMode?: 'pedido' | 'cotacao';
   onClose: () => void;
   onSubmitSuccess?: (deliveryId: string) => void;
 }
 
 export const PendingReviewModal: React.FC<PendingReviewModalProps> = ({
   delivery,
+  initialMode = 'pedido',
   onClose,
   onSubmitSuccess
 }) => {
   const { addToast } = useToast();
 
-  const [gerouEntrega, setGerouEntrega] = useState<boolean>(true);
+  const [gerouEntrega, setGerouEntrega] = useState<boolean>(initialMode === 'pedido');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Estados para fluxo "SIM" (Dados da Entrega)
@@ -57,6 +59,8 @@ export const PendingReviewModal: React.FC<PendingReviewModalProps> = ({
 
   useEffect(() => {
     if (!delivery) return;
+
+    setGerouEntrega(initialMode === 'pedido');
 
     // Resetar campos para fluxo SIM
     setDeliveryAddress(delivery.delivery_address || '');

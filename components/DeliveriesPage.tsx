@@ -4,7 +4,7 @@ import { Delivery, View } from '../types';
 
 interface DeliveriesPageProps {
   onNavigate?: (view: View) => void;
-  onSelectPendingReview?: (delivery: Delivery) => void;
+  onSelectPendingReview?: (delivery: Delivery, mode?: 'pedido' | 'cotacao') => void;
   reviewedDeliveryId?: string | null;
 }
 

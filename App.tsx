@@ -118,6 +118,7 @@ const App: React.FC = () => {
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
   const [selectedPendingReview, setSelectedPendingReview] = useState<Delivery | null>(null);
+  const [pendingReviewMode, setPendingReviewMode] = useState<'pedido' | 'cotacao'>('pedido');
   const [lastReviewedDeliveryId, setLastReviewedDeliveryId] = useState<string | null>(null);
 
   const handleReviewSubmitted = (deliveryId?: string) => {
@@ -1047,7 +1048,8 @@ const App: React.FC = () => {
               {currentView === 'deliveries' && (
                 <DeliveriesPage 
                   onNavigate={handleNavigate} 
-                  onSelectPendingReview={(delivery) => {
+                  onSelectPendingReview={(delivery, mode = 'pedido') => {
+                    setPendingReviewMode(mode);
                     setSelectedPendingReview(delivery);
                   }}
                   reviewedDeliveryId={lastReviewedDeliveryId}
@@ -1138,6 +1140,7 @@ const App: React.FC = () => {
       {selectedPendingReview && (
         <PendingReviewModal
           delivery={selectedPendingReview}
+          initialMode={pendingReviewMode}
           onClose={() => setSelectedPendingReview(null)}
           onSubmitSuccess={handleReviewSubmitted}
         />

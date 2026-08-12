@@ -1,7 +1,68 @@
 const express = require('express');
-const { scanDeliveriesFromWhatsApp } = require('./services/whatsapp-delivery-service');
+const {
+  scanDeliveriesFromWhatsApp,
+  syncAndEnqueueChats,
+  analyzeSingleChatWithAI
+} = require('./services/whatsapp-delivery-service');
 
 function initializeDeliveryEndpoints(app, db) {
+  // POST /api/deliveries/sync-chats - Sincronizar conversas retroativas (ex: desde 01/08/2026) e colocar na fila de pendentes
+  app.post('/api/deliveries/sync-chats', async (req, res) => {
+    try {
+      const { startDate = '2026-08-01' } = req.body;
+      const result = await syncAndEnqueueChats(db, { startDate });
+      res.json({
+        success: true,
+        message: `Sincronização concluída. ${result.enqueuedCount} novas conversas pendentes adicionadas.`,
+        enqueuedCount: result.enqueuedCount,
+        totalProcessed: result.totalProcessed
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao sincronizar conversas:', err);
+      res.status(500).json({ error: 'Erro ao sincronizar conversas.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/analyze-chat - Analisa conversa com IA sob demanda (ao clicar em Cotação ou Pedido)
+  app.post('/api/deliveries/analyze-chat', async (req, res) => {
+    try {
+      const { id, type = 'cotacao' } = req.body;
+      if (!id) {
+        return res.status(400).json({ error: 'O ID da conversa é obrigatório.' });
+      }
+      const result = await analyzeSingleChatWithAI(db, id, type);
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao analisar conversa com IA:', err);
+      res.status(500).json({ error: 'Erro ao analisar conversa com IA.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/dismiss-chat/:id - Marcar conversa como Não Relevante
+  app.post('/api/deliveries/dismiss-chat/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      db.prepare(`
+        UPDATE deliveries SET
+          review_status = 'dismissed',
+          classification_type = 'nao_relevante',
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(id);
+
+      res.json({
+        success: true,
+        message: 'Conversa marcada como Não Relevante e removida da fila.'
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao descartar conversa:', err);
+      res.status(500).json({ error: 'Erro ao descartar conversa.', details: err.message });
+    }
+  });
+
   // GET /api/deliveries - Lista de entregas/vendas e métricas consolidadas
   app.get('/api/deliveries', (req, res) => {
     try {
@@ -101,21 +162,22 @@ function initializeDeliveryEndpoints(app, db) {
           metrics.byUnclosedReason[reason] = (metrics.byUnclosedReason[reason] || 0) + 1;
         }
 
-        const st = d.status || (isClosed ? 'Pendente' : 'Nao_Fechado');
-        metrics.byStatus[st] = (metrics.byStatus[st] || 0) + 1;
+        if (d.status) {
+          metrics.byStatus[d.status] = (metrics.byStatus[d.status] || 0) + 1;
+        }
 
         if (d.payment_method) {
-          const pm = d.payment_method;
-          metrics.byPaymentMethod[pm] = (metrics.byPaymentMethod[pm] || 0) + 1;
+          metrics.byPaymentMethod[d.payment_method] = (metrics.byPaymentMethod[d.payment_method] || 0) + 1;
         }
       }
 
-      const totalAnalyzed = metrics.closedSalesCount + metrics.unclosedSalesCount;
-      metrics.conversionRate = totalAnalyzed > 0 ? (metrics.closedSalesCount / totalAnalyzed) * 100 : 0;
+      const totalAnalysable = metrics.closedSalesCount + metrics.unclosedSalesCount;
+      metrics.conversionRate = totalAnalysable > 0 ? (metrics.closedSalesCount / totalAnalysable) * 100 : 0;
       metrics.averageTicket = metrics.closedSalesCount > 0 ? (metrics.closedSalesAmount / metrics.closedSalesCount) : 0;
 
       res.json({
         success: true,
+        count: deliveries.length,
         deliveries,
         metrics
       });
@@ -132,7 +194,7 @@ function initializeDeliveryEndpoints(app, db) {
         SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name
         FROM deliveries d
         LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net'
-        WHERE d.review_status = 'pending_review'
+        WHERE d.review_status = 'pending_review' AND (d.classification_type IS NULL OR d.classification_type != 'nao_relevante')
         ORDER BY d.created_at DESC
       `;
       const pendingReviews = db.prepare(sql).all();
@@ -227,6 +289,7 @@ function initializeDeliveryEndpoints(app, db) {
               sale_closed = 1,
               status = 'Pendente',
               review_status = 'reviewed',
+              classification_type = 'pedido',
               reviewed_at = CURRENT_TIMESTAMP,
               reviewed_by = ?,
               customer_name = COALESCE(?, customer_name),
@@ -260,6 +323,7 @@ function initializeDeliveryEndpoints(app, db) {
               sale_closed = 0,
               status = 'Nao_Fechado',
               review_status = 'reviewed',
+              classification_type = 'cotacao',
               rejection_details_json = ?,
               unclosed_reason = ?,
               reviewed_at = CURRENT_TIMESTAMP,

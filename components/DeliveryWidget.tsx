@@ -7,34 +7,38 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
-  Search,
-  Plus,
   Edit2,
-  Trash2,
   Phone,
-  MapPin,
   MessageSquare,
-  X,
-  Save,
-  Filter,
   TrendingUp,
-  AlertCircle,
   Users,
-  Percent,
   XCircle,
-  HelpCircle,
-  Send,
   Calendar,
   Inbox
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  CartesianGrid
+} from 'recharts';
 import { useToast } from './ToastContext';
-import { Delivery, DeliveryMetrics, DeliveryStatus } from '../types';
+import { Delivery, DeliveryMetrics } from '../types';
 
 interface DeliveryWidgetProps {
   onOpenChat?: (phone: string) => void;
-  onSelectPendingReview?: (delivery: Delivery) => void;
+  onSelectPendingReview?: (delivery: Delivery, mode?: 'pedido' | 'cotacao') => void;
   reviewedDeliveryId?: string | null;
 }
+
+const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899'];
 
 export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSelectPendingReview, reviewedDeliveryId }) => {
   const { addToast } = useToast();
@@ -42,7 +46,20 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [pendingReviews, setPendingReviews] = useState<Delivery[]>([]);
   const [loadingPending, setLoadingPending] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'pending_reviews' | 'all_deliveries'>('pending_reviews');
+  const [syncingRetroactive, setSyncingRetroactive] = useState<boolean>(false);
+  const [analyzingChatId, setAnalyzingChatId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'pending_reviews' | 'charts'>('pending_reviews');
+  
+  const [rejectionMetrics, setRejectionMetrics] = useState<{
+    total_rejections: number;
+    by_reason: Record<string, number>;
+    top_products: Array<{ product_name: string; count: number; main_reason: string }>;
+  }>({
+    total_rejections: 0,
+    by_reason: {},
+    top_products: []
+  });
+
   const [metrics, setMetrics] = useState<DeliveryMetrics>({
     totalContacts: 0,
     closedSalesCount: 0,
@@ -57,35 +74,35 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
   });
 
   const [loading, setLoading] = useState<boolean>(true);
-  const [scanning, setScanning] = useState<boolean>(false);
   const [period, setPeriod] = useState<'today' | '7days' | '30days' | 'month' | 'prev_month' | 'all' | string>('month');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [filterClosed, setFilterClosed] = useState<'all' | 'closed' | 'unclosed'>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [editingDelivery, setEditingDelivery] = useState<Partial<Delivery> | null>(null);
 
-  const fetchDeliveries = async () => {
+  const fetchDeliveriesAndMetrics = async () => {
     setLoading(true);
     try {
-      const query = new URLSearchParams({
-        period,
-        status: selectedStatus,
-        filterClosed,
-        search: searchQuery
-      });
-      const res = await fetch(`/api/deliveries?${query.toString()}`);
-      if (!res.ok) throw new Error('Falha ao carregar relatório de entregas e atendimentos.');
-      const data = await res.json();
-      if (data.success) {
-        setDeliveries(data.deliveries || []);
-        if (data.metrics) {
-          setMetrics(data.metrics);
+      const query = new URLSearchParams({ period });
+      const [resDeliv, resRej] = await Promise.all([
+        fetch(`/api/deliveries?${query.toString()}`),
+        fetch('/api/deliveries/rejection-metrics')
+      ]);
+
+      if (resDeliv.ok) {
+        const data = await resDeliv.json();
+        if (data.success) {
+          setDeliveries(data.deliveries || []);
+          if (data.metrics) setMetrics(data.metrics);
         }
       }
+
+      if (resRej.ok) {
+        const dataRej = await resRej.json();
+        setRejectionMetrics({
+          total_rejections: dataRej.total_rejections || 0,
+          by_reason: dataRej.by_reason || {},
+          top_products: dataRej.top_products || []
+        });
+      }
     } catch (err: any) {
-      console.error('[DeliveryWidget] Erro ao carregar:', err);
-      addToast(err.message || 'Erro ao carregar relatório.', 'error');
+      console.error('[DeliveryWidget] Erro ao carregar métricas:', err);
     } finally {
       setLoading(false);
     }
@@ -100,7 +117,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
         setPendingReviews(data.pending_reviews || []);
       }
     } catch (err: any) {
-      console.error('[DeliveryWidget] Erro ao buscar revisões pendentes:', err);
+      console.error('[DeliveryWidget] Erro ao buscar conversas pendentes:', err);
     } finally {
       setLoadingPending(false);
     }
@@ -108,16 +125,15 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
 
   useEffect(() => {
     fetchPendingReviews();
-    const interval = setInterval(fetchPendingReviews, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    fetchDeliveriesAndMetrics();
+  }, [period]);
 
   useEffect(() => {
     const handleReviewSubmittedEvent = (event: any) => {
       const deliveryId = event?.detail?.id;
       if (deliveryId) {
         setPendingReviews(prev => prev.filter(item => String(item.id) !== String(deliveryId)));
-        fetchDeliveries();
+        fetchDeliveriesAndMetrics();
       }
     };
 
@@ -130,208 +146,140 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
   useEffect(() => {
     if (reviewedDeliveryId) {
       setPendingReviews(prev => prev.filter(item => String(item.id) !== String(reviewedDeliveryId)));
-      fetchDeliveries();
+      fetchDeliveriesAndMetrics();
     }
   }, [reviewedDeliveryId]);
 
-  useEffect(() => {
-    fetchDeliveries();
-  }, [period, selectedStatus, filterClosed, searchQuery]);
-
-  // Executar Varredura por IA (do Mês Atual ou Período)
-  const handleTriggerAIScan = async (scanCurrentMonth: boolean = false) => {
-    setScanning(true);
-    const msg = scanCurrentMonth
-      ? '📅 IA analisando TODAS as conversas do MÊS ATUAL...'
-      : '🤖 IA auditando conversas do WhatsApp...';
-    addToast(msg, 'info');
-
+  // Sincronização Retroativa desde 01/08/2026
+  const handleSyncRetroactive = async () => {
+    setSyncingRetroactive(true);
     try {
-      const res = await fetch('/api/deliveries/scan', {
+      const res = await fetch('/api/deliveries/sync-chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scanCurrentMonth,
-          hours: period === 'today' ? 24 : period === '7days' ? 168 : 720
-        })
+        body: JSON.stringify({ startDate: '2026-08-01' })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        const { stats } = data;
-        addToast(
-          `✅ Auditoria do Mês Concluída! Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount}.`,
-          'success'
-        );
-        fetchDeliveries();
+        addToast(`Busca desde 01/08 concluída! ${data.enqueuedCount} conversas adicionadas à fila.`, 'success');
+        fetchPendingReviews();
       } else {
-        throw new Error(data.error || 'Erro ao processar auditoria por IA.');
+        throw new Error(data.error || 'Erro ao sincronizar conversas.');
       }
     } catch (err: any) {
-      console.error('[DeliveryWidget] Erro na varredura:', err);
-      addToast(err.message || 'Falha ao executar auditoria por IA.', 'error');
+      addToast(err.message || 'Erro ao sincronizar conversas retroativas.', 'error');
     } finally {
-      setScanning(false);
+      setSyncingRetroactive(false);
     }
   };
 
-  // Alteração rápida de Status
-  const handleStatusChange = async (deliveryId: string, newStatus: DeliveryStatus) => {
+  // Clique em Cotação ou Pedido (Dispara IA e abre Modal)
+  const handleSelectOption = async (item: Delivery, type: 'cotacao' | 'pedido') => {
+    setAnalyzingChatId(item.id);
     try {
-      const isClosed = (newStatus === 'Pendente' || newStatus === 'Em Rota' || newStatus === 'Entregue') ? 1 : 0;
-      const res = await fetch(`/api/deliveries/${deliveryId}`, {
-        method: 'PUT',
+      const res = await fetch('/api/deliveries/analyze-chat', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus, sale_closed: isClosed })
+        body: JSON.stringify({ id: item.id, type })
       });
+
       const data = await res.json();
-      if (res.ok && data.success) {
-        addToast(`Status do atendimento alterado para ${newStatus}.`, 'success');
-        fetchDeliveries();
-      } else {
-        throw new Error(data.error || 'Erro ao atualizar status.');
+      let updatedItem = { ...item };
+      if (res.ok && data.success && data.data) {
+        updatedItem = { ...item, ...data.data };
+      }
+
+      if (onSelectPendingReview) {
+        onSelectPendingReview(updatedItem, type);
       }
     } catch (err: any) {
-      addToast(err.message || 'Falha ao alterar status.', 'error');
+      console.error('[DeliveryWidget] Erro ao analisar conversa com IA:', err);
+      if (onSelectPendingReview) {
+        onSelectPendingReview(item, type);
+      }
+    } finally {
+      setAnalyzingChatId(null);
     }
   };
 
-  const handleSaveForm = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingDelivery || !editingDelivery.phone) {
-      addToast('Telefone do cliente é obrigatório.', 'warning');
-      return;
-    }
-
+  // Clique em Não Relevante (Descarta conversa)
+  const handleDismissChat = async (id: string) => {
     try {
-      const isEdit = !!editingDelivery.id;
-      const url = isEdit ? `/api/deliveries/${editingDelivery.id}` : '/api/deliveries';
-      const method = isEdit ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingDelivery)
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        addToast(`Atendimento ${isEdit ? 'atualizado' : 'cadastrado'} com sucesso!`, 'success');
-        setIsModalOpen(false);
-        setEditingDelivery(null);
-        fetchDeliveries();
-      } else {
-        throw new Error(data.error || 'Erro ao salvar.');
+      const res = await fetch(`/api/deliveries/dismiss-chat/${id}`, { method: 'POST' });
+      if (res.ok) {
+        setPendingReviews(prev => prev.filter(item => String(item.id) !== String(id)));
+        addToast('Conversa marcada como Não Relevante e descartada.', 'info');
       }
-    } catch (err: any) {
-      addToast(err.message || 'Erro ao salvar.', 'error');
+    } catch (err) {
+      console.error('Erro ao descartar conversa:', err);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Tem certeza que deseja remover este registro?')) return;
-    try {
-      const res = await fetch(`/api/deliveries/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast('Registro excluído.', 'info');
-        fetchDeliveries();
-      } else {
-        throw new Error(data.error || 'Erro ao excluir.');
-      }
-    } catch (err: any) {
-      addToast(err.message || 'Erro ao excluir registro.', 'error');
-    }
-  };
+  // Dados formatados para gráficos de Recharts
+  const conversionFunnelData = [
+    { name: 'Cotações Perdidas', valor: metrics.unclosedSalesCount, fill: '#ef4444' },
+    { name: 'Pedidos Fechados', valor: metrics.closedSalesCount, fill: '#10b981' }
+  ];
 
-  const getStatusBadge = (status: DeliveryStatus) => {
-    switch (status) {
-      case 'Pendente':
-        return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
-      case 'Em Rota':
-        return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
-      case 'Entregue':
-        return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
-      case 'Nao_Fechado':
-        return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
-      case 'Cancelado':
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
-      default:
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
-    }
-  };
+  const reasonChartData = Object.entries(rejectionMetrics.by_reason).map(([reason, count]) => ({
+    name: reason,
+    quantidade: count
+  }));
 
-  const currentMonthName = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const topProductsChartData = rejectionMetrics.top_products.slice(0, 10).map(p => ({
+    name: p.product_name.length > 25 ? p.product_name.substring(0, 25) + '...' : p.product_name,
+    recusas: p.count,
+    motivo: p.main_reason
+  }));
+
+  const customerTypeData = [
+    { name: 'Novos Clientes', valor: deliveries.filter(d => d.is_new_customer === 1).length, fill: '#3b82f6' },
+    { name: 'Recorrentes', valor: deliveries.filter(d => d.is_new_customer !== 1).length, fill: '#8b5cf6' }
+  ];
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6 text-slate-100">
-      {/* ── HEADER DA SEÇÃO ───────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div className="flex items-center space-x-3">
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400">
-            <Truck className="w-6 h-6 animate-pulse" />
+    <div className="space-y-6">
+      {/* ── CABEÇALHO DO WIDGET ────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-5 rounded-3xl shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+            <MessageSquare className="w-6 h-6 text-amber-400" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-xl font-bold tracking-tight text-white">
-                Auditoria de Pedidos & Perdas do Mês ({currentMonthName})
-              </h2>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                <Sparkles className="w-3.5 h-3.5" /> Varredura Auto (30m) 🔄
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Auditoria completa de conversas do mês atual: Entregas/Vendas Fechadas (R$) vs Orçamentos Não Fechados
+            <h2 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+              Auditoria Interativa & Notificações do WhatsApp
+            </h2>
+            <p className="text-xs text-slate-400">
+              Classifique as conversas da farmácia para alimentar os gráficos de conversão e perdas.
             </p>
           </div>
         </div>
 
-        {/* Botões de Ação */}
-        <div className="flex flex-wrap items-center space-x-2 w-full md:w-auto justify-end">
-          <button
-            onClick={() => handleTriggerAIScan(true)}
-            disabled={scanning}
-            className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium rounded-xl text-xs transition shadow-lg shadow-emerald-900/30 disabled:opacity-50"
-          >
-            <Calendar className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-            <span>{scanning ? 'Analisando Mês...' : 'Varredura Mês Atual (IA)'}</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setEditingDelivery({
-                phone: '',
-                customer_name: '',
-                delivery_address: '',
-                items: '',
-                total_amount: 0,
-                payment_method: 'Pix',
-                status: 'Pendente',
-                sale_closed: 1
-              });
-              setIsModalOpen(true);
-            }}
-            className="flex items-center space-x-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium rounded-xl text-xs transition"
-          >
-            <Plus className="w-4 h-4 text-emerald-400" />
-            <span>Novo Atendimento</span>
-          </button>
-        </div>
+        {/* Botão de Busca Retroativa desde 01/08 */}
+        <button
+          onClick={handleSyncRetroactive}
+          disabled={syncingRetroactive}
+          className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-2xl shadow-lg shadow-blue-600/20 flex items-center gap-2 transition cursor-pointer disabled:opacity-60 shrink-0"
+        >
+          <RefreshCw className={`w-4 h-4 ${syncingRetroactive ? 'animate-spin' : ''}`} />
+          <span>Sincronizar (Desde 01/08)</span>
+        </button>
       </div>
 
-      {/* ── SUB-TABS NAVEGAÇÃO ENTRE REVISÕES PENDENTES E HISTÓRICO ────────────── */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-4">
+      {/* ── SUB-TABS NAVEGAÇÃO ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
         <button
           onClick={() => setActiveTab('pending_reviews')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition cursor-pointer ${
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer ${
             activeTab === 'pending_reviews'
-              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
-              : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
           }`}
         >
           <Inbox className="w-4 h-4" />
-          <span>📥 Revisões Pendentes</span>
+          <span>📥 Conversas Pendentes</span>
           {pendingReviews.length > 0 && (
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
               activeTab === 'pending_reviews'
                 ? 'bg-slate-950 text-amber-400'
                 : 'bg-amber-500 text-slate-950 animate-pulse'
@@ -342,29 +290,29 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
         </button>
 
         <button
-          onClick={() => setActiveTab('all_deliveries')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition cursor-pointer ${
-            activeTab === 'all_deliveries'
-              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-              : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+          onClick={() => setActiveTab('charts')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer ${
+            activeTab === 'charts'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
           }`}
         >
-          <Truck className="w-4 h-4" />
-          <span>🛵 Histórico & Auditoria</span>
+          <TrendingUp className="w-4 h-4" />
+          <span>📊 Gráficos & Indicadores Estratégicos</span>
         </button>
       </div>
 
-      {/* ── ABA 1: REVISÕES PENDENTES ─────────────────────────────────────────── */}
+      {/* ── ABA 1: FILA DE NOTIFICAÇÃO DE CONVERSAS PENDENTES ──────────────────── */}
       {activeTab === 'pending_reviews' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-xs md:text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" /> Conversas Ociosas Aguardando Auditoria Manual ({pendingReviews.length})
+              <Sparkles className="w-4 h-4 text-amber-400" /> Fila de Notificação por Conversa ({pendingReviews.length})
             </h3>
             <button
               onClick={fetchPendingReviews}
               disabled={loadingPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingPending ? 'animate-spin' : ''}`} />
               <span>Atualizar Fila</span>
@@ -372,16 +320,16 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
           </div>
 
           {loadingPending ? (
-            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 rounded-xl border border-slate-800">
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 rounded-2xl border border-slate-800">
               <RefreshCw className="w-6 h-6 animate-spin text-amber-500" />
-              <p className="text-sm">Carregando fila de revisões pendentes...</p>
+              <p className="text-sm">Buscando conversas pendentes do WhatsApp...</p>
             </div>
           ) : pendingReviews.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 rounded-xl border border-slate-800">
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 rounded-2xl border border-slate-800">
               <CheckCircle className="w-10 h-10 text-emerald-500/80" />
-              <p className="text-base font-bold text-slate-200">Nenhuma revisão pendente no momento!</p>
+              <p className="text-base font-bold text-slate-200">Tudo em dia! Nenhuma conversa pendente no momento.</p>
               <p className="text-xs text-slate-400 max-w-md">
-                Todas as conversas ociosas do WhatsApp foram auditadas ou não há atendimentos aguardando justificativa na fila.
+                Clique no botão <strong className="text-blue-400">"Sincronizar (Desde 01/08)"</strong> acima para trazer o histórico recente de conversas para classificação.
               </p>
             </div>
           ) : (
@@ -389,39 +337,17 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
               {pendingReviews.map((item) => {
                 const displayName = item.wa_name || (item.customer_name && item.customer_name !== 'Cliente WhatsApp' && !/^\d{10,}$/.test(item.customer_name) ? item.customer_name : item.phone);
                 const isNewCustomer = item.is_new_customer === 1;
+                const isAnalyzing = analyzingChatId === item.id;
                 
-                // Formatação de duração
                 const durationSecs = item.chat_duration_seconds || 0;
                 const durationMins = Math.floor(durationSecs / 60);
                 const durationSecsRemainder = durationSecs % 60;
-                const durationDisplay = durationMins > 0 
-                  ? `${durationMins}m ${durationSecsRemainder}s` 
-                  : `${durationSecs}s`;
-
-                // Parsing de produtos discutidos
-                let discussedProducts: string[] = [];
-                try {
-                  if (item.discussed_products_json) {
-                    const parsed = JSON.parse(item.discussed_products_json);
-                    if (Array.isArray(parsed)) {
-                      discussedProducts = parsed.map(p => typeof p === 'string' ? p : String(p?.name || p?.product_name || p));
-                    } else if (typeof parsed === 'string' && parsed.trim()) {
-                      discussedProducts = [parsed.trim()];
-                    } else if (parsed && typeof parsed === 'object') {
-                      const val = parsed.name || parsed.product_name || String(parsed);
-                      if (val && typeof val === 'string' && val.trim()) {
-                        discussedProducts = [val.trim()];
-                      }
-                    }
-                  }
-                } catch (e) {
-                  console.error('Erro ao parsear produtos discutidos:', e);
-                }
+                const durationDisplay = durationMins > 0 ? `${durationMins}m ${durationSecsRemainder}s` : `${durationSecs}s`;
 
                 return (
                   <div
                     key={item.id}
-                    className="bg-slate-950/70 border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 transition-all hover:translate-y-[-2px]"
+                    className="bg-slate-950/80 border border-amber-500/30 hover:border-amber-500/60 rounded-3xl p-5 shadow-xl flex flex-col justify-between space-y-4 transition-all hover:translate-y-[-2px]"
                   >
                     <div className="space-y-3">
                       {/* Cabeçalho do Cliente */}
@@ -444,17 +370,17 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
                         </span>
                       </div>
 
-                      {/* Métricas Extraídas pela IA */}
+                      {/* Métricas Extraídas */}
                       <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Duração do Chat</span>
+                        <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Duração</span>
                           <span className="text-xs font-bold text-slate-200 flex items-center gap-1 mt-0.5">
                             <Clock className="w-3.5 h-3.5 text-amber-400" />
                             {durationDisplay}
                           </span>
                         </div>
 
-                        <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
+                        <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
                           <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mensagens</span>
                           <span className="text-xs font-bold text-slate-200 flex items-center gap-1 mt-0.5">
                             <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
@@ -463,52 +389,61 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
                         </div>
                       </div>
 
-                      {/* Produtos Discutidos */}
-                      <div className="space-y-1.5 pt-1">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Produtos Discutidos
-                        </span>
-                        {discussedProducts.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto custom-scrollbar">
-                            {discussedProducts.map((prod, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-0.5 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium truncate max-w-[200px]"
-                                title={prod}
-                              >
-                                💊 {prod}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs italic text-slate-500">Nenhum produto identificado</p>
-                        )}
-                      </div>
+                      {/* Prévia da última mensagem */}
+                      {item.items && (
+                        <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-0.5">Última mensagem</span>
+                          <p className="text-xs text-slate-300 italic line-clamp-2">"{item.items}"</p>
+                        </div>
+                      )}
 
                       {item.created_at && (
                         <p className="text-[11px] text-slate-500">
-                          Iniciado em: {new Date(item.created_at).toLocaleString('pt-BR')}
+                          Recebido em: {new Date(item.created_at).toLocaleString('pt-BR')}
                         </p>
                       )}
                     </div>
 
-                    {/* Botão de Ação do Atendente */}
-                    <div className="pt-2 border-t border-slate-800/80 flex items-center gap-2">
-                      <button
-                        onClick={() => onSelectPendingReview?.(item)}
-                        className="flex-1 py-2.5 px-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                        📝 Revisar Atendimento
-                      </button>
-                      {onOpenChat && (
-                        <button
-                          onClick={() => onOpenChat(item.phone)}
-                          className="p-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 rounded-xl text-xs transition cursor-pointer"
-                          title="Abrir chat no WhatsApp"
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                        </button>
+                    {/* ── AS 3 OPÇÕES DE CLASSIFICAÇÃO PARA O ATENDENTE ─────────────── */}
+                    <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
+                        Qual o tipo deste atendimento?
+                      </span>
+
+                      {isAnalyzing ? (
+                        <div className="py-3 bg-slate-900 rounded-2xl flex items-center justify-center gap-2 text-amber-400 text-xs font-bold">
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>IA Analisando conversa...</span>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {/* 1. COTAÇÃO */}
+                          <button
+                            onClick={() => handleSelectOption(item, 'cotacao')}
+                            className="py-2 px-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                            title="Analisar como Cotação / Orçamento"
+                          >
+                            <span>💬 Cotação</span>
+                          </button>
+
+                          {/* 2. PEDIDO */}
+                          <button
+                            onClick={() => handleSelectOption(item, 'pedido')}
+                            className="py-2 px-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                            title="Analisar como Pedido de Entrega"
+                          >
+                            <span>🛵 Pedido</span>
+                          </button>
+
+                          {/* 3. NÃO RELEVANTE */}
+                          <button
+                            onClick={() => handleDismissChat(item.id)}
+                            className="py-2 px-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer hover:text-rose-300"
+                            title="Desconsiderar para métricas"
+                          >
+                            <span>🚫 Ignorar</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -519,489 +454,220 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
         </div>
       )}
 
-      {/* ── ABA 2: HISTÓRICO COMPLETO E AUDITORIA MENSAL ───────────────────────── */}
-      {activeTab === 'all_deliveries' && (
-        <>
-          {/* ── BANNER RESUMO DO MÊS ATUAL (EXIGIDO PELO USUÁRIO) ────────────────────── */}
-      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-emerald-500/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-400" /> Resumo Consolidado do Mês Atual ({currentMonthName})
-          </span>
-          <span className="text-[11px] text-slate-400 font-medium">
-            Total de conversas analisadas: <strong className="text-white">{metrics.totalContacts}</strong>
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
-          {/* Faturamento em Pedidos */}
-          <div className="bg-slate-900/80 border border-emerald-500/20 rounded-xl p-3.5">
-            <span className="text-[11px] font-semibold uppercase text-emerald-400 tracking-wider">🟢 Faturamento Pedidos</span>
-            <div className="text-2xl font-black text-emerald-400 mt-1">
-              R$ {metrics.closedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              {metrics.closedSalesCount} vendas fechadas no mês
-            </div>
-          </div>
-
-          {/* Valor Perdido no Mês */}
-          <div className="bg-slate-900/80 border border-rose-500/20 rounded-xl p-3.5">
-            <span className="text-[11px] font-semibold uppercase text-rose-400 tracking-wider">🔴 Total Perdido / Não Fechado</span>
-            <div className="text-2xl font-black text-rose-400 mt-1">
-              R$ {metrics.unclosedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              {metrics.unclosedSalesCount} atendimentos sem conversão
-            </div>
-          </div>
-
-          {/* Taxa de Conversão do Mês */}
-          <div className="bg-slate-900/80 border border-blue-500/20 rounded-xl p-3.5">
-            <span className="text-[11px] font-semibold uppercase text-blue-400 tracking-wider">📊 Taxa de Conversão do Mês</span>
-            <div className="text-2xl font-black text-blue-300 mt-1">
-              {metrics.conversionRate.toFixed(1)}%
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              Ticket Médio: R$ {metrics.averageTicket.toFixed(2)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── BARRA DE FILTROS E PESQUISA ────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
-        {/* Seletor de Período */}
-        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-lg border border-slate-800 w-full sm:w-auto overflow-x-auto">
-          <button
-            onClick={() => setPeriod('today')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
-              period === 'today' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Hoje
-          </button>
-          <button
-            onClick={() => setPeriod('month')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
-              period === 'month' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Este Mês
-          </button>
-          <button
-            onClick={() => setPeriod('prev_month')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
-              period === 'prev_month' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Mês Anterior
-          </button>
-          <button
-            onClick={() => setPeriod('30days')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
-              period === '30days' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            30 Dias
-          </button>
-          <button
-            onClick={() => setPeriod('all')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
-              period === 'all' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Histórico Completo
-          </button>
-        </div>
-
-        {/* Filtro por Fechamento */}
-        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-lg border border-slate-800 w-full sm:w-auto">
-          <button
-            onClick={() => setFilterClosed('all')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-              filterClosed === 'all' ? 'bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Todos ({metrics.totalContacts})
-          </button>
-          <button
-            onClick={() => setFilterClosed('closed')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-              filterClosed === 'closed' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            ✅ Fechadas ({metrics.closedSalesCount})
-          </button>
-          <button
-            onClick={() => setFilterClosed('unclosed')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-              filterClosed === 'unclosed' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            ❌ Não Fechadas ({metrics.unclosedSalesCount})
-          </button>
-        </div>
-
-        {/* Campo de Busca */}
-        <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Buscar por cliente, tel ou produto..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs pl-9 pr-3 py-1.5 rounded-lg focus:outline-none focus:border-emerald-500 placeholder-slate-500"
-          />
-        </div>
-      </div>
-
-      {/* ── TABELA DE ATENDIMENTOS E DELIVERIES ────────────────────────────────── */}
-      <div className="overflow-x-auto rounded-xl border border-slate-800">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
-            <RefreshCw className="w-6 h-6 animate-spin text-emerald-500" />
-            <p className="text-sm">Carregando relatório do mês...</p>
-          </div>
-        ) : deliveries.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
-            <Truck className="w-10 h-10 text-slate-600" />
-            <p className="text-base font-semibold text-slate-300">Nenhum atendimento registrado no filtro selecionado</p>
-            <p className="text-xs text-slate-500 max-w-md">
-              Clique em <strong className="text-emerald-400">Varredura Mês Atual (IA)</strong> para varrer todas as conversas deste mês e quantificar entregas e perdas.
-            </p>
-          </div>
-        ) : (
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-950/80 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
-              <tr>
-                <th className="px-4 py-3">Cliente / Contato</th>
-                <th className="px-4 py-3">Endereço / Modalidade</th>
-                <th className="px-4 py-3">Produtos Consultados / Comprados</th>
-                <th className="px-4 py-3 text-right">Valor R$</th>
-                <th className="px-4 py-3">Status / Motivo</th>
-                <th className="px-4 py-3 text-center">Ações / Recuperação</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 bg-slate-900/40">
-              {deliveries.map((deliv) => {
-                const isClosed = deliv.sale_closed === 1 && deliv.status !== 'Nao_Fechado' && deliv.status !== 'Cancelado';
-                
-                // Define the best name to display
-                let displayName = deliv.phone;
-                const hasValidCustomerName = deliv.customer_name && deliv.customer_name !== 'Cliente WhatsApp' && !/^\d{10,}$/.test(deliv.customer_name);
-                
-                if (deliv.wa_name) {
-                  displayName = deliv.wa_name;
-                } else if (hasValidCustomerName) {
-                  displayName = deliv.customer_name;
-                }
-
-                const showPhoneBelow = displayName !== deliv.phone;
-                const orderDate = deliv.created_at ? new Date(deliv.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute:'2-digit' }) : '';
-
-                return (
-                  <tr key={deliv.id} className="hover:bg-slate-800/40 transition">
-                    {/* Cliente */}
-                    <td className="px-4 py-3 font-medium text-white">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-slate-100">
-                          {displayName}
-                        </span>
-                        {showPhoneBelow && (
-                          <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                            <Phone className="w-3 h-3 text-emerald-400" /> {deliv.phone}
-                          </span>
-                        )}
-                        {orderDate && (
-                          <span className="text-[10px] text-slate-500 mt-1">
-                            {orderDate}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Endereço */}
-                    <td className="px-4 py-3 max-w-xs text-slate-300">
-                      <div className="flex items-start gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-rose-400 mt-0.5 flex-shrink-0" />
-                        <span className="line-clamp-2 text-xs">{deliv.delivery_address || 'Atendimento via WhatsApp'}</span>
-                      </div>
-                    </td>
-
-                    {/* Itens */}
-                    <td className="px-4 py-3 max-w-xs text-slate-300">
-                      <div className="line-clamp-2 text-xs text-slate-300 italic">
-                        {deliv.items || 'Medicamentos/Produtos'}
-                      </div>
-                    </td>
-
-                    {/* Valor R$ */}
-                    <td className="px-4 py-3 text-right font-bold text-sm">
-                      <span className={isClosed ? 'text-emerald-400' : 'text-rose-400'}>
-                        R$ {(deliv.total_amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </span>
-                    </td>
-
-                    {/* Status e Motivo */}
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col space-y-1">
-                        <select
-                          value={deliv.status}
-                          onChange={(e) => handleStatusChange(deliv.id, e.target.value as DeliveryStatus)}
-                          className={`text-xs font-semibold rounded-lg px-2 py-1 border focus:outline-none cursor-pointer ${getStatusBadge(
-                            deliv.status
-                          )}`}
-                        >
-                          <option value="Pendente" className="bg-slate-900 text-amber-400">⏳ Fechado - Pendente</option>
-                          <option value="Em Rota" className="bg-slate-900 text-blue-400">🛵 Fechado - Em Rota</option>
-                          <option value="Entregue" className="bg-slate-900 text-emerald-400">✅ Fechado - Entregue</option>
-                          <option value="Nao_Fechado" className="bg-slate-900 text-rose-400">❌ Não Fechado / Perdido</option>
-                          <option value="Cancelado" className="bg-slate-900 text-slate-400">🚫 Cancelado</option>
-                        </select>
-
-                        {!isClosed && deliv.unclosed_reason && (
-                          <span className="text-[10px] text-rose-300 font-medium bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
-                            Motivo: {deliv.unclosed_reason}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Ações */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center space-x-2">
-                        {onOpenChat ? (
-                          <button
-                            onClick={() => onOpenChat(deliv.phone)}
-                            title={isClosed ? 'Abrir Chat no CRM' : '💬 Abrir Chat para Recuperar Venda'}
-                            className={`p-1.5 rounded-lg transition ${
-                              isClosed
-                                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400'
-                                : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <a
-                            href={`https://wa.me/55${deliv.phone}?text=${encodeURIComponent(
-                              isClosed
-                                ? `Olá, ${deliv.customer_name || ''}! Tudo bem? Passando sobre seu pedido na BelaFarma.`
-                                : `Olá, ${deliv.customer_name || ''}! Tudo bem? Vi que você procurou sobre *${deliv.items || 'nossos produtos'}* na BelaFarma. Conseguimos um desconto especial para fechar hoje para você! Podemos separar?`
-                            )}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={isClosed ? 'Abrir WhatsApp' : '💬 Mandar mensagem de recuperação de venda'}
-                            className={`p-1.5 rounded-lg transition ${
-                              isClosed
-                                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400'
-                                : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'
-                            }`}
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-
-                        <button
-                          onClick={() => {
-                            setEditingDelivery(deliv);
-                            setIsModalOpen(true);
-                          }}
-                          title="Editar atendimento"
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => handleDelete(deliv.id)}
-                          title="Excluir registro"
-                          className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* ── MODAL CADASTRO / EDIÇÃO DE ATENDIMENTO ──────────────────────────────── */}
-      {isModalOpen && editingDelivery && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 text-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-lg font-bold flex items-center gap-2">
-                <Truck className="w-5 h-5 text-emerald-400" />
-                {editingDelivery.id ? 'Editar Atendimento' : 'Novo Atendimento Manual'}
-              </h3>
+      {/* ── ABA 2: GRÁFICOS & INDICADORES ESTRATÉGICOS (TELA LIMPA SEM LISTA DE TABELA) ───────────────────── */}
+      {activeTab === 'charts' && (
+        <div className="space-y-6">
+          {/* Seletor de Período dos Gráficos */}
+          <div className="flex items-center justify-between bg-slate-950/60 p-4 rounded-2xl border border-slate-800 flex-wrap gap-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-emerald-400" /> Período de Análise dos Gráficos:
+            </span>
+            <div className="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 overflow-x-auto">
               <button
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setEditingDelivery(null);
-                }}
-                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition"
+                onClick={() => setPeriod('today')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                  period === 'today' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                }`}
               >
-                <X className="w-5 h-5" />
+                Hoje
+              </button>
+              <button
+                onClick={() => setPeriod('month')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                  period === 'month' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Este Mês
+              </button>
+              <button
+                onClick={() => setPeriod('prev_month')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                  period === 'prev_month' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Mês Anterior
+              </button>
+              <button
+                onClick={() => setPeriod('30days')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                  period === '30days' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                30 Dias
+              </button>
+              <button
+                onClick={() => setPeriod('all')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                  period === 'all' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tudo
               </button>
             </div>
+          </div>
 
-            <form onSubmit={handleSaveForm} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Nome do Cliente</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingDelivery.customer_name || ''}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, customer_name: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="Ex: João da Silva"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Telefone (WhatsApp)</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingDelivery.phone || ''}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, phone: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="Ex: 53999887766"
-                  />
-                </div>
+          {/* ── KPI CARDS ──────────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Total Atendimentos */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Total Atendimentos</span>
+              <div className="text-3xl font-black text-white mt-1">
+                {metrics.totalContacts}
               </div>
+              <p className="text-xs text-slate-500 mt-1">Conversas processadas</p>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Endereço de Entrega / Balcão</label>
-                <input
-                  type="text"
-                  value={editingDelivery.delivery_address || ''}
-                  onChange={(e) => setEditingDelivery({ ...editingDelivery, delivery_address: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  placeholder="Rua, Número, Bairro ou Balcão"
-                />
+            {/* Faturamento em Pedidos */}
+            <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-5 shadow-xl">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 block">Vendas Concluídas (Pedidos)</span>
+              <div className="text-3xl font-black text-emerald-400 mt-1">
+                R$ {metrics.closedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </div>
+              <p className="text-xs text-slate-400 mt-1">{metrics.closedSalesCount} pedidos fechados</p>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Produtos Consultados / Comprados</label>
-                <textarea
-                  rows={2}
-                  value={editingDelivery.items || ''}
-                  onChange={(e) => setEditingDelivery({ ...editingDelivery, items: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  placeholder="Ex: 2x Dipirona, 1x Suplemento Vitaminico"
-                />
+            {/* Cotações Perdidas */}
+            <div className="bg-slate-900/90 border border-rose-500/30 rounded-3xl p-5 shadow-xl">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400 block">Cotações Perdidas (Valor)</span>
+              <div className="text-3xl font-black text-rose-400 mt-1">
+                R$ {metrics.unclosedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </div>
+              <p className="text-xs text-slate-400 mt-1">{metrics.unclosedSalesCount} cotações não convertidas</p>
+            </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Valor Total (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={editingDelivery.total_amount || 0}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, total_amount: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-bold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Forma de Pagamento</label>
-                  <select
-                    value={editingDelivery.payment_method || 'Pix'}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, payment_method: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="Pix">Pix</option>
-                    <option value="Cartão de Crédito">Cartão de Crédito</option>
-                    <option value="Cartão de Débito">Cartão de Débito</option>
-                    <option value="Dinheiro">Dinheiro</option>
-                    <option value="Crediário">Crediário</option>
-                    <option value="A combinar">A combinar</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Status do Atendimento</label>
-                  <select
-                    value={editingDelivery.status || 'Pendente'}
-                    onChange={(e) => {
-                      const st = e.target.value as DeliveryStatus;
-                      const isClosed = (st === 'Pendente' || st === 'Em Rota' || st === 'Entregue') ? 1 : 0;
-                      setEditingDelivery({ ...editingDelivery, status: st, sale_closed: isClosed });
-                    }}
-                    className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="Pendente">⏳ Fechado - Pendente</option>
-                    <option value="Em Rota">🛵 Fechado - Em Rota</option>
-                    <option value="Entregue">✅ Fechado - Entregue</option>
-                    <option value="Nao_Fechado">❌ Não Fechado / Perdido</option>
-                    <option value="Cancelado">🚫 Cancelado</option>
-                  </select>
-                </div>
+            {/* Taxa de Conversão */}
+            <div className="bg-slate-900/90 border border-blue-500/30 rounded-3xl p-5 shadow-xl">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400 block">Taxa de Conversão</span>
+              <div className="text-3xl font-black text-blue-300 mt-1">
+                {metrics.conversionRate.toFixed(1)}%
               </div>
+              <p className="text-xs text-slate-400 mt-1">Ticket Médio: R$ {metrics.averageTicket.toFixed(2)}</p>
+            </div>
+          </div>
 
-              {editingDelivery.status === 'Nao_Fechado' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Motivo do Não Fechamento</label>
-                  <select
-                    value={editingDelivery.unclosed_reason || 'Sem Resposta do Cliente'}
-                    onChange={(e) => setEditingDelivery({ ...editingDelivery, unclosed_reason: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-rose-500"
-                  >
-                    <option value="Preço Alto">Preço Alto</option>
-                    <option value="Falta de Estoque">Falta de Estoque</option>
-                    <option value="Sem Resposta do Cliente">Sem Resposta do Cliente</option>
-                    <option value="Desistiu">Desistiu</option>
-                    <option value="Apenas Cotação">Apenas Cotação</option>
-                  </select>
+          {/* ── GRÁFICOS PRINCIPAIS (FUNIL E MOTIVOS DE RECUSA) ───────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* GRÁFICO 1: FUNIL DE CONVERSÃO (PEDIDOS VS COTAÇÕES) */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" /> Funil de Conversão: Cotações vs Pedidos
+              </h3>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={conversionFunnelData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
+                    <YAxis stroke="#94a3b8" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                      itemStyle={{ color: '#fff', fontWeight: 'bold' }}
+                    />
+                    <Bar dataKey="valor" radius={[12, 12, 0, 0]}>
+                      {conversionFunnelData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* GRÁFICO 2: MOTIVOS DE REJEIÇÃO / NÃO FECHAMENTO */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-rose-400" /> Motivos de Não Fechamento de Cotações
+              </h3>
+              {reasonChartData.length === 0 ? (
+                <div className="h-64 flex items-center justify-center text-slate-500 italic text-xs">
+                  Nenhum motivo registrado no período selecionado.
+                </div>
+              ) : (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={reasonChartData}
+                        dataKey="quantidade"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      >
+                        {reasonChartData.map((_, index) => (
+                          <Cell key={`cell-reason-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                        itemStyle={{ color: '#fff' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
               )}
+            </div>
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Observações Gerais</label>
-                <input
-                  type="text"
-                  value={editingDelivery.notes || ''}
-                  onChange={(e) => setEditingDelivery({ ...editingDelivery, notes: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  placeholder="Observação curta sobre o atendimento"
-                />
-              </div>
+          {/* ── GRÁFICO 3: TOP PRODUTOS PERDIDOS / REJEITADOS NA COTAÇÃO ────────── */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+              <Package className="w-4 h-4 text-amber-400" /> Top Produtos Rejeitados / Recusados nas Cotações
+            </h3>
 
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsModalOpen(false);
-                    setEditingDelivery(null);
-                  }}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl text-xs transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center space-x-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition shadow-lg shadow-emerald-900/30"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Salvar Atendimento</span>
-                </button>
+            {topProductsChartData.length === 0 ? (
+              <p className="text-xs italic text-slate-500 py-6 text-center">
+                Nenhum produto rejeitado registrado. Conforme os atendentes responderem ao questionário de Cotação, os produtos recusados aparecerão aqui!
+              </p>
+            ) : (
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topProductsChartData} layout="vertical" margin={{ top: 10, right: 30, left: 100, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                    <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+                    <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={11} width={130} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                      formatter={(val, name, item) => [`${val} recusas (Motivo: ${item.payload.motivo})`, 'Recusas']}
+                    />
+                    <Bar dataKey="recusas" fill="#f59e0b" radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
-            </form>
+            )}
+          </div>
+
+          {/* ── GRÁFICO 4: CRESCIMENTO DA ÁREA (NOVOS CLIENTES VS RECORRENTES) ────── */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-400" /> Origem dos Atendimentos (Novos Clientes vs Recorrentes)
+            </h3>
+            <div className="h-56 w-full flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={customerTypeData}
+                    dataKey="valor"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={5}
+                  >
+                    {customerTypeData.map((entry, index) => (
+                      <Cell key={`cell-cust-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Legend />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-      )}
-        </>
       )}
     </div>
   );
