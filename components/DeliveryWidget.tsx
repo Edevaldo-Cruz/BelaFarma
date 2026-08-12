@@ -335,7 +335,16 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {pendingReviews.map((item) => {
-                const displayName = item.wa_name || (item.customer_name && item.customer_name !== 'Cliente WhatsApp' && !/^\d{10,}$/.test(item.customer_name) ? item.customer_name : item.phone);
+                const isPureNumeric = (val?: string) => !val || /^\d{10,}$/.test(val.trim());
+                let displayName = 'Cliente WhatsApp';
+                if (item.wa_name && item.wa_name.trim() && !isPureNumeric(item.wa_name)) {
+                  displayName = item.wa_name.trim();
+                } else if (item.customer_name && item.customer_name.trim() && item.customer_name !== 'Cliente WhatsApp' && !isPureNumeric(item.customer_name)) {
+                  displayName = item.customer_name.trim();
+                } else if (item.phone) {
+                  displayName = isPureNumeric(item.phone) ? `Cliente (${item.phone.slice(-4)})` : item.phone;
+                }
+
                 const isNewCustomer = item.is_new_customer === 1;
                 const isAnalyzing = analyzingChatId === item.id;
                 

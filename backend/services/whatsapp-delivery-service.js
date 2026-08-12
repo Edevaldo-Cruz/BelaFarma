@@ -109,17 +109,22 @@ async function syncMessagesFromEvolution(db) {
         INSERT INTO whatsapp_contacts (id, name, pushName, updated_at)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET 
-          name = excluded.name,
-          pushName = excluded.pushName,
+          name = CASE WHEN excluded.name IS NOT NULL AND excluded.name != '' THEN excluded.name ELSE whatsapp_contacts.name END,
+          pushName = CASE WHEN excluded.pushName IS NOT NULL AND excluded.pushName != '' THEN excluded.pushName ELSE whatsapp_contacts.pushName END,
           updated_at = CURRENT_TIMESTAMP
       `);
       db.transaction((chats) => {
         for (const c of chats) {
-          const jid = c.id || c.remoteJid;
+          const jid = c.id || c.remoteJid || '';
+          const phone = jid.split('@')[0];
           const name = c.name || (c.contact && c.contact.name) || '';
           const pushName = c.pushName || (c.contact && c.contact.pushName) || '';
           if (name || pushName) {
-            insertContact.run(jid, name, pushName);
+            if (jid) insertContact.run(jid, name, pushName);
+            if (phone) {
+              insertContact.run(phone, name, pushName);
+              insertContact.run(phone + '@s.whatsapp.net', name, pushName);
+            }
           }
         }
       })(individualChats);
@@ -153,6 +158,25 @@ async function syncMessagesFromEvolution(db) {
           for (const m of records) {
             const msgId = m.key?.id || `msg_${m.messageTimestamp}_${Math.random()}`;
             const fromMe = m.key?.fromMe ? 1 : 0;
+            const msgPushName = m.pushName || (m.key && m.key.pushName) || '';
+
+            // Se for mensagem recebida e tiver pushName (nickname do WhatsApp), cacheia!
+            if (!fromMe && msgPushName && msgPushName.trim() !== '') {
+              try {
+                db.prepare(`
+                  INSERT INTO whatsapp_contacts (id, name, pushName, updated_at)
+                  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                  ON CONFLICT(id) DO UPDATE SET pushName = excluded.pushName, updated_at = CURRENT_TIMESTAMP
+                `).run(phone, '', msgPushName.trim());
+
+                db.prepare(`
+                  INSERT INTO whatsapp_contacts (id, name, pushName, updated_at)
+                  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                  ON CONFLICT(id) DO UPDATE SET pushName = excluded.pushName, updated_at = CURRENT_TIMESTAMP
+                `).run(phone + '@s.whatsapp.net', '', msgPushName.trim());
+              } catch (e) {}
+            }
+
             let text = '';
             if (m.message) {
               text = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '';
@@ -510,13 +534,20 @@ async function syncAndEnqueueChats(db, options = {}) {
       // Nome do cliente
       let customerName = 'Cliente WhatsApp';
       try {
-        const cust = db.prepare('SELECT name FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
-        if (cust && cust.name && cust.name.trim() !== '') {
-          customerName = cust.name;
+        const cust = db.prepare('SELECT name FROM customers WHERE phone LIKE ? OR phone = ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`, cleanPhone);
+        if (cust && cust.name && cust.name.trim() !== '' && !/^\d{10,}$/.test(cust.name)) {
+          customerName = cust.name.trim();
         } else {
-          const waContact = db.prepare('SELECT name, pushName FROM whatsapp_contacts WHERE id = ?').get(chat.phone + '@s.whatsapp.net');
+          const waContact = db.prepare(`
+            SELECT name, pushName FROM whatsapp_contacts 
+            WHERE id = ? OR id = ? OR id = ? OR id LIKE ? 
+            LIMIT 1
+          `).get(cleanPhone, chat.phone, chat.phone + '@s.whatsapp.net', `%${cleanPhone.slice(-8)}%`);
           if (waContact) {
-            customerName = waContact.name || waContact.pushName || 'Cliente WhatsApp';
+            const best = (waContact.pushName && waContact.pushName.trim()) || (waContact.name && waContact.name.trim());
+            if (best && !/^\d{10,}$/.test(best)) {
+              customerName = best;
+            }
           }
         }
       } catch (e) {}

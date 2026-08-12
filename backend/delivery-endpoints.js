@@ -191,9 +191,16 @@ function initializeDeliveryEndpoints(app, db) {
   app.get('/api/deliveries/pending-reviews', (req, res) => {
     try {
       const sql = `
-        SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name
+        SELECT d.*, 
+               COALESCE(
+                 NULLIF(wc.pushName, ''), 
+                 NULLIF(wc.name, ''), 
+                 NULLIF(wc2.pushName, ''), 
+                 NULLIF(wc2.name, '')
+               ) as wa_name
         FROM deliveries d
-        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net'
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone
+        LEFT JOIN whatsapp_contacts wc2 ON wc2.id = d.phone || '@s.whatsapp.net'
         WHERE d.review_status = 'pending_review' AND (d.classification_type IS NULL OR d.classification_type != 'nao_relevante')
         ORDER BY d.created_at DESC
       `;
@@ -214,9 +221,16 @@ function initializeDeliveryEndpoints(app, db) {
     try {
       const { id } = req.params;
       const sql = `
-        SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name
+        SELECT d.*, 
+               COALESCE(
+                 NULLIF(wc.pushName, ''), 
+                 NULLIF(wc.name, ''), 
+                 NULLIF(wc2.pushName, ''), 
+                 NULLIF(wc2.name, '')
+               ) as wa_name
         FROM deliveries d
-        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net'
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone
+        LEFT JOIN whatsapp_contacts wc2 ON wc2.id = d.phone || '@s.whatsapp.net'
         WHERE d.id = ?
       `;
       const record = db.prepare(sql).get(id);
