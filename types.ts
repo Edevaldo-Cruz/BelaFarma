@@ -545,6 +545,7 @@ export interface Delivery {
   id: string;
   phone: string;
   customer_name?: string;
+  wa_name?: string;
   delivery_address?: string;
   items?: string;
   total_amount: number;
@@ -556,6 +557,15 @@ export interface Delivery {
   notes?: string;
   created_at: string;
   updated_at: string;
+  // Audit & Review fields (M1)
+  review_status?: string; // 'pending' | 'reviewed' | 'dismissed'
+  is_new_customer?: number; // 1 = Novo cliente, 0 = Cliente recorrente
+  chat_duration_seconds?: number;
+  chat_message_count?: number;
+  discussed_products_json?: string;
+  rejection_details_json?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
 }
 
 export interface DeliveryMetrics {
@@ -575,4 +585,50 @@ export interface DeliveryMetrics {
     Cancelado: number;
   };
   byUnclosedReason: Record<string, number>;
+}
+
+export interface PendingReview {
+  id: string;
+  phone: string;
+  customer_name?: string;
+  wa_name?: string;
+  delivery_address?: string;
+  items?: string;
+  total_amount: number;
+  payment_method?: string;
+  status: DeliveryStatus;
+  sale_closed?: number;
+  unclosed_reason?: string;
+  last_message_id?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  review_status?: string;
+  is_new_customer?: number;
+  chat_duration_seconds?: number;
+  chat_message_count?: number;
+  discussed_products_json?: string;
+  rejection_details_json?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+}
+
+export interface ProductRejection {
+  id?: number;
+  delivery_id?: number | string;
+  phone?: string;
+  product_name: string;
+  reason: string;
+  notes?: string;
+  created_at?: string;
+}
+
+export interface RejectionMetrics {
+  total_rejections: number;
+  by_reason: Record<string, number>;
+  by_product: Array<{
+    product_name: string;
+    count: number;
+    main_reason: string;
+  }>;
 }

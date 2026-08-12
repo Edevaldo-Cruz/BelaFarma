@@ -79,6 +79,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [hasOverdue, setHasOverdue] = React.useState(false);
   const [ifoodNotifCount, setIfoodNotifCount] = React.useState(0);
+  const [pendingReviewCount, setPendingReviewCount] = React.useState(0);
+
+  // Check pending audit reviews for WhatsApp deliveries
+  React.useEffect(() => {
+    const checkPendingReviews = async () => {
+      try {
+        const res = await fetch('/api/deliveries/pending-reviews');
+        const data = await res.json();
+        if (data.success && typeof data.count === 'number') {
+          setPendingReviewCount(data.count);
+        } else if (Array.isArray(data.pending_reviews)) {
+          setPendingReviewCount(data.pending_reviews.length);
+        }
+      } catch (error) {
+        console.error('Error checking pending reviews count:', error);
+      }
+    };
+    checkPendingReviews();
+    const interval = setInterval(checkPendingReviews, 30000);
+    return () => clearInterval(interval);
+  }, [currentView]);
 
   React.useEffect(() => {
     if (!isAdmin) return;
@@ -400,6 +421,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="truncate">{item.label}</span>
                   {item.id === 'debtors-report' && hasOverdue && (
                     <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
+                  )}
+                  {item.id === 'deliveries' && pendingReviewCount > 0 && (
+                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-amber-500 dark:bg-amber-600 rounded-full animate-pulse shadow-sm" title={`${pendingReviewCount} revisões pendentes`}>
+                      {pendingReviewCount}
+                    </span>
                   )}
                 </button>
               );

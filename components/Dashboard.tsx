@@ -36,7 +36,8 @@ import {
   BarChart3,
   LineChart as LineChartIcon,
   PieChart,
-  Eye
+  Eye,
+  MessageSquare
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -240,6 +241,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
     recordAndFetchVisitors();
   }, [user.name]);
+
+  // Estado e busca de Revisões Pendentes de WhatsApp
+  const [pendingReviewCount, setPendingReviewCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const fetchPendingReviews = async () => {
+      try {
+        const res = await fetch('/api/deliveries/pending-reviews');
+        const data = await res.json();
+        if (data.success && typeof data.count === 'number') {
+          setPendingReviewCount(data.count);
+        } else if (Array.isArray(data.pending_reviews)) {
+          setPendingReviewCount(data.pending_reviews.length);
+        }
+      } catch (error) {
+        console.error('Erro ao buscar revisões pendentes no Dashboard:', error);
+      }
+    };
+    fetchPendingReviews();
+    const interval = setInterval(fetchPendingReviews, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Estados para os Produtos Parados > 90 dias e Carrossel Autoplay
   const [inactiveProducts, setInactiveProducts] = React.useState<any[]>([]);
@@ -675,6 +698,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </header>
 
+      {/* 🔔 BANNER DE ALERTA VISUAL - REVISÕES PENDENTES DE WHATSAPP */}
+      {pendingReviewCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-4 rounded-3xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-300">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-white/20 backdrop-blur-md rounded-2xl shrink-0">
+              <MessageSquare className="w-6 h-6 text-white animate-bounce" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm md:text-base">
+                {pendingReviewCount === 1 
+                  ? 'Existe 1 conversa ociosa aguardando revisão manual de IA!' 
+                  : `Existem ${pendingReviewCount} conversas ociosas aguardando revisão manual de IA!`}
+              </h3>
+              <p className="text-xs text-amber-100 font-medium hidden sm:block">
+                Verifique os chats do WhatsApp para confirmar entregas ou registrar motivos de recusa de vendas.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('deliveries')}
+            className="px-4 py-2 bg-white text-orange-700 hover:bg-amber-50 font-bold text-xs md:text-sm rounded-xl shadow-sm transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer self-end sm:self-auto"
+          >
+            <Truck className="w-4 h-4" />
+            Revisar Agora
+          </button>
+        </div>
+      )}
 
       {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
       <section className="relative group">
@@ -852,7 +902,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       
 
       {/* 📊 GRID DE KPIS (METRICAS DO DIA/MÊS) NO TOPO */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 md:gap-6">
         
         {/* Ticket Médio (Hoje) */}
         <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
@@ -951,6 +1001,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Total de Pedidos</p>
           <p className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">{orders.length}</p>
+        </div>
+
+        {/* Revisões Pendentes WhatsApp */}
+        <div 
+          onClick={() => onNavigate('deliveries')}
+          className={`glass-card p-6 rounded-3xl shadow-sm transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${pendingReviewCount > 0 ? 'bg-amber-500/10 border-amber-500/30' : themeCardClass}`}
+        >
+          <div className={`p-2 rounded-xl w-fit mb-4 ${pendingReviewCount > 0 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
+            <MessageSquare className="w-6 h-6" />
+          </div>
+          <p className={`text-[10px] font-black uppercase tracking-widest ${pendingReviewCount > 0 ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'}`}>
+            Revisões Pendentes
+          </p>
+          <p className={`text-xl xl:text-2xl font-black mt-1 truncate ${pendingReviewCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>
+            {pendingReviewCount}
+          </p>
         </div>
       </div>
       

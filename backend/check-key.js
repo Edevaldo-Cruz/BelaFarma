@@ -4,7 +4,7 @@ const nodeFetch = require('node-fetch');
 
 async function checkKey() {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    const GEMINI_MODEL = 'gemini-flash-latest'; // Matching the service
+    const GEMINI_MODEL = 'gemini-1.5-flash'; // Matching the service
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
     try {

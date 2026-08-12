@@ -45,6 +45,7 @@ Determine 2 pontos cruciais:
    - "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
    - "delivery_address": Endereço de entrega (se informado) ou null.
    - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados. IMPORTANTE: Se a conversa mencionar ou indicar o envio de uma foto, receita ou áudio (sem texto claro do nome), escreva "Receita / Imagem". Deixe vazio ("") APENAS se for uma conversa sem menção a produtos/receitas (ex: só "Bom dia").
+   - "products_discussed": Array contendo os nomes individuais de TODOS os produtos ou medicamentos citados/consultados na conversa. Exemplo: ["Dipirona 500mg", "Dorflex 30 comprimidos"]. Se nenhum produto for citado, retorne [].
    - "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
    - "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
    - "status": 
@@ -66,6 +67,7 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
   "customer_name": "Nome do cliente",
   "delivery_address": "Endereço ou null",
   "items": "Descrição dos produtos",
+  "products_discussed": ["Produto 1", "Produto 2"],
   "total_amount": 0.00,
   "payment_method": "Pix | Cartão | Dinheiro | Crediário | Outro",
   "status": "Pendente | Em Rota | Entregue | Nao_Fechado | Cancelado",
@@ -267,6 +269,44 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
         continue;
       }
 
+      // Métricas da conversa
+      const timestamps = messages.map(m => m.timestamp);
+      const minTimestamp = Math.min(...timestamps);
+      const maxTimestamp = Math.max(...timestamps);
+      const chatDurationSeconds = messages.length > 1 ? Math.round((maxTimestamp - minTimestamp) / 1000) : 0;
+      const chatMessageCount = messages.length;
+
+      // Verificação de Novo Cliente (is_new_customer)
+      let isNewCustomer = 1;
+      try {
+        const phoneSuffix = cleanPhone.length >= 8 ? cleanPhone.slice(-8) : cleanPhone;
+        const hasPriorClosedDelivery = db.prepare(`
+          SELECT id FROM deliveries WHERE phone = ? AND sale_closed = 1 LIMIT 1
+        `).get(cleanPhone);
+
+        const hasCustomerRecord = db.prepare(`
+          SELECT id FROM customers WHERE phone LIKE ? OR phone = ? LIMIT 1
+        `).get(`%${phoneSuffix}%`, cleanPhone);
+
+        const hasPriorSale = db.prepare(`
+          SELECT s.id FROM sales s
+          JOIN customers c ON s.customer_id = c.id
+          WHERE (c.phone LIKE ? OR c.phone = ?) AND s.status = 'Finalizada'
+          LIMIT 1
+        `).get(`%${phoneSuffix}%`, cleanPhone);
+
+        if (hasPriorClosedDelivery || hasCustomerRecord || hasPriorSale) {
+          isNewCustomer = 0;
+        }
+      } catch (errCust) {
+        try {
+          const hasPriorClosedDelivery = db.prepare(`
+            SELECT id FROM deliveries WHERE phone = ? AND sale_closed = 1 LIMIT 1
+          `).get(cleanPhone);
+          if (hasPriorClosedDelivery) isNewCustomer = 0;
+        } catch (e2) {}
+      }
+
       const transcript = messages.map(m => {
         const sender = m.fromMe === 1 ? 'Atendente BelaFarma' : customerName;
         const hora = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -311,6 +351,12 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
 
           const unclosedReason = !isClosed ? (result.unclosed_reason || 'Sem Resposta do Cliente') : null;
           const notes = result.notes || '';
+          const reviewStatus = !isClosed ? 'pending_review' : null;
+
+          const discussedProducts = Array.isArray(result.products_discussed)
+            ? result.products_discussed
+            : (itemsStr ? [itemsStr] : []);
+          const discussedProductsJson = JSON.stringify(discussedProducts);
 
           if (isClosed) {
             stats.closedSalesCount++;
@@ -320,27 +366,77 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
             stats.unclosedSalesAmount += totalAmount;
           }
 
-          const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-          db.prepare(`
-            INSERT INTO deliveries (
-              id, phone, customer_name, delivery_address, items,
-              total_amount, payment_method, status, sale_closed, unclosed_reason,
-              last_message_id, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            deliveryId,
-            cleanPhone,
-            finalName,
-            address,
-            itemsStr,
-            totalAmount,
-            paymentMethod,
-            status,
-            isClosed ? 1 : 0,
-            unclosedReason,
-            lastMsgId,
-            notes
-          );
+          const existingPending = db.prepare(`
+            SELECT id FROM deliveries WHERE phone = ? AND review_status = 'pending_review' LIMIT 1
+          `).get(cleanPhone);
+
+          if (existingPending) {
+            db.prepare(`
+              UPDATE deliveries SET
+                customer_name = ?,
+                delivery_address = ?,
+                items = ?,
+                total_amount = ?,
+                payment_method = ?,
+                status = ?,
+                sale_closed = ?,
+                unclosed_reason = ?,
+                last_message_id = ?,
+                notes = ?,
+                review_status = ?,
+                is_new_customer = ?,
+                chat_duration_seconds = ?,
+                chat_message_count = ?,
+                discussed_products_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `).run(
+              finalName,
+              address,
+              itemsStr,
+              totalAmount,
+              paymentMethod,
+              status,
+              isClosed ? 1 : 0,
+              unclosedReason,
+              lastMsgId,
+              notes,
+              reviewStatus,
+              isNewCustomer,
+              chatDurationSeconds,
+              chatMessageCount,
+              discussedProductsJson,
+              existingPending.id
+            );
+          } else {
+            const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+            db.prepare(`
+              INSERT INTO deliveries (
+                id, phone, customer_name, delivery_address, items,
+                total_amount, payment_method, status, sale_closed, unclosed_reason,
+                last_message_id, notes,
+                review_status, is_new_customer, chat_duration_seconds, chat_message_count, discussed_products_json
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              deliveryId,
+              cleanPhone,
+              finalName,
+              address,
+              itemsStr,
+              totalAmount,
+              paymentMethod,
+              status,
+              isClosed ? 1 : 0,
+              unclosedReason,
+              lastMsgId,
+              notes,
+              reviewStatus,
+              isNewCustomer,
+              chatDurationSeconds,
+              chatMessageCount,
+              discussedProductsJson
+            );
+          }
         }
       } catch (aiErr) {
         stats.errors++;

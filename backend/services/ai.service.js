@@ -10,7 +10,7 @@ const openai = new OpenAI({
  */
 async function callAI(prompt, systemPrompt = '', options = {}) {
   const primaryProvider = process.env.AI_PROVIDER || 'openai';
-  const temperature = options.temperature || 0.7;
+  const temperature = options.temperature !== undefined ? options.temperature : 0.7;
   const maxTokens = options.maxTokens || 8192;
   const imageData = options.imageData; // Base64 da imagem se houver
 
@@ -52,7 +52,7 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
     } 
     
     if (provider === 'gemini') {
-      const model = 'gemini-flash-latest';
+      const model = 'gemini-1.5-flash';
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 

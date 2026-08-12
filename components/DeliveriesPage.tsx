@@ -1,12 +1,14 @@
 import React from 'react';
 import { DeliveryWidget } from './DeliveryWidget';
-import { View } from '../types';
+import { Delivery, View } from '../types';
 
 interface DeliveriesPageProps {
   onNavigate?: (view: View) => void;
+  onSelectPendingReview?: (delivery: Delivery) => void;
+  reviewedDeliveryId?: string | null;
 }
 
-export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({ onNavigate }) => {
+export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({ onNavigate, onSelectPendingReview, reviewedDeliveryId }) => {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
@@ -20,7 +22,11 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({ onNavigate }) =>
         </div>
       </div>
 
-      <DeliveryWidget onOpenChat={(phone) => onNavigate && onNavigate('whatsapp-vendas')} />
+      <DeliveryWidget 
+        onOpenChat={(phone) => onNavigate && onNavigate('whatsapp-vendas')} 
+        onSelectPendingReview={onSelectPendingReview}
+        reviewedDeliveryId={reviewedDeliveryId}
+      />
     </div>
   );
 };

@@ -35,6 +35,7 @@ import { RadioManager } from "./components/RadioManager";
 import { WhatsAppCRM } from "./components/WhatsAppCRM";
 import { WhatsAppVendas } from "./components/WhatsAppVendas";
 import { DeliveriesPage } from "./components/DeliveriesPage";
+import { PendingReviewModal } from "./components/PendingReviewModal";
 import { TeraIncentiveModal } from "./components/TeraIncentiveModal";
 import { EtiquetasManager } from "./components/EtiquetasManager";
 import { ComprasLive } from "./components/ComprasLive";
@@ -63,6 +64,7 @@ import {
   DailyRecordEntry,
   CashClosingRecord,
   FixedAccount,
+  Delivery,
 } from "./types";
 import { Loader2 } from "lucide-react";
 import { useToast } from "./components/ToastContext";
@@ -115,6 +117,15 @@ const App: React.FC = () => {
   const { addToast } = useToast();
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
+  const [selectedPendingReview, setSelectedPendingReview] = useState<Delivery | null>(null);
+  const [lastReviewedDeliveryId, setLastReviewedDeliveryId] = useState<string | null>(null);
+
+  const handleReviewSubmitted = (deliveryId?: string) => {
+    if (deliveryId) {
+      setLastReviewedDeliveryId(deliveryId);
+    }
+    setSelectedPendingReview(null);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1034,7 +1045,13 @@ const App: React.FC = () => {
                 <WhatsAppVendas />
               )}
               {currentView === 'deliveries' && (
-                <DeliveriesPage onNavigate={handleNavigate} />
+                <DeliveriesPage 
+                  onNavigate={handleNavigate} 
+                  onSelectPendingReview={(delivery) => {
+                    setSelectedPendingReview(delivery);
+                  }}
+                  reviewedDeliveryId={lastReviewedDeliveryId}
+                />
               )}
               {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
@@ -1114,6 +1131,15 @@ const App: React.FC = () => {
           boletos={boletos}
           monthlyLimits={monthlyLimits}
           onClose={handleCloseBudgetSummary}
+        />
+      )}
+
+      {/* Modal de Questionário Interativo de Auditoria (Revisão Pendente) */}
+      {selectedPendingReview && (
+        <PendingReviewModal
+          delivery={selectedPendingReview}
+          onClose={() => setSelectedPendingReview(null)}
+          onSubmitSuccess={handleReviewSubmitted}
         />
       )}
     </div>

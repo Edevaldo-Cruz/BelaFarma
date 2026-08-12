@@ -125,6 +125,267 @@ function initializeDeliveryEndpoints(app, db) {
     }
   });
 
+  // GET /api/deliveries/pending-reviews - Listar revisões pendentes
+  app.get('/api/deliveries/pending-reviews', (req, res) => {
+    try {
+      const sql = `
+        SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name
+        FROM deliveries d
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net'
+        WHERE d.review_status = 'pending_review'
+        ORDER BY d.created_at DESC
+      `;
+      const pendingReviews = db.prepare(sql).all();
+      res.json({
+        success: true,
+        count: pendingReviews.length,
+        pending_reviews: pendingReviews
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao buscar pending-reviews:', err);
+      res.status(500).json({ error: 'Erro ao buscar revisões pendentes.', details: err.message });
+    }
+  });
+
+  // GET /api/deliveries/pending-reviews/:id - Buscar detalhes de uma revisão pendente
+  app.get('/api/deliveries/pending-reviews/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const sql = `
+        SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name
+        FROM deliveries d
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net'
+        WHERE d.id = ?
+      `;
+      const record = db.prepare(sql).get(id);
+
+      if (!record) {
+        return res.status(404).json({ error: 'Registro de revisão pendente não encontrado.' });
+      }
+
+      res.json({
+        success: true,
+        delivery: record
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao buscar detalhes da revisão pendente:', err);
+      res.status(500).json({ error: 'Erro ao carregar detalhes da revisão pendente.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/:id/submit-review - Submeter formulário de revisão de atendimento
+  app.post('/api/deliveries/:id/submit-review', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { gerou_entrega, delivery_details, rejection_details, unclosed_reason, reviewed_by, total_amount } = req.body;
+
+      // 1. Validação de Entrada: gerou_entrega deve ser booleano
+      if (typeof gerou_entrega !== 'boolean') {
+        return res.status(400).json({ error: 'O campo gerou_entrega é obrigatório e deve ser booleano.' });
+      }
+
+      // 2. Validação de Entrada: total_amount se fornecido deve ser um número válido
+      const amtToCheck = total_amount !== undefined
+        ? total_amount
+        : (delivery_details && delivery_details.total_amount !== undefined ? delivery_details.total_amount : undefined);
+
+      if (amtToCheck !== undefined && amtToCheck !== null && amtToCheck !== '') {
+        if (isNaN(Number(amtToCheck))) {
+          return res.status(400).json({ error: 'O campo total_amount deve ser um número válido.' });
+        }
+      }
+
+      // 3. Validação de Entrada: rejection_details se fornecido deve ser array contendo apenas objetos válidos
+      if (rejection_details !== undefined && rejection_details !== null) {
+        if (!Array.isArray(rejection_details)) {
+          return res.status(400).json({ error: 'O campo rejection_details deve ser um array.' });
+        }
+        for (const rej of rejection_details) {
+          if (!rej || typeof rej !== 'object' || Array.isArray(rej)) {
+            return res.status(400).json({ error: 'Os itens de rejection_details devem ser objetos válidos.' });
+          }
+        }
+      }
+
+      const existing = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+      if (!existing) {
+        return res.status(404).json({ error: 'Registro de entrega não encontrado.' });
+      }
+
+      const reviewer = reviewed_by || 'Atendente';
+
+      // Transação atômica para UPDATE e manipulação de chat_product_rejections
+      const executeTransaction = db.transaction(() => {
+        if (gerou_entrega) {
+          const details = delivery_details || {};
+          const parsedAmount = details.total_amount !== undefined && details.total_amount !== null && details.total_amount !== ''
+            ? parseFloat(details.total_amount)
+            : (total_amount !== undefined && total_amount !== null && total_amount !== '' ? parseFloat(total_amount) : null);
+
+          db.prepare(`
+            UPDATE deliveries SET
+              sale_closed = 1,
+              status = 'Pendente',
+              review_status = 'reviewed',
+              reviewed_at = CURRENT_TIMESTAMP,
+              reviewed_by = ?,
+              customer_name = COALESCE(?, customer_name),
+              delivery_address = COALESCE(?, delivery_address),
+              items = COALESCE(?, items),
+              total_amount = COALESCE(?, total_amount),
+              payment_method = COALESCE(?, payment_method),
+              notes = COALESCE(?, notes),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(
+            reviewer,
+            details.customer_name || null,
+            details.delivery_address || null,
+            details.items || null,
+            parsedAmount,
+            details.payment_method || null,
+            details.notes || null,
+            id
+          );
+
+          // Em resubmissão para venda fechada, limpa rejeições anteriores caso existam
+          db.prepare('DELETE FROM chat_product_rejections WHERE delivery_id = ?').run(id);
+        } else {
+          const rejectionsArr = Array.isArray(rejection_details) ? rejection_details : [];
+          const rejectionDetailsJson = JSON.stringify(rejectionsArr);
+          const primaryReason = unclosed_reason || (rejectionsArr.length > 0 && rejectionsArr[0].reason ? rejectionsArr[0].reason : 'Desistiu');
+
+          db.prepare(`
+            UPDATE deliveries SET
+              sale_closed = 0,
+              status = 'Nao_Fechado',
+              review_status = 'reviewed',
+              rejection_details_json = ?,
+              unclosed_reason = ?,
+              reviewed_at = CURRENT_TIMESTAMP,
+              reviewed_by = ?,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(
+            rejectionDetailsJson,
+            primaryReason,
+            reviewer,
+            id
+          );
+
+          // Limpa rejeições prévias dentro da transação para evitar duplicatas em re-submissões
+          db.prepare('DELETE FROM chat_product_rejections WHERE delivery_id = ?').run(id);
+
+          if (rejectionsArr.length > 0) {
+            const insertRejection = db.prepare(`
+              INSERT INTO chat_product_rejections (delivery_id, phone, product_name, reason, notes, created_at)
+              VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `);
+
+            for (const rej of rejectionsArr) {
+              insertRejection.run(
+                id,
+                existing.phone,
+                rej.product_name || 'Produto não especificado',
+                rej.reason || primaryReason,
+                rej.notes || ''
+              );
+            }
+          }
+        }
+      });
+
+      executeTransaction();
+
+      const updatedRecord = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+
+      res.json({
+        success: true,
+        delivery_id: id,
+        review_status: 'reviewed',
+        delivery: updatedRecord
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao submeter revisão:', err);
+      res.status(500).json({ error: 'Erro ao processar submissão de revisão.', details: err.message });
+    }
+  });
+
+  // GET /api/deliveries/rejection-metrics - Consultar métricas agregadas de rejeição
+  app.get('/api/deliveries/rejection-metrics', (req, res) => {
+    try {
+      const totalRejectionsRow = db.prepare('SELECT COUNT(*) as count FROM chat_product_rejections').get();
+      let total_rejections = totalRejectionsRow ? totalRejectionsRow.count : 0;
+
+      const reasonsRows = db.prepare(`
+        SELECT reason, COUNT(*) as count
+        FROM chat_product_rejections
+        WHERE reason IS NOT NULL AND reason != ''
+        GROUP BY reason
+        ORDER BY count DESC
+      `).all();
+
+      const by_reason = {};
+      for (const r of reasonsRows) {
+        by_reason[r.reason] = r.count;
+      }
+
+      if (total_rejections === 0 || Object.keys(by_reason).length === 0) {
+        const delivReasons = db.prepare(`
+          SELECT unclosed_reason as reason, COUNT(*) as count
+          FROM deliveries
+          WHERE sale_closed = 0 AND unclosed_reason IS NOT NULL AND unclosed_reason != ''
+          GROUP BY unclosed_reason
+          ORDER BY count DESC
+        `).all();
+        for (const r of delivReasons) {
+          by_reason[r.reason] = r.count;
+        }
+
+        const fallbackTotal = db.prepare('SELECT COUNT(*) as count FROM deliveries WHERE sale_closed = 0').get();
+        total_rejections = fallbackTotal ? fallbackTotal.count : 0;
+      }
+
+      const productsRows = db.prepare(`
+        SELECT 
+          p.product_name, 
+          COUNT(*) as count,
+          COALESCE((
+            SELECT r.reason
+            FROM chat_product_rejections r
+            WHERE r.product_name = p.product_name AND r.reason IS NOT NULL AND r.reason != ''
+            GROUP BY r.reason
+            ORDER BY COUNT(*) DESC, r.reason ASC
+            LIMIT 1
+          ), 'Outro') as main_reason
+        FROM chat_product_rejections p
+        WHERE p.product_name IS NOT NULL AND p.product_name != ''
+        GROUP BY p.product_name
+        ORDER BY count DESC
+        LIMIT 50
+      `).all();
+
+      const by_product = productsRows.map(p => ({
+        product_name: p.product_name,
+        count: p.count,
+        main_reason: p.main_reason || 'Outro'
+      }));
+
+      res.json({
+        success: true,
+        metrics: {
+          total_rejections,
+          by_reason,
+          by_product,
+          top_rejected_products: by_product
+        }
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao carregar métricas de rejeição:', err);
+      res.status(500).json({ error: 'Erro ao carregar métricas de rejeição.', details: err.message });
+    }
+  });
+
   // POST /api/deliveries/scan - Gatilho manual para varredura IA (suporta scanCurrentMonth)
   app.post('/api/deliveries/scan', async (req, res) => {
     try {

@@ -24,19 +24,25 @@ import {
   XCircle,
   HelpCircle,
   Send,
-  Calendar
+  Calendar,
+  Inbox
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { Delivery, DeliveryMetrics, DeliveryStatus } from '../types';
 
 interface DeliveryWidgetProps {
   onOpenChat?: (phone: string) => void;
+  onSelectPendingReview?: (delivery: Delivery) => void;
+  reviewedDeliveryId?: string | null;
 }
 
-export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) => {
+export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSelectPendingReview, reviewedDeliveryId }) => {
   const { addToast } = useToast();
 
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [pendingReviews, setPendingReviews] = useState<Delivery[]>([]);
+  const [loadingPending, setLoadingPending] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'pending_reviews' | 'all_deliveries'>('pending_reviews');
   const [metrics, setMetrics] = useState<DeliveryMetrics>({
     totalContacts: 0,
     closedSalesCount: 0,
@@ -84,6 +90,49 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
       setLoading(false);
     }
   };
+
+  const fetchPendingReviews = async () => {
+    setLoadingPending(true);
+    try {
+      const res = await fetch('/api/deliveries/pending-reviews');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPendingReviews(data.pending_reviews || []);
+      }
+    } catch (err: any) {
+      console.error('[DeliveryWidget] Erro ao buscar revisões pendentes:', err);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPendingReviews();
+    const interval = setInterval(fetchPendingReviews, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const handleReviewSubmittedEvent = (event: any) => {
+      const deliveryId = event?.detail?.id;
+      if (deliveryId) {
+        setPendingReviews(prev => prev.filter(item => String(item.id) !== String(deliveryId)));
+        fetchDeliveries();
+      }
+    };
+
+    window.addEventListener('reviewSubmitted', handleReviewSubmittedEvent);
+    return () => {
+      window.removeEventListener('reviewSubmitted', handleReviewSubmittedEvent);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (reviewedDeliveryId) {
+      setPendingReviews(prev => prev.filter(item => String(item.id) !== String(reviewedDeliveryId)));
+      fetchDeliveries();
+    }
+  }, [reviewedDeliveryId]);
 
   useEffect(() => {
     fetchDeliveries();
@@ -269,7 +318,211 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
         </div>
       </div>
 
-      {/* ── BANNER RESUMO DO MÊS ATUAL (EXIGIDO PELO USUÁRIO) ────────────────────── */}
+      {/* ── SUB-TABS NAVEGAÇÃO ENTRE REVISÕES PENDENTES E HISTÓRICO ────────────── */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-4">
+        <button
+          onClick={() => setActiveTab('pending_reviews')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition cursor-pointer ${
+            activeTab === 'pending_reviews'
+              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+              : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+          }`}
+        >
+          <Inbox className="w-4 h-4" />
+          <span>📥 Revisões Pendentes</span>
+          {pendingReviews.length > 0 && (
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+              activeTab === 'pending_reviews'
+                ? 'bg-slate-950 text-amber-400'
+                : 'bg-amber-500 text-slate-950 animate-pulse'
+            }`}>
+              {pendingReviews.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('all_deliveries')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition cursor-pointer ${
+            activeTab === 'all_deliveries'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+              : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+          }`}
+        >
+          <Truck className="w-4 h-4" />
+          <span>🛵 Histórico & Auditoria</span>
+        </button>
+      </div>
+
+      {/* ── ABA 1: REVISÕES PENDENTES ─────────────────────────────────────────── */}
+      {activeTab === 'pending_reviews' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs md:text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400" /> Conversas Ociosas Aguardando Auditoria Manual ({pendingReviews.length})
+            </h3>
+            <button
+              onClick={fetchPendingReviews}
+              disabled={loadingPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingPending ? 'animate-spin' : ''}`} />
+              <span>Atualizar Fila</span>
+            </button>
+          </div>
+
+          {loadingPending ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 rounded-xl border border-slate-800">
+              <RefreshCw className="w-6 h-6 animate-spin text-amber-500" />
+              <p className="text-sm">Carregando fila de revisões pendentes...</p>
+            </div>
+          ) : pendingReviews.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 rounded-xl border border-slate-800">
+              <CheckCircle className="w-10 h-10 text-emerald-500/80" />
+              <p className="text-base font-bold text-slate-200">Nenhuma revisão pendente no momento!</p>
+              <p className="text-xs text-slate-400 max-w-md">
+                Todas as conversas ociosas do WhatsApp foram auditadas ou não há atendimentos aguardando justificativa na fila.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {pendingReviews.map((item) => {
+                const displayName = item.wa_name || (item.customer_name && item.customer_name !== 'Cliente WhatsApp' && !/^\d{10,}$/.test(item.customer_name) ? item.customer_name : item.phone);
+                const isNewCustomer = item.is_new_customer === 1;
+                
+                // Formatação de duração
+                const durationSecs = item.chat_duration_seconds || 0;
+                const durationMins = Math.floor(durationSecs / 60);
+                const durationSecsRemainder = durationSecs % 60;
+                const durationDisplay = durationMins > 0 
+                  ? `${durationMins}m ${durationSecsRemainder}s` 
+                  : `${durationSecs}s`;
+
+                // Parsing de produtos discutidos
+                let discussedProducts: string[] = [];
+                try {
+                  if (item.discussed_products_json) {
+                    const parsed = JSON.parse(item.discussed_products_json);
+                    if (Array.isArray(parsed)) {
+                      discussedProducts = parsed.map(p => typeof p === 'string' ? p : String(p?.name || p?.product_name || p));
+                    } else if (typeof parsed === 'string' && parsed.trim()) {
+                      discussedProducts = [parsed.trim()];
+                    } else if (parsed && typeof parsed === 'object') {
+                      const val = parsed.name || parsed.product_name || String(parsed);
+                      if (val && typeof val === 'string' && val.trim()) {
+                        discussedProducts = [val.trim()];
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.error('Erro ao parsear produtos discutidos:', e);
+                }
+
+                return (
+                  <div
+                    key={item.id}
+                    className="bg-slate-950/70 border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 transition-all hover:translate-y-[-2px]"
+                  >
+                    <div className="space-y-3">
+                      {/* Cabeçalho do Cliente */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-white text-base truncate flex items-center gap-2" title={displayName}>
+                            {displayName}
+                          </h4>
+                          <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                            <Phone className="w-3.5 h-3.5 text-slate-500" />
+                            {item.phone}
+                          </p>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${
+                          isNewCustomer
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        }`}>
+                          {isNewCustomer ? '🆕 Cliente Novo' : '👤 Recorrente'}
+                        </span>
+                      </div>
+
+                      {/* Métricas Extraídas pela IA */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Duração do Chat</span>
+                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1 mt-0.5">
+                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                            {durationDisplay}
+                          </span>
+                        </div>
+
+                        <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mensagens</span>
+                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1 mt-0.5">
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                            {item.chat_message_count || 0} msgs
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Produtos Discutidos */}
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          Produtos Discutidos
+                        </span>
+                        {discussedProducts.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto custom-scrollbar">
+                            {discussedProducts.map((prod, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium truncate max-w-[200px]"
+                                title={prod}
+                              >
+                                💊 {prod}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs italic text-slate-500">Nenhum produto identificado</p>
+                        )}
+                      </div>
+
+                      {item.created_at && (
+                        <p className="text-[11px] text-slate-500">
+                          Iniciado em: {new Date(item.created_at).toLocaleString('pt-BR')}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Botão de Ação do Atendente */}
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center gap-2">
+                      <button
+                        onClick={() => onSelectPendingReview?.(item)}
+                        className="flex-1 py-2.5 px-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        📝 Revisar Atendimento
+                      </button>
+                      {onOpenChat && (
+                        <button
+                          onClick={() => onOpenChat(item.phone)}
+                          className="p-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 rounded-xl text-xs transition cursor-pointer"
+                          title="Abrir chat no WhatsApp"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ABA 2: HISTÓRICO COMPLETO E AUDITORIA MENSAL ───────────────────────── */}
+      {activeTab === 'all_deliveries' && (
+        <>
+          {/* ── BANNER RESUMO DO MÊS ATUAL (EXIGIDO PELO USUÁRIO) ────────────────────── */}
       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-emerald-500/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
         <div className="absolute right-0 top-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
         
@@ -747,6 +1000,8 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat }) =>
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

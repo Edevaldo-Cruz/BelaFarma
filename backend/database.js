@@ -1307,6 +1307,38 @@ try {
     } catch (e) { /* índices já existem */ }
     console.log('✅ Tabela deliveries atualizada para suportar auditoria de Vendas Fechadas x Não Fechadas!');
 
+    // M1: Migration - Colunas de auditoria e revisão interativa em deliveries
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN review_status TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN is_new_customer INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN chat_duration_seconds INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN chat_message_count INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN discussed_products_json TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN rejection_details_json TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN reviewed_by TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN reviewed_at DATETIME'); } catch(e) {}
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_review_status ON deliveries(review_status)');
+    } catch(e) {}
+
+    // M1: Criar tabela chat_product_rejections para métricas de rejeição de produtos
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_product_rejections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        delivery_id INTEGER,
+        phone TEXT,
+        product_name TEXT,
+        reason TEXT,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpr_delivery ON chat_product_rejections(delivery_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpr_phone ON chat_product_rejections(phone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpr_reason ON chat_product_rejections(reason)');
+    } catch (e) {}
+    console.log('✅ Tabela chat_product_rejections e colunas de auditoria em deliveries verificadas/criadas!');
+
     // Migration: adicionar coluna source em customers (usada no webhook)
     try {
       db.prepare('SELECT source FROM customers LIMIT 1').get();
