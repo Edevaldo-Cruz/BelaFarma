@@ -630,7 +630,7 @@ async function syncAndEnqueueChats(db, options = {}) {
   }
 }
 
-const DELIVERY_AUDIT_SYSTEM_PROMPT = `
+const DELIVERY_SINGLE_AUDIT_SYSTEM_PROMPT = `
 Você é o auditor financeiro e de vendas da Drogaria BelaFarma.
 Sua missão é analisar o diálogo no WhatsApp entre o Cliente e a Farmácia e classificar a conversa:
 
@@ -737,7 +737,7 @@ Analise e extraia os dados em JSON conforme instruído.
 `;
 
   try {
-    const aiResponseText = await callAI(userPrompt, DELIVERY_AUDIT_SYSTEM_PROMPT, { temperature: 0.2 });
+    const aiResponseText = await callAI(userPrompt, DELIVERY_SINGLE_AUDIT_SYSTEM_PROMPT, { temperature: 0.2 });
     const result = parseJsonFromAiResponse(aiResponseText) || {};
 
     const itemsStr = result.items || '';
