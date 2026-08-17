@@ -34,6 +34,7 @@ import { useToast } from './ToastContext';
 
 interface AgendaCalendarProps {
   currentUser: UserType;
+  users?: UserType[];
 }
 
 type CalendarViewMode = 'month' | 'week' | 'day' | 'list';
@@ -50,7 +51,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Outros': '#6B7280'
 };
 
-export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) => {
+export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser, users = [] }) => {
   const { showToast } = useToast();
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -62,6 +63,7 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedAssignedUser, setSelectedAssignedUser] = useState<string>('all');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -105,6 +107,19 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
       if (selectedStatus !== 'all' && appt.status !== selectedStatus) {
         return false;
       }
+      // Assigned user filter
+      if (selectedAssignedUser !== 'all') {
+        if (selectedAssignedUser === 'mine') {
+          if (appt.assignedToId !== currentUser.id && appt.assignedToName !== currentUser.name && appt.createdById !== currentUser.id) {
+            return false;
+          }
+        } else {
+          if (appt.assignedToId !== selectedAssignedUser && appt.assignedToName !== selectedAssignedUser) {
+            return false;
+          }
+        }
+      }
+
       // Search term filter
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
@@ -294,10 +309,10 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
               </div>
               <div>
                 <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                  Agenda & Compromissos
+                  Agenda & Tarefas
                 </h1>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Gerenciamento de eventos, reuniões e atendimentos
+                  Gerenciamento de compromissos, atendimentos e tarefas da equipe
                 </p>
               </div>
             </div>
@@ -395,7 +410,7 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md transition-all active:scale-95"
             >
               <Plus className="w-4 h-4" />
-              Novo Compromisso
+              Novo Compromisso / Tarefa
             </button>
           </div>
         </div>
@@ -408,19 +423,33 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar compromissos..."
+              placeholder="Buscar compromissos ou tarefas..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          {/* Category & Status Selectors */}
+          {/* Category, User & Status Selectors */}
           <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap justify-end">
             <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
               <Filter className="w-3.5 h-3.5" />
               <span>Filtros:</span>
             </div>
+
+            <select
+              value={selectedAssignedUser}
+              onChange={(e) => setSelectedAssignedUser(e.target.value)}
+              className="px-2.5 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none"
+            >
+              <option value="all">Todos os Responsáveis</option>
+              <option value="mine">Minhas Tarefas / Atribuídas a Mim</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
 
             <select
               value={selectedCategory}
@@ -455,6 +484,7 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
       </div>
 
       {/* Main Views Container */}
+
       <div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
         
         {loading ? (
@@ -814,7 +844,9 @@ export const AgendaCalendar: React.FC<AgendaCalendarProps> = ({ currentUser }) =
         initialDate={modalInitialDate}
         initialHour={modalInitialHour}
         currentUser={currentUser}
+        users={users}
       />
+
     </div>
   );
 };

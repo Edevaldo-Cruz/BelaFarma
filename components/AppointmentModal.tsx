@@ -34,6 +34,7 @@ interface AppointmentModalProps {
   initialDate?: Date;
   initialHour?: number;
   currentUser: UserType;
+  users?: UserType[];
 }
 
 const CATEGORY_COLORS: Record<AppointmentCategory, string> = {
@@ -67,7 +68,8 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
   appointmentToEdit,
   initialDate,
   initialHour,
-  currentUser
+  currentUser,
+  users = []
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -80,7 +82,8 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
   const [color, setColor] = useState('#3B82F6');
   const [status, setStatus] = useState<AppointmentStatus>('Pendente');
   const [visibility, setVisibility] = useState<AppointmentVisibility>('Public');
-  const [assignedToName, setAssignedToName] = useState('');
+  const [assignedToId, setAssignedToId] = useState<string>('');
+  const [assignedToName, setAssignedToName] = useState<string>('');
   const [customerName, setCustomerName] = useState('');
   const [supplierName, setSupplierName] = useState('');
   const [location, setLocation] = useState('');
@@ -100,6 +103,7 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
       setColor(appointmentToEdit.color || CATEGORY_COLORS[appointmentToEdit.category || 'Geral']);
       setStatus(appointmentToEdit.status || 'Pendente');
       setVisibility(appointmentToEdit.visibility || 'Public');
+      setAssignedToId(appointmentToEdit.assignedToId || '');
       setAssignedToName(appointmentToEdit.assignedToName || '');
       setCustomerName(appointmentToEdit.customerName || '');
       setSupplierName(appointmentToEdit.supplierName || '');
@@ -107,6 +111,7 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
       setRecurrence(appointmentToEdit.recurrence || 'none');
       setRecurrenceEndDate(appointmentToEdit.recurrenceEndDate ? appointmentToEdit.recurrenceEndDate.substring(0, 10) : '');
       setReminderMinutes(appointmentToEdit.reminderMinutes !== undefined ? appointmentToEdit.reminderMinutes : 15);
+
 
       if (appointmentToEdit.startDate) {
         const dStart = new Date(appointmentToEdit.startDate);
@@ -141,6 +146,7 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
       setColor(CATEGORY_COLORS['Geral']);
       setStatus('Pendente');
       setVisibility('Public');
+      setAssignedToId(currentUser.id || '');
       setAssignedToName(currentUser.name || '');
       setCustomerName('');
       setSupplierName('');
@@ -183,6 +189,7 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
         visibility,
         createdById: appointmentToEdit ? appointmentToEdit.createdById : currentUser.id,
         createdByName: appointmentToEdit ? appointmentToEdit.createdByName : currentUser.name,
+        assignedToId: assignedToId || undefined,
         assignedToName: assignedToName.trim() || undefined,
         customerName: customerName.trim() || undefined,
         supplierName: supplierName.trim() || undefined,
@@ -191,6 +198,7 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
         recurrenceEndDate: recurrenceEndDate ? `${recurrenceEndDate}T23:59:59.999Z` : undefined,
         reminderMinutes
       };
+
 
       if (appointmentToEdit) {
         payload.id = appointmentToEdit.id;
@@ -413,16 +421,48 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
             <div>
               <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                 <User className="w-4 h-4 text-purple-500" />
-                Responsável
+                Atribuído A / Responsável
               </label>
-              <input
-                type="text"
-                placeholder="Nome do responsável"
-                value={assignedToName}
-                onChange={(e) => setAssignedToName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              {users && users.length > 0 ? (
+                <select
+                  value={assignedToId || (assignedToName === 'Toda a Equipe' ? 'all' : '')}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'all') {
+                      setAssignedToId('all');
+                      setAssignedToName('Toda a Equipe');
+                    } else if (val === '') {
+                      setAssignedToId('');
+                      setAssignedToName('');
+                    } else {
+                      const foundUser = users.find(u => u.id === val);
+                      if (foundUser) {
+                        setAssignedToId(foundUser.id);
+                        setAssignedToName(foundUser.name);
+                      }
+                    }
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="">Nenhum / Não Atribuído</option>
+                  <option value="all">Toda a Equipe (Geral)</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="Nome do responsável"
+                  value={assignedToName}
+                  onChange={(e) => setAssignedToName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              )}
             </div>
+
           </div>
 
           {/* Customer / Supplier / Location */}

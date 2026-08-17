@@ -146,10 +146,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
     { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
-    { id: 'financial', label: 'Financeiro', icon: Wallet },
-    { id: 'agenda', label: 'Agenda', icon: Calendar },
-    { id: 'task-management', label: 'Ger. Tarefas', icon: ClipboardCheck },
+    { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
+
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
     { id: 'inventario', label: 'Inventário Rotativo', icon: ClipboardList },
     { id: 'orders', label: 'Pedidos', icon: ShoppingCart },

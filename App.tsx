@@ -977,20 +977,10 @@ const App: React.FC = () => {
               {currentView === 'crediario-report' && user.role === UserRole.ADM && (
                 <CrediarioReport />
               )}
-              {currentView === 'agenda' && (
-                <AgendaCalendar currentUser={user} />
+              {(currentView === 'agenda' || currentView === 'task-management') && (
+                <AgendaCalendar currentUser={user} users={users} />
               )}
-              {currentView === 'task-management' && (
 
-                <TaskManagementPage 
-                  user={user} 
-                  users={users} 
-                  onLog={(act, det) => createLog("Tarefas", act, det)} 
-                  onRefreshTasks={fetchData}
-                  initialSelectedTask={selectedTask}
-                  onClearSelection={() => setSelectedTask(null)}
-                />
-              )}
               {currentView === 'customers' && (
                 <CustomersPage 
                   user={user} 
