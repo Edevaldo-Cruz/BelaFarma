@@ -24,10 +24,12 @@ import {
   Layers,
   Sparkles,
   ArrowUpRight,
-  Filter
+  Filter,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { roundUpToAcceptedCents } from '../utils';
+
 
 interface Product {
   ean: string;
@@ -523,8 +525,19 @@ export const PriceManager: React.FC = () => {
               ? `Coletando Napp (${scrapeStatus.currentProgress}/${scrapeStatus.totalItems})` 
               : 'Forçar Coleta Napp'}
           </button>
+
+          <button
+            onClick={() => window.open('/api/whatsapp-vendas/catalog/export-csv?onlyInStock=true', '_blank')}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition duration-200 shadow-sm"
+            title="Baixar arquivo CSV do catálogo formatado para Meta / WhatsApp Commerce Manager"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Catálogo WhatsApp (CSV)
+          </button>
         </div>
       </div>
+
+
 
       {/* Cards de Status */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

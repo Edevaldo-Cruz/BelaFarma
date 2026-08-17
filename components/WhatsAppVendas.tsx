@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, CheckCircle, X, Phone,
   ShoppingBag, Pill, Image as ImageIcon, Loader2, Sparkles,
-  User, Copy, Plus, ClipboardCopy, PlusCircle, MinusCircle, Tag
+  User, Copy, Plus, ClipboardCopy, PlusCircle, MinusCircle, Tag,
+  Download, FileSpreadsheet, Share2
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -50,8 +51,13 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
   const [hideOutOfStock, setHideOutOfStock] = useState(true);
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
   
+  // Estado do Catálogo WhatsApp (CSV / Feed)
+  const [showCatalogModal, setShowCatalogModal] = useState(false);
+  const [exportOnlyInStock, setExportOnlyInStock] = useState(true);
+  
   // Carrinho / Lista de Envio
   const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
+
   
   const budgetText = useMemo(() => {
     if (selectedProducts.length === 0) return '';
@@ -378,7 +384,21 @@ export function WhatsAppVendas({ onClose }: { onClose?: () => void }) {
       .catch(() => addToast('Erro ao copiar orçamento.', 'error'));
   };
 
+  // Download e cópia de Feed do Catálogo Meta / WhatsApp
+  const handleDownloadCatalogCsv = (onlyInStock: boolean) => {
+    const url = `/api/whatsapp-vendas/catalog/export-csv${onlyInStock ? '?onlyInStock=true' : ''}`;
+    window.open(url, '_blank');
+    addToast('📥 Download do Catálogo CSV iniciado!', 'success');
+  };
+
+  const handleCopyCatalogFeedUrl = (onlyInStock: boolean) => {
+    const feedUrl = `${window.location.origin}/api/whatsapp-vendas/catalog/feed.csv${onlyInStock ? '?onlyInStock=true' : ''}`;
+    navigator.clipboard.writeText(feedUrl);
+    addToast('📋 Link do Feed do Catálogo copiado!', 'success');
+  };
+
   // ─── LÓGICA DE CLIENTES ──────────────────────────────────────────────────────
+
 
   // Carrega Ficha do Cliente do SQLite
   const loadCustomerData = async (phoneStr: string) => {
@@ -591,8 +611,8 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                     />
                   </div>
                   
-                  {/* Toggle para ocultar sem estoque */}
-                  <div className="flex items-center gap-2.5 flex-shrink-0 self-start md:self-center">
+                  {/* Toggle para ocultar sem estoque e Gerar Catálogo */}
+                  <div className="flex items-center gap-2 flex-shrink-0 self-start md:self-center flex-wrap">
                     <button
                       type="button"
                       onClick={() => setHideOutOfStock(prev => !prev)}
@@ -605,8 +625,19 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
                       <span className={`w-2.5 h-2.5 rounded-full ${hideOutOfStock ? 'bg-red-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-650'}`} />
                       Ocultar Sem Estoque
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowCatalogModal(true)}
+                      className={`${isTauri ? 'px-3 py-2' : 'px-4 py-2.5'} rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm`}
+                      title="Gerar e Baixar Catálogo CSV para Meta/WhatsApp Commerce"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Catálogo WhatsApp
+                    </button>
                   </div>
                 </div>
+
 
                 {/* Badges de Grupos Inteligentes de Vendas */}
                 <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100/50 dark:border-slate-800/40">
@@ -1194,8 +1225,77 @@ ${clientInfo.notes ? `📝 *Observações:* ${clientInfo.notes}` : ''}`;
           </div>
         )}
       </div>
+
+      {/* Modal do Catálogo WhatsApp */}
+
+      {showCatalogModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                  <FileSpreadsheet className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-white">Catálogo do WhatsApp Business</h3>
+                  <p className="text-xs text-slate-500">Padrão Meta Commerce Manager (CSV)</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCatalogModal(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                O arquivo de catálogo inclui todos os produtos cadastrados da BelaFarma com preço, estoque, código de barras (EAN) e fotos formatados para o perfil oficial do WhatsApp Business.
+              </p>
+
+              {/* Opções de Exportação */}
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl space-y-3 border border-slate-200/60 dark:border-slate-700/60">
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={exportOnlyInStock}
+                    onChange={(e) => setExportOnlyInStock(e.target.checked)}
+                    className="w-4 h-4 rounded text-red-600 focus:ring-red-500"
+                  />
+                  Exportar apenas produtos com estoque disponível (saldo &gt; 0)
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <button
+                    onClick={() => handleDownloadCatalogCsv(exportOnlyInStock)}
+                    className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-md transition"
+                  >
+                    <Download className="w-4 h-4" />
+                    Baixar Arquivo CSV
+                  </button>
+
+                  <button
+                    onClick={() => handleCopyCatalogFeedUrl(exportOnlyInStock)}
+                    className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-md transition"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Copiar Link do Feed
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                💡 <strong>Como cadastrar no Meta Commerce Manager:</strong><br />
+                No gerenciador de comércio do seu WhatsApp Business, vá em <em>Catálogos &gt; Fontes de dados &gt; Adicionar itens</em> e escolha <strong>"Carregar arquivo CSV"</strong> ou <strong>"Feed de dados agendado por URL"</strong> colando o link do feed copiado acima.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default WhatsAppVendas;
+

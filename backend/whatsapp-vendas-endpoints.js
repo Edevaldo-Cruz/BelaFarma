@@ -794,6 +794,133 @@ function initializeWhatsAppVendasEndpoints(app, db) {
     }
   });
 
+  // 3c. GET /api/whatsapp-vendas/catalog/export-csv e /api/whatsapp-vendas/catalog/feed.csv
+  // Gera o arquivo CSV no formato aceito pelo Meta / WhatsApp Commerce Manager
+  const handleCatalogCsvExport = async (req, res) => {
+    try {
+      const onlyInStock = req.query.onlyInStock === 'true';
+      console.log(`[WhatsAppVendas] Gerando catálogo CSV Meta Commerce (apenas estoque positivo: ${onlyInStock})...`);
+
+      // 1. Buscar produtos ativos do Digifarma
+      const query = `
+        SELECT 
+          PRODUTO_ID as ID, 
+          PRODUTO as NAME, 
+          APRESENTACAO as PRESENTATION,
+          COD_BARRAS as BARCODE, 
+          PROD_PRVENDA as REGULAR_PRICE,
+          CASE 
+            WHEN PROD_PRPROMOCAO > 0 
+                 AND (INICIO_PROMOCAO IS NULL OR INICIO_PROMOCAO <= CURRENT_DATE) 
+                 AND (TERMINO_PROMOCAO IS NULL OR TERMINO_PROMOCAO >= CURRENT_DATE)
+            THEN PROD_PRPROMOCAO
+            ELSE 0
+          END as PROMO_PRICE, 
+          PROD_SALDO as STOCK 
+        FROM PRODUTOS 
+        WHERE PROD_ATIVO = 'S' ${onlyInStock ? 'AND PROD_SALDO > 0' : ''}
+        ORDER BY PRODUTO
+      `;
+
+      const digiProducts = await queryDigifarma(query);
+
+      if (!Array.isArray(digiProducts)) {
+        return res.status(500).send('Erro ao consultar banco do Digifarma');
+      }
+
+      // 2. Mapeamento de imagens e marcas do SQLite
+      let eanImageMap = new Map();
+      try {
+        const imagesRows = db.prepare('SELECT ean, image_url, brand FROM scraped_images WHERE ean IS NOT NULL AND ean != ""').all();
+        imagesRows.forEach(row => {
+          if (row.ean) eanImageMap.set(row.ean.trim(), row);
+        });
+      } catch (e) {
+        console.warn('[WhatsAppVendas] Tabela scraped_images não consultada:', e.message);
+      }
+
+      // Base URL do site para compor links dos produtos e imagens
+      const host = req.get('host') || 'localhost:3001';
+      const protocol = req.protocol || 'http';
+      const baseUrl = process.env.PUBLIC_APP_URL || `${protocol}://${host}`;
+
+      const escapeCsv = (val) => {
+        if (val === null || val === undefined) return '""';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      };
+
+      // Header Meta Catalog Spec
+      const headers = ['id', 'title', 'description', 'availability', 'condition', 'price', 'sale_price', 'link', 'image_link', 'brand', 'gtin'];
+      const csvRows = [headers.join(',')];
+
+      for (const p of digiProducts) {
+        const barcode = (p.BARCODE || '').trim();
+        const cleanGtin = /^\d{8,14}$/.test(barcode) ? barcode : '';
+        const id = cleanGtin || `PROD_${p.ID}`;
+        
+        let title = (p.NAME || '').trim();
+        if (p.PRESENTATION && p.PRESENTATION.trim()) {
+          title += ` - ${p.PRESENTATION.trim()}`;
+        }
+
+        const description = `${title} | Farmácia BelaFarma - Compre pelo WhatsApp`;
+        const availability = (p.STOCK && p.STOCK > 0) ? 'in stock' : 'out of stock';
+        const condition = 'new';
+
+        // Tratar preços (ex: "15.90 BRL")
+        const regularPriceVal = parseFloat(p.REGULAR_PRICE || 0);
+        const promoPriceVal = parseFloat(p.PROMO_PRICE || 0);
+        
+        const price = `${regularPriceVal.toFixed(2)} BRL`;
+        let sale_price = '';
+        if (promoPriceVal > 0 && promoPriceVal < regularPriceVal) {
+          sale_price = `${promoPriceVal.toFixed(2)} BRL`;
+        }
+
+        // Fotos e marca
+        const imgMatch = barcode ? eanImageMap.get(barcode) : null;
+        let imageLink = imgMatch?.image_url || `${baseUrl}/public/uploads/default-product.png`;
+        let brand = imgMatch?.brand || 'BelaFarma';
+
+        const productLink = `${baseUrl}/#produto-${p.ID}`;
+
+        const row = [
+          escapeCsv(id),
+          escapeCsv(title),
+          escapeCsv(description),
+          escapeCsv(availability),
+          escapeCsv(condition),
+          escapeCsv(price),
+          escapeCsv(sale_price),
+          escapeCsv(productLink),
+          escapeCsv(imageLink),
+          escapeCsv(brand),
+          escapeCsv(cleanGtin)
+        ];
+
+        csvRows.push(row.join(','));
+      }
+
+      const csvContent = csvRows.join('\r\n');
+      const filename = `catalogo_belafarma_whatsapp_${new Date().toISOString().split('T')[0]}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      // Adicionar BOM UTF-8 para Excel / Meta abrir perfeitamente acentuação em PT-BR
+      res.write('\uFEFF');
+      res.send(csvContent);
+
+    } catch (err) {
+      console.error('[WhatsAppVendas] Erro ao gerar CSV do catálogo:', err);
+      res.status(500).json({ error: 'Falha ao gerar catálogo CSV: ' + err.message });
+    }
+  };
+
+  app.get('/api/whatsapp-vendas/catalog/export-csv', handleCatalogCsvExport);
+  app.get('/api/whatsapp-vendas/catalog/feed.csv', handleCatalogCsvExport);
+  app.get('/api/catalog/whatsapp.csv', handleCatalogCsvExport);
+
+
   // 4. POST /api/whatsapp-vendas/send-message — Envia mensagem de texto simples
   app.post('/api/whatsapp-vendas/send-message', async (req, res) => {
     const { phone, text } = req.body;
