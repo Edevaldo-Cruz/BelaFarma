@@ -4460,8 +4460,228 @@ app.get('/api/test-digifarma-vps', async (req, res) => {
   }
 });
 
+// ==========================================
+// AGENDA & COMPROMISSOS ENDPOINTS
+// ==========================================
+
+app.get('/api/appointments', (req, res) => {
+  try {
+    const { startDate, endDate, userId, userName, userRole, category, status, search } = req.query;
+    
+    let query = 'SELECT * FROM appointments WHERE 1=1';
+    const params = [];
+
+    if (startDate) {
+      query += ' AND endDate >= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      query += ' AND startDate <= ?';
+      params.push(endDate);
+    }
+    if (category) {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+    if (search) {
+      query += ' AND (title LIKE ? OR description LIKE ? OR location LIKE ? OR customerName LIKE ? OR supplierName LIKE ?)';
+      const term = `%${search}%`;
+      params.push(term, term, term, term, term);
+    }
+
+    // Role-based visibility check: non-admins only see public or their own appointments
+    if (userRole !== 'Administrador') {
+      if (userId || userName) {
+        query += ' AND (visibility = "Public" OR createdById = ? OR createdByName = ? OR assignedToId = ? OR assignedToName = ?)';
+        params.push(userId || '', userName || '', userId || '', userName || '');
+      } else {
+        query += ' AND visibility = "Public"';
+      }
+    }
+
+    query += ' ORDER BY startDate ASC';
+
+    const appointments = db.prepare(query).all(...params);
+    res.json(appointments);
+  } catch (err) {
+    console.error('Error fetching appointments:', err);
+    res.status(500).json({ error: 'Erro ao buscar compromissos', details: err.message });
+  }
+});
+
+app.get('/api/appointments/upcoming-reminders', (req, res) => {
+  try {
+    const now = new Date();
+    const futureLimit = new Date(now.getTime() + 60 * 60 * 1000); // next 60 minutes
+    const nowIso = now.toISOString();
+    const futureIso = futureLimit.toISOString();
+
+    const query = `
+      SELECT * FROM appointments 
+      WHERE status != 'Cancelado' 
+        AND status != 'Concluído'
+        AND startDate >= ? 
+        AND startDate <= ?
+      ORDER BY startDate ASC
+    `;
+    const upcoming = db.prepare(query).all(nowIso, futureIso);
+    res.json(upcoming);
+  } catch (err) {
+    console.error('Error fetching upcoming appointment reminders:', err);
+    res.status(500).json({ error: 'Erro ao buscar lembretes de compromissos', details: err.message });
+  }
+});
+
+app.post('/api/appointments', (req, res) => {
+  try {
+    const appt = req.body;
+    const id = appt.id || `app_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const nowIso = new Date().toISOString();
+
+    const stmt = db.prepare(`
+      INSERT INTO appointments (
+        id, title, description, startDate, endDate, allDay,
+        category, color, status, visibility,
+        createdById, createdByName, assignedToId, assignedToName,
+        customerId, customerName, supplierId, supplierName,
+        location, recurrence, recurrenceEndDate, reminderMinutes,
+        createdAt, updatedAt
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?
+      )
+    `);
+
+    stmt.run(
+      id,
+      appt.title || 'Novo Compromisso',
+      appt.description || '',
+      appt.startDate || nowIso,
+      appt.endDate || nowIso,
+      appt.allDay ? 1 : 0,
+      appt.category || 'Geral',
+      appt.color || '#3B82F6',
+      appt.status || 'Pendente',
+      appt.visibility || 'Public',
+      appt.createdById || 'system',
+      appt.createdByName || 'Sistema',
+      appt.assignedToId || null,
+      appt.assignedToName || null,
+      appt.customerId || null,
+      appt.customerName || null,
+      appt.supplierId || null,
+      appt.supplierName || null,
+      appt.location || '',
+      appt.recurrence || 'none',
+      appt.recurrenceEndDate || null,
+      appt.reminderMinutes !== undefined ? appt.reminderMinutes : 15,
+      nowIso,
+      nowIso
+    );
+
+    const created = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('Error creating appointment:', err);
+    res.status(500).json({ error: 'Erro ao criar compromisso', details: err.message });
+  }
+});
+
+app.put('/api/appointments/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const appt = req.body;
+    const nowIso = new Date().toISOString();
+
+    const existing = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Compromisso não encontrado' });
+    }
+
+    const stmt = db.prepare(`
+      UPDATE appointments SET
+        title = ?,
+        description = ?,
+        startDate = ?,
+        endDate = ?,
+        allDay = ?,
+        category = ?,
+        color = ?,
+        status = ?,
+        visibility = ?,
+        assignedToId = ?,
+        assignedToName = ?,
+        customerId = ?,
+        customerName = ?,
+        supplierId = ?,
+        supplierName = ?,
+        location = ?,
+        recurrence = ?,
+        recurrenceEndDate = ?,
+        reminderMinutes = ?,
+        updatedAt = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      appt.title !== undefined ? appt.title : existing.title,
+      appt.description !== undefined ? appt.description : existing.description,
+      appt.startDate !== undefined ? appt.startDate : existing.startDate,
+      appt.endDate !== undefined ? appt.endDate : existing.endDate,
+      appt.allDay !== undefined ? (appt.allDay ? 1 : 0) : existing.allDay,
+      appt.category !== undefined ? appt.category : existing.category,
+      appt.color !== undefined ? appt.color : existing.color,
+      appt.status !== undefined ? appt.status : existing.status,
+      appt.visibility !== undefined ? appt.visibility : existing.visibility,
+      appt.assignedToId !== undefined ? appt.assignedToId : existing.assignedToId,
+      appt.assignedToName !== undefined ? appt.assignedToName : existing.assignedToName,
+      appt.customerId !== undefined ? appt.customerId : existing.customerId,
+      appt.customerName !== undefined ? appt.customerName : existing.customerName,
+      appt.supplierId !== undefined ? appt.supplierId : existing.supplierId,
+      appt.supplierName !== undefined ? appt.supplierName : existing.supplierName,
+      appt.location !== undefined ? appt.location : existing.location,
+      appt.recurrence !== undefined ? appt.recurrence : existing.recurrence,
+      appt.recurrenceEndDate !== undefined ? appt.recurrenceEndDate : existing.recurrenceEndDate,
+      appt.reminderMinutes !== undefined ? appt.reminderMinutes : existing.reminderMinutes,
+      nowIso,
+      id
+    );
+
+    const updated = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating appointment:', err);
+    res.status(500).json({ error: 'Erro ao atualizar compromisso', details: err.message });
+  }
+});
+
+app.delete('/api/appointments/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Compromisso não encontrado' });
+    }
+
+    db.prepare('DELETE FROM appointments WHERE id = ?').run(id);
+    res.json({ success: true, message: 'Compromisso excluído com sucesso' });
+  } catch (err) {
+    console.error('Error deleting appointment:', err);
+    res.status(500).json({ error: 'Erro ao excluir compromisso', details: err.message });
+  }
+});
+
 // Rota de diagnóstico avançado das faltas para testar individualmente cada item
 app.get('/api/debug-shortages', async (req, res) => {
+
   try {
     const shortagesList = db.prepare("SELECT * FROM shortages WHERE purchased = 0").all();
     if (shortagesList.length === 0) {

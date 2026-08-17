@@ -401,6 +401,35 @@ try {
       );
     `;
 
+    const createAppointmentsTable = `
+      CREATE TABLE IF NOT EXISTS appointments (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        startDate TEXT NOT NULL,
+        endDate TEXT NOT NULL,
+        allDay INTEGER DEFAULT 0,
+        category TEXT DEFAULT 'Geral',
+        color TEXT DEFAULT '#3B82F6',
+        status TEXT DEFAULT 'Pendente',
+        visibility TEXT DEFAULT 'Public',
+        createdById TEXT NOT NULL,
+        createdByName TEXT NOT NULL,
+        assignedToId TEXT,
+        assignedToName TEXT,
+        customerId TEXT,
+        customerName TEXT,
+        supplierId TEXT,
+        supplierName TEXT,
+        location TEXT,
+        recurrence TEXT DEFAULT 'none',
+        recurrenceEndDate TEXT,
+        reminderMinutes INTEGER DEFAULT 15,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -434,6 +463,7 @@ try {
     db.exec(createQuotationsTable);
     db.exec(createQuotationListsTable);
     db.exec(createQuotationListItemsTable);
+    db.exec(createAppointmentsTable);
 
     // Inventario Module Tables
     const createSessoesInventarioTable = `

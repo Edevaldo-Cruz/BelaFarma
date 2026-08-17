@@ -49,6 +49,9 @@ import { SalesReport } from "./components/SalesReport";
 import { CriticalStockManager } from "./components/CriticalStockManager";
 import { SystemWatcher } from "./components/SystemWatcher";
 import { PriceManager } from "./components/PriceManager";
+import { AgendaCalendar } from "./components/AgendaCalendar";
+
+
 import {
   Order,
   View,
@@ -275,6 +278,40 @@ const App: React.FC = () => {
       };
     }
   }, [user, isMobile]);
+
+  // Check upcoming appointment notifications periodically
+  const notifiedAppointmentsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    const checkAppointmentReminders = async () => {
+      try {
+        const res = await fetch('/api/appointments/upcoming-reminders');
+        if (!res.ok) return;
+        const upcoming: any[] = await res.json();
+        if (Array.isArray(upcoming)) {
+          const now = new Date();
+          upcoming.forEach(appt => {
+            if (notifiedAppointmentsRef.current.has(appt.id)) return;
+            const start = new Date(appt.startDate);
+            const diffMin = Math.round((start.getTime() - now.getTime()) / (60 * 1000));
+            const reminderSetting = appt.reminderMinutes !== undefined ? appt.reminderMinutes : 15;
+            
+            if (diffMin <= reminderSetting && diffMin >= -5) {
+              notifiedAppointmentsRef.current.add(appt.id);
+              const timeLabel = diffMin <= 0 ? 'agora' : `em ${diffMin} min`;
+              addToast(`📌 Lembrete de Compromisso: "${appt.title}" (${timeLabel})`, 'info');
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Error checking appointment reminders:', err);
+      }
+    };
+
+    checkAppointmentReminders();
+    const interval = setInterval(checkAppointmentReminders, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   useEffect(() => {
     localStorage.setItem('belinha_theme', theme);
@@ -940,7 +977,11 @@ const App: React.FC = () => {
               {currentView === 'crediario-report' && user.role === UserRole.ADM && (
                 <CrediarioReport />
               )}
+              {currentView === 'agenda' && (
+                <AgendaCalendar currentUser={user} />
+              )}
               {currentView === 'task-management' && (
+
                 <TaskManagementPage 
                   user={user} 
                   users={users} 

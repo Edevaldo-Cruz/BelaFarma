@@ -147,6 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'financial', label: 'Financeiro', icon: Wallet },
+    { id: 'agenda', label: 'Agenda', icon: Calendar },
     { id: 'task-management', label: 'Ger. Tarefas', icon: ClipboardCheck },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
@@ -178,6 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
+
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {

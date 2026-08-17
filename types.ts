@@ -486,7 +486,40 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager';
+export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda';
+
+export type AppointmentCategory = 'Geral' | 'Reunião' | 'Cliente' | 'Fornecedor' | 'Serviço Farmacêutico' | 'Pessoal' | 'Lembrete' | 'Entrega' | 'Outros';
+export type AppointmentStatus = 'Pendente' | 'Confirmado' | 'Concluído' | 'Cancelado';
+export type AppointmentVisibility = 'Public' | 'Private';
+export type RecurrenceType = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface Appointment {
+  id: string;
+  title: string;
+  description?: string;
+  startDate: string; // ISO string
+  endDate: string;   // ISO string
+  allDay: boolean;
+  category: AppointmentCategory;
+  color: string;
+  status: AppointmentStatus;
+  visibility: AppointmentVisibility;
+  createdById: string;
+  createdByName: string;
+  assignedToId?: string;
+  assignedToName?: string;
+  customerId?: string;
+  customerName?: string;
+  supplierId?: string;
+  supplierName?: string;
+  location?: string;
+  recurrence: RecurrenceType;
+  recurrenceEndDate?: string;
+  reminderMinutes: number; // ex: 0, 10, 15, 30, 60, 1440
+  createdAt: string;
+  updatedAt?: string;
+}
+
 
 // ============================================================================
 // SISTEMA DE MENSAGENS WHATSAPP - Interfaces
