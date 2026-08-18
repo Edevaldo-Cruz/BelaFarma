@@ -117,21 +117,33 @@ async function checkStockForAlert(db, alert) {
 
     // 1. Tentar busca no Digifarma (Firebird)
     try {
-      // Extrair primeira palavra relevante do produto para LIKE no Firebird
-      const palavras = nomeBusca.split(' ').filter(p => p.length > 3);
-      const termoPrincipal = palavras[0] || nomeBusca;
+      // Extrair palavras significativas (tamanho > 3, ignorando conectivos comuns)
+      const stopWords = ['SÓDICA', 'SODICA', 'LTDA', 'S.A.', 'LABORATORIO', 'LABORATÓRIOS', 'FARMACEUTICA', 'FARMACÊUTICA', 'BRASIL'];
+      const palavras = nomeBusca
+        .split(/[\s,\/\-_]+/)
+        .filter(p => p.length >= 3 && !stopWords.includes(p));
 
-      const sqlDigifarma = `
-        SELECT FIRST 5 PRODUTO, PROD_SALDO
+      const termoPrincipal = palavras[0] || nomeBusca;
+      // Tentar encontrar termos de forma farmacêutica específicos (ex: INJETAVEL, GOTAS, COMPRIMIDO, XAROPE, CAPSULA)
+      const termoForma = palavras.find(p => ['INJETAVEL', 'GOTAS', 'COMPRIMIDO', 'COMPRIMIDOS', 'XAROPE', 'CAPSULA', 'CAPSULAS', 'SUSPENSAO', 'CREME', 'POMADA', 'SOLUCAO'].includes(p));
+
+      let sqlDigifarma = `
+        SELECT FIRST 10 PRODUTO, PROD_SALDO
         FROM PRODUTOS
         WHERE PROD_ATIVO = 'S'
           AND PRODUTO CONTAINING ?
       `;
+      let params = [termoPrincipal];
 
-      const digiProds = await queryDigifarma(sqlDigifarma, [termoPrincipal]);
+      if (termoForma) {
+        sqlDigifarma += ` AND PRODUTO CONTAINING ?`;
+        params.push(termoForma);
+      }
+
+      const digiProds = await queryDigifarma(sqlDigifarma, params);
 
       if (digiProds && digiProds.length > 0) {
-        // Encontrou correspondências no Digifarma
+        // Encontrou correspondências exatas no Digifarma para nome + forma
         const comSaldo = digiProds.find(p => Number(p.PROD_SALDO) > 0);
         if (comSaldo) {
           return {
@@ -141,7 +153,6 @@ async function checkStockForAlert(db, alert) {
             origem: 'Digifarma'
           };
         } else {
-          // Existe no cadastro mas saldo 0
           return {
             temEstoque: false,
             saldo: 0,
@@ -151,7 +162,7 @@ async function checkStockForAlert(db, alert) {
         }
       }
     } catch (e) {
-      // Digifarma offline ou indisponível no momento
+      // Digifarma offline ou erro na consulta
     }
 
     // 2. Fallback: Busca na tabela local SQLite stock_products ou shortages
