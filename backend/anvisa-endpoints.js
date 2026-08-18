@@ -169,9 +169,6 @@ module.exports = function (db) {
       const alertObj = db.prepare('SELECT * FROM anvisa_alerts WHERE id = ?').get(id);
       const stockInfo = await checkStockForAlert(db, alertObj);
 
-      const alertObj = db.prepare('SELECT * FROM anvisa_alerts WHERE id = ?').get(id);
-      const stockInfo = await checkStockForAlert(db, alertObj);
-
       res.json({
         success: true,
         alert: {
