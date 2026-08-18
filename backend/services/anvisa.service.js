@@ -325,61 +325,74 @@ function parseAnvisaText(text) {
 }
 
 /**
- * Tenta buscar notícias/RSS atualizadas da ANVISA na internet
+ * Consulta a API pública da ANVISA de Produtos Irregulares (Dossiês de Fiscalização / Medidas Cautelares)
  */
 async function fetchOnlineAnvisaUpdates(db) {
   try {
-    console.log('[ANVISA Service] Consultando feed oficial da ANVISA online...');
-    const response = await fetch('https://www.gov.br/anvisa/pt-br/assuntos/noticias-anvisa/rss.xml', {
-      timeout: 5000,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    console.log('[ANVISA Service] Consultando API pública de Dossiês/Produtos Irregulares da ANVISA...');
+
+    // API pública de consultas da ANVISA
+    const apiUrl = 'https://consultas.anvisa.gov.br/api/dossie/c/?count=50&filter%5BtipoAssunto%5D=1&page=1';
+
+    const response = await fetch(apiUrl, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Authorization': 'Guest'
+      }
     });
 
     if (!response.ok) {
-      console.log('[ANVISA Service] Servidor ANVISA indisponível ou sem resposta RSS.');
+      console.log(`[ANVISA Service] API da ANVISA retornou status HTTP ${response.status}. Mantendo base local.`);
       return { success: false, countNew: 0 };
     }
 
-    const xmlText = await response.text();
-    // Parse básico de itens do RSS
-    const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/gi) || [];
+    const data = await response.json();
+    const items = data.content || data.items || (Array.isArray(data) ? data : []);
     let countNew = 0;
 
-    for (const itemXml of itemMatches.slice(0, 10)) {
-      const titleMatch = itemXml.match(/<title>([\s\S]*?)<\/title>/i);
-      const descMatch = itemXml.match(/<description>([\s\S]*?)<\/description>/i);
-      const linkMatch = itemXml.match(/<link>([\s\S]*?)<\/link>/i);
+    for (const item of items) {
+      const numeroResolucao = item.numeroResolucao || item.resolucao || `RE nº ${item.numeroDossie || Math.floor(Math.random()*9000)}`;
+      const nomeProduto = (item.nomeProduto || item.produto || item.descricao || 'PRODUTO IRREGULAR').toUpperCase();
+      const fabricante = (item.razaoSocialEmpresa || item.empresa || item.fabricante || 'Empresa Informada na RE').toUpperCase();
+      const motivo = item.motivoIrregularidade || item.motivo || item.descricaoMedida || 'Medida sanitária cautelar / suspensão publicada em Diário Oficial.';
+      const tipoAcao = item.descricaoTipoMedida || item.tipoMedida || 'Proibição';
+      const lote = item.lote || item.lotes || 'Todos os Lotes';
+      const dataPublicacao = item.dataPublicacao ? item.dataPublicacao.substring(0, 10) : new Date().toISOString().split('T')[0];
 
-      const title = titleMatch ? titleMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/gi, '$1').trim() : '';
-      const desc = descMatch ? descMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/gi, '$1').trim() : '';
+      // Verifica duplicidade
+      const exists = db.prepare('SELECT id FROM anvisa_alerts WHERE numero_resolucao = ? OR (nome_produto = ? AND data_publicacao = ?)').get(numeroResolucao, nomeProduto, dataPublicacao);
 
-      // Verifica se o título se refere a proibição/recolhimento/suspensão/interdição
-      if (/proib|recolh|suspens|interdi|interdita/i.test(title + ' ' + desc)) {
-        const parsed = parseAnvisaText(`${title}\n${desc}`);
-        parsed.fonte_url = linkMatch ? linkMatch[1].trim() : '';
-
-        // Insere se não existir resolução idêntica
-        const exists = db.prepare('SELECT id FROM anvisa_alerts WHERE numero_resolucao = ? OR nome_produto = ?').get(parsed.numero_resolucao, parsed.nome_produto);
-        if (!exists) {
-          const id = `anvisa-auto-${Date.now()}-${Math.floor(Math.random()*1000)}`;
-          db.prepare(`
-            INSERT INTO anvisa_alerts (
-              id, numero_resolucao, data_publicacao, nome_produto, fabricante,
-              principio_ativo, motivo, tipo_acao, lote, ean, fonte_url, criado_em, verificado
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `).run(
-            id, parsed.numero_resolucao, parsed.data_publicacao, parsed.nome_produto,
-            parsed.fabricante, parsed.principio_ativo, parsed.motivo, parsed.tipo_acao,
-            parsed.lote, parsed.ean, parsed.fonte_url, new Date().toISOString()
-          );
-          countNew++;
-        }
+      if (!exists) {
+        const id = `anvisa-api-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+        db.prepare(`
+          INSERT INTO anvisa_alerts (
+            id, numero_resolucao, data_publicacao, nome_produto, fabricante,
+            principio_ativo, motivo, tipo_acao, lote, ean, fonte_url, criado_em, verificado
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `).run(
+          id,
+          numeroResolucao,
+          dataPublicacao,
+          nomeProduto,
+          fabricante,
+          item.principioAtivo || '',
+          motivo,
+          tipoAcao,
+          lote,
+          item.ean || '',
+          `https://consultas.anvisa.gov.br/#/dossie/c/`,
+          new Date().toISOString()
+        );
+        countNew++;
       }
     }
 
+    console.log(`[ANVISA Service] Sincronização concluída: ${countNew} novas resoluções inseridas.`);
     return { success: true, countNew };
   } catch (err) {
-    console.log('[ANVISA Service] Falha ao consultar feed online ANVISA (modo offline preservado):', err.message);
+    console.log('[ANVISA Service] Erro ao conectar com a API de Dossiês da ANVISA:', err.message);
     return { success: false, countNew: 0, error: err.message };
   }
 }
