@@ -28,8 +28,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Chave de acesso não autorizada.');
+        let errMsg = 'Chave de acesso não autorizada.';
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || errMsg;
+        } catch (e) {
+          errMsg = `Servidor retornou status HTTP ${response.status}. Verifique se o container do backend está ativo.`;
+        }
+        throw new Error(errMsg);
       }
 
       const userFound: User = await response.json();
