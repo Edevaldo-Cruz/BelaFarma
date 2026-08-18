@@ -35,8 +35,6 @@ services:
       # Pasta de uploads (persistente para salvar as imagens do banco de ofertas)
       - ./uploads:/usr/src/app/uploads
 
-    depends_on:
-      - evolution-api
     restart: unless-stopped
     # A porta 3001 não precisa ser exposta ao host, 
     # pois o Nginx se comunicará com ele pela rede interna do Docker.
