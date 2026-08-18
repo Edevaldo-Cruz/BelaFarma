@@ -16,13 +16,17 @@ module.exports = function (db) {
   // 1. Obter lista de alertas da ANVISA com informação de estoque
   router.get('/alerts', async (req, res) => {
     try {
-      const { soComEstoque, busca } = req.query;
-      const alerts = await getAlertsWithStockInfo(db, { soComEstoque, busca });
+      const { soComEstoque, soDuvidosos, soRelevantes, busca } = req.query;
+      const alerts = await getAlertsWithStockInfo(db, { soComEstoque, soDuvidosos, soRelevantes, busca });
+      const totalEmEstoque = alerts.filter(a => a.statusEstoque === 'comEstoque').length;
+      const totalDuvidosos = alerts.filter(a => a.statusEstoque === 'duvidoso').length;
+
       res.json({
         success: true,
         alerts,
         total: alerts.length,
-        totalEmEstoque: alerts.filter(a => a.temEstoque).length
+        totalEmEstoque,
+        totalDuvidosos
       });
     } catch (err) {
       console.error('[ANVISA API] Erro ao listar alertas:', err);

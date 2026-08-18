@@ -14,7 +14,7 @@ import {
   Info,
   Building2,
   Calendar,
-  Check,
+  HelpCircle,
   RotateCcw
 } from 'lucide-react';
 import { AnvisaAlert } from '../types';
@@ -30,7 +30,9 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [onlyInStock, setOnlyInStock] = useState<boolean>(false);
+  
+  // Filter tab: 'todos' | 'comEstoque' | 'duvidoso'
+  const [filterTab, setFilterTab] = useState<'todos' | 'comEstoque' | 'duvidoso'>('todos');
 
   // Modal de Adicionar/Colar Resolução
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -43,7 +45,11 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
   const fetchAlerts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/anvisa/alerts?soComEstoque=${onlyInStock}&busca=${encodeURIComponent(searchTerm)}`);
+      let queryParam = '';
+      if (filterTab === 'comEstoque') queryParam = '&soComEstoque=true';
+      if (filterTab === 'duvidoso') queryParam = '&soDuvidosos=true';
+
+      const res = await fetch(`/api/anvisa/alerts?busca=${encodeURIComponent(searchTerm)}${queryParam}`);
       const data = await res.json();
       if (data.success) {
         setAlerts(data.alerts || []);
@@ -60,7 +66,7 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
 
   useEffect(() => {
     fetchAlerts();
-  }, [onlyInStock, searchTerm]);
+  }, [filterTab, searchTerm]);
 
   const handleSyncAnvisa = async () => {
     setSyncing(true);
@@ -68,8 +74,8 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
       const res = await fetch('/api/anvisa/sync', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        addToast(data.message || 'Sincronização concluída.', 'success');
-        if (data.alerts) setAlerts(data.alerts);
+        addToast(data.message || `Varredura concluída. ${data.countNew} novas resoluções encontradas!`, 'success');
+        fetchAlerts();
       } else {
         addToast(data.error || 'Falha ao sincronizar com a ANVISA.', 'error');
       }
@@ -159,7 +165,8 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
 
   // Métricas rápidas
   const totalAlerts = alerts.length;
-  const inStockAlertsCount = alerts.filter(a => a.temEstoque).length;
+  const inStockCount = alerts.filter(a => a.statusEstoque === 'comEstoque' || a.tem_estoque_manual === 1).length;
+  const duvidosoCount = alerts.filter(a => a.statusEstoque === 'duvidoso' && a.tem_estoque_manual === null).length;
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -173,7 +180,7 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Alertas Sanitários ANVISA</h1>
               <p className="text-sm text-gray-400">
-                Consulta de medicamentos e produtos com comercialização suspensa, interditada ou recolhida.
+                Varredura diária automática de produtos proibidos/interditados e verificação com o estoque.
               </p>
             </div>
           </div>
@@ -186,7 +193,7 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
             className="flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium rounded-xl border border-gray-700 transition duration-150 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
-            {syncing ? 'Sincronizando...' : 'Atualizar ANVISA'}
+            {syncing ? 'Varrendo ANVISA...' : 'Varredura Diária ANVISA'}
           </button>
 
           <button
@@ -207,11 +214,11 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
             <FileText className="w-5 h-5 text-gray-400" />
           </div>
           <p className="text-3xl font-extrabold mt-2 text-white">{totalAlerts}</p>
-          <span className="text-xs text-gray-500 mt-1 block">Registradas no sistema</span>
+          <span className="text-xs text-gray-500 mt-1 block">Varredura contínua em segundo plano</span>
         </div>
 
         <div className={`p-5 rounded-2xl border transition-all backdrop-blur-sm ${
-          inStockAlertsCount > 0 
+          inStockCount > 0 
             ? 'bg-red-950/40 border-red-500/50 shadow-lg shadow-red-950/50 animate-pulse' 
             : 'bg-gray-900/60 border-gray-800'
         }`}>
@@ -219,22 +226,25 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
             <span className="text-sm font-semibold text-red-400">Possuímos no Estoque</span>
             <Package className="w-5 h-5 text-red-400" />
           </div>
-          <p className="text-3xl font-extrabold mt-2 text-red-400">{inStockAlertsCount}</p>
+          <p className="text-3xl font-extrabold mt-2 text-red-400">{inStockCount}</p>
           <span className="text-xs font-medium text-red-300/80 mt-1 block">
-            {inStockAlertsCount > 0 ? '⚠️ Requer atenção imediata no balcão!' : 'Nenhum item proibido no estoque'}
+            {inStockCount > 0 ? '⚠️ Produtos confirmados com saldo ativo!' : 'Nenhum produto proibido confirmado'}
           </span>
         </div>
 
-        <div className="p-5 rounded-2xl bg-gray-900/60 border border-gray-800 backdrop-blur-sm">
+        <div className={`p-5 rounded-2xl border transition-all backdrop-blur-sm ${
+          duvidosoCount > 0 
+            ? 'bg-amber-950/40 border-amber-500/50 shadow-lg shadow-amber-950/30' 
+            : 'bg-gray-900/60 border-gray-800'
+        }`}>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-400">Confirmação de Estoque</span>
-            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+            <span className="text-sm font-semibold text-amber-400">Requer Verificação (Dúvidas)</span>
+            <HelpCircle className="w-5 h-5 text-amber-400" />
           </div>
-          <p className="text-sm font-semibold mt-3 text-emerald-400 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-ping" />
-            Confirmação Manual + Digifarma
-          </p>
-          <span className="text-xs text-gray-500 mt-1 block">Alterne facilmente com os botões SIM / NÃO</span>
+          <p className="text-3xl font-extrabold mt-2 text-amber-400">{duvidosoCount}</p>
+          <span className="text-xs text-amber-300/80 mt-1 block">
+            {duvidosoCount > 0 ? '❓ Produtos semelhantes com saldo (Confira no balcão)' : 'Nenhuma dúvida pendente'}
+          </span>
         </div>
       </div>
 
@@ -253,20 +263,41 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
-            onClick={() => setOnlyInStock(!onlyInStock)}
-            className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-semibold border transition duration-150 flex items-center justify-center gap-2 ${
-              onlyInStock
-                ? 'bg-red-500/20 text-red-400 border-red-500/40'
+            onClick={() => setFilterTab('todos')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold border transition ${
+              filterTab === 'todos'
+                ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
                 : 'bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700'
             }`}
           >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            {onlyInStock ? 'Exibindo Apenas do Estoque' : 'Filtrar: Apenas com Estoque'}
+            Todos ({totalAlerts})
+          </button>
+          <button
+            onClick={() => setFilterTab('comEstoque')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
+              filterTab === 'comEstoque'
+                ? 'bg-red-600 text-white border-red-500 shadow-sm'
+                : 'bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700'
+            }`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+            No Estoque ({inStockCount})
+          </button>
+          <button
+            onClick={() => setFilterTab('duvidoso')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
+              filterTab === 'duvidoso'
+                ? 'bg-amber-600 text-white border-amber-500 shadow-sm'
+                : 'bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700'
+            }`}
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+            Requer Verificação ({duvidosoCount})
           </button>
         </div>
       </div>
 
-      {/* Tabela Simplificada */}
+      {/* Tabela de Alertas */}
       <div className="bg-gray-900/80 border border-gray-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-gray-300">
@@ -274,7 +305,7 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
               <tr>
                 <th className="py-4 px-5">Data / Resolução</th>
                 <th className="py-4 px-5">Nome do Produto / Fabricante</th>
-                <th className="py-4 px-5 text-center">Temos no Estoque?</th>
+                <th className="py-4 px-5 text-center">Status no Estoque</th>
                 <th className="py-4 px-5">Motivo da Proibição</th>
                 <th className="py-4 px-5 text-right">Ações</th>
               </tr>
@@ -291,19 +322,24 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
                 <tr>
                   <td colSpan={5} className="py-12 text-center text-gray-500">
                     <ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-40 text-gray-400" />
-                    Nenhuma resolução encontrada.
+                    Nenhuma resolução encontrada com os filtros selecionados.
                   </td>
                 </tr>
               ) : (
                 alerts.map((alert) => {
-                  const isInStock = alert.temEstoque;
                   const isManual = alert.tem_estoque_manual !== null && alert.tem_estoque_manual !== undefined;
+                  const isComEstoque = alert.statusEstoque === 'comEstoque' || alert.tem_estoque_manual === 1;
+                  const isDuvidoso = alert.statusEstoque === 'duvidoso' && alert.tem_estoque_manual === null;
 
                   return (
                     <tr 
                       key={alert.id}
                       className={`hover:bg-gray-800/40 transition duration-150 ${
-                        isInStock ? 'bg-red-950/20 border-l-4 border-l-red-500' : ''
+                        isComEstoque 
+                          ? 'bg-red-950/20 border-l-4 border-l-red-500' 
+                          : isDuvidoso 
+                            ? 'bg-amber-950/15 border-l-4 border-l-amber-500' 
+                            : ''
                       }`}
                     >
                       {/* Data / Resolução */}
@@ -337,22 +373,30 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
                         </div>
                       </td>
 
-                      {/* Temos no Estoque? + Botões de Confirmação Manual */}
+                      {/* Status no Estoque & Confirmação Rápida */}
                       <td className="py-4 px-5 text-center whitespace-nowrap">
                         <div className="flex flex-col items-center gap-1.5">
-                          {isInStock ? (
+                          {isComEstoque ? (
                             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40 shadow-sm">
                               <AlertTriangle className="w-3.5 h-3.5" />
-                              SIM {isManual ? '(Manual)' : alert.saldoEstoque ? `(${alert.saldoEstoque} un.)` : ''}
+                              🛑 NO ESTOQUE {isManual ? '(Manual)' : alert.saldoEstoque ? `(${alert.saldoEstoque} un.)` : ''}
+                            </div>
+                          ) : isDuvidoso ? (
+                            <div 
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm"
+                              title={alert.produtoEncontradoEstoque || 'Encontrados produtos semelhantes no Digifarma com saldo'}
+                            >
+                              <HelpCircle className="w-3.5 h-3.5" />
+                              ❓ DÚVIDA / VERIFICAR
                             </div>
                           ) : (
                             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                               <CheckCircle2 className="w-3.5 h-3.5" />
-                              NÃO {isManual ? '(Manual)' : ''}
+                              ✅ NÃO TEMOS
                             </div>
                           )}
 
-                          {/* Seletor Rápido de Confirmação */}
+                          {/* Seletor Rápido de Confirmação Manual */}
                           <div className="flex items-center gap-1 bg-gray-950 p-1 rounded-lg border border-gray-800 text-[11px]">
                             <button
                               onClick={() => handleToggleManualStock(alert.id, 1)}
@@ -394,6 +438,11 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
                         <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed">
                           {alert.motivo}
                         </p>
+                        {alert.produtoEncontradoEstoque && (
+                          <span className="text-[10px] text-amber-400/90 block mt-1">
+                            Ref. Digifarma: {alert.produtoEncontradoEstoque}
+                          </span>
+                        )}
                       </td>
 
                       {/* Ações */}
@@ -552,10 +601,15 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
 
               <div className="p-3 rounded-xl bg-gray-950 border border-gray-800">
                 <span className="text-xs font-semibold text-red-400 uppercase block mb-1">Status no Estoque da Farmácia</span>
-                {selectedAlert.temEstoque ? (
+                {selectedAlert.statusEstoque === 'comEstoque' ? (
                   <p className="text-red-400 font-bold flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4" />
                     ATENÇÃO: Marcado como presente no estoque!
+                  </p>
+                ) : selectedAlert.statusEstoque === 'duvidoso' ? (
+                  <p className="text-amber-400 font-bold flex items-center gap-1.5">
+                    <HelpCircle className="w-4 h-4" />
+                    REQUER VERIFICAÇÃO: Produto semelhante com saldo encontrado ({selectedAlert.produtoEncontradoEstoque})
                   </p>
                 ) : (
                   <p className="text-emerald-400 font-medium flex items-center gap-1.5">

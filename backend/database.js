@@ -445,7 +445,10 @@ try {
         fonte_url TEXT,
         criado_em TEXT NOT NULL,
         verificado INTEGER DEFAULT 0,
-        tem_estoque_manual INTEGER DEFAULT NULL
+        tem_estoque_manual INTEGER DEFAULT NULL,
+        status_estoque TEXT DEFAULT 'semEstoque',
+        match_score INTEGER DEFAULT 0,
+        notificado INTEGER DEFAULT 0
       );
     `;
 
@@ -485,6 +488,9 @@ try {
     db.exec(createAppointmentsTable);
     db.exec(createAnvisaAlertsTable);
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
+    try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
+    try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN match_score INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN notificado INTEGER DEFAULT 0'); } catch(e) {}
 
     // Inventario Module Tables
     const createSessoesInventarioTable = `
