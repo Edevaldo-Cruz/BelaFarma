@@ -170,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
-    { id: 'notes', label: 'Bloco de Notas', icon: NotebookPen },
+    { id: 'notes', label: 'Anotações', icon: NotebookPen },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
 
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
