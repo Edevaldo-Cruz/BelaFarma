@@ -567,6 +567,20 @@ try {
     }
 
     try {
+      const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
+      if (!userCount || userCount.count === 0) {
+        console.log('[Database] Populando banco com usuários padrão...');
+        const insertUser = db.prepare('INSERT INTO users (id, name, role, accessKey) VALUES (?, ?, ?, ?)');
+        insertUser.run('usr-master', 'Administrador Bela', 'Administrador', 'belafarma2024');
+        insertUser.run('usr-admin', 'Administrador', 'Administrador', 'admin');
+        insertUser.run('usr-edevaldo', 'Edevaldo', 'Administrador', '2494');
+        insertUser.run('usr-balcao', 'Balcão', 'Operador', '1234');
+      }
+    } catch (e) {
+      console.error('Erro ao popular usuários iniciais:', e.message);
+    }
+
+    try {
       db.prepare('SELECT preco_custo FROM digifarma_products_cache LIMIT 1').get();
     } catch (e) {
       db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN preco_custo REAL DEFAULT 0.0');

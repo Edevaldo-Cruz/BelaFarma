@@ -609,20 +609,22 @@ app.post('/api/login', (req, res) => {
       return res.status(400).json({ error: 'Access key is required.' });
     }
 
+    const keyStr = String(accessKey).trim();
+
     // 1. Check for Master Key
-    if (accessKey === MASTER_KEY) {
+    if (keyStr === MASTER_KEY || keyStr.toLowerCase() === MASTER_KEY) {
       const masterUser = { 
         id: 'master-admin', 
         name: 'Administrador Bela', 
-        role: 'Administrador', // Assuming 'Administrador' is the value for UserRole.ADM
+        role: 'Administrador',
         accessKey: MASTER_KEY 
       };
       return res.status(200).json(masterUser);
     }
     
     // 2. Check for user in the database
-    const stmt = db.prepare('SELECT * FROM users WHERE accessKey = ?');
-    const user = stmt.get(accessKey);
+    const stmt = db.prepare('SELECT * FROM users WHERE accessKey = ? OR LOWER(accessKey) = LOWER(?)');
+    const user = stmt.get(keyStr, keyStr);
 
     if (user) {
       res.status(200).json(user);
