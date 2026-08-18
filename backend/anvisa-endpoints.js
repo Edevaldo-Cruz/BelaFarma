@@ -179,7 +179,28 @@ module.exports = function (db) {
     }
   });
 
-  // 6. Excluir alerta
+  // 6. Atualizar a confirmação manual de estoque (Sim / Não / Resetar)
+  router.patch('/alerts/:id/toggle-stock', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { temEstoqueManual } = req.body; // 1 = Sim, 0 = Não, null/undefined = Resetar p/ Automático
+
+      const valueToSave = (temEstoqueManual === 1 || temEstoqueManual === 0) ? temEstoqueManual : null;
+
+      db.prepare('UPDATE anvisa_alerts SET tem_estoque_manual = ? WHERE id = ?').run(valueToSave, id);
+
+      res.json({
+        success: true,
+        message: 'Status de estoque atualizado com sucesso.',
+        temEstoqueManual: valueToSave
+      });
+    } catch (err) {
+      console.error('[ANVISA API] Erro ao alterar status manual:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 7. Excluir alerta
   router.delete('/alerts/:id', (req, res) => {
     try {
       const { id } = req.params;

@@ -698,8 +698,10 @@ export interface AnvisaAlert {
   fonte_url?: string;
   criado_em?: string;
   verificado?: number;
+  tem_estoque_manual?: number | null;
   temEstoque?: boolean;
   saldoEstoque?: number;
   produtoEncontradoEstoque?: string;
+  origemEstoque?: string;
 }
 

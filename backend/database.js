@@ -444,7 +444,8 @@ try {
         ean TEXT,
         fonte_url TEXT,
         criado_em TEXT NOT NULL,
-        verificado INTEGER DEFAULT 0
+        verificado INTEGER DEFAULT 0,
+        tem_estoque_manual INTEGER DEFAULT NULL
       );
     `;
 
@@ -483,6 +484,7 @@ try {
     db.exec(createQuotationListItemsTable);
     db.exec(createAppointmentsTable);
     db.exec(createAnvisaAlertsTable);
+    try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
 
     // Inventario Module Tables
     const createSessoesInventarioTable = `

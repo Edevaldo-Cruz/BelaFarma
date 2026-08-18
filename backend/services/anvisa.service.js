@@ -210,12 +210,33 @@ async function getAlertsWithStockInfo(db, filters = {}) {
   // Processa verificação de estoque para cada alerta
   const enrichedAlerts = await Promise.all(
     alerts.map(async (alert) => {
-      const stockInfo = await checkStockForAlert(db, alert);
+      let temEstoque = false;
+      let saldoEstoque = 0;
+      let produtoEncontradoEstoque = null;
+      let origem = 'Automático';
+
+      if (alert.tem_estoque_manual === 1) {
+        temEstoque = true;
+        saldoEstoque = 1;
+        origem = 'Manual (Confirmado)';
+      } else if (alert.tem_estoque_manual === 0) {
+        temEstoque = false;
+        saldoEstoque = 0;
+        origem = 'Manual (Não temos)';
+      } else {
+        const stockInfo = await checkStockForAlert(db, alert);
+        temEstoque = stockInfo.temEstoque;
+        saldoEstoque = stockInfo.saldo;
+        produtoEncontradoEstoque = stockInfo.produtoNomeEncontrado;
+        origem = stockInfo.origem;
+      }
+
       return {
         ...alert,
-        temEstoque: stockInfo.temEstoque,
-        saldoEstoque: stockInfo.saldo,
-        produtoEncontradoEstoque: stockInfo.produtoNomeEncontrado
+        temEstoque,
+        saldoEstoque,
+        produtoEncontradoEstoque,
+        origemEstoque: origem
       };
     })
   );
