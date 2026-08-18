@@ -42,7 +42,7 @@ services:
     # pois o Nginx se comunicará com ele pela rede interna do Docker.
 
   evolution-api:
-    image: atendai/evolution-api:v2.1.2
+    image: evoapicloud/evolution-api:v2.1.2
     environment:
       - TZ=America/Sao_Paulo
       # Configuração básica
