@@ -41,6 +41,7 @@ import {
   Calendar, // Added for Purchase Calendar
   Truck, // Added for Deliveries
   ShieldAlert, // Added for Alertas ANVISA
+  NotebookPen, // Added for Bloco de Notas
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -169,6 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
+    { id: 'notes', label: 'Bloco de Notas', icon: NotebookPen },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
 
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },

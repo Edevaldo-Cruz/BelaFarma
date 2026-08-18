@@ -3762,6 +3762,10 @@ const anvisaEndpoints = require('./anvisa-endpoints.js');
 app.use('/api/anvisa', anvisaEndpoints(db));
 console.log('🛡️ Módulo Alertas ANVISA inicializado.');
 
+const notesEndpoints = require('./notes-endpoints.js');
+app.use('/api/notes', notesEndpoints(db));
+console.log('📝 Módulo Bloco de Notas inicializado.');
+
 // Rotina periódica em segundo plano para checar atualizações da ANVISA (a cada 12 horas)
 const { fetchOnlineAnvisaUpdates } = require('./services/anvisa.service');
 setInterval(async () => {

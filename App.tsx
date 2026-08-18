@@ -51,6 +51,7 @@ import { SystemWatcher } from "./components/SystemWatcher";
 import { PriceManager } from "./components/PriceManager";
 import { AgendaCalendar } from "./components/AgendaCalendar";
 import { AnvisaAlerts } from "./components/AnvisaAlerts";
+import { NotesManager } from "./components/NotesManager";
 
 
 import {
@@ -1089,6 +1090,7 @@ const App: React.FC = () => {
               )}
               {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === 'anvisa-alerts' && <AnvisaAlerts theme={theme} />}
+              {currentView === 'notes' && <NotesManager user={user} theme={theme} />}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager />
               )}

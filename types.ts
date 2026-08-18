@@ -486,7 +486,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda' | 'anvisa-alerts';
+export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda' | 'anvisa-alerts' | 'notes';
 
 export type AppointmentCategory = 'Geral' | 'Reunião' | 'Cliente' | 'Fornecedor' | 'Serviço Farmacêutico' | 'Pessoal' | 'Lembrete' | 'Entrega' | 'Outros';
 export type AppointmentStatus = 'Pendente' | 'Confirmado' | 'Concluído' | 'Cancelado';
@@ -703,5 +703,23 @@ export interface AnvisaAlert {
   saldoEstoque?: number;
   produtoEncontradoEstoque?: string;
   origemEstoque?: string;
+}
+
+export type NoteVisibility = 'private' | 'admin' | 'public';
+
+export interface Note {
+  id: string;
+  title: string;
+  content: string;
+  author_id: string;
+  author_name: string;
+  visibility: NoteVisibility;
+  allow_edit: boolean;
+  is_pinned: boolean;
+  category: string;
+  color?: string;
+  created_at: string;
+  updated_at: string;
+  last_edited_by?: string;
 }
 
