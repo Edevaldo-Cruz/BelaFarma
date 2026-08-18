@@ -169,6 +169,9 @@ module.exports = function (db) {
       const alertObj = db.prepare('SELECT * FROM anvisa_alerts WHERE id = ?').get(id);
       const stockInfo = await checkStockForAlert(db, alertObj);
 
+      const alertObj = db.prepare('SELECT * FROM anvisa_alerts WHERE id = ?').get(id);
+      const stockInfo = await checkStockForAlert(db, alertObj);
+
       res.json({
         success: true,
         alert: {
@@ -179,6 +182,76 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[ANVISA API] Erro ao criar alerta:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 5.1 Importação em Lote de Dossiês/Tabela exportada da ANVISA
+  router.post('/import-batch', async (req, res) => {
+    try {
+      const { items } = req.body;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, error: 'Lista de itens inválida ou vazia.' });
+      }
+
+      let importedCount = 0;
+      let inStockCount = 0;
+      let duvidososCount = 0;
+
+      for (const item of items) {
+        const numeroResolucao = item.numero_resolucao || item.numeroResolucao || `RE nº ${item.dossie || Math.floor(Math.random()*9000)}`;
+        const nomeProduto = (item.nome_produto || item.nomeProduto || item.produto || 'PRODUTO IRREGULAR').toUpperCase();
+        const fabricante = (item.fabricante || item.empresa || item.razaoSocial || '').toUpperCase();
+        const motivo = item.motivo || item.descricaoMedida || 'Medida sanitária publicada no portal da ANVISA.';
+        const tipoAcao = item.tipo_acao || item.tipoAcao || 'Proibição';
+        const lote = item.lote || 'Todos os Lotes';
+        const dataPublicacao = item.data_publicacao || item.dataPublicacao || new Date().toISOString().split('T')[0];
+
+        // Evita duplicatas
+        const exists = db.prepare('SELECT id FROM anvisa_alerts WHERE numero_resolucao = ? OR (nome_produto = ? AND data_publicacao = ?)').get(numeroResolucao, nomeProduto, dataPublicacao);
+
+        if (!exists) {
+          const id = `anvisa-batch-${Date.now()}-${Math.floor(Math.random()*10000)}`;
+          const mockAlert = { nome_produto: nomeProduto, ean: item.ean || '', principio_ativo: item.principio_ativo || '' };
+          const stockCheck = await checkStockForAlert(db, mockAlert);
+
+          db.prepare(`
+            INSERT INTO anvisa_alerts (
+              id, numero_resolucao, data_publicacao, nome_produto, fabricante,
+              principio_ativo, motivo, tipo_acao, lote, ean, fonte_url, criado_em, verificado,
+              status_estoque, notificado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0)
+          `).run(
+            id,
+            numeroResolucao,
+            dataPublicacao,
+            nomeProduto,
+            fabricante,
+            item.principio_ativo || '',
+            motivo,
+            tipoAcao,
+            lote,
+            item.ean || '',
+            'https://consultas.anvisa.gov.br/#/dossie/c/?tipoAssunto=1',
+            new Date().toISOString(),
+            stockCheck.statusEstoque
+          );
+          importedCount++;
+
+          if (stockCheck.statusEstoque === 'comEstoque') inStockCount++;
+          if (stockCheck.statusEstoque === 'duvidoso') duvidososCount++;
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${importedCount} resoluções importadas com sucesso!`,
+        importedCount,
+        inStockCount,
+        duvidososCount
+      });
+    } catch (err) {
+      console.error('[ANVISA API] Erro ao importar lote:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });

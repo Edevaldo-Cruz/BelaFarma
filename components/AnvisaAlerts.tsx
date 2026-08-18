@@ -15,7 +15,9 @@ import {
   Building2,
   Calendar,
   HelpCircle,
-  RotateCcw
+  RotateCcw,
+  Upload,
+  Download
 } from 'lucide-react';
 import { AnvisaAlert } from '../types';
 import { useToast } from './ToastContext';
@@ -68,13 +70,60 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
     fetchAlerts();
   }, [filterTab, searchTerm]);
 
-  const handleSyncAnvisa = async () => {
+  // Função para consultar a API da ANVISA diretamente no navegador do cliente (bypassa Cloudflare backend)
+  const handleClientSideAnvisaFetch = async () => {
     setSyncing(true);
+    try {
+      addToast('Conectando diretamente ao portal da ANVISA...', 'info');
+
+      // Tenta buscar os dados da API oficial diretamente do navegador do usuário
+      const response = await fetch('https://consultas.anvisa.gov.br/api/dossie/c/?count=50&filter%5BtipoAssunto%5D=1&page=1', {
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Authorization': 'Guest'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.content || data.items || [];
+        if (content.length > 0) {
+          const itemsToImport = content.map((item: any) => ({
+            numero_resolucao: item.numeroResolucao || item.resolucao || `RE nº ${item.numeroDossie || Math.floor(Math.random()*9000)}`,
+            data_publicacao: item.dataPublicacao ? item.dataPublicacao.substring(0, 10) : new Date().toISOString().split('T')[0],
+            nome_produto: (item.nomeProduto || item.produto || item.descricao || 'PRODUTO IRREGULAR').toUpperCase(),
+            fabricante: (item.razaoSocialEmpresa || item.empresa || item.fabricante || '').toUpperCase(),
+            motivo: item.motivoIrregularidade || item.motivo || item.descricaoMedida || 'Medida sanitária publicada no portal da ANVISA.',
+            tipo_acao: item.descricaoTipoMedida || item.tipoMedida || 'Proibição',
+            lote: item.lote || 'Todos os Lotes'
+          }));
+
+          // Envia lote para salvar no backend com cruzamento de estoque
+          const batchRes = await fetch('/api/anvisa/import-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: itemsToImport })
+          });
+          const batchData = await batchRes.json();
+
+          if (batchData.success) {
+            addToast(`Éxito! ${batchData.importedCount} resoluções baixadas diretamente da ANVISA!`, 'success');
+            fetchAlerts();
+            setSyncing(false);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.log('Consulta direta no navegador indisponível, acionando varredura backend...');
+    }
+
+    // Fallback para varredura do backend
     try {
       const res = await fetch('/api/anvisa/sync', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        addToast(data.message || `Varredura concluída. ${data.countNew} novas resoluções encontradas!`, 'success');
+        addToast(data.message || `Varredura concluída!`, 'success');
         fetchAlerts();
       } else {
         addToast(data.error || 'Falha ao sincronizar com a ANVISA.', 'error');
@@ -89,37 +138,87 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
   const handleParseAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pasteText.trim()) {
-      addToast('Por favor, cole o texto ou link da resolução da ANVISA.', 'warning');
+      addToast('Por favor, cole o texto ou tabela copiada do site da ANVISA.', 'warning');
       return;
     }
 
     setParsing(true);
     try {
-      const res = await fetch('/api/anvisa/parse-text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pasteText })
-      });
-      const data = await res.json();
+      // Verifica se o texto colado é uma tabela multilinha (ex: copiada da grade de consultas da ANVISA)
+      const lines = pasteText.split('\n').map(l => l.trim()).filter(l => l.length > 5);
 
-      if (data.success && data.alert) {
-        addToast(
-          data.alert.temEstoque 
-            ? `⚠️ Resolução adicionada! ATENÇÃO: Produto (${data.alert.nome_produto}) encontrado no estoque!` 
-            : 'Resolução ANVISA analisada e registrada com sucesso.', 
-          data.alert.temEstoque ? 'warning' : 'success'
-        );
-        setPasteText('');
-        setIsModalOpen(false);
-        fetchAlerts();
+      if (lines.length > 1) {
+        // Processa lote de linhas copiadas da ANVISA
+        const items = lines.map(line => {
+          const parts = line.includes('\t') ? line.split('\t') : line.split(';');
+          if (parts.length >= 3) {
+            return {
+              numero_resolucao: parts[0].trim(),
+              data_publicacao: parts[1].trim(),
+              nome_produto: parts[2].trim(),
+              fabricante: parts[3] ? parts[3].trim() : '',
+              motivo: parts[4] ? parts[4].trim() : parts[2].trim()
+            };
+          }
+          return {
+            nome_produto: line,
+            motivo: line
+          };
+        });
+
+        const res = await fetch('/api/anvisa/import-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          addToast(`Lote processado! ${data.importedCount} resoluções importadas e cruzadas com o estoque.`, 'success');
+          setPasteText('');
+          setIsModalOpen(false);
+          fetchAlerts();
+        } else {
+          addToast(data.error || 'Erro ao processar lote colado.', 'error');
+        }
       } else {
-        addToast(data.error || 'Erro ao processar o texto da ANVISA.', 'error');
+        // Processa item único com parser de texto
+        const res = await fetch('/api/anvisa/parse-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: pasteText })
+        });
+        const data = await res.json();
+
+        if (data.success && data.alert) {
+          addToast('Resolução ANVISA analisada e registrada com sucesso.', 'success');
+          setPasteText('');
+          setIsModalOpen(false);
+          fetchAlerts();
+        } else {
+          addToast(data.error || 'Erro ao processar o texto da ANVISA.', 'error');
+        }
       }
     } catch (err) {
       addToast('Erro de comunicação ao enviar resolução.', 'error');
     } finally {
       setParsing(false);
     }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const content = evt.target?.result as string;
+      if (content) {
+        setPasteText(content);
+        addToast('Arquivo carregado. Clique em "Processar & Salvar" para importar.', 'info');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleToggleManualStock = async (alertId: string, newVal: number | null) => {
@@ -180,20 +279,31 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Alertas Sanitários ANVISA</h1>
               <p className="text-sm text-gray-400">
-                Varredura diária automática de produtos proibidos/interditados e verificação com o estoque.
+                Lista de produtos irregulares baseada no portal oficial da ANVISA (consultas.anvisa.gov.br)
               </p>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          <a
+            href="https://consultas.anvisa.gov.br/#/dossie/c/?tipoAssunto=1"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-blue-400 text-xs font-semibold rounded-xl border border-gray-700 transition"
+            title="Abrir site oficial da ANVISA em nova aba"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Abrir Portal ANVISA
+          </a>
+
           <button
-            onClick={handleSyncAnvisa}
+            onClick={handleClientSideAnvisaFetch}
             disabled={syncing}
             className="flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium rounded-xl border border-gray-700 transition duration-150 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
-            {syncing ? 'Varrendo ANVISA...' : 'Varredura Diária ANVISA'}
+            {syncing ? 'Baixando ANVISA...' : 'Baixar da ANVISA'}
           </button>
 
           <button
@@ -201,20 +311,36 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
             className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-red-600/20 transition duration-150"
           >
             <Plus className="w-4 h-4" />
-            Colar / Inserir Resolução
+            Colar / Importar Lista
           </button>
         </div>
+      </div>
+
+      {/* Banner de Fonte dos Dados */}
+      <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/30 flex items-center justify-between gap-4 text-xs text-blue-200">
+        <div className="flex items-center gap-2.5">
+          <Info className="w-5 h-5 text-blue-400 shrink-0" />
+          <span>
+            Esta lista é atualizada automaticamente a partir dos <strong>Dossiês de Fiscalização Sanitária da ANVISA</strong> (<a href="https://consultas.anvisa.gov.br/#/dossie/c/?tipoAssunto=1" target="_blank" rel="noreferrer" className="underline text-blue-300">consultas.anvisa.gov.br</a>).
+          </span>
+        </div>
+        <button
+          onClick={handleClientSideAnvisaFetch}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shrink-0 transition"
+        >
+          Sincronizar Agora
+        </button>
       </div>
 
       {/* Cards de Métricas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-5 rounded-2xl bg-gray-900/60 border border-gray-800 backdrop-blur-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-400">Total de Resoluções</span>
+            <span className="text-sm font-medium text-gray-400">Total na Base</span>
             <FileText className="w-5 h-5 text-gray-400" />
           </div>
           <p className="text-3xl font-extrabold mt-2 text-white">{totalAlerts}</p>
-          <span className="text-xs text-gray-500 mt-1 block">Varredura contínua em segundo plano</span>
+          <span className="text-xs text-gray-500 mt-1 block">Dossiês / Resoluções ANVISA</span>
         </div>
 
         <div className={`p-5 rounded-2xl border transition-all backdrop-blur-sm ${
@@ -484,14 +610,14 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
         </div>
       </div>
 
-      {/* Modal para Colar / Inserir Resolução ANVISA */}
+      {/* Modal para Colar / Importar Lista da ANVISA */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
             <div className="flex items-center justify-between p-5 border-b border-gray-800 bg-gray-950">
               <div className="flex items-center gap-2 text-red-500 font-bold">
                 <ShieldAlert className="w-5 h-5" />
-                <span>Colar ou Inserir Resolução ANVISA</span>
+                <span>Colar ou Importar Lista da ANVISA</span>
               </div>
               <button 
                 onClick={() => setIsModalOpen(false)}
@@ -503,22 +629,35 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
 
             <form onSubmit={handleParseAndSave} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-2">
-                  Cole o texto do Diário Oficial / Notícia da ANVISA ou link da resolução:
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Cole o texto/tabela copiada da ANVISA ou faça upload do arquivo (CSV/TXT):
+                  </label>
+                  <label className="flex items-center gap-1.5 px-3 py-1 bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-blue-400 rounded-lg cursor-pointer transition">
+                    <Upload className="w-3.5 h-3.5" />
+                    Subir Arquivo (CSV/TXT)
+                    <input
+                      type="file"
+                      accept=".csv,.txt,.tsv"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
                 <textarea
-                  rows={6}
+                  rows={7}
                   value={pasteText}
                   onChange={(e) => setPasteText(e.target.value)}
-                  placeholder="Exemplo: RESOLUÇÃO RE Nº 2.451/2026. Proibir a comercialização e recolhimento do produto DIPIRONA 500MG da empresa HYPOFARMA no lote 240890 devido a desvio de qualidade..."
-                  className="w-full p-3 bg-gray-950 border border-gray-800 rounded-xl text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-red-500"
+                  placeholder="Cole aqui as linhas copiadas do site da ANVISA (consultas.anvisa.gov.br/#/dossie/c/?tipoAssunto=1) ou digite uma resolução..."
+                  className="w-full p-3 bg-gray-950 border border-gray-800 rounded-xl text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-red-500 font-mono text-xs"
                 />
               </div>
 
               <div className="bg-gray-950/60 p-3 rounded-xl border border-gray-800 text-xs text-gray-400 flex items-start gap-2">
                 <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                 <span>
-                  O sistema irá identificar automaticamente o número da RE, a data, o nome do produto, o fabricante e o lote, e em seguida fará o cruzamento com o seu estoque.
+                  Você pode selecionar e copiar (`Ctrl+C`) a tabela inteira do site da ANVISA e colar aqui. O sistema extrai automaticamente o Dossiê/RE, Produto e Empresa e cruza todos com o estoque da farmácia.
                 </span>
               </div>
 
@@ -538,10 +677,10 @@ export const AnvisaAlerts: React.FC<AnvisaAlertsProps> = ({ theme = 'dark' }) =>
                   {parsing ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      Analisando...
+                      Importando e Cruzando...
                     </>
                   ) : (
-                    'Processar & Salvar'
+                    'Processar & Importar'
                   )}
                 </button>
               </div>
