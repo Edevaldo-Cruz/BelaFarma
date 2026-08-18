@@ -430,6 +430,24 @@ try {
       );
     `;
 
+    const createAnvisaAlertsTable = `
+      CREATE TABLE IF NOT EXISTS anvisa_alerts (
+        id TEXT PRIMARY KEY,
+        numero_resolucao TEXT NOT NULL,
+        data_publicacao TEXT NOT NULL,
+        nome_produto TEXT NOT NULL,
+        fabricante TEXT,
+        principio_ativo TEXT,
+        motivo TEXT NOT NULL,
+        tipo_acao TEXT DEFAULT 'Proibição',
+        lote TEXT,
+        ean TEXT,
+        fonte_url TEXT,
+        criado_em TEXT NOT NULL,
+        verificado INTEGER DEFAULT 0
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -464,6 +482,7 @@ try {
     db.exec(createQuotationListsTable);
     db.exec(createQuotationListItemsTable);
     db.exec(createAppointmentsTable);
+    db.exec(createAnvisaAlertsTable);
 
     // Inventario Module Tables
     const createSessoesInventarioTable = `

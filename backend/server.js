@@ -3756,6 +3756,21 @@ const priceManagerEndpoints = require('./price-manager-endpoints.js');
 app.use('/api/price-manager', priceManagerEndpoints(db));
 console.log('💰 Módulo Monitor de Preços e Reajuste em Massa inicializado.');
 
+const anvisaEndpoints = require('./anvisa-endpoints.js');
+app.use('/api/anvisa', anvisaEndpoints(db));
+console.log('🛡️ Módulo Alertas ANVISA inicializado.');
+
+// Rotina periódica em segundo plano para checar atualizações da ANVISA (a cada 12 horas)
+const { fetchOnlineAnvisaUpdates } = require('./services/anvisa.service');
+setInterval(async () => {
+  try {
+    console.log('[Cron ANVISA] Executando verificação periódica de resoluções ANVISA...');
+    await fetchOnlineAnvisaUpdates(db);
+  } catch (err) {
+    console.error('[Cron ANVISA] Erro no agendador:', err.message);
+  }
+}, 12 * 60 * 60 * 1000);
+
 
 // ============================================================================
 // AGENTE DE COMPRAS IA - Inicialização

@@ -40,6 +40,7 @@ import {
   Activity, // Added for Vigilante
   Calendar, // Added for Purchase Calendar
   Truck, // Added for Deliveries
+  ShieldAlert, // Added for Alertas ANVISA
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -138,8 +139,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const interval = setInterval(checkIFood, 300000); // Every 5 minutes
     return () => clearInterval(interval);
   }, [isAdmin, currentView]);
+  const [anvisaAlertCount, setAnvisaAlertCount] = React.useState(0);
+
+  // Check ANVISA alerts in stock
+  React.useEffect(() => {
+    const checkAnvisaAlerts = async () => {
+      try {
+        const res = await fetch('/api/anvisa/summary');
+        const data = await res.json();
+        if (data.success && typeof data.totalEmEstoque === 'number') {
+          setAnvisaAlertCount(data.totalEmEstoque);
+        }
+      } catch (error) {
+        console.error('Error checking ANVISA alerts summary:', error);
+      }
+    };
+    checkAnvisaAlerts();
+    const interval = setInterval(checkAnvisaAlerts, 120000); // Every 2 minutes
+    return () => clearInterval(interval);
+  }, [currentView]);
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
     { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
@@ -422,6 +444,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="truncate">{item.label}</span>
                   {item.id === 'debtors-report' && hasOverdue && (
                     <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
+                  )}
+                  {item.id === 'anvisa-alerts' && anvisaAlertCount > 0 && (
+                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${anvisaAlertCount} produtos em estoque proibidos pela ANVISA`}>
+                      {anvisaAlertCount}
+                    </span>
                   )}
                   {item.id === 'deliveries' && pendingReviewCount > 0 && (
                     <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-amber-500 dark:bg-amber-600 rounded-full animate-pulse shadow-sm" title={`${pendingReviewCount} revisões pendentes`}>

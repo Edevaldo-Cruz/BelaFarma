@@ -486,7 +486,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda';
+export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda' | 'anvisa-alerts';
 
 export type AppointmentCategory = 'Geral' | 'Reunião' | 'Cliente' | 'Fornecedor' | 'Serviço Farmacêutico' | 'Pessoal' | 'Lembrete' | 'Entrega' | 'Outros';
 export type AppointmentStatus = 'Pendente' | 'Confirmado' | 'Concluído' | 'Cancelado';
@@ -683,3 +683,23 @@ export interface RejectionMetrics {
     main_reason: string;
   }>;
 }
+
+export interface AnvisaAlert {
+  id: string;
+  numero_resolucao: string;
+  data_publicacao: string;
+  nome_produto: string;
+  fabricante?: string;
+  principio_ativo?: string;
+  motivo: string;
+  tipo_acao?: string;
+  lote?: string;
+  ean?: string;
+  fonte_url?: string;
+  criado_em?: string;
+  verificado?: number;
+  temEstoque?: boolean;
+  saldoEstoque?: number;
+  produtoEncontradoEstoque?: string;
+}
+
