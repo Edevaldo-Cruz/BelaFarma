@@ -40,6 +40,10 @@ console.error = (...args) => {
     originalError.apply(console, args);
 };
 
+// 🛡️ Inicializa o Rastreador de Incidentes e Caixa-Preta (Heartbeat, Quedas e Erros)
+const incidentTracker = require('./services/incident-tracker.service.js');
+incidentTracker.initIncidentTracker(db);
+
 const safelyParseJSON = (jsonString, fallback = []) => {
   try {
     if (!jsonString) return fallback;

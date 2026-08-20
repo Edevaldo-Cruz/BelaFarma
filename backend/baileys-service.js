@@ -13,6 +13,8 @@ const SESSION_DIR = process.platform === 'win32'
   ? path.join(__dirname, 'baileys-session')
   : path.join(__dirname, 'data', 'baileys-session');
 
+const incidentTracker = require('./services/incident-tracker.service.js');
+
 // Estado interno do serviço
 let sock          = null;   // Socket Baileys ativo
 let isConnected   = false;  // true quando autenticado e pronto
@@ -130,6 +132,7 @@ async function connect(db) {
         lastQR       = null;
         lastError    = null;
         console.log('[Baileys] ✅ Conectado ao WhatsApp com sucesso!');
+        try { incidentTracker.notifyWhatsappConnect('principal'); } catch(e) {}
 
         // --- Verificação de nova conexão para importação de histórico ---
         if (db && sock && sock.user && sock.user.id) {
@@ -179,6 +182,11 @@ async function connect(db) {
         const needsFullReset = statusCode === DisconnectReason?.loggedOut ||
                                statusCode === DisconnectReason?.badSession ||
                                reason.includes('QR refs attempts ended');
+
+        // Notifica o Rastreador de Incidentes
+        try {
+          incidentTracker.notifyWhatsappDisconnect('principal', statusCode, reason, needsFullReset);
+        } catch (e) {}
 
         if (needsFullReset) {
           console.warn('[Baileys] 🧹 Sessão inválida ou QR expirado completamente. Apagando pasta de sessão para forçar novo QR Code...');

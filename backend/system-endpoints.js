@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
 const watcherService = require('./services/watcher.service.js');
+const incidentTracker = require('./services/incident-tracker.service.js');
 
 module.exports = (db) => {
 
@@ -146,6 +147,51 @@ module.exports = (db) => {
       res.json({ todayVisits, totalVisits });
     } catch (err) {
       console.error('[VISITOR-COUNTER] Erro ao buscar estatísticas:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/system/incidents - Retorna a lista de incidentes e interrupções registradas
+  router.get('/incidents', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 50;
+      const type = req.query.type || null;
+      const incidents = incidentTracker.getIncidents(limit, type);
+      res.json(incidents);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/incidents/test - Simula um incidente de teste
+  router.post('/incidents/test', (req, res) => {
+    try {
+      const { type = 'SERVICE_FAILURE', severity = 'WARNING', title = 'Incidente de Teste Manual', details = 'Teste gerado pelo usuário para validar o sistema de alertas.' } = req.body || {};
+      const id = incidentTracker.recordIncident(type, severity, title, details);
+      res.json({ success: true, message: 'Incidente de teste registrado com sucesso!', id });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/system/incidents/clear - Limpa o histórico de incidentes
+  router.delete('/incidents/clear', (req, res) => {
+    try {
+      const success = incidentTracker.clearIncidents();
+      res.json({ success, message: 'Histórico de incidentes limpo com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/system/logs - Retorna as últimas linhas do log do servidor
+  router.get('/logs', (req, res) => {
+    try {
+      const linesCount = parseInt(req.query.lines) || 150;
+      const filter = req.query.filter || null;
+      const result = incidentTracker.getRecentLogs(linesCount, filter);
+      res.json(result);
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
