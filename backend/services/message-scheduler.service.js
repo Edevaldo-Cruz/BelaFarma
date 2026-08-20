@@ -281,7 +281,12 @@ let rpaRunning = false;
  */
 async function runScheduledGroupPostsJob(db) {
   try {
-    const baileys = require('./baileys-service.js');
+    let baileys = null;
+    try {
+      baileys = require('../baileys-service.js');
+    } catch (e) {
+      // Baileys opcional se não estiver inicializado
+    }
     const baileysStatus = baileys ? baileys.getStatus() : null;
 
     // Se o Baileys não estiver conectado ao WhatsApp, o Windows RPA Agent assume a fila
