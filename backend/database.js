@@ -545,11 +545,31 @@ try {
       );
     `;
 
+    const createCardMachineReceivablesTable = `
+      CREATE TABLE IF NOT EXISTS card_machine_receivables (
+        id TEXT PRIMARY KEY,
+        closing_id TEXT,
+        sale_date TEXT NOT NULL,
+        expected_payment_date TEXT NOT NULL,
+        modality TEXT NOT NULL,
+        gross_value REAL NOT NULL,
+        net_deposited_value REAL,
+        fee_value REAL,
+        fee_percent REAL,
+        status TEXT NOT NULL DEFAULT 'Pendente',
+        reconciled_at TEXT,
+        reconciled_by TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL
+      );
+    `;
+
     db.exec(createSessoesInventarioTable);
     db.exec(createItensInventariadosTable);
     db.exec(createVendasDuranteInventarioTable);
     db.exec(createDigifarmaProductsCacheTable);
     db.exec(createNappPricesTable);
+    db.exec(createCardMachineReceivablesTable);
 
     // --- Price Manager Table Migrations ---
     try {

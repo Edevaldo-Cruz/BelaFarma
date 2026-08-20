@@ -42,6 +42,9 @@ export default defineConfig(({ mode }) => {
         VitePWA({
           registerType: 'prompt',
           includeAssets: ['favicon.ico', 'pwa-192x192.png', 'pwa-512x512.png'],
+          workbox: {
+            maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
+          },
           manifest: {
             name: 'Belinha',
             short_name: 'Belinha',

@@ -1560,6 +1560,28 @@ app.post('/api/cash-closings', (req, res) => {
       VALUES (@id, @date, @description, @type, @value, @userName, @source_id)
     `);
 
+    const insertCardMachineStmt = db.prepare(`
+      INSERT INTO card_machine_receivables (
+        id, closing_id, sale_date, expected_payment_date, modality,
+        gross_value, net_deposited_value, fee_value, fee_percent,
+        status, reconciled_at, reconciled_by, notes, created_at
+      ) VALUES (
+        @id, @closing_id, @sale_date, @expected_payment_date, @modality,
+        @gross_value, NULL, NULL, NULL,
+        'Pendente', NULL, NULL, @notes, @created_at
+      )
+    `);
+
+    // Helper para próximo dia útil
+    const calcNextBusinessDay = (dateStr) => {
+      const d = new Date(dateStr + 'T12:00:00');
+      d.setDate(d.getDate() + 1);
+      const day = d.getDay();
+      if (day === 6) d.setDate(d.getDate() + 2); // Sábado -> Segunda
+      else if (day === 0) d.setDate(d.getDate() + 1); // Domingo -> Segunda
+      return d.toISOString().split('T')[0];
+    };
+
     db.transaction(() => {
       insertClosingStmt.run({
         ...closing,
@@ -1568,6 +1590,8 @@ app.post('/api/cash-closings', (req, res) => {
       });
 
       const transactionDate = new Date().toISOString();
+      const saleDate = closing.date ? closing.date.split('T')[0] : transactionDate.split('T')[0];
+      const nextBusDay = calcNextBusinessDay(saleDate);
       
       // If there is a safe deposit, record it in the safe
       const safeDepositVal = Number(closing.safeDeposit);
@@ -1595,6 +1619,18 @@ app.post('/api/cash-closings', (req, res) => {
           value: closing.credit,
           cashClosingId: closing.id
         });
+
+        // Registrar em card_machine_receivables
+        insertCardMachineStmt.run({
+          id: `cmr_cred_${closing.id}`,
+          closing_id: closing.id,
+          sale_date: saleDate,
+          expected_payment_date: nextBusDay,
+          modality: 'Crédito',
+          gross_value: Number(closing.credit),
+          notes: `Fechamento de Caixa ${saleDate}`,
+          created_at: transactionDate
+        });
       }
       if (closing.debit > 0) {
         insertTransactionStmt.run({
@@ -1605,6 +1641,18 @@ app.post('/api/cash-closings', (req, res) => {
           value: closing.debit,
           cashClosingId: closing.id
         });
+
+        // Registrar em card_machine_receivables
+        insertCardMachineStmt.run({
+          id: `cmr_deb_${closing.id}`,
+          closing_id: closing.id,
+          sale_date: saleDate,
+          expected_payment_date: nextBusDay,
+          modality: 'Débito',
+          gross_value: Number(closing.debit),
+          notes: `Fechamento de Caixa ${saleDate}`,
+          created_at: transactionDate
+        });
       }
       if (closing.pix > 0) {
         insertTransactionStmt.run({
@@ -1614,6 +1662,18 @@ app.post('/api/cash-closings', (req, res) => {
           type: 'Entrada',
           value: closing.pix,
           cashClosingId: closing.id
+        });
+
+        // Registrar em card_machine_receivables
+        insertCardMachineStmt.run({
+          id: `cmr_pix_${closing.id}`,
+          closing_id: closing.id,
+          sale_date: saleDate,
+          expected_payment_date: nextBusDay,
+          modality: 'Pix Maquininha',
+          gross_value: Number(closing.pix),
+          notes: `Fechamento de Caixa ${saleDate}`,
+          created_at: transactionDate
         });
       }
       if (closing.pixDirect > 0) {
@@ -3769,6 +3829,10 @@ console.log('🛡️ Módulo Alertas ANVISA inicializado.');
 const notesEndpoints = require('./notes-endpoints.js');
 app.use('/api/notes', notesEndpoints(db));
 console.log('📝 Módulo Bloco de Notas inicializado.');
+
+const cardMachinesEndpoints = require('./card-machines-endpoints.js');
+app.use('/api', cardMachinesEndpoints(db));
+console.log('💳 Módulo Controle de Maquininhas inicializado.');
 
 // Rotina periódica em segundo plano para checar atualizações da ANVISA (a cada 12 horas)
 const { fetchOnlineAnvisaUpdates } = require('./services/anvisa.service');

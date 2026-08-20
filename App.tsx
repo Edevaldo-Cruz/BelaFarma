@@ -52,6 +52,8 @@ import { PriceManager } from "./components/PriceManager";
 import { AgendaCalendar } from "./components/AgendaCalendar";
 import { AnvisaAlerts } from "./components/AnvisaAlerts";
 import { NotesManager } from "./components/NotesManager";
+import { CardMachinesManager } from "./components/CardMachinesManager";
+import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 
 
 import {
@@ -119,6 +121,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
+  const [isCardMachineModalOpen, setIsCardMachineModalOpen] = useState(false);
   const { addToast } = useToast();
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
@@ -272,6 +275,31 @@ const App: React.FC = () => {
           setIsTeraModalOpen(true);
           localStorage.setItem("tera_popup_last_date", hoje);
         }
+      }
+
+      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha após 10h para Edevaldo ---
+      if (user.name.toLowerCase().includes("edevaldo") || user.role === UserRole.ADM) {
+        const checkCardMachinePending = async () => {
+          try {
+            const currentHour = new Date().getHours();
+            if (currentHour >= 10) {
+              const res = await fetch('/api/card-machine-receivables/pending-due');
+              if (!res.ok) return;
+              const pending = await res.json();
+              if (Array.isArray(pending) && pending.length > 0) {
+                const sessionDismissed = sessionStorage.getItem("belafarma_card_reconcile_dismissed");
+                if (!sessionDismissed) {
+                  setIsCardMachineModalOpen(true);
+                  addToast(`💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, "info");
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Erro ao checar pendências de maquininha:", err);
+          }
+        };
+
+        checkCardMachinePending();
       }
 
       return () => {
@@ -1091,6 +1119,9 @@ const App: React.FC = () => {
               {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === 'anvisa-alerts' && <AnvisaAlerts theme={theme} />}
               {currentView === 'notes' && <NotesManager user={user} theme={theme} />}
+              {currentView === 'card-machines' && user.role === UserRole.ADM && (
+                <CardMachinesManager user={user} />
+              )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager />
               )}
@@ -1105,6 +1136,22 @@ const App: React.FC = () => {
 
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
+
+      {/* Modal de Conferência Diária 10h de Maquininha para Edevaldo */}
+      <CardMachineReconcileModal
+        isOpen={isCardMachineModalOpen}
+        onClose={() => {
+          setIsCardMachineModalOpen(false);
+          sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
+        }}
+        onNavigateToFullView={() => {
+          handleNavigate('card-machines');
+        }}
+        userName={user?.name}
+        onReconcileSuccess={() => {
+          fetchData();
+        }}
+      />
 
       {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
       <div className={`fixed bottom-10 md:bottom-8 right-4 md:right-8 z-[90] flex-col items-center gap-2 pb-safe ${showMobileFloatingButton ? 'flex' : 'hidden md:flex'}`}>

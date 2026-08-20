@@ -486,7 +486,42 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda' | 'anvisa-alerts' | 'notes';
+export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines';
+
+export interface CardMachineReceivable {
+  id: string;
+  closing_id?: string;
+  sale_date: string;
+  expected_payment_date: string;
+  modality: 'Débito' | 'Crédito' | 'Pix Maquininha' | string;
+  gross_value: number;
+  net_deposited_value?: number | null;
+  fee_value?: number | null;
+  fee_percent?: number | null;
+  status: 'Pendente' | 'Conferido';
+  reconciled_at?: string | null;
+  reconciled_by?: string | null;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface CardMachineDashboard {
+  totalGross: number;
+  totalNet: number;
+  totalFees: number;
+  avgFeePercent: number;
+  totalPendingCount: number;
+  totalReconciledCount: number;
+  byModality: {
+    [modality: string]: {
+      gross: number;
+      net: number;
+      fee: number;
+      avgFeePercent: number;
+      count: number;
+    };
+  };
+}
 
 export type AppointmentCategory = 'Geral' | 'Reunião' | 'Cliente' | 'Fornecedor' | 'Serviço Farmacêutico' | 'Pessoal' | 'Lembrete' | 'Entrega' | 'Outros';
 export type AppointmentStatus = 'Pendente' | 'Confirmado' | 'Concluído' | 'Cancelado';
