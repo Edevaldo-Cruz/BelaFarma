@@ -59,6 +59,8 @@ interface SidebarProps {
   boletos?: Boleto[]; // ADDED
   onOpenTeraModal?: () => void; // ADDED
   isBudgetBusted?: boolean;
+  onOpenMural?: () => void;
+  muralPendingCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -73,7 +75,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tasks = [],
   boletos = [], // ADDED
   onOpenTeraModal,
-  isBudgetBusted = false
+  isBudgetBusted = false,
+  onOpenMural,
+  muralPendingCount = 0
 }) => {
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
@@ -404,6 +408,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </button>
 
+            {/* Botão de Acesso Rápido ao Mural de Pendências */}
+            {onOpenMural && (
+              <button
+                onClick={onOpenMural}
+                className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 rounded-2xl border border-amber-300 dark:border-amber-700/50 group transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-lg shadow-sm">
+                    <Sparkles size={16} className={muralPendingCount > 0 ? 'animate-pulse' : ''} />
+                  </div>
+                  <span className="text-[11px] font-black text-amber-900 dark:text-amber-200 uppercase tracking-tight">
+                    Mural de Pendências
+                  </span>
+                </div>
+                {muralPendingCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white shadow-sm animate-pulse">
+                    {muralPendingCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Botão de Incentivo VW Tera exclusivo para Nayane */}
             {user.name.toLowerCase().includes('nayane') && onOpenTeraModal && (
               <button 
@@ -422,6 +448,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {sortedMenuItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentView === item.id;
+              const isVendas = item.id === 'whatsapp-vendas';
+
+              let buttonClass = '';
+              let iconClass = '';
+
+              if (isVendas) {
+                if (isActive) {
+                  buttonClass = 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md font-black';
+                  iconClass = 'text-white';
+                } else {
+                  buttonClass = 'bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/10 dark:from-amber-950/50 dark:via-orange-950/50 dark:to-amber-950/30 text-amber-900 dark:text-amber-200 border border-amber-300/80 dark:border-amber-600/50 hover:bg-amber-500/30 font-black shadow-sm';
+                  iconClass = 'text-amber-600 dark:text-amber-400';
+                }
+              } else if (isActive) {
+                buttonClass = isBudgetBusted 
+                  ? 'bg-red-900 text-white shadow-sm'
+                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 shadow-sm';
+                iconClass = isBudgetBusted ? 'text-white' : 'text-red-600 dark:text-red-500';
+              } else {
+                buttonClass = isBudgetBusted
+                  ? 'text-red-300 hover:bg-red-900/40 hover:text-white'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100';
+                iconClass = isBudgetBusted ? 'text-red-400' : 'text-slate-400 dark:text-slate-600';
+              }
+
               return (
                 <button
                   key={item.id}
@@ -429,22 +480,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setView(item.id as View);
                     if (window.innerWidth < 768) setIsOpen(false);
                   }}
-                  className={`flex items-center w-full gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
-                    isActive 
-                      ? isBudgetBusted 
-                        ? 'bg-red-900 text-white shadow-sm'
-                        : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 shadow-sm' 
-                      : isBudgetBusted
-                        ? 'text-red-300 hover:bg-red-900/40 hover:text-white'
-                        : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
-                  }`}
+                  className={`flex items-center w-full gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${buttonClass}`}
                 >
-                  <Icon className={`w-5 h-5 ${
-                    isActive 
-                      ? isBudgetBusted ? 'text-white' : 'text-red-600 dark:text-red-500' 
-                      : isBudgetBusted ? 'text-red-400' : 'text-slate-400 dark:text-slate-600'
-                  }`} />
+                  <Icon className={`w-5 h-5 ${iconClass}`} />
                   <span className="truncate">{item.label}</span>
+                  {isVendas && (
+                    <span className={`ml-auto px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ${
+                      isActive ? 'bg-white text-orange-600' : 'bg-gradient-to-r from-amber-400 to-orange-500 text-white animate-pulse'
+                    }`}>
+                      Destaque
+                    </span>
+                  )}
                   {item.id === 'debtors-report' && hasOverdue && (
                     <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
                   )}

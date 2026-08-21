@@ -3858,7 +3858,25 @@ app.use('/api/purchasing', purchasingEndpoints(db));
 app.use('/api/files', filesEndpoints(db));
 app.use('/api/recipes', recipeEndpoints(db));
 app.use('/api/system', systemEndpoints(db));
-console.log('🤖 Agente de Compras, Central de Arquivos, Receituários e Sistema inicializados.');
+
+const muralEndpointsModule = require('./mural-endpoints.js');
+const muralObj = muralEndpointsModule(db);
+app.use('/api/mural', muralObj.router);
+console.log('📌 Módulo Mural de Pendências e Produtos Parados 90d+ inicializado.');
+
+// Rotina matinal diária para gerar lista de produtos parados nos dias úteis (roda a cada 1 hora para checar)
+setInterval(async () => {
+  try {
+    const hoje = new Date();
+    // Executa preferencialmente entre 06:00 e 23:00
+    if (hoje.getHours() >= 6) {
+      await muralObj.gerarDistribuicaoDiaria(false);
+    }
+  } catch (err) {
+    console.error('[Cron Mural] Erro ao verificar distribuição diária:', err.message);
+  }
+}, 60 * 60 * 1000);
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BACKUP AUTOMÁTICO — Cópia local do banco + log

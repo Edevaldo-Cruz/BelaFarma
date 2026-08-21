@@ -54,6 +54,7 @@ import { AnvisaAlerts } from "./components/AnvisaAlerts";
 import { NotesManager } from "./components/NotesManager";
 import { CardMachinesManager } from "./components/CardMachinesManager";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
+import { MuralModal } from "./components/MuralModal";
 
 
 import {
@@ -122,6 +123,10 @@ const App: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const [isCardMachineModalOpen, setIsCardMachineModalOpen] = useState(false);
+  const [isMuralOpen, setIsMuralOpen] = useState(false);
+  const [muralPendingCount, setMuralPendingCount] = useState(0);
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
+  const [anvisaAlertCount, setAnvisaAlertCount] = useState(0);
   const { addToast } = useToast();
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
@@ -301,6 +306,28 @@ const App: React.FC = () => {
 
         checkCardMachinePending();
       }
+
+      // --- Lógica de Auto-exibição do Mural de Pendências ao entrar ---
+      const checkMuralPendencias = async () => {
+        try {
+          const res = await fetch(`/api/mural/pendencias?userId=${encodeURIComponent(user.id)}&userName=${encodeURIComponent(user.name)}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.success) {
+            const count = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
+            setMuralPendingCount(count);
+            
+            const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
+            if (count > 0 && !sessionDismissed) {
+              setIsMuralOpen(true);
+            }
+          }
+        } catch (err) {
+          console.error("Erro ao checar pendências do mural:", err);
+        }
+      };
+
+      checkMuralPendencias();
 
       return () => {
         events.forEach((event) => window.removeEventListener(event, reset));
@@ -899,6 +926,8 @@ const App: React.FC = () => {
         boletos={boletos}
         onOpenTeraModal={() => setIsTeraModalOpen(true)}
         isBudgetBusted={isBudgetBusted}
+        onOpenMural={() => setIsMuralOpen(true)}
+        muralPendingCount={muralPendingCount}
       />
       <MobileHeader 
         onOpenSidebar={() => setIsSidebarOpen(true)} 
@@ -1152,6 +1181,34 @@ const App: React.FC = () => {
           fetchData();
         }}
       />
+
+      {/* Modal / Mural de Pendências e Produtos Parados 90d+ */}
+      {user && (
+        <MuralModal
+          isOpen={isMuralOpen}
+          onClose={() => {
+            setIsMuralOpen(false);
+            sessionStorage.setItem("belafarma_mural_dismissed", "true");
+          }}
+          user={user}
+          tasks={tasks}
+          boletos={boletos}
+          pendingReviewCount={pendingReviewCount}
+          anvisaAlertCount={anvisaAlertCount}
+          onNavigate={handleNavigate}
+          onRefreshPending={async () => {
+            try {
+              const res = await fetch(`/api/mural/pendencias?userId=${encodeURIComponent(user.id)}&userName=${encodeURIComponent(user.name)}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data.success) {
+                  setMuralPendingCount(data.totalMinhasPendencias || 0);
+                }
+              }
+            } catch (e) {}
+          }}
+        />
+      )}
 
       {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
       <div className={`fixed bottom-10 md:bottom-8 right-4 md:right-8 z-[90] flex-col items-center gap-2 pb-safe ${showMobileFloatingButton ? 'flex' : 'hidden md:flex'}`}>
