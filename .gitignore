@@ -42,9 +42,16 @@ models_agent.json
 *.sqlite
 *.sqlite3
 
-# Backups
+# Backups & Data
 backups/
 *.backup*
+*backup*
+data/
+data_backup*/
+backend/data/
+baileys-session/
+baileys-session*/
+instances/
 
 # App Data & Temporary Files
 mensagens/
