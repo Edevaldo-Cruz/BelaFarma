@@ -18,7 +18,8 @@ import {
   Lock, 
   ArrowUpRight, 
   ArrowDownRight, 
-  X 
+  X,
+  Globe
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -114,6 +115,25 @@ export const PricingEngineView: React.FC = () => {
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [editRules, setEditRules] = useState<PricingRules | null>(null);
   const [savingRules, setSavingRules] = useState(false);
+  const [scrapingNapp, setScrapingNapp] = useState(false);
+
+  const handleTriggerNappScrape = async () => {
+    setScrapingNapp(true);
+    try {
+      const res = await fetch('/api/price-manager/trigger-napp-scrape', { method: 'POST' });
+      if (!res.ok) throw new Error('Falha ao disparar robô Napp.');
+      const data = await res.json();
+      if (data.success) {
+        addToast('🚀 Robô de coleta Napp (Proffer) iniciado em background!', 'success');
+      } else {
+        throw new Error(data.error || 'Erro ao iniciar robô Napp.');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao iniciar robô Napp.', 'error');
+    } finally {
+      setScrapingNapp(false);
+    }
+  };
 
   const fetchSuggestions = useCallback(async () => {
     setLoading(true);
@@ -307,6 +327,16 @@ export const PricingEngineView: React.FC = () => {
           >
             <Download className="w-4 h-4" />
             Exportar CSV
+          </button>
+
+          <button
+            onClick={handleTriggerNappScrape}
+            disabled={scrapingNapp}
+            className="flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition disabled:opacity-50"
+            title="Coletar preços concorrentes atualizados da Napp Proffer"
+          >
+            <Globe className={`w-4 h-4 ${scrapingNapp ? 'animate-spin' : ''}`} />
+            {scrapingNapp ? 'Coletando Napp...' : 'Atualizar Napp (Proffer)'}
           </button>
 
           <button
@@ -566,15 +596,15 @@ export const PricingEngineView: React.FC = () => {
                       </td>
 
                       <td className="px-3 py-3.5 text-center">
-                        {s.preco_proffer_medio ? (
+                        {(s.preco_proffer_medio || s.preco_proffer) ? (
                           <div className="inline-flex flex-col items-center bg-blue-50/80 border border-blue-200 rounded-lg px-2.5 py-1">
                             <div className="text-xs font-bold text-blue-900">
-                              Média: R$ {s.preco_proffer_medio.toFixed(2)}
+                              Média: R$ {(s.preco_proffer_medio || s.preco_proffer || 0).toFixed(2)}
                             </div>
                             <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1.5 mt-0.5">
-                              <span>Min: R$ {(s.preco_proffer_baixo !== null && s.preco_proffer_baixo !== undefined ? s.preco_proffer_baixo : s.preco_proffer_medio).toFixed(2)}</span>
+                              <span>Min: R$ {(s.preco_proffer_baixo !== null && s.preco_proffer_baixo !== undefined ? s.preco_proffer_baixo : (s.preco_proffer_medio || s.preco_proffer || 0)).toFixed(2)}</span>
                               <span className="text-blue-300">•</span>
-                              <span>Max: R$ {(s.preco_proffer_alto !== null && s.preco_proffer_alto !== undefined ? s.preco_proffer_alto : s.preco_proffer_medio).toFixed(2)}</span>
+                              <span>Max: R$ {(s.preco_proffer_alto !== null && s.preco_proffer_alto !== undefined ? s.preco_proffer_alto : (s.preco_proffer_medio || s.preco_proffer || 0)).toFixed(2)}</span>
                             </div>
                           </div>
                         ) : (

@@ -4,11 +4,12 @@ import {
   MessageCircle, Star, X, Save, User as UserIcon,
   Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3,
   Truck, Check, Eye, EyeOff, AlertTriangle, RefreshCw, Users,
-  Send
+  Send, FileText
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
 import { QuotationComparator } from './QuotationComparator';
+import { EntradasRelatorioModal } from './EntradasRelatorioModal';
 import { useToast } from './ToastContext';
 
 interface ProductShortagesProps {
@@ -22,6 +23,7 @@ interface ProductShortagesProps {
 
 export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shortages, onAdd, onDelete, onUpdate, onRefresh }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEntradasModalOpen, setIsEntradasModalOpen] = useState(false);
   const [showComparator, setShowComparator] = useState(false);
   const [mainTab, setMainTab] = useState<'faltas' | 'atencao'>('faltas');
   const [searchTerm, setSearchTerm] = useState('');
@@ -558,6 +560,13 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             className="hidden md:flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
           >
             <Plus className="w-4 h-4" /> Registrar Falta
+          </button>
+          <button
+            onClick={() => setIsEntradasModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
+            title="Conferir notas de entrada e dar baixa em faltas atendidas"
+          >
+            <FileText className="w-4 h-4" /> Conferir Entradas (NF)
           </button>
           <button
             onClick={() => setShowComparator(true)}
@@ -1450,6 +1459,14 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
       )}
     </div>
       )}
+
+      {/* Modal de Relatório de Entradas e Baixa de Faltas */}
+      <EntradasRelatorioModal
+        isOpen={isEntradasModalOpen}
+        onClose={() => setIsEntradasModalOpen(false)}
+        user={user}
+        onShortagesUpdated={onRefresh}
+      />
     </>
   );
 };

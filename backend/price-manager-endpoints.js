@@ -143,7 +143,7 @@ module.exports = function (db) {
       const totalQuery = `
         SELECT COUNT(1) as total 
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
+        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
         ${whereSQL}
       `;
       const totalRow = db.prepare(totalQuery).get(...params);
@@ -170,13 +170,13 @@ module.exports = function (db) {
           c.ncm,
           c.cest,
           c.atualizado_em as cached_at,
-          n.preco_proffer as region_price,
-          n.preco_proffer_baixo as region_price_baixo,
-          n.preco_proffer_medio as region_price_medio,
-          n.preco_proffer_alto as region_price_alto,
+          COALESCE(n.preco_proffer_medio, n.preco_proffer) as region_price,
+          COALESCE(n.preco_proffer_baixo, n.preco_proffer) as region_price_baixo,
+          COALESCE(n.preco_proffer_medio, n.preco_proffer) as region_price_medio,
+          COALESCE(n.preco_proffer_alto, n.preco_proffer) as region_price_alto,
           n.atualizado_em as region_updated_at
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
+        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
         ${whereSQL}
         ORDER BY c.curva ASC, c.descricao ASC
         LIMIT ? OFFSET ?
@@ -213,10 +213,10 @@ module.exports = function (db) {
           SUM(CASE WHEN c.curva = 'B' THEN 1 ELSE 0 END) as curveB,
           SUM(CASE WHEN c.curva = 'C' THEN 1 ELSE 0 END) as curveC,
           SUM(CASE WHEN c.preco_custo > 0 AND c.preco_venda < c.preco_custo THEN 1 ELSE 0 END) as belowCost,
-          SUM(CASE WHEN n.preco_proffer IS NOT NULL THEN 1 ELSE 0 END) as withNapp,
-          SUM(CASE WHEN n.preco_proffer IS NOT NULL AND ABS(c.preco_venda - n.preco_proffer) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
+          SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL THEN 1 ELSE 0 END) as withNapp,
+          SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND ABS(c.preco_venda - COALESCE(n.preco_proffer_medio, n.preco_proffer)) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
+        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
       `).get();
 
       res.json({

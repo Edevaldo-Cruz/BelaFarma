@@ -8,6 +8,7 @@ const whatsappService = require('./services/whatsapp.service');
 const { queryDigifarma } = require('./services/digifarma.service');
 const { callAI } = require('./services/ai.service');
 const baileysSecondaryService = require('./baileys-secondary-service');
+const { buscarRelatorioEntradas, darBaixaFaltas } = require('./services/entradas-sync.service');
 
 module.exports = (db) => {
   
@@ -532,6 +533,38 @@ A mensagem deve ser direta, pedir o melhor preço e prazo, e terminar de forma e
       
       const history = await queryDigifarma(sql, params);
       res.json(history);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Relatório de Entradas de Mercadorias e Baixa de Faltas ---
+
+  router.get('/entries', async (req, res) => {
+    try {
+      const dias = parseInt(req.query.dias) || 30;
+      const { dataInicio, dataFim, notaFiscal } = req.query;
+      const limit = parseInt(req.query.limit) || 50;
+
+      const resultado = await buscarRelatorioEntradas({
+        dias,
+        dataInicio,
+        dataFim,
+        notaFiscal,
+        limit
+      });
+
+      res.json(resultado);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/entries/clear-shortages', (req, res) => {
+    try {
+      const { shortageIds, userName, details } = req.body;
+      const resultado = darBaixaFaltas(shortageIds, userName, details);
+      res.json(resultado);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

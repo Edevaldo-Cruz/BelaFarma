@@ -5,6 +5,8 @@ import {
   Clock, 
   Package, 
   TrendingDown, 
+  TrendingUp,
+  RefreshCw,
   Sparkles, 
   X, 
   ChevronRight, 
@@ -45,6 +47,30 @@ export interface MuralProdutoParado {
   resolvido_por?: string;
 }
 
+export interface MuralVariacaoPreco {
+  id: string;
+  produto_id: number;
+  descricao: string;
+  cod_barras: string;
+  apresentacao: string;
+  custo_anterior: number;
+  custo_novo: number;
+  variacao_percentual: number;
+  preco_venda_atual: number;
+  preco_venda_sugerido: number;
+  margem_atual: number;
+  margem_nova_se_manter: number;
+  fornecedor: string;
+  nota_fiscal: string;
+  data_entrada: string;
+  status: 'pendente' | 'resolvido' | 'ignorado';
+  novo_preco_aplicado?: number;
+  acao_tomada?: string;
+  resolvido_por?: string;
+  resolvido_em?: string;
+  created_at: string;
+}
+
 interface MuralModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -71,10 +97,15 @@ export const MuralModal: React.FC<MuralModalProps> = ({
   const { addToast } = useToast();
   const isAdmin = user.role === UserRole.ADM;
 
-  const [activeTab, setActiveTab] = useState<'produtos' | 'tarefas' | 'boletos' | 'alertas'>('produtos');
+  const [activeTab, setActiveTab] = useState<'produtos' | 'tarefas' | 'boletos' | 'alertas' | 'variacao_precos'>('produtos');
   const [produtos, setProdutos] = useState<MuralProdutoParado[]>([]);
+  const [variacoes, setVariacoes] = useState<MuralVariacaoPreco[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingVariacoes, setIsLoadingVariacoes] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [resolvingVarId, setResolvingVarId] = useState<string | null>(null);
+  const [editedPrices, setEditedPrices] = useState<Record<string, string>>({});
+  const [isSyncingVariacoes, setIsSyncingVariacoes] = useState(false);
 
   // Estados dos formulários de ação por item
   const [selectedActions, setSelectedActions] = useState<Record<string, string>>({});
@@ -95,11 +126,93 @@ export const MuralModal: React.FC<MuralModalProps> = ({
     }
   };
 
+  const carregarVariacoes = async (sync = false) => {
+    if (!isAdmin) return;
+    setIsLoadingVariacoes(true);
+    try {
+      const res = await fetch(`/api/mural/price-variations?status=pendente${sync ? '&sync=true' : ''}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.items)) {
+        setVariacoes(data.items);
+        const initPrices: Record<string, string> = {};
+        data.items.forEach((item: MuralVariacaoPreco) => {
+          initPrices[item.id] = item.preco_venda_sugerido ? Number(item.preco_venda_sugerido).toFixed(2) : '';
+        });
+        setEditedPrices(initPrices);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar variações de preços:', err);
+    } finally {
+      setIsLoadingVariacoes(false);
+    }
+  };
+
+  const handleSincronizarVariacoes = async () => {
+    setIsSyncingVariacoes(true);
+    try {
+      const res = await fetch('/api/mural/price-variations/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dias: 15 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Entradas sincronizadas! ${data.result?.totalNovasPendencias || 0} novas variações detectadas.`, 'success');
+        carregarVariacoes(false);
+      }
+    } catch (err) {
+      addToast('Erro ao sincronizar variações de preço.', 'error');
+    } finally {
+      setIsSyncingVariacoes(false);
+    }
+  };
+
+  const handleResolverVariacao = async (item: MuralVariacaoPreco, acao: 'aprovar' | 'ignorar') => {
+    setResolvingVarId(item.id);
+    try {
+      const precoFinal = acao === 'aprovar' 
+        ? parseFloat(editedPrices[item.id] || String(item.preco_venda_sugerido)) 
+        : item.preco_venda_atual;
+
+      const res = await fetch('/api/mural/price-variations/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: item.id,
+          acao,
+          novoPreco: precoFinal,
+          resolvidoPor: user.name || 'Administrador'
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        addToast(
+          acao === 'aprovar'
+            ? `✅ Novo preço de R$ ${precoFinal.toFixed(2)} aprovado para ${item.descricao}!`
+            : `Preço atual mantido para ${item.descricao}.`,
+          'success'
+        );
+        setVariacoes(prev => prev.filter(v => v.id !== item.id));
+      } else {
+        addToast(data.error || 'Erro ao registrar decisão.', 'error');
+      }
+    } catch (err) {
+      console.error('Erro ao resolver variação de preço:', err);
+      addToast('Erro na requisição.', 'error');
+    } finally {
+      setResolvingVarId(null);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       carregarPendencias();
+      if (isAdmin) {
+        carregarVariacoes();
+      }
     }
-  }, [isOpen, user.id, user.name]);
+  }, [isOpen, user.id, user.name, isAdmin]);
 
   if (!isOpen) return null;
 
@@ -209,7 +322,7 @@ export const MuralModal: React.FC<MuralModalProps> = ({
     return 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
   };
 
-  const totalMinhasPendencias = produtos.length + userPendingTasks.length + overdueBoletos.length + pendingReviewCount;
+  const totalMinhasPendencias = produtos.length + userPendingTasks.length + overdueBoletos.length + pendingReviewCount + (isAdmin ? variacoes.length : 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -265,6 +378,25 @@ export const MuralModal: React.FC<MuralModalProps> = ({
               </span>
             )}
           </button>
+
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('variacao_precos')}
+              className={`px-4 py-3 text-xs font-bold rounded-t-2xl border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'variacao_precos'
+                  ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-900 shadow-sm'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4" />
+              Variações de Custo (ADM)
+              {variacoes.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                  {variacoes.length}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab('tarefas')}
@@ -448,6 +580,175 @@ export const MuralModal: React.FC<MuralModalProps> = ({
                               </>
                             )}
                           </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ABA: VARIAÇÕES DE CUSTO / REPRECIFICAÇÃO (ADM) */}
+          {activeTab === 'variacao_precos' && isAdmin && (
+            <div>
+              <div className="mb-5 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <TrendingUp className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-rose-950 dark:text-rose-200">
+                    <span className="font-black">Auditoria de Custo de Entradas:</span> Estes produtos tiveram alteração no preço de custo na última nota fiscal de compra. O sistema calculou a sugestão de novo preço para <b>manter a mesma margem percentual</b>. Você pode ajustar o valor no campo antes de aprovar ou optar por manter o preço atual.
+                  </div>
+                </div>
+                <button
+                  onClick={handleSincronizarVariacoes}
+                  disabled={isSyncingVariacoes}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingVariacoes ? 'animate-spin' : ''}`} />
+                  <span>Sincronizar NFs</span>
+                </button>
+              </div>
+
+              {isLoadingVariacoes ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
+                  <span className="text-xs font-bold">Buscando variações de preços...</span>
+                </div>
+              ) : variacoes.length === 0 ? (
+                <div className="py-16 text-center flex flex-col items-center justify-center gap-3 text-slate-400 dark:text-slate-500">
+                  <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-full text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                    Nenhuma variação de custo pendente de análise.
+                  </h3>
+                  <p className="text-xs max-w-md">
+                    Todas as entradas de mercadorias recentes foram conferidas ou não apresentaram alteração de custo.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {variacoes.map((item) => {
+                    const isResolving = resolvingVarId === item.id;
+                    const precoDigitado = editedPrices[item.id] !== undefined ? editedPrices[item.id] : String(item.preco_venda_sugerido || '');
+                    const subiu = item.variacao_percentual > 0;
+                    const diferencaCusto = Math.abs(item.custo_novo - item.custo_anterior);
+
+                    return (
+                      <div 
+                        key={item.id}
+                        className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-sm hover:border-rose-300 dark:hover:border-rose-900/50 transition-all flex flex-col gap-4"
+                      >
+                        {/* Header do Card */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-black bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-700 dark:text-slate-300">
+                              NF: {item.nota_fiscal}
+                            </span>
+                            <span className="text-xs font-bold text-slate-500">
+                              {item.fornecedor}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              • Entrada: {item.data_entrada ? new Date(item.data_entrada).toLocaleDateString('pt-BR') : '-'}
+                            </span>
+                          </div>
+
+                          <div>
+                            {subiu ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                                <TrendingUp className="w-3.5 h-3.5" />
+                                Custo Subiu +{item.variacao_percentual}% (+{formatMoney(diferencaCusto)})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                <TrendingDown className="w-3.5 h-3.5" />
+                                Custo Caiu {item.variacao_percentual}% (-{formatMoney(diferencaCusto)})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Corpo com Produto e Comparativo */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                          {/* Info Produto */}
+                          <div className="md:col-span-5">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[11px] font-mono text-slate-400">
+                                Cód: {item.produto_id} {item.cod_barras ? `| EAN: ${item.cod_barras}` : ''}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                              {item.descricao}
+                            </h4>
+                            {item.apresentacao && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                {item.apresentacao}
+                              </p>
+                            )}
+
+                            {/* Custo Anterior vs Novo */}
+                            <div className="flex items-center gap-2 mt-3 text-xs bg-slate-50 dark:bg-slate-800/60 p-2 rounded-xl">
+                              <span className="text-slate-500">Custo Anterior: <b>{formatMoney(item.custo_anterior)}</b></span>
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="font-black text-slate-900 dark:text-white">Custo Desta Nota: <b>{formatMoney(item.custo_novo)}</b></span>
+                            </div>
+                          </div>
+
+                          {/* Preço de Venda Atual & Margem */}
+                          <div className="md:col-span-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venda Atual na Loja</div>
+                            <div className="text-base font-black text-slate-800 dark:text-slate-200 mt-0.5">
+                              {formatMoney(item.preco_venda_atual)}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-1">
+                              Margem original: <b>{item.margem_atual}%</b>
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Margem se mantiver: <b className={subiu ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>{item.margem_nova_se_manter}%</b>
+                            </div>
+                          </div>
+
+                          {/* Novo Preço Sugerido e Ações */}
+                          <div className="md:col-span-4 flex flex-col gap-2">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" /> Preço Sugerido (Mantém {item.margem_atual}%):
+                            </label>
+                            
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">R$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={precoDigitado}
+                                onChange={(e) => setEditedPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                className="w-full text-sm font-black pl-9 pr-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-1">
+                              <button
+                                onClick={() => handleResolverVariacao(item, 'aprovar')}
+                                disabled={isResolving}
+                                className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs shadow-sm hover:shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+                              >
+                                {isResolving ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Check className="w-3.5 h-3.5" />
+                                )}
+                                <span>Aprovar Preço</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleResolverVariacao(item, 'ignorar')}
+                                disabled={isResolving}
+                                className="py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs transition-colors"
+                                title="Manter preço de venda atual"
+                              >
+                                Manter Atual
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     );

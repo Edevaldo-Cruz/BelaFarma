@@ -1,6 +1,7 @@
 const express = require('express');
 const { queryDigifarma } = require('./services/digifarma.service');
 const { ehDiaUtilParaMural, formatarDataISO } = require('./services/feriados.service');
+const { sincronizarVariacaoPrecosMural } = require('./services/entradas-sync.service');
 
 function categorizarProduto(descricao = '', categoriaNome = '') {
   const desc = (descricao || '').toUpperCase();
@@ -67,8 +68,34 @@ module.exports = function (db) {
         valor TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS mural_variacao_precos (
+        id TEXT PRIMARY KEY,
+        produto_id INTEGER NOT NULL,
+        descricao TEXT NOT NULL,
+        cod_barras TEXT,
+        apresentacao TEXT,
+        custo_anterior REAL DEFAULT 0,
+        custo_novo REAL DEFAULT 0,
+        variacao_percentual REAL DEFAULT 0,
+        preco_venda_atual REAL DEFAULT 0,
+        preco_venda_sugerido REAL DEFAULT 0,
+        margem_atual REAL DEFAULT 0,
+        margem_nova_se_manter REAL DEFAULT 0,
+        fornecedor TEXT,
+        nota_fiscal TEXT,
+        data_entrada TEXT NOT NULL,
+        status TEXT DEFAULT 'pendente',
+        novo_preco_aplicado REAL,
+        acao_tomada TEXT,
+        resolvido_por TEXT,
+        resolvido_em TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
       CREATE INDEX IF NOT EXISTS idx_mural_user_status ON mural_produtos_parados(user_id, status);
       CREATE INDEX IF NOT EXISTS idx_mural_data_atrib ON mural_produtos_parados(data_atribuicao);
+      CREATE INDEX IF NOT EXISTS idx_mural_var_status ON mural_variacao_precos(status);
+      CREATE INDEX IF NOT EXISTS idx_mural_var_data ON mural_variacao_precos(data_entrada);
     `);
   } catch (err) {
     console.error('[Mural API] Erro ao inicializar tabelas:', err.message);
@@ -279,12 +306,18 @@ module.exports = function (db) {
         SELECT COUNT(*) as qtd FROM mural_produtos_parados WHERE status = 'resolvido'
       `).get()?.qtd || 0;
 
+      // Estatísticas de variações de preço para Administradores
+      const totalVariacoesPendentes = db.prepare(`
+        SELECT COUNT(*) as qtd FROM mural_variacao_precos WHERE status = 'pendente'
+      `).get()?.qtd || 0;
+
       res.json({
         success: true,
         produtosParados,
         totalMinhasPendencias: produtosParados.length,
         totalGeral: totalPendentesGeral,
         totalResolvidos: totalResolvidosGeral,
+        totalVariacaoPrecos: totalVariacoesPendentes,
         resumoPorUsuario
       });
     } catch (err) {
@@ -362,6 +395,126 @@ module.exports = function (db) {
       res.json({ success: true, historico });
     } catch (err) {
       console.error('[Mural API] Erro em /historico:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. GET /api/mural/price-variations
+  // Retorna lista de variações de preço para Administradores
+  router.get('/price-variations', async (req, res) => {
+    try {
+      const status = req.query.status || 'pendente';
+      
+      // Sincroniza se solicitado ou para checar entradas recentes
+      if (req.query.sync === 'true') {
+        await sincronizarVariacaoPrecosMural(15);
+      }
+
+      let items = [];
+      if (status === 'todos') {
+        items = db.prepare(`
+          SELECT * FROM mural_variacao_precos 
+          ORDER BY created_at DESC 
+          LIMIT 100
+        `).all();
+      } else {
+        items = db.prepare(`
+          SELECT * FROM mural_variacao_precos 
+          WHERE status = ? 
+          ORDER BY data_entrada DESC, created_at DESC
+        `).all(status);
+      }
+
+      const countPendente = db.prepare(`
+        SELECT COUNT(*) as qtd FROM mural_variacao_precos WHERE status = 'pendente'
+      `).get()?.qtd || 0;
+
+      const countResolvido = db.prepare(`
+        SELECT COUNT(*) as qtd FROM mural_variacao_precos WHERE status = 'resolvido'
+      `).get()?.qtd || 0;
+
+      res.json({
+        success: true,
+        items,
+        countPendente,
+        countResolvido
+      });
+    } catch (err) {
+      console.error('[Mural API] Erro em /price-variations:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6. POST /api/mural/price-variations/resolve
+  // Salva a decisão sobre o preço sugerido
+  router.post('/price-variations/resolve', (req, res) => {
+    try {
+      const { id, acao, novoPreco, resolvidoPor, observacao } = req.body;
+      if (!id || !acao) {
+        return res.status(400).json({ error: 'ID e ação são obrigatórios.' });
+      }
+
+      const item = db.prepare('SELECT * FROM mural_variacao_precos WHERE id = ?').get(id);
+      if (!item) {
+        return res.status(404).json({ error: 'Registro de variação não encontrado.' });
+      }
+
+      const now = new Date().toISOString();
+      const status = acao === 'ignorar' ? 'ignorado' : 'resolvido';
+      const acaoTomada = acao === 'ignorar' 
+        ? 'Mantido preço de venda atual' 
+        : `Aprovado novo preço de venda: R$ ${Number(novoPreco || item.preco_venda_sugerido).toFixed(2)}`;
+
+      db.prepare(`
+        UPDATE mural_variacao_precos
+        SET status = ?,
+            novo_preco_aplicado = ?,
+            acao_tomada = ?,
+            resolvido_por = ?,
+            resolvido_em = ?
+        WHERE id = ?
+      `).run(
+        status,
+        acao === 'ignorar' ? item.preco_venda_atual : Number(novoPreco || item.preco_venda_sugerido),
+        acaoTomada + (observacao ? ` (${observacao})` : ''),
+        resolvidoPor || 'Administrador',
+        now,
+        id
+      );
+
+      // Registrar no log geral do sistema
+      try {
+        db.prepare(`
+          INSERT INTO logs (id, timestamp, userName, userId, action, category, details)
+          VALUES (?, ?, ?, ?, 'reprecificacao_produto', 'Mural ADM', ?)
+        `).run(
+          `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          now,
+          resolvidoPor || 'Administrador',
+          'adm',
+          `Produto: ${item.descricao} (Cód: ${item.produto_id}) - ${acaoTomada}`
+        );
+      } catch (logErr) {}
+
+      res.json({
+        success: true,
+        message: 'Decisão de reprecificação registrada com sucesso!'
+      });
+    } catch (err) {
+      console.error('[Mural API] Erro em /price-variations/resolve:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7. POST /api/mural/price-variations/sync
+  // Dispara sincronização sob demanda das notas de entrada
+  router.post('/price-variations/sync', async (req, res) => {
+    try {
+      const dias = parseInt(req.body.dias) || 15;
+      const result = await sincronizarVariacaoPrecosMural(dias);
+      res.json({ success: true, result });
+    } catch (err) {
+      console.error('[Mural API] Erro em /price-variations/sync:', err);
       res.status(500).json({ error: err.message });
     }
   });

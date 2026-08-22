@@ -7,7 +7,7 @@ const DB_FILE = config.dbPath;
 let db;
 
 try {
-  db = new Database(DB_FILE, { verbose: console.log });
+  db = new Database(DB_FILE, process.env.DEBUG_SQL === 'true' ? { verbose: console.log } : {});
   console.log(`Conexão com o banco de dados SQLite estabelecida.`);
   
   // Ativa o modo WAL para melhor concorrência
@@ -452,6 +452,32 @@ try {
       );
     `;
 
+    const createMuralVariacaoPrecosTable = `
+      CREATE TABLE IF NOT EXISTS mural_variacao_precos (
+        id TEXT PRIMARY KEY,
+        produto_id INTEGER NOT NULL,
+        descricao TEXT NOT NULL,
+        cod_barras TEXT,
+        apresentacao TEXT,
+        custo_anterior REAL DEFAULT 0,
+        custo_novo REAL DEFAULT 0,
+        variacao_percentual REAL DEFAULT 0,
+        preco_venda_atual REAL DEFAULT 0,
+        preco_venda_sugerido REAL DEFAULT 0,
+        margem_atual REAL DEFAULT 0,
+        margem_nova_se_manter REAL DEFAULT 0,
+        fornecedor TEXT,
+        nota_fiscal TEXT,
+        data_entrada TEXT NOT NULL,
+        status TEXT DEFAULT 'pendente',
+        novo_preco_aplicado REAL,
+        acao_tomada TEXT,
+        resolvido_por TEXT,
+        resolvido_em TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `;
+
     // Executa as queries
     db.exec(createUsersTable);
     db.exec(createOrdersTable);
@@ -487,6 +513,9 @@ try {
     db.exec(createQuotationListItemsTable);
     db.exec(createAppointmentsTable);
     db.exec(createAnvisaAlertsTable);
+    db.exec(createMuralVariacaoPrecosTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_mural_var_status ON mural_variacao_precos(status);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_mural_var_data ON mural_variacao_precos(data_entrada);'); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN match_score INTEGER DEFAULT 0'); } catch(e) {}
@@ -633,6 +662,7 @@ try {
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_alto REAL'); } catch(e) {}
+    try { db.exec('UPDATE napp_prices SET preco_proffer_medio = preco_proffer, preco_proffer_baixo = preco_proffer, preco_proffer_alto = preco_proffer WHERE preco_proffer_medio IS NULL AND preco_proffer IS NOT NULL'); } catch(e) {}
 
     try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}

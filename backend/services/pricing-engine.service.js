@@ -307,6 +307,56 @@ async function runPricingEngine(db, customOptions = {}) {
   if (customOptions.maxVariacaoPct !== undefined) maxVariacaoPct = parseFloat(customOptions.maxVariacaoPct);
   if (customOptions.matrizMargens) matrizMargens = { ...matrizMargens, ...customOptions.matrizMargens };
 
+  // Sincronizar cache de produtos do Digifarma se cache estiver vazio ou reduzido
+  const cacheCount = db.prepare('SELECT COUNT(*) as c FROM digifarma_products_cache').get()?.c || 0;
+  if (cacheCount < 50) {
+    try {
+      console.log('[Belinha Pricing Engine] Cache de produtos pequeno ou desatualizado. Sincronizando produtos ativos do Digifarma...');
+      const sqlProds = `
+        SELECT 
+          p.PRODUTO_ID,
+          p.COD_BARRAS,
+          p.CATEGORIA_ID,
+          p.PRODUTO as DESCRICAO,
+          p.PROD_SALDO as ESTOQUE_ATUAL,
+          p.PROD_PRVENDA as PRECO_VENDA,
+          COALESCE(p.VALOR_ULT_COMPRA, p.PROD_CMV, p.PROD_PRCOMPRA, 0) as PRECO_CUSTO,
+          p.PROD_PRPROMOCAO as PRECO_PROMOCAO
+        FROM PRODUTOS p
+        WHERE p.PROD_ATIVO = 'S' AND (p.PROD_SALDO > 0 OR p.PROD_PRVENDA > 0)
+      `;
+      const liveProds = await queryDigifarma(sqlProds);
+      if (liveProds && liveProds.length > 0) {
+        const insertCacheStmt = db.prepare(`
+          INSERT OR REPLACE INTO digifarma_products_cache (
+            codigo_barras, produto_id, categoria_id, descricao, estoque_atual,
+            preco_venda, preco_custo, preco_promocao, preco_normal, curva, atualizado_em
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'C', datetime('now', 'localtime'))
+        `);
+        const insertBatch = db.transaction((items) => {
+          for (const item of items) {
+            const barcode = (item.COD_BARRAS || '').trim() || String(item.PRODUTO_ID);
+            insertCacheStmt.run(
+              barcode,
+              String(item.PRODUTO_ID),
+              item.CATEGORIA_ID || 0,
+              (item.DESCRICAO || '').trim(),
+              parseFloat(item.ESTOQUE_ATUAL || 0),
+              parseFloat(item.PRECO_VENDA || 0),
+              parseFloat(item.PRECO_CUSTO || 0),
+              parseFloat(item.PRECO_PROMOCAO || 0),
+              parseFloat(item.PRECO_VENDA || 0)
+            );
+          }
+        });
+        insertBatch(liveProds);
+        console.log(`[Belinha Pricing Engine] ✅ ${liveProds.length} produtos sincronizados do Digifarma para o cache.`);
+      }
+    } catch (e) {
+      console.warn('[Belinha Pricing Engine] Aviso ao sincronizar cache inicial:', e.message);
+    }
+  }
+
   const products = db.prepare(`
     SELECT 
       c.codigo_barras as ean,
@@ -319,12 +369,15 @@ async function runPricingEngine(db, customOptions = {}) {
       c.preco_promocao,
       c.preco_normal,
       c.curva,
-      n.preco_proffer,
-      n.preco_proffer_baixo,
-      n.preco_proffer_medio,
-      n.preco_proffer_alto
+      COALESCE(n.preco_proffer_medio, n.preco_proffer) as preco_proffer,
+      COALESCE(n.preco_proffer_baixo, n.preco_proffer) as preco_proffer_baixo,
+      COALESCE(n.preco_proffer_medio, n.preco_proffer) as preco_proffer_medio,
+      COALESCE(n.preco_proffer_alto, n.preco_proffer) as preco_proffer_alto
     FROM digifarma_products_cache c
-    LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
+    LEFT JOIN napp_prices n ON (
+      TRIM(c.codigo_barras) = TRIM(n.ean) 
+      OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id)
+    )
     WHERE c.estoque_atual > 0 OR c.preco_venda > 0
   `).all();
 
