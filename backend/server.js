@@ -3822,6 +3822,31 @@ const priceManagerEndpoints = require('./price-manager-endpoints.js');
 app.use('/api/price-manager', priceManagerEndpoints(db));
 console.log('💰 Módulo Monitor de Preços e Reajuste em Massa inicializado.');
 
+const pricingEngineEndpoints = require('./pricing-engine-endpoints.js');
+app.use('/api/pricing-engine', pricingEngineEndpoints(db));
+console.log('🤖 Módulo Belinha Pricing Engine (Motor de Precificação Inteligente) inicializado.');
+
+// Rotina agendada diária para simulação do motor fora do horário de pico (03:30 AM)
+const { runPricingEngine } = require('./services/pricing-engine.service');
+let lastPricingCronDate = '';
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+
+    // Roda diariamente às 03:30 AM
+    if (hour === 3 && minute >= 30 && lastPricingCronDate !== todayStr) {
+      lastPricingCronDate = todayStr;
+      console.log('[Cron Belinha Pricing] 🕒 Rodando simulação noturna automática de precificação...');
+      await runPricingEngine(db);
+    }
+  } catch (errPricing) {
+    console.error('[Cron Belinha Pricing] Erro na rotina agendada:', errPricing.message);
+  }
+}, 60 * 1000); // Checa a cada minuto
+
 const anvisaEndpoints = require('./anvisa-endpoints.js');
 app.use('/api/anvisa', anvisaEndpoints(db));
 console.log('🛡️ Módulo Alertas ANVISA inicializado.');

@@ -564,12 +564,98 @@ try {
       );
     `;
 
+    const createPricingEngineTables = `
+      CREATE TABLE IF NOT EXISTS pricing_rules (
+        id TEXT PRIMARY KEY,
+        aliquota_impostos_pct REAL NOT NULL DEFAULT 4.0,
+        despesas_operacionais_pct REAL NOT NULL DEFAULT 12.0,
+        taxa_cartao_pct REAL NOT NULL DEFAULT 2.5,
+        margem_minima_absoluta_pct REAL NOT NULL DEFAULT 5.0,
+        max_variacao_alerta_pct REAL NOT NULL DEFAULT 20.0,
+        dias_analise_abc INTEGER NOT NULL DEFAULT 60,
+        matriz_margens_json TEXT NOT NULL,
+        atualizado_em TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pricing_suggestions (
+        ean TEXT PRIMARY KEY,
+        produto_id TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        categoria TEXT NOT NULL,
+        curva TEXT NOT NULL DEFAULT 'C',
+        estoque_atual REAL DEFAULT 0,
+        custo_liquido REAL NOT NULL,
+        preco_atual REAL NOT NULL,
+        preco_sugerido REAL NOT NULL,
+        preco_pmc REAL DEFAULT 0,
+        preco_proffer REAL,
+        margem_atual_pct REAL,
+        margem_projetada_pct REAL,
+        variacao_pct REAL,
+        variacao_valor REAL,
+        trava_teto_cmed INTEGER DEFAULT 0,
+        trava_piso_minimo INTEGER DEFAULT 0,
+        trava_volatilidade INTEGER DEFAULT 0,
+        requer_aprovacao_manual INTEGER DEFAULT 0,
+        justificativa TEXT,
+        calculado_em TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pricing_runs (
+        id TEXT PRIMARY KEY,
+        executado_em TEXT NOT NULL,
+        total_skus INTEGER DEFAULT 0,
+        total_sugestoes INTEGER DEFAULT 0,
+        total_travas INTEGER DEFAULT 0,
+        total_aprovacao_necessaria INTEGER DEFAULT 0,
+        margem_media_atual REAL DEFAULT 0,
+        margem_media_projetada REAL DEFAULT 0,
+        duracao_ms INTEGER DEFAULT 0
+      );
+    `;
+
     db.exec(createSessoesInventarioTable);
     db.exec(createItensInventariadosTable);
     db.exec(createVendasDuranteInventarioTable);
     db.exec(createDigifarmaProductsCacheTable);
     db.exec(createNappPricesTable);
     db.exec(createCardMachineReceivablesTable);
+    db.exec(createPricingEngineTables);
+
+    // Inserir regras padrão de precificação se não existirem
+    try {
+      const existingRules = db.prepare('SELECT id FROM pricing_rules WHERE id = ?').get('default');
+      if (!existingRules) {
+        const defaultMatriz = {
+          referencia: { A: 14.0, B: 20.0, C: 25.0 },
+          generico: { A: 42.0, B: 52.0, C: 62.0 },
+          similar: { A: 45.0, B: 58.0, C: 68.0 },
+          mips: { A: 25.0, B: 32.0, C: 42.0 },
+          perfumaria: { A: 28.0, B: 38.0, C: 48.0 },
+          outros: { A: 22.0, B: 30.0, C: 40.0 }
+        };
+        db.prepare(`
+          INSERT INTO pricing_rules (
+            id, aliquota_impostos_pct, despesas_operacionais_pct, taxa_cartao_pct,
+            margem_minima_absoluta_pct, max_variacao_alerta_pct, dias_analise_abc,
+            matriz_margens_json, atualizado_em
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          'default',
+          4.0,   // 4% impostos (PIS/COFINS monofásico e ICMS-ST médio farmácia simples/presumido)
+          12.0,  // 12% despesas operacionais médias
+          2.5,   // 2.5% taxa média de cartão
+          5.0,   // 5% margem mínima absoluta de piso
+          20.0,  // 20% variação máxima antes de sinalizar alerta
+          60,    // 60 dias para Curva ABC
+          JSON.stringify(defaultMatriz),
+          new Date().toISOString()
+        );
+        console.log('✅ Regras padrão de precificação inseridas em pricing_rules.');
+      }
+    } catch (errRules) {
+      console.warn('Erro ao inicializar pricing_rules:', errRules.message);
+    }
 
     // --- Price Manager Table Migrations ---
     try {
