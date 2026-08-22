@@ -350,18 +350,25 @@ module.exports = function (db) {
           const effectivePrice = getEffectivePrice(p);
           const refPrice = effectivePrice > 0 ? effectivePrice : normalPrice;
 
-          // CORREÇÃO DE CUSTO: Identificar custo unitário vs custo de caixa master (ex: Dipirona cartela R$ 1.26 vs caixa R$ 170.89)
+          // CORREÇÃO DE CUSTO: Priorizar VALOR_ULT_COMPRA (Custo Líquido Real na NF com Descontos)
           const prCompra = parseFloat(p.PROD_PRCOMPRA || 0);
           const ultCompra = parseFloat(p.VALOR_ULT_COMPRA || 0);
           const cmv = parseFloat(p.PROD_CMV || 0);
 
           let unitCost = ultCompra > 0 ? ultCompra : (cmv > 0 ? cmv : prCompra);
-          if (prCompra > 0 && prCompra < refPrice * 2) {
-            unitCost = prCompra;
-          } else if (ultCompra > 0 && prCompra > refPrice * 2.5) {
-            unitCost = ultCompra;
-          } else if (cmv > 0 && prCompra > refPrice * 2.5) {
-            unitCost = cmv;
+
+          // Se o custo ainda for maior que o preço de venda de balcão, trata-se de caixa master/display fracionado
+          if (refPrice > 0 && unitCost > refPrice * 1.2) {
+            const desc = (p.PRODUTO || '').toUpperCase();
+            const match = desc.match(/(?:C\/|COM|CX COM|\/)\s*(\d{1,4})\s*(?:UN|CPR|DRG|ENV|CAP|PC|FL|PCT|AMP)?/);
+            if (match && parseInt(match[1]) > 1) {
+              const qty = parseInt(match[1]);
+              unitCost = unitCost / qty;
+            } else if (cmv > 0 && cmv < refPrice) {
+              unitCost = cmv;
+            } else {
+              unitCost = Math.min(unitCost, refPrice * 0.65);
+            }
           }
           
           insertStmt.run(

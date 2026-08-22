@@ -2,24 +2,23 @@ const { Client } = require('ssh2');
 
 const conn = new Client();
 
-console.log('Connecting to Raspberry Pi (192.168.1.70)...');
+console.log('Connecting to Raspberry Pi (192.168.1.70) to fix CRLF and run hardcore update...');
 
 conn.on('ready', () => {
   console.log('SSH connection established successfully!');
   
-  const deployCommand = `
+  const cmd = `
     cd /home/ed/projects/BelaFarma &&
-    echo "Pulling latest changes from git..." &&
-    git pull origin main &&
-    echo "Stopping and rebuilding docker containers..." &&
-    sudo docker-compose down &&
-    sudo docker-compose build &&
-    sudo docker-compose up -d &&
-    echo "Docker containers status:" &&
-    sudo docker-compose ps
+    echo "1. Corrigindo quebras de linha CRLF para LF..." &&
+    sed -i 's/\\r$//' update-hardcore.sh &&
+    chmod +x update-hardcore.sh &&
+    sudo ln -sf /home/ed/projects/BelaFarma/update-hardcore.sh /usr/local/bin/atualizar-bela &&
+    sudo ln -sf /home/ed/projects/BelaFarma/update-hardcore.sh /usr/local/bin/update-hardcore &&
+    echo "2. Executando o script update-hardcore.sh..." &&
+    ./update-hardcore.sh
   `;
 
-  conn.exec(deployCommand, { pty: true }, (err, stream) => {
+  conn.exec(cmd, { pty: true }, (err, stream) => {
     if (err) {
       console.error('Exec error:', err);
       conn.end();
@@ -27,7 +26,7 @@ conn.on('ready', () => {
     }
 
     stream.on('close', (code, signal) => {
-      console.log(`Stream closed with code ${code}`);
+      console.log(`\n--- Hardcore update finished with exit code ${code} ---`);
       conn.end();
     });
 

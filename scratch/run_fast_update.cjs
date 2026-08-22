@@ -7,19 +7,16 @@ console.log('Connecting to Raspberry Pi (192.168.1.70)...');
 conn.on('ready', () => {
   console.log('SSH connection established successfully!');
   
-  const deployCommand = `
+  const cmd = `
     cd /home/ed/projects/BelaFarma &&
-    echo "Pulling latest changes from git..." &&
-    git pull origin main &&
-    echo "Stopping and rebuilding docker containers..." &&
-    sudo docker-compose down &&
-    sudo docker-compose build &&
-    sudo docker-compose up -d &&
-    echo "Docker containers status:" &&
-    sudo docker-compose ps
+    git fetch origin main &&
+    git reset --hard origin/main &&
+    sed -i 's/\\r$//' update-hardcore.sh &&
+    chmod 755 update-hardcore.sh &&
+    ./update-hardcore.sh
   `;
 
-  conn.exec(deployCommand, { pty: true }, (err, stream) => {
+  conn.exec(cmd, { pty: true }, (err, stream) => {
     if (err) {
       console.error('Exec error:', err);
       conn.end();
@@ -27,7 +24,7 @@ conn.on('ready', () => {
     }
 
     stream.on('close', (code, signal) => {
-      console.log(`Stream closed with code ${code}`);
+      console.log(`\nUpdate finished with exit code ${code}`);
       conn.end();
     });
 

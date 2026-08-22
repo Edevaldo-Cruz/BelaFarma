@@ -2,24 +2,10 @@ const { Client } = require('ssh2');
 
 const conn = new Client();
 
-console.log('Connecting to Raspberry Pi (192.168.1.70)...');
+console.log('Testing execution of update-hardcore on Raspberry Pi...');
 
 conn.on('ready', () => {
-  console.log('SSH connection established successfully!');
-  
-  const deployCommand = `
-    cd /home/ed/projects/BelaFarma &&
-    echo "Pulling latest changes from git..." &&
-    git pull origin main &&
-    echo "Stopping and rebuilding docker containers..." &&
-    sudo docker-compose down &&
-    sudo docker-compose build &&
-    sudo docker-compose up -d &&
-    echo "Docker containers status:" &&
-    sudo docker-compose ps
-  `;
-
-  conn.exec(deployCommand, { pty: true }, (err, stream) => {
+  conn.exec('update-hardcore', { pty: true }, (err, stream) => {
     if (err) {
       console.error('Exec error:', err);
       conn.end();
@@ -27,7 +13,7 @@ conn.on('ready', () => {
     }
 
     stream.on('close', (code, signal) => {
-      console.log(`Stream closed with code ${code}`);
+      console.log(`\nTest finished with exit code ${code}`);
       conn.end();
     });
 
