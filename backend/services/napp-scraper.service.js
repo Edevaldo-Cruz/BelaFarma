@@ -79,7 +79,7 @@ async function getNappToken() {
 }
 
 /**
- * Consulta o preço regional Proffer de um produto específico na Napp com retry e timeout.
+ * Consulta os preços regionais Proffer de um produto específico na Napp (Baixo, Médio, Alto).
  */
 async function fetchProductProfferPrice(sellerId, catalogId, token) {
   try {
@@ -100,11 +100,23 @@ async function fetchProductProfferPrice(sellerId, catalogId, token) {
       const items = data[0];
       // 1. Prioridade: Farmácias Independentes
       const indep = items.find(i => i.grupo === 'INDEPENDENTE' && typeof i.medio === 'number' && i.medio > 0);
-      if (indep) return indep.medio;
+      if (indep) {
+        return {
+          baixo: typeof indep.baixo === 'number' ? indep.baixo : indep.medio,
+          medio: indep.medio,
+          alto: typeof indep.alto === 'number' ? indep.alto : indep.medio
+        };
+      }
 
       // 2. Fallback: Redes/Grupo
       const grupo = items.find(i => typeof i.medio === 'number' && i.medio > 0);
-      if (grupo) return grupo.medio;
+      if (grupo) {
+        return {
+          baixo: typeof grupo.baixo === 'number' ? grupo.baixo : grupo.medio,
+          medio: grupo.medio,
+          alto: typeof grupo.alto === 'number' ? grupo.alto : grupo.medio
+        };
+      }
     }
     return null;
   } catch (err) {
@@ -164,8 +176,9 @@ async function runNappScraper(eansFilter = null) {
     scrapeStatus.totalItems = totalCatalogItems;
 
     const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO napp_prices (ean, produto_id, preco_proffer, atualizado_em)
-      VALUES (?, ?, ?, ?)
+      INSERT OR REPLACE INTO napp_prices (
+        ean, produto_id, preco_proffer, preco_proffer_baixo, preco_proffer_medio, preco_proffer_alto, atualizado_em
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     let offset = 0;
@@ -208,13 +221,23 @@ async function runNappScraper(eansFilter = null) {
           }
 
           try {
-            // Consultar preço médio regional Proffer
-            const profferPrice = await fetchProductProfferPrice(sellerId, item.id, token);
-            const finalPrice = profferPrice || parseFloat(item.price || item.list_price || 0);
+            // Consultar preços regionais Proffer (Baixo, Médio, Alto)
+            const profferObj = await fetchProductProfferPrice(sellerId, item.id, token);
+            let finalMedio = profferObj?.medio || parseFloat(item.price || item.list_price || 0);
+            let finalBaixo = profferObj?.baixo || finalMedio;
+            let finalAlto = profferObj?.alto || finalMedio;
 
-            if (finalPrice > 0) {
+            if (finalMedio > 0) {
               const prodId = eanToProdIdMap.get(ean) || null;
-              insertStmt.run(ean, prodId, finalPrice, new Date().toISOString());
+              insertStmt.run(
+                ean, 
+                prodId, 
+                finalMedio, 
+                finalBaixo, 
+                finalMedio, 
+                finalAlto, 
+                new Date().toISOString()
+              );
               scrapeStatus.successCount++;
             } else {
               scrapeStatus.failedCount++;

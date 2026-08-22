@@ -46,7 +46,17 @@ interface Product {
   curve: 'A' | 'B' | 'C';
   cached_at: string;
   region_price: number | null;
+  region_price_baixo?: number | null;
+  region_price_medio?: number | null;
+  region_price_alto?: number | null;
   region_updated_at: string | null;
+  tributacao_monofasica?: string;
+  cst_pis?: string;
+  cst_cofins?: string;
+  aliquota_st?: number;
+  imposto_aliq?: number;
+  ncm?: string;
+  cest?: string;
 }
 
 
@@ -880,9 +890,16 @@ export const PriceManager: React.FC = () => {
                       <td className="p-4 text-right font-semibold text-slate-700 dark:text-slate-300 text-sm">
                         {p.region_price !== null ? (
                           <div className="flex flex-col items-end">
-                            <span>{p.region_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {p.region_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                            {p.region_price_baixo !== undefined && p.region_price_baixo !== null && p.region_price_alto !== undefined && p.region_price_alto !== null && (
+                              <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+                                Min {p.region_price_baixo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • Max {p.region_price_alto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            )}
                             {p.region_updated_at && (
-                              <span className="text-[9px] text-slate-400 font-medium">
+                              <span className="text-[9px] text-slate-400 font-medium mt-0.5">
                                 {new Date(p.region_updated_at).toLocaleDateString('pt-BR')}
                               </span>
                             )}

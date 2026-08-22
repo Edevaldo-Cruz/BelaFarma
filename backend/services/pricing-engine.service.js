@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ==============================================================================
  * Belinha Pricing Engine - Motor de Inteligência e Formação de Preços Farmacêuticos
  * ==============================================================================
@@ -319,7 +319,10 @@ async function runPricingEngine(db, customOptions = {}) {
       c.preco_promocao,
       c.preco_normal,
       c.curva,
-      n.preco_proffer
+      n.preco_proffer,
+      n.preco_proffer_baixo,
+      n.preco_proffer_medio,
+      n.preco_proffer_alto
     FROM digifarma_products_cache c
     LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
     WHERE c.estoque_atual > 0 OR c.preco_venda > 0
@@ -348,11 +351,24 @@ async function runPricingEngine(db, customOptions = {}) {
     const catMargens = matrizMargens[category] || matrizMargens.outros || { A: 20, B: 30, C: 40 };
     const targetMargin = parseFloat(catMargens[curve]) || 30.0;
 
+    const profferMedio = p.preco_proffer_medio ? parseFloat(p.preco_proffer_medio) : (p.preco_proffer ? parseFloat(p.preco_proffer) : null);
+    const profferBaixo = p.preco_proffer_baixo ? parseFloat(p.preco_proffer_baixo) : profferMedio;
+    const profferAlto = p.preco_proffer_alto ? parseFloat(p.preco_proffer_alto) : profferMedio;
+
     let calculatedBasePrice = 0;
-    if (cost > 0) {
+    let baseOrigem = '';
+
+    // 1. PRIORIDADE MÁXIMA: Preço Médio de Mercado do Grupo Independente Proffer (Napp)
+    if (profferMedio && profferMedio > 0) {
+      calculatedBasePrice = roundUpToAcceptedCents(profferMedio);
+      baseOrigem = `Média Proffer Independente (R$ ${profferMedio.toFixed(2)})`;
+    } else if (cost > 0 && cost < currentPrice * 3) {
+      // 2. SE NÃO HOUVER PROFFER: Markup Divisor com Custo Unitário Real
       calculatedBasePrice = calculateTargetPrice(cost, impostosPct, despesasPct, cartaoPct, targetMargin);
+      baseOrigem = `Markup Divisor (${targetMargin}% margem na Curva ${curve})`;
     } else {
       calculatedBasePrice = currentPrice;
+      baseOrigem = 'Preço Atual Mantido (sem Proffer/custo)';
     }
 
     const pmc = 0;
@@ -368,16 +384,16 @@ async function runPricingEngine(db, customOptions = {}) {
     const finalSuggestedPrice = guardrailResult.finalPrice;
 
     let margemAtualPct = 0;
-    if (currentPrice > 0 && cost > 0) {
+    if (currentPrice > 0 && cost > 0 && cost < currentPrice * 3) {
       margemAtualPct = ((currentPrice - cost) / currentPrice) * 100;
     }
 
     let margemProjetadaPct = 0;
-    if (finalSuggestedPrice > 0 && cost > 0) {
+    if (finalSuggestedPrice > 0 && cost > 0 && cost < finalSuggestedPrice * 3) {
       margemProjetadaPct = ((finalSuggestedPrice - cost) / finalSuggestedPrice) * 100;
     }
 
-    if (cost > 0 && currentPrice > 0) {
+    if (cost > 0 && currentPrice > 0 && cost < currentPrice * 3) {
       somaMargemAtual += margemAtualPct;
       somaMargemProjetada += margemProjetadaPct;
       totalComCustoValido++;
@@ -391,6 +407,8 @@ async function runPricingEngine(db, customOptions = {}) {
       totalAprovacaoNecessaria++;
     }
 
+    const fullJustificativa = baseOrigem + (guardrailResult.justificativa ? ` | ${guardrailResult.justificativa}` : '');
+
     suggestions.push({
       ean,
       produto_id: prodId,
@@ -402,7 +420,10 @@ async function runPricingEngine(db, customOptions = {}) {
       preco_atual: currentPrice,
       preco_sugerido: finalSuggestedPrice,
       preco_pmc: pmc,
-      preco_proffer: p.preco_proffer ? parseFloat(p.preco_proffer) : null,
+      preco_proffer: profferMedio,
+      preco_proffer_baixo: profferBaixo,
+      preco_proffer_medio: profferMedio,
+      preco_proffer_alto: profferAlto,
       margem_atual_pct: parseFloat(margemAtualPct.toFixed(2)),
       margem_projetada_pct: parseFloat(margemProjetadaPct.toFixed(2)),
       variacao_pct: guardrailResult.variationPct,
@@ -411,7 +432,7 @@ async function runPricingEngine(db, customOptions = {}) {
       trava_piso_minimo: guardrailResult.travaPisoMinimo ? 1 : 0,
       trava_volatilidade: guardrailResult.travaVolatilidade ? 1 : 0,
       requer_aprovacao_manual: guardrailResult.requerAprovacaoManual ? 1 : 0,
-      justificativa: guardrailResult.justificativa,
+      justificativa: fullJustificativa,
       calculado_em: timestamp
     });
   }
@@ -421,12 +442,14 @@ async function runPricingEngine(db, customOptions = {}) {
     INSERT OR REPLACE INTO pricing_suggestions (
       ean, produto_id, descricao, categoria, curva, estoque_atual,
       custo_liquido, preco_atual, preco_sugerido, preco_pmc, preco_proffer,
+      preco_proffer_baixo, preco_proffer_medio, preco_proffer_alto,
       margem_atual_pct, margem_projetada_pct, variacao_pct, variacao_valor,
       trava_teto_cmed, trava_piso_minimo, trava_volatilidade,
       requer_aprovacao_manual, justificativa, calculado_em
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
+      ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?, ?
@@ -448,6 +471,9 @@ async function runPricingEngine(db, customOptions = {}) {
         item.preco_sugerido,
         item.preco_pmc,
         item.preco_proffer,
+        item.preco_proffer_baixo,
+        item.preco_proffer_medio,
+        item.preco_proffer_alto,
         item.margem_atual_pct,
         item.margem_projetada_pct,
         item.variacao_pct,

@@ -541,6 +541,9 @@ try {
         ean TEXT PRIMARY KEY,
         produto_id TEXT,
         preco_proffer REAL,
+        preco_proffer_baixo REAL,
+        preco_proffer_medio REAL,
+        preco_proffer_alto REAL,
         atualizado_em TEXT
       );
     `;
@@ -589,6 +592,9 @@ try {
         preco_sugerido REAL NOT NULL,
         preco_pmc REAL DEFAULT 0,
         preco_proffer REAL,
+        preco_proffer_baixo REAL,
+        preco_proffer_medio REAL,
+        preco_proffer_alto REAL,
         margem_atual_pct REAL,
         margem_projetada_pct REAL,
         variacao_pct REAL,
@@ -621,6 +627,22 @@ try {
     db.exec(createNappPricesTable);
     db.exec(createCardMachineReceivablesTable);
     db.exec(createPricingEngineTables);
+
+    try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_alto REAL'); } catch(e) {}
+
+    try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_alto REAL'); } catch(e) {}
+
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN tributacao_monofasica TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN cst_pis TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN cst_cofins TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN aliquota_st REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN imposto_aliq REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN ncm TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN cest TEXT'); } catch(e) {}
 
     // Inserir regras padrão de precificação se não existirem
     try {

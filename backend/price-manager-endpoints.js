@@ -162,8 +162,18 @@ module.exports = function (db) {
           c.preco_promocao as promo_price,
           c.preco_normal as normal_price,
           c.curva as curve,
+          c.tributacao_monofasica,
+          c.cst_pis,
+          c.cst_cofins,
+          c.aliquota_st,
+          c.imposto_aliq,
+          c.ncm,
+          c.cest,
           c.atualizado_em as cached_at,
           n.preco_proffer as region_price,
+          n.preco_proffer_baixo as region_price_baixo,
+          n.preco_proffer_medio as region_price_medio,
+          n.preco_proffer_alto as region_price_alto,
           n.atualizado_em as region_updated_at
         FROM digifarma_products_cache c
         LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
@@ -236,7 +246,7 @@ module.exports = function (db) {
     try {
       console.log('[Price Manager API] Iniciando sincronização e recálculo da Curva ABC (Preço de Promoção/Venda)...');
       
-      // 1. Obter todos os produtos ativos do Digifarma incluindo preços de promoção
+      // 1. Obter todos os produtos ativos do Digifarma incluindo preços de promoção, custos e dados fiscais
       const digifarmaProducts = await queryDigifarma(`
         SELECT 
           COD_BARRAS, 
@@ -248,7 +258,16 @@ module.exports = function (db) {
           PROD_PRPROMOCAO,
           INICIO_PROMOCAO,
           TERMINO_PROMOCAO,
-          COALESCE(PROD_PRCOMPRA, VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA
+          PROD_PRCOMPRA,
+          VALOR_ULT_COMPRA,
+          PROD_CMV,
+          TRIBUTACAO_MONOFASICA,
+          CST_PIS,
+          CST_COFINS,
+          ALIQUOTA_ST,
+          IMPOSTO_ALIQ,
+          NCM,
+          CEST
         FROM PRODUTOS 
         WHERE PROD_ATIVO = 'S'
       `);
@@ -305,8 +324,13 @@ module.exports = function (db) {
       const deleteStmt = db.prepare("DELETE FROM digifarma_products_cache");
       const insertStmt = db.prepare(`
         INSERT OR REPLACE INTO digifarma_products_cache 
-        (codigo_barras, produto_id, categoria_id, descricao, estoque_atual, preco_venda, preco_custo, preco_promocao, preco_normal, curva, atualizado_em) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (
+          codigo_barras, produto_id, categoria_id, descricao, estoque_atual, 
+          preco_venda, preco_custo, preco_promocao, preco_normal, curva, 
+          tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
+          atualizado_em
+        ) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const timestamp = new Date().toISOString();
@@ -324,6 +348,21 @@ module.exports = function (db) {
           const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
           const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
           const effectivePrice = getEffectivePrice(p);
+          const refPrice = effectivePrice > 0 ? effectivePrice : normalPrice;
+
+          // CORREÇÃO DE CUSTO: Identificar custo unitário vs custo de caixa master (ex: Dipirona cartela R$ 1.26 vs caixa R$ 170.89)
+          const prCompra = parseFloat(p.PROD_PRCOMPRA || 0);
+          const ultCompra = parseFloat(p.VALOR_ULT_COMPRA || 0);
+          const cmv = parseFloat(p.PROD_CMV || 0);
+
+          let unitCost = ultCompra > 0 ? ultCompra : (cmv > 0 ? cmv : prCompra);
+          if (prCompra > 0 && prCompra < refPrice * 2) {
+            unitCost = prCompra;
+          } else if (ultCompra > 0 && prCompra > refPrice * 2.5) {
+            unitCost = ultCompra;
+          } else if (cmv > 0 && prCompra > refPrice * 2.5) {
+            unitCost = cmv;
+          }
           
           insertStmt.run(
             barcode,
@@ -332,10 +371,17 @@ module.exports = function (db) {
             (p.PRODUTO || '').trim(),
             parseFloat(p.PROD_SALDO || 0),
             effectivePrice,
-            parseFloat(p.PROD_PRCOMPRA || 0),
+            unitCost,
             promoPrice,
             normalPrice,
             curve,
+            (p.TRIBUTACAO_MONOFASICA || '').trim(),
+            (p.CST_PIS || '').trim(),
+            (p.CST_COFINS || '').trim(),
+            parseFloat(p.ALIQUOTA_ST || 0),
+            parseFloat(p.IMPOSTO_ALIQ || 0),
+            (p.NCM || '').trim(),
+            (p.CEST || '').trim(),
             timestamp
           );
         }

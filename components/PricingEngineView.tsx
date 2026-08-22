@@ -34,6 +34,9 @@ interface PricingSuggestion {
   preco_sugerido: number;
   preco_pmc: number;
   preco_proffer: number | null;
+  preco_proffer_baixo?: number | null;
+  preco_proffer_medio?: number | null;
+  preco_proffer_alto?: number | null;
   margem_atual_pct: number;
   margem_projetada_pct: number;
   variacao_pct: number;
@@ -511,6 +514,7 @@ export const PricingEngineView: React.FC = () => {
                 <th className="px-3 py-3.5">Categoria</th>
                 <th className="px-3 py-3.5 text-right">Custo Líq.</th>
                 <th className="px-3 py-3.5 text-right">Preço Atual</th>
+                <th className="px-3 py-3.5 text-center">Concorrência Proffer (JF Indep.)</th>
                 <th className="px-3 py-3.5 text-right font-bold text-emerald-700">Preço Sugerido</th>
                 <th className="px-3 py-3.5 text-center">Margem (Atual &rarr; Nova)</th>
                 <th className="px-3 py-3.5 text-right">Variação</th>
@@ -520,14 +524,14 @@ export const PricingEngineView: React.FC = () => {
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-600" />
                     Carregando simulação de preços...
                   </td>
                 </tr>
               ) : suggestions.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     Nenhum produto encontrado com os filtros selecionados.
                   </td>
                 </tr>
@@ -559,6 +563,23 @@ export const PricingEngineView: React.FC = () => {
 
                       <td className="px-3 py-3.5 text-right font-medium text-slate-600">
                         R$ {s.preco_atual.toFixed(2)}
+                      </td>
+
+                      <td className="px-3 py-3.5 text-center">
+                        {s.preco_proffer_medio ? (
+                          <div className="inline-flex flex-col items-center bg-blue-50/80 border border-blue-200 rounded-lg px-2.5 py-1">
+                            <div className="text-xs font-bold text-blue-900">
+                              Média: R$ {s.preco_proffer_medio.toFixed(2)}
+                            </div>
+                            <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1.5 mt-0.5">
+                              <span>Min: R$ {(s.preco_proffer_baixo !== null && s.preco_proffer_baixo !== undefined ? s.preco_proffer_baixo : s.preco_proffer_medio).toFixed(2)}</span>
+                              <span className="text-blue-300">•</span>
+                              <span>Max: R$ {(s.preco_proffer_alto !== null && s.preco_proffer_alto !== undefined ? s.preco_proffer_alto : s.preco_proffer_medio).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-normal">-</span>
+                        )}
                       </td>
 
                       <td className="px-3 py-3.5 text-right">
