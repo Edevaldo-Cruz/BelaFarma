@@ -282,11 +282,16 @@ const App: React.FC = () => {
         }
       }
 
-      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha após 10h para Edevaldo ---
+      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha após 10h para Edevaldo (Apenas Dias Úteis) ---
       if (user.name.toLowerCase().includes("edevaldo") || user.role === UserRole.ADM) {
         const checkCardMachinePending = async () => {
           try {
-            const currentHour = new Date().getHours();
+            const now = new Date();
+            const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
+            // Não há repasse em finais de semana (Sábado e Domingo)
+            if (dayOfWeek === 0 || dayOfWeek === 6) return;
+
+            const currentHour = now.getHours();
             if (currentHour >= 10) {
               const res = await fetch('/api/card-machine-receivables/pending-due');
               if (!res.ok) return;
@@ -295,7 +300,13 @@ const App: React.FC = () => {
                 const sessionDismissed = sessionStorage.getItem("belafarma_card_reconcile_dismissed");
                 if (!sessionDismissed) {
                   setIsCardMachineModalOpen(true);
-                  addToast(`💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, "info");
+                  const isMonday = dayOfWeek === 1;
+                  addToast(
+                    isMonday 
+                      ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
+                      : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
+                    "info"
+                  );
                 }
               }
             }

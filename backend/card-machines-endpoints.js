@@ -1,12 +1,12 @@
 // backend/card-machines-endpoints.js
-// Gerenciamento e conciliação de repasses de maquininhas de cartão e Pix
+// Gerenciamento e conciliação de repasses de maquininhas de cartão, taxas e acumulados
 
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 
 module.exports = (db) => {
-  // Garantir que a tabela existe
+  // Garantir que a tabela existe com todas as colunas
   db.exec(`
     CREATE TABLE IF NOT EXISTS card_machine_receivables (
       id TEXT PRIMARY KEY,
@@ -14,6 +14,8 @@ module.exports = (db) => {
       sale_date TEXT NOT NULL,
       expected_payment_date TEXT NOT NULL,
       modality TEXT NOT NULL,
+      brand TEXT NOT NULL DEFAULT 'Outros',
+      is_weekend_accumulated INTEGER DEFAULT 0,
       gross_value REAL NOT NULL,
       net_deposited_value REAL,
       fee_value REAL,
@@ -27,27 +29,39 @@ module.exports = (db) => {
     CREATE INDEX IF NOT EXISTS idx_card_machine_date ON card_machine_receivables(sale_date);
     CREATE INDEX IF NOT EXISTS idx_card_machine_status ON card_machine_receivables(status);
     CREATE INDEX IF NOT EXISTS idx_card_machine_expected ON card_machine_receivables(expected_payment_date);
+    CREATE INDEX IF NOT EXISTS idx_card_machine_brand ON card_machine_receivables(brand);
   `);
 
   // Helper para calcular data útil seguinte (pula sábado e domingo para segunda-feira)
-  const getNextBusinessDay = (dateStr) => {
+  const getNextBusinessDayInfo = (dateStr) => {
     const d = new Date(dateStr + 'T12:00:00');
-    d.setDate(d.getDate() + 1); // Dia seguinte
-    const dayOfWeek = d.getDay();
-    if (dayOfWeek === 6) {
+    const dayOfWeek = d.getDay(); // 0: Dom, 1: Seg, 2: Ter, 3: Qua, 4: Qui, 5: Sex, 6: Sab
+    let isWeekendAcc = 0;
+    if (dayOfWeek === 5) {
+      // Sexta -> pula para Segunda (+3)
+      d.setDate(d.getDate() + 3);
+      isWeekendAcc = 1;
+    } else if (dayOfWeek === 6) {
       // Sábado -> pula para Segunda (+2)
       d.setDate(d.getDate() + 2);
+      isWeekendAcc = 1;
     } else if (dayOfWeek === 0) {
       // Domingo -> pula para Segunda (+1)
       d.setDate(d.getDate() + 1);
+      isWeekendAcc = 1;
+    } else {
+      d.setDate(d.getDate() + 1);
     }
-    return d.toISOString().split('T')[0];
+    return {
+      nextDate: d.toISOString().split('T')[0],
+      isWeekendAccumulated: isWeekendAcc
+    };
   };
 
   // GET /api/card-machine-receivables - Lista recebíveis com filtros
   router.get('/card-machine-receivables', (req, res) => {
     try {
-      const { month, year, status, modality, search } = req.query;
+      const { month, year, status, modality, brand, search } = req.query;
       let query = 'SELECT * FROM card_machine_receivables WHERE 1=1';
       const params = [];
 
@@ -70,13 +84,18 @@ module.exports = (db) => {
         params.push(modality);
       }
 
-      if (search) {
-        query += ' AND (notes LIKE ? OR modality LIKE ? OR reconciled_by LIKE ?)';
-        const searchPattern = `%${search}%`;
-        params.push(searchPattern, searchPattern, searchPattern);
+      if (brand && brand !== 'all') {
+        query += ' AND brand = ?';
+        params.push(brand);
       }
 
-      query += ' ORDER BY sale_date DESC, created_at DESC';
+      if (search) {
+        query += ' AND (notes LIKE ? OR modality LIKE ? OR brand LIKE ? OR reconciled_by LIKE ?)';
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      }
+
+      query += ' ORDER BY expected_payment_date DESC, sale_date DESC, created_at DESC';
 
       const stmt = db.prepare(query);
       const rows = stmt.all(...params);
@@ -95,7 +114,7 @@ module.exports = (db) => {
       const stmt = db.prepare(`
         SELECT * FROM card_machine_receivables 
         WHERE status = 'Pendente' AND expected_payment_date <= ?
-        ORDER BY expected_payment_date ASC, sale_date ASC
+        ORDER BY expected_payment_date ASC, is_weekend_accumulated DESC, sale_date ASC
       `);
       const rows = stmt.all(today);
       res.json(rows);
@@ -132,9 +151,17 @@ module.exports = (db) => {
 
       const byModality = {
         'Débito': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Crédito à Vista': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Crédito Parcelado': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'Crédito': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
-        'Pix Maquininha': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
-        'Outro': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Outros': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+      };
+
+      const byBrand = {
+        'Visa': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Master': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Elo': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Outros': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
       };
 
       rows.forEach(item => {
@@ -144,9 +171,13 @@ module.exports = (db) => {
 
         totalGross += gross;
 
-        const modKey = byModality[item.modality] ? item.modality : 'Outro';
+        const modKey = byModality[item.modality] ? item.modality : 'Outros';
         byModality[modKey].gross += gross;
         byModality[modKey].count += 1;
+
+        const brandKey = byBrand[item.brand] ? item.brand : 'Outros';
+        byBrand[brandKey].gross += gross;
+        byBrand[brandKey].count += 1;
 
         if (item.status === 'Conferido' && net !== null) {
           totalNet += net;
@@ -157,6 +188,10 @@ module.exports = (db) => {
           byModality[modKey].net += net;
           byModality[modKey].fee += fee;
           byModality[modKey].reconciledGross += gross;
+
+          byBrand[brandKey].net += net;
+          byBrand[brandKey].fee += fee;
+          byBrand[brandKey].reconciledGross += gross;
         } else {
           totalPendingCount += 1;
         }
@@ -166,7 +201,20 @@ module.exports = (db) => {
 
       const modalityStats = {};
       Object.entries(byModality).forEach(([mod, data]) => {
-        modalityStats[mod] = {
+        if (data.count > 0 || ['Débito', 'Crédito à Vista', 'Crédito Parcelado'].includes(mod)) {
+          modalityStats[mod] = {
+            gross: data.gross,
+            net: data.net,
+            fee: data.fee,
+            avgFeePercent: data.reconciledGross > 0 ? (data.fee / data.reconciledGross) * 100 : 0,
+            count: data.count
+          };
+        }
+      });
+
+      const brandStats = {};
+      Object.entries(byBrand).forEach(([brand, data]) => {
+        brandStats[brand] = {
           gross: data.gross,
           net: data.net,
           fee: data.fee,
@@ -182,11 +230,203 @@ module.exports = (db) => {
         avgFeePercent: Number(avgFeePercent.toFixed(2)),
         totalPendingCount,
         totalReconciledCount,
-        byModality: modalityStats
+        byModality: modalityStats,
+        byBrand: brandStats
       });
     } catch (err) {
       console.error('[CardMachines] Erro ao calcular dashboard:', err);
       res.status(500).json({ error: 'Erro ao gerar dashboard de maquininhas', details: err.message });
+    }
+  });
+
+  // GET /api/card-machine-receivables/fee-audit - Dados completos para a Guia de Auditoria de Taxas
+  router.get('/card-machine-receivables/fee-audit', (req, res) => {
+    try {
+      const { month, year } = req.query;
+      let query = "SELECT * FROM card_machine_receivables WHERE status = 'Conferido'";
+      const params = [];
+
+      if (year && month) {
+        const monthPad = String(month).padStart(2, '0');
+        query += ` AND (sale_date LIKE ? OR expected_payment_date LIKE ?)`;
+        params.push(`${year}-${monthPad}%`, `${year}-${monthPad}%`);
+      } else if (year) {
+        query += ` AND (sale_date LIKE ? OR expected_payment_date LIKE ?)`;
+        params.push(`${year}%`, `${year}%`);
+      }
+
+      query += ' ORDER BY expected_payment_date DESC, sale_date DESC';
+      const rows = db.prepare(query).all(...params);
+
+      let totalGross = 0;
+      let totalNet = 0;
+      let totalFees = 0;
+
+      const byModality = {
+        'Débito': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Crédito à Vista': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Crédito Parcelado': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Outros': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+      };
+
+      const byBrand = {
+        'Visa': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Master': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Elo': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Outros': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+      };
+
+      const dailyMap = {};
+
+      rows.forEach(item => {
+        const gross = Number(item.gross_value) || 0;
+        const net = Number(item.net_deposited_value) || 0;
+        const fee = Number(item.fee_value) || 0;
+
+        totalGross += gross;
+        totalNet += net;
+        totalFees += fee;
+
+        const modKey = byModality[item.modality] ? item.modality : (item.modality === 'Crédito' ? 'Crédito à Vista' : 'Outros');
+        byModality[modKey].gross += gross;
+        byModality[modKey].net += net;
+        byModality[modKey].fee += fee;
+        byModality[modKey].count += 1;
+
+        const brandKey = byBrand[item.brand] ? item.brand : 'Outros';
+        byBrand[brandKey].gross += gross;
+        byBrand[brandKey].net += net;
+        byBrand[brandKey].fee += fee;
+        byBrand[brandKey].count += 1;
+
+        const dateKey = item.expected_payment_date || item.sale_date;
+        if (!dailyMap[dateKey]) {
+          dailyMap[dateKey] = { date: dateKey, gross: 0, fee: 0 };
+        }
+        dailyMap[dateKey].gross += gross;
+        dailyMap[dateKey].fee += fee;
+      });
+
+      Object.values(byModality).forEach(m => {
+        m.avgFeePercent = m.gross > 0 ? Number(((m.fee / m.gross) * 100).toFixed(2)) : 0;
+      });
+
+      Object.values(byBrand).forEach(b => {
+        b.avgFeePercent = b.gross > 0 ? Number(((b.fee / b.gross) * 100).toFixed(2)) : 0;
+      });
+
+      const dailyTrend = Object.values(dailyMap)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(d => ({
+          date: d.date,
+          gross: d.gross,
+          fee: d.fee,
+          feePercent: d.gross > 0 ? Number(((d.fee / d.gross) * 100).toFixed(2)) : 0
+        }));
+
+      const overallAvgFeePercent = totalGross > 0 ? Number(((totalFees / totalGross) * 100).toFixed(2)) : 0;
+
+      res.json({
+        overallAvgFeePercent,
+        totalGrossReconciled: totalGross,
+        totalNetReconciled: totalNet,
+        totalFeesPaid: totalFees,
+        byModality,
+        byBrand,
+        dailyTrend,
+        recentAudits: rows.slice(0, 50)
+      });
+    } catch (err) {
+      console.error('[CardMachines] Erro ao calcular auditoria de taxas:', err);
+      res.status(500).json({ error: 'Erro ao gerar auditoria de taxas', details: err.message });
+    }
+  });
+
+  // POST /api/card-machine-receivables/reconcile-consolidated - Conciliação em lote/acumulada
+  router.post('/card-machine-receivables/reconcile-consolidated', (req, res) => {
+    try {
+      const { itemIds, total_net_deposited, reconciled_by, notes } = req.body;
+
+      if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: 'itemIds é obrigatório e deve ser um array não vazio' });
+      }
+
+      const netTotal = Number(total_net_deposited);
+      if (isNaN(netTotal) || netTotal < 0) {
+        return res.status(400).json({ error: 'Valor líquido total depositado inválido' });
+      }
+
+      const placeholders = itemIds.map(() => '?').join(',');
+      const items = db.prepare(`SELECT * FROM card_machine_receivables WHERE id IN (${placeholders})`).all(...itemIds);
+
+      if (items.length === 0) {
+        return res.status(404).json({ error: 'Nenhum item encontrado para conciliação' });
+      }
+
+      const totalGross = items.reduce((sum, item) => sum + (Number(item.gross_value) || 0), 0);
+      const totalFee = Math.max(0, totalGross - netTotal);
+      const overallFeePercent = totalGross > 0 ? (totalFee / totalGross) * 100 : 0;
+      const reconciledAt = new Date().toISOString();
+
+      const updateStmt = db.prepare(`
+        UPDATE card_machine_receivables
+        SET net_deposited_value = ?,
+            fee_value = ?,
+            fee_percent = ?,
+            status = 'Conferido',
+            reconciled_at = ?,
+            reconciled_by = ?,
+            notes = COALESCE(?, notes)
+        WHERE id = ?
+      `);
+
+      db.transaction(() => {
+        let distributedNet = 0;
+        let distributedFee = 0;
+
+        items.forEach((item, index) => {
+          const itemGross = Number(item.gross_value) || 0;
+          let itemNet = 0;
+          let itemFee = 0;
+
+          if (index === items.length - 1) {
+            // Último item recebe a diferença residual para evitar arredondamento de centavos
+            itemNet = Number((netTotal - distributedNet).toFixed(2));
+            itemFee = Number((totalFee - distributedFee).toFixed(2));
+          } else {
+            const ratio = totalGross > 0 ? (itemGross / totalGross) : (1 / items.length);
+            itemNet = Number((netTotal * ratio).toFixed(2));
+            itemFee = Number((totalFee * ratio).toFixed(2));
+            distributedNet += itemNet;
+            distributedFee += itemFee;
+          }
+
+          const itemFeePercent = itemGross > 0 ? Number(((itemFee / itemGross) * 100).toFixed(2)) : Number(overallFeePercent.toFixed(2));
+
+          updateStmt.run(
+            itemNet,
+            itemFee,
+            itemFeePercent,
+            reconciledAt,
+            reconciled_by || 'edevaldo',
+            notes || null,
+            item.id
+          );
+        });
+      })();
+
+      const updatedItems = db.prepare(`SELECT * FROM card_machine_receivables WHERE id IN (${placeholders})`).all(...itemIds);
+      res.json({
+        success: true,
+        totalGross,
+        totalNet: netTotal,
+        totalFee,
+        overallFeePercent: Number(overallFeePercent.toFixed(2)),
+        items: updatedItems
+      });
+    } catch (err) {
+      console.error('[CardMachines] Erro na conciliação consolidada:', err);
+      res.status(500).json({ error: 'Erro ao conciliar lote', details: err.message });
     }
   });
 
@@ -197,6 +437,7 @@ module.exports = (db) => {
         sale_date,
         expected_payment_date,
         modality,
+        brand,
         gross_value,
         notes
       } = req.body;
@@ -206,16 +447,18 @@ module.exports = (db) => {
       }
 
       const id = 'cmr_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
-      const expectedDate = expected_payment_date || getNextBusinessDay(sale_date);
+      const busDayInfo = getNextBusinessDayInfo(sale_date);
+      const expectedDate = expected_payment_date || busDayInfo.nextDate;
+      const isWeekendAcc = req.body.is_weekend_accumulated !== undefined ? req.body.is_weekend_accumulated : busDayInfo.isWeekendAccumulated;
       const createdAt = new Date().toISOString();
 
       const stmt = db.prepare(`
         INSERT INTO card_machine_receivables (
-          id, closing_id, sale_date, expected_payment_date, modality,
+          id, closing_id, sale_date, expected_payment_date, modality, brand, is_weekend_accumulated,
           gross_value, net_deposited_value, fee_value, fee_percent,
           status, reconciled_at, reconciled_by, notes, created_at
         ) VALUES (
-          @id, @closing_id, @sale_date, @expected_payment_date, @modality,
+          @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @is_weekend_accumulated,
           @gross_value, NULL, NULL, NULL,
           'Pendente', NULL, NULL, @notes, @created_at
         )
@@ -227,6 +470,8 @@ module.exports = (db) => {
         sale_date,
         expected_payment_date: expectedDate,
         modality,
+        brand: brand || 'Outros',
+        is_weekend_accumulated: isWeekendAcc,
         gross_value: Number(gross_value),
         notes: notes || null,
         created_at: createdAt
@@ -240,7 +485,7 @@ module.exports = (db) => {
     }
   });
 
-  // PUT /api/card-machine-receivables/:id/reconcile - Conferência e baixa com taxa calculada
+  // PUT /api/card-machine-receivables/:id/reconcile - Conferência individual
   router.put('/card-machine-receivables/:id/reconcile', (req, res) => {
     try {
       const { id } = req.params;
@@ -302,6 +547,8 @@ module.exports = (db) => {
         sale_date,
         expected_payment_date,
         modality,
+        brand,
+        is_weekend_accumulated,
         gross_value,
         net_deposited_value,
         status,
@@ -333,6 +580,8 @@ module.exports = (db) => {
         SET sale_date = ?,
             expected_payment_date = ?,
             modality = ?,
+            brand = ?,
+            is_weekend_accumulated = ?,
             gross_value = ?,
             net_deposited_value = ?,
             fee_value = ?,
@@ -347,6 +596,8 @@ module.exports = (db) => {
         sale_date || record.sale_date,
         expected_payment_date || record.expected_payment_date,
         modality || record.modality,
+        brand || record.brand,
+        is_weekend_accumulated !== undefined ? is_weekend_accumulated : record.is_weekend_accumulated,
         newGross,
         newNet,
         newFeeValue,
@@ -366,7 +617,7 @@ module.exports = (db) => {
   });
 
   // DELETE /api/card-machine-receivables/:id - Exclusão de registro
-  router.delete('/api/card-machine-receivables/:id', (req, res) => {
+  router.delete('/card-machine-receivables/:id', (req, res) => {
     try {
       const { id } = req.params;
       const stmt = db.prepare('DELETE FROM card_machine_receivables WHERE id = ?');

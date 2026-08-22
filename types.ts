@@ -76,6 +76,7 @@ export interface CashClosingRecord {
   expenses: number;
   pixDirect: number;
   credit: number;
+  credit_installments?: number;
   debit: number;
   pix: number;
   userName: string;
@@ -493,7 +494,9 @@ export interface CardMachineReceivable {
   closing_id?: string;
   sale_date: string;
   expected_payment_date: string;
-  modality: 'Débito' | 'Crédito' | 'Pix Maquininha' | string;
+  modality: 'Débito' | 'Crédito à Vista' | 'Crédito Parcelado' | 'Crédito' | string;
+  brand: 'Visa' | 'Master' | 'Elo' | 'Outros' | string;
+  is_weekend_accumulated?: number;
   gross_value: number;
   net_deposited_value?: number | null;
   fee_value?: number | null;
@@ -521,6 +524,64 @@ export interface CardMachineDashboard {
       count: number;
     };
   };
+  byBrand?: {
+    [brand: string]: {
+      gross: number;
+      net: number;
+      fee: number;
+      avgFeePercent: number;
+      count: number;
+    };
+  };
+}
+
+export interface FeeAuditItem {
+  id: string;
+  sale_date: string;
+  expected_payment_date: string;
+  modality: string;
+  brand: string;
+  gross_value: number;
+  net_deposited_value: number;
+  fee_value: number;
+  fee_percent: number;
+  reconciled_at?: string | null;
+  notes?: string | null;
+}
+
+export interface FeeAuditData {
+  overallAvgFeePercent: number;
+  totalGrossReconciled: number;
+  totalNetReconciled: number;
+  totalFeesPaid: number;
+  byModality: Record<string, {
+    gross: number;
+    net: number;
+    fee: number;
+    avgFeePercent: number;
+    count: number;
+  }>;
+  byBrand: Record<string, {
+    gross: number;
+    net: number;
+    fee: number;
+    avgFeePercent: number;
+    count: number;
+  }>;
+  dailyTrend: Array<{
+    date: string;
+    gross: number;
+    fee: number;
+    feePercent: number;
+  }>;
+  recentAudits: FeeAuditItem[];
+}
+
+export interface WeekendAccumulatedGroup {
+  payment_date: string;
+  sales_dates: string[];
+  totalGross: number;
+  items: CardMachineReceivable[];
 }
 
 export type AppointmentCategory = 'Geral' | 'Reunião' | 'Cliente' | 'Fornecedor' | 'Serviço Farmacêutico' | 'Pessoal' | 'Lembrete' | 'Entrega' | 'Outros';

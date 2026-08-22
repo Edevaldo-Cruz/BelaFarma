@@ -1546,8 +1546,8 @@ app.post('/api/cash-closings', (req, res) => {
     const closing = req.body;
     console.log('Received closing data:', closing); // Debugging line
     const insertClosingStmt = db.prepare(`
-      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, debit, pix, pixDirect, totalCrediario, crediarioList, creditReceipts)
-      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @debit, @pix, @pixDirect, @totalCrediario, @crediarioList, @creditReceipts)
+      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, credit_installments, debit, pix, pixDirect, totalCrediario, crediarioList, creditReceipts)
+      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @credit_installments, @debit, @pix, @pixDirect, @totalCrediario, @crediarioList, @creditReceipts)
     `);
     
     const insertTransactionStmt = db.prepare(`
@@ -1562,36 +1562,50 @@ app.post('/api/cash-closings', (req, res) => {
 
     const insertCardMachineStmt = db.prepare(`
       INSERT INTO card_machine_receivables (
-        id, closing_id, sale_date, expected_payment_date, modality,
+        id, closing_id, sale_date, expected_payment_date, modality, brand, is_weekend_accumulated,
         gross_value, net_deposited_value, fee_value, fee_percent,
         status, reconciled_at, reconciled_by, notes, created_at
       ) VALUES (
-        @id, @closing_id, @sale_date, @expected_payment_date, @modality,
+        @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @is_weekend_accumulated,
         @gross_value, NULL, NULL, NULL,
         'Pendente', NULL, NULL, @notes, @created_at
       )
     `);
 
-    // Helper para próximo dia útil
-    const calcNextBusinessDay = (dateStr) => {
+    // Helper para próximo dia útil e detecção de fim de semana
+    const calcNextBusinessDayInfo = (dateStr) => {
       const d = new Date(dateStr + 'T12:00:00');
-      d.setDate(d.getDate() + 1);
-      const day = d.getDay();
-      if (day === 6) d.setDate(d.getDate() + 2); // Sábado -> Segunda
-      else if (day === 0) d.setDate(d.getDate() + 1); // Domingo -> Segunda
-      return d.toISOString().split('T')[0];
+      const day = d.getDay(); // 0: Dom, 1: Seg, 2: Ter, 3: Qua, 4: Qui, 5: Sex, 6: Sab
+      let isWeekendAcc = 0;
+      if (day === 5) { // Sexta -> Segunda (+3 dias)
+        d.setDate(d.getDate() + 3);
+        isWeekendAcc = 1;
+      } else if (day === 6) { // Sábado -> Segunda (+2 dias)
+        d.setDate(d.getDate() + 2);
+        isWeekendAcc = 1;
+      } else if (day === 0) { // Domingo -> Segunda (+1 dia)
+        d.setDate(d.getDate() + 1);
+        isWeekendAcc = 1;
+      } else { // Segunda a Quinta -> D+1 útil
+        d.setDate(d.getDate() + 1);
+      }
+      return {
+        nextDate: d.toISOString().split('T')[0],
+        isWeekendAccumulated: isWeekendAcc
+      };
     };
 
     db.transaction(() => {
       insertClosingStmt.run({
         ...closing,
+        credit_installments: Number(closing.credit_installments || 0),
         crediarioList: JSON.stringify(closing.crediarioList || []),
         creditReceipts: JSON.stringify(closing.creditReceipts || [])
       });
 
       const transactionDate = new Date().toISOString();
       const saleDate = closing.date ? closing.date.split('T')[0] : transactionDate.split('T')[0];
-      const nextBusDay = calcNextBusinessDay(saleDate);
+      const busDayInfo = calcNextBusinessDayInfo(saleDate);
       
       // If there is a safe deposit, record it in the safe
       const safeDepositVal = Number(closing.safeDeposit);
@@ -1610,13 +1624,15 @@ app.post('/api/cash-closings', (req, res) => {
         });
       }
 
-      if (closing.credit > 0) {
+      // Crédito à Vista
+      const creditVal = Number(closing.credit || 0);
+      if (creditVal > 0) {
         insertTransactionStmt.run({
           id: `txn_credit_${closing.id}`,
           date: transactionDate,
-          description: 'Cartão de Crédito',
+          description: 'Cartão de Crédito à Vista',
           type: 'Entrada',
-          value: closing.credit,
+          value: creditVal,
           cashClosingId: closing.id
         });
 
@@ -1625,20 +1641,52 @@ app.post('/api/cash-closings', (req, res) => {
           id: `cmr_cred_${closing.id}`,
           closing_id: closing.id,
           sale_date: saleDate,
-          expected_payment_date: nextBusDay,
-          modality: 'Crédito',
-          gross_value: Number(closing.credit),
-          notes: `Fechamento de Caixa ${saleDate}`,
+          expected_payment_date: busDayInfo.nextDate,
+          modality: 'Crédito à Vista',
+          brand: 'Outros',
+          is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+          gross_value: creditVal,
+          notes: `Fechamento de Caixa ${saleDate} - Crédito à Vista`,
           created_at: transactionDate
         });
       }
-      if (closing.debit > 0) {
+
+      // Crédito Parcelado
+      const installmentsVal = Number(closing.credit_installments || 0);
+      if (installmentsVal > 0) {
+        insertTransactionStmt.run({
+          id: `txn_cred_inst_${closing.id}`,
+          date: transactionDate,
+          description: 'Cartão de Crédito Parcelado',
+          type: 'Entrada',
+          value: installmentsVal,
+          cashClosingId: closing.id
+        });
+
+        // Registrar em card_machine_receivables
+        insertCardMachineStmt.run({
+          id: `cmr_inst_${closing.id}`,
+          closing_id: closing.id,
+          sale_date: saleDate,
+          expected_payment_date: busDayInfo.nextDate,
+          modality: 'Crédito Parcelado',
+          brand: 'Outros',
+          is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+          gross_value: installmentsVal,
+          notes: `Fechamento de Caixa ${saleDate} - Crédito Parcelado`,
+          created_at: transactionDate
+        });
+      }
+
+      // Débito
+      const debitVal = Number(closing.debit || 0);
+      if (debitVal > 0) {
         insertTransactionStmt.run({
           id: `txn_debit_${closing.id}`,
           date: transactionDate,
           description: 'Cartão de Débito',
           type: 'Entrada',
-          value: closing.debit,
+          value: debitVal,
           cashClosingId: closing.id
         });
 
@@ -1647,13 +1695,16 @@ app.post('/api/cash-closings', (req, res) => {
           id: `cmr_deb_${closing.id}`,
           closing_id: closing.id,
           sale_date: saleDate,
-          expected_payment_date: nextBusDay,
+          expected_payment_date: busDayInfo.nextDate,
           modality: 'Débito',
-          gross_value: Number(closing.debit),
-          notes: `Fechamento de Caixa ${saleDate}`,
+          brand: 'Outros',
+          is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+          gross_value: debitVal,
+          notes: `Fechamento de Caixa ${saleDate} - Débito`,
           created_at: transactionDate
         });
       }
+
       if (closing.pix > 0) {
         insertTransactionStmt.run({
           id: `txn_pix_${closing.id}`,
@@ -1662,18 +1713,6 @@ app.post('/api/cash-closings', (req, res) => {
           type: 'Entrada',
           value: closing.pix,
           cashClosingId: closing.id
-        });
-
-        // Registrar em card_machine_receivables
-        insertCardMachineStmt.run({
-          id: `cmr_pix_${closing.id}`,
-          closing_id: closing.id,
-          sale_date: saleDate,
-          expected_payment_date: nextBusDay,
-          modality: 'Pix Maquininha',
-          gross_value: Number(closing.pix),
-          notes: `Fechamento de Caixa ${saleDate}`,
-          created_at: transactionDate
         });
       }
       if (closing.pixDirect > 0) {

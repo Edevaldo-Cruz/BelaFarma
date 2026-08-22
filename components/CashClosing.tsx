@@ -66,6 +66,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   });
 
   const [credit, setCredit] = useState(0);
+  const [creditInstallments, setCreditInstallments] = useState(0);
   const [debit, setDebit] = useState(0);
   const [pix, setPix] = useState(0);
   const [pixDirect, setPixDirect] = useState(0);
@@ -231,6 +232,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
         setInitialCash(state.initialCash || 0);
       }
       setCurrencyCount(state.currencyCount || denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {}));
+      setCreditInstallments(state.creditInstallments || 0);
       // Only set pixDirect from saved state if it wasn't populated from daily records
       if (combinedPixDireto.length === 0) { // If no current pix direto entries from daily records, use saved state
         setPixDirect(state.pixDirect || 0);
@@ -271,6 +273,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       initialCash,
       currencyCount,
       credit,
+      creditInstallments,
       debit,
       pix,
       pixDirect,
@@ -279,7 +282,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       currentStep,
     };
     localStorage.setItem('belinha_closing_form_state', JSON.stringify(formState));
-  }, [totalSales, receivedExtra, initialCash, currencyCount, credit, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
+  }, [totalSales, receivedExtra, initialCash, currencyCount, credit, creditInstallments, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
 
   const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0), [expensesList]);
   const totalIfood = useMemo(() => ifoodList.reduce((acc, curr) => acc + curr.val, 0), [ifoodList]);
@@ -295,7 +298,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     }, 0);
   }, [currencyCount]);
 
-    const totalDigital = useMemo(() => credit + debit + pix + pixDirect + others, [credit, debit, pix, pixDirect, others]);
+    const totalDigital = useMemo(() => credit + creditInstallments + debit + pix + pixDirect + others, [credit, creditInstallments, debit, pix, pixDirect, others]);
 
     // Expected Balance (Saldo Esperado): 
     // Venda Bruta + Troco + Entradas Extras + Produtos não registrados + Pix Direto
@@ -472,7 +475,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
   
 
-            credit, debit, pix, pixDirect,
+            credit,
+            credit_installments: creditInstallments,
+            debit, pix, pixDirect,
 
   
 
@@ -765,6 +770,8 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
 
               setCredit(0);
 
+              setCreditInstallments(0);
+
               setDebit(0);
 
               setPix(0);
@@ -927,15 +934,11 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                     <div className="max-w-md mx-auto space-y-5">
 
                       {[
-
-                        { label: 'Cartão de Crédito', val: credit, set: setCredit },
-
+                        { label: 'Cartão de Crédito (à Vista)', val: credit, set: setCredit },
+                        { label: 'Cartão de Crédito (Parcelado)', val: creditInstallments, set: setCreditInstallments },
                         { label: 'Cartão de Débito', val: debit, set: setDebit },
-
                         { label: 'Pix (Maquininha)', val: pix, set: setPix },
-
                         { label: 'Pix Direto na Conta (Entrada)', val: pixDirect, set: setPixDirect },
-
                       ].map((field, idx) => (
 
                         <div key={idx} className="space-y-1">

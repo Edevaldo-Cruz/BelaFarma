@@ -555,6 +555,8 @@ try {
         sale_date TEXT NOT NULL,
         expected_payment_date TEXT NOT NULL,
         modality TEXT NOT NULL,
+        brand TEXT NOT NULL DEFAULT 'Outros',
+        is_weekend_accumulated INTEGER DEFAULT 0,
         gross_value REAL NOT NULL,
         net_deposited_value REAL,
         fee_value REAL,
@@ -1659,6 +1661,12 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_pv_date ON page_visitors(date_str)');
     } catch(e) {}
     console.log('✅ Contador de Visitantes: Tabela page_visitors criada/verificada!');
+
+    // Migrations para Card Machines (Bandeiras, Fim de semana acumulado) e Fechamento (Crédito Parcelado)
+    try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN brand TEXT NOT NULL DEFAULT 'Outros'"); } catch(e) {}
+    try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN is_weekend_accumulated INTEGER DEFAULT 0"); } catch(e) {}
+    try { db.exec("ALTER TABLE cash_closings ADD COLUMN credit_installments REAL DEFAULT 0"); } catch(e) {}
+    console.log('✅ Maquininhas: Migrações de bandeira, parcelado e acumulado de fim de semana verificadas!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
