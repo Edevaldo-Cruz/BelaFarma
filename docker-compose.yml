@@ -22,6 +22,12 @@ services:
       - GPT_MODEL=${GPT_MODEL:-gpt-4o-mini}
       - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
       - BACKEND_URL=http://backend:3001
+      - NAPP_EMAIL=${NAPP_EMAIL:-edevaldo_cruz@hotmail.com}
+      - NAPP_PASSWORD=${NAPP_PASSWORD:-Ed_88249483}
+      - NAPP_LOGIN_URL=${NAPP_LOGIN_URL:-https://app.nappsolutions.com/login}
+      - NAPP_BASE_URL=${NAPP_BASE_URL:-https://app.nappsolutions.com}
+    env_file:
+      - .env
     volumes:
       # Monta diretório de dados (não apenas o arquivo)
       # Isso garante que o SQLite possa criar arquivos -wal e -shm
