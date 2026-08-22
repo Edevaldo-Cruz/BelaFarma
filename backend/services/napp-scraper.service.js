@@ -22,6 +22,33 @@ function getScrapeStatus() {
 }
 
 /**
+ * Fetch robusto com timeout e retentativas automáticas
+ */
+async function fetchWithRetry(url, options = {}, maxRetries = 3, timeoutMs = 12000) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await delay(1000 * attempt);
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Autentica na plataforma Napp Solutions e obtém o token JWT.
  */
 async function getNappToken() {
@@ -32,7 +59,7 @@ async function getNappToken() {
     throw new Error('Credenciais da Napp (NAPP_EMAIL / NAPP_PASSWORD) não configuradas no .env.');
   }
 
-  const loginRes = await fetch('https://api-app-public.nappsolutions.com/v1/auth/login', {
+  const loginRes = await fetchWithRetry('https://api-app-public.nappsolutions.com/v1/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
@@ -52,19 +79,19 @@ async function getNappToken() {
 }
 
 /**
- * Consulta o preço regional Proffer de um produto específico na Napp.
+ * Consulta o preço regional Proffer de um produto específico na Napp com retry e timeout.
  */
 async function fetchProductProfferPrice(sellerId, catalogId, token) {
   try {
     const url = `https://api-app-public.nappsolutions.com/v1/sellers/${sellerId}/catalogs/${catalogId}/proffer/price`;
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       }
-    });
+    }, 2, 8000);
 
     if (!res.ok) return null;
 
@@ -86,7 +113,7 @@ async function fetchProductProfferPrice(sellerId, catalogId, token) {
 }
 
 /**
- * Executa a coleta direta e performática de preços da concorrência via API REST Napp Proffer.
+ * Executa a coleta direta, resiliente e performática de preços da concorrência via API REST Napp Proffer.
  * @param {Array<string>} eansFilter Lista opcional de EANs para filtrar a coleta.
  */
 async function runNappScraper(eansFilter = null) {
@@ -109,7 +136,7 @@ async function runNappScraper(eansFilter = null) {
   console.log('[Napp Scraper] 🚀 Iniciando coleta de preços concorrentes via API Direta Napp Proffer...');
 
   try {
-    const token = await getNappToken();
+    let token = await getNappToken();
     const sellerId = '20a28238-fea5-11f0-b8ef-cb8fa8305438';
 
     // 1. Mapear EAN -> Produto ID do cache local
@@ -122,7 +149,7 @@ async function runNappScraper(eansFilter = null) {
     digifarmaProducts.forEach(p => eanToProdIdMap.set(p.codigo_barras, p.produto_id));
 
     // 2. Buscar total de itens no catálogo Napp
-    const initialCatRes = await fetch(`https://api-app-public.nappsolutions.com/v2/sellers/${sellerId}/catalogs?limit=100&offset=0`, {
+    const initialCatRes = await fetchWithRetry(`https://api-app-public.nappsolutions.com/v2/sellers/${sellerId}/catalogs?limit=100&offset=0`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
 
@@ -143,20 +170,28 @@ async function runNappScraper(eansFilter = null) {
 
     let offset = 0;
     const limit = 100;
-    const concurrency = 6; // Lote de consultas simultâneas para máxima performance sem sobrecarregar a API
+    const concurrency = 6; // Lote de consultas simultâneas
 
     while (offset < totalCatalogItems && scrapeStatus.running) {
-      const pageRes = await fetch(`https://api-app-public.nappsolutions.com/v2/sellers/${sellerId}/catalogs?limit=${limit}&offset=${offset}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      let pageData = null;
+      try {
+        const pageRes = await fetchWithRetry(`https://api-app-public.nappsolutions.com/v2/sellers/${sellerId}/catalogs?limit=${limit}&offset=${offset}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }, 3, 10000);
 
-      if (!pageRes.ok) {
-        console.warn(`[Napp Scraper] Erro ao carregar página offset ${offset}`);
-        offset += limit;
-        continue;
+        if (pageRes.status === 401) {
+          console.log('[Napp Scraper] 🔄 Token expirado, renovando credenciais...');
+          token = await getNappToken();
+          continue;
+        }
+
+        if (pageRes.ok) {
+          pageData = await pageRes.json();
+        }
+      } catch (pageErr) {
+        console.warn(`[Napp Scraper] ⚠️ Aviso: Falha temporária no offset ${offset}, tentando próximo lote...`);
       }
 
-      const pageData = await pageRes.json();
       const items = pageData?.data || [];
 
       // Processar itens da página em lotes concorrentes
@@ -172,26 +207,32 @@ async function runNappScraper(eansFilter = null) {
             return;
           }
 
-          // Consultar preço médio regional Proffer
-          const profferPrice = await fetchProductProfferPrice(sellerId, item.id, token);
-          const finalPrice = profferPrice || parseFloat(item.price || item.list_price || 0);
+          try {
+            // Consultar preço médio regional Proffer
+            const profferPrice = await fetchProductProfferPrice(sellerId, item.id, token);
+            const finalPrice = profferPrice || parseFloat(item.price || item.list_price || 0);
 
-          if (finalPrice > 0) {
-            const prodId = eanToProdIdMap.get(ean) || null;
-            insertStmt.run(ean, prodId, finalPrice, new Date().toISOString());
-            scrapeStatus.successCount++;
-          } else {
+            if (finalPrice > 0) {
+              const prodId = eanToProdIdMap.get(ean) || null;
+              insertStmt.run(ean, prodId, finalPrice, new Date().toISOString());
+              scrapeStatus.successCount++;
+            } else {
+              scrapeStatus.failedCount++;
+            }
+          } catch (e) {
             scrapeStatus.failedCount++;
           }
           scrapeStatus.currentProgress++;
         });
 
         await Promise.all(promises);
-        await delay(50); // Pausa leve para respeitar a taxa da API
+        await delay(50); // Pausa leve para manter conexão saudável
       }
 
       offset += limit;
-      console.log(`[Napp Scraper] ⏳ Progresso: ${scrapeStatus.currentProgress} / ${totalCatalogItems} produtos processados (Sucesso: ${scrapeStatus.successCount}).`);
+      if (offset % 500 === 0 || offset >= totalCatalogItems) {
+        console.log(`[Napp Scraper] ⏳ Progresso: ${scrapeStatus.currentProgress} / ${totalCatalogItems} produtos processados (Sucesso: ${scrapeStatus.successCount}).`);
+      }
     }
 
     scrapeStatus.running = false;
