@@ -269,10 +269,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const totalNotifications = 
     taskAttentionNotifications.length + 
     taskResponseNotifications.length + 
-    bankDepositTasks.length +
+    bankDepositTasks.length + 
     overdueBoletos.length + 
     boletosDueSunday.length +
-    ifoodNotifCount;
+    ifoodNotifCount +
+    (isAdmin ? (muralPendingCount || 0) : 0);
   const hasNotifications = totalNotifications > 0;
 
   // Handle click outside to close notifications
@@ -364,6 +365,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setView('task-management');
                       setIsNotificationsOpen(false);
                     }}
+                    onOpenMural={onOpenMural}
+                    muralPendingCount={muralPendingCount}
                   />
                 )}
               </div>

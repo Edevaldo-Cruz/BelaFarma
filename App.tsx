@@ -55,6 +55,7 @@ import { NotesManager } from "./components/NotesManager";
 import { CardMachinesManager } from "./components/CardMachinesManager";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
+import { useToast } from "./components/ToastContext";
 
 
 import {
@@ -330,6 +331,10 @@ const App: React.FC = () => {
             const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
             const count = parados + variacoes;
             setMuralPendingCount(count);
+            
+            if (isAdm && variacoes > 0) {
+              addToast(`🔔 Atenção ADM: Existem ${variacoes} variações de preço de compras aguardando sua auditoria no Mural!`, 'warning');
+            }
             
             const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
             if (count > 0 && !sessionDismissed) {

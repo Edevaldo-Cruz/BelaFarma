@@ -9,7 +9,8 @@ import {
   MessageSquare,
   AlertCircle,
   ClipboardCheck,
-  Vault
+  Vault,
+  TrendingUp
 } from 'lucide-react';
 import { Task, Boleto, BoletoStatus, User, View, UserRole } from '../types';
 
@@ -20,6 +21,8 @@ interface NotificationPanelProps {
   onClose: () => void;
   onNavigate: (view: View) => void;
   onViewTask: (task: Task) => void;
+  onOpenMural?: () => void;
+  muralPendingCount?: number;
 }
 
 export const NotificationPanel: React.FC<NotificationPanelProps> = ({ 
@@ -28,9 +31,11 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
   user, 
   onClose,
   onNavigate,
-  onViewTask
+  onViewTask,
+  onOpenMural,
+  muralPendingCount = 0
 }) => {
-  const isAdmin = user.role === UserRole.ADM;
+  const isAdmin = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
@@ -78,7 +83,8 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
     taskResolutionNotifications.length + 
     bankDepositTasks.length +
     overdueBoletos.length + 
-    boletosDueSunday.length;
+    boletosDueSunday.length +
+    (isAdmin ? (muralPendingCount || 0) : 0);
 
   if (totalNotifications === 0) {
     return (
@@ -112,6 +118,38 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
       </div>
 
       <div className="max-h-[450px] overflow-y-auto no-scrollbar p-2 space-y-2">
+        {/* MURAL DE PENDÊNCIAS E VARIAÇÕES DE PREÇO */}
+        {isAdmin && (muralPendingCount || 0) > 0 && (
+          <div className="space-y-2">
+            <p className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+              📊 Variações de Preço de Compras
+            </p>
+            <button 
+              onClick={() => { if (onOpenMural) onOpenMural(); onClose(); }}
+              className="w-full text-left p-4 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/30 transition-all group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-amber-500 text-white rounded-lg group-hover:scale-110 transition-transform shadow-lg shadow-amber-500/20">
+                  <TrendingUp size={14} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight">
+                    {muralPendingCount} Variações de Custo Detectadas
+                  </h4>
+                  <p className="text-[10px] font-bold text-amber-700 dark:text-amber-500 mt-0.5">
+                    Novas entradas com alteração de preço aguardando auditoria.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[9px] font-black bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 text-amber-600">
+                      Auditar no Mural
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
+
         {/* TASK ATTENTION REQUESTS */}
         {taskAttentionNotifications.length > 0 && (
           <div className="space-y-2">
