@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
         react(),
         ...(process.env.TAURI_ENV_PLATFORM ? [] : [basicSsl()]),
         VitePWA({
-          registerType: 'prompt',
+          registerType: 'autoUpdate',
           includeAssets: ['favicon.ico', 'pwa-192x192.png', 'pwa-512x512.png'],
           workbox: {
             maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB

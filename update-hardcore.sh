@@ -14,8 +14,9 @@ git reset --hard origin/main
 echo "2. Parando containers anteriores..."
 sudo docker-compose down --remove-orphans
 
-echo "3. Recompilando containers (Frontend + Backend)..."
-sudo docker-compose build
+echo "3. Recompilando containers (Frontend sem cache + Backend)..."
+sudo docker-compose build --no-cache frontend
+sudo docker-compose build backend
 
 echo "4. Iniciando novos containers..."
 sudo docker-compose up -d --force-recreate
