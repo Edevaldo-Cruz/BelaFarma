@@ -49,6 +49,7 @@ import { SalesReport } from "./components/SalesReport";
 import { CriticalStockManager } from "./components/CriticalStockManager";
 import { SystemWatcher } from "./components/SystemWatcher";
 import { PriceManager } from "./components/PriceManager";
+import { PricingSimulator } from "./components/PricingSimulator";
 import { AgendaCalendar } from "./components/AgendaCalendar";
 import { AnvisaAlerts } from "./components/AnvisaAlerts";
 import { NotesManager } from "./components/NotesManager";
@@ -1172,6 +1173,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager />
+              )}
+              {currentView === 'pricing-simulator' && (
+                <PricingSimulator user={user} />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>
