@@ -4069,6 +4069,8 @@ setInterval(async () => {
 
 // Rotina periódica em segundo plano para auditar variações de preço de entradas recentes (a cada 15 min)
 const { sincronizarVariacaoPrecosMural } = require('./services/entradas-sync.service');
+const { processScheduledPriceSteps } = require('./price-manager-endpoints');
+
 setInterval(async () => {
   try {
     console.log('[Cron Mural Entradas] 📦 Sincronizando notas de entrada recentes para auditoria de preços...');
@@ -4076,12 +4078,19 @@ setInterval(async () => {
   } catch (errEntrada) {
     console.error('[Cron Mural Entradas] Erro na sincronização periódica de entradas:', errEntrada.message);
   }
+
+  try {
+    await processScheduledPriceSteps(db);
+  } catch (errSteps) {
+    console.error('[Cron PriceManager] Erro no processamento de reajustes escalonados:', errSteps.message);
+  }
 }, 15 * 60 * 1000);
 
 // Sincronização inicial 15 segundos após a inicialização
 setTimeout(async () => {
   try {
     await sincronizarVariacaoPrecosMural(7);
+    await processScheduledPriceSteps(db);
   } catch (e) {}
 }, 15000);
 

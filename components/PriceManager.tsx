@@ -26,12 +26,22 @@ import {
   ArrowUpRight,
   Filter,
   FileSpreadsheet,
-  Bot
+  Bot,
+  Calculator,
+  History,
+  Clock,
+  RotateCcw,
+  ShieldCheck,
+  Calendar,
+  AlertCircle,
+  ArrowRight,
+  CheckCheck
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { roundUpToAcceptedCents } from '../utils';
 import { PricingEngineView } from './PricingEngineView';
-
+import { PricingSimulator } from './PricingSimulator';
+import { User } from '../types';
 
 interface Product {
   ean: string;
@@ -59,7 +69,6 @@ interface Product {
   cest?: string;
 }
 
-
 interface Pagination {
   totalItems: number;
   totalPages: number;
@@ -78,13 +87,53 @@ interface ScrapeStatus {
   lastError: string | null;
 }
 
-export const PriceManager: React.FC = () => {
+interface ScheduledStep {
+  id: string;
+  produto_id: number;
+  descricao: string;
+  cod_barras: string;
+  preco_inicial: number;
+  preco_alvo: number;
+  preco_atual: number;
+  max_pct_por_etapa: number;
+  intervalo_dias: number;
+  etapa_atual: number;
+  total_etapas: number;
+  proxima_execucao: string;
+  status: 'ativo' | 'concluido' | 'cancelado';
+  criado_por: string;
+  criado_em: string;
+  ultima_atualizacao: string;
+}
+
+interface PriceSnapshot {
+  id: string;
+  produto_id: number;
+  descricao: string;
+  cod_barras: string;
+  preco_anterior: number;
+  novo_preco: number;
+  preco_custo: number;
+  tipo: string;
+  motivo: string;
+  usuario: string;
+  data_alteracao: string;
+  revertido: number;
+  revertido_em?: string;
+  revertido_por?: string;
+}
+
+interface PriceManagerProps {
+  user?: User | null;
+}
+
+export const PriceManager: React.FC<PriceManagerProps> = ({ user }) => {
   const { addToast } = useToast();
   
-  // Aba ativa: 'engine' (Belinha Pricing Inteligente) ou 'catalog' (Monitor de Catálogo & Reajustes Manuais)
-  const [pricingTab, setPricingTab] = useState<'engine' | 'catalog'>('engine');
+  // Abas: 'catalog' | 'simulator' | 'scheduled' | 'history' | 'engine'
+  const [pricingTab, setPricingTab] = useState<'catalog' | 'simulator' | 'scheduled' | 'history' | 'engine'>('catalog');
 
-  // Estados de dados
+  // Estados de dados do Catálogo
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     totalItems: 0,
@@ -93,12 +142,14 @@ export const PriceManager: React.FC = () => {
     limit: 50
   });
   
-  // Estados de filtros
+  // Estados de filtros avançados
   const [search, setSearch] = useState('');
   const [curva, setCurva] = useState<'ALL' | 'A' | 'B' | 'C'>('ALL');
-  const [filterNapp, setFilterNapp] = useState<'ALL' | 'WITH_NAPP' | 'WITHOUT_NAPP' | 'DISCREPANT'>('ALL');
-  const [stockFilter, setStockFilter] = useState<'ALL' | 'IN_STOCK' | 'OUT_OF_STOCK'>('ALL');
-  const [costFilter, setCostFilter] = useState<'ALL' | 'BELOW_COST'>('ALL');
+  const [profferFilter, setProfferFilter] = useState<'ALL' | 'BELOW_AVG' | 'BELOW_MIN' | 'ABOVE_AVG' | 'ABOVE_MAX' | 'WITH_NAPP' | 'WITHOUT_NAPP'>('ALL');
+  const [profferDiffPercent, setProfferDiffPercent] = useState<string>('0');
+  const [marginFilter, setMarginFilter] = useState<'ALL' | 'LOW_MARGIN' | 'BELOW_COST' | 'HIGH_MARGIN'>('ALL');
+  const [stockFilter, setStockFilter] = useState<'ALL' | 'IN_STOCK' | 'OUT_OF_STOCK'>('IN_STOCK');
+  const [isNewFilter, setIsNewFilter] = useState<'ALL' | 'NEW_ENTRIES'>('ALL');
   const [categoria, setCategoria] = useState<'ALL' | 'GENERICO' | 'SIMILAR' | 'PERFUMARIA' | 'MARCA'>('ALL');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
@@ -108,10 +159,10 @@ export const PriceManager: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [syncingCache, setSyncingCache] = useState(false);
   
-  // Estados de seleção de caixas
+  // Seleção múltipla
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
-  // Estado do Scraper da Napp
+  // Scraper status
   const [scrapeStatus, setScrapeStatus] = useState<ScrapeStatus>({
     running: false,
     totalItems: 0,
@@ -123,33 +174,44 @@ export const PriceManager: React.FC = () => {
     lastError: null
   });
   
-  // Estados do painel de reajuste em massa
+  // Reajustes em massa
   const [bulkScope, setBulkScope] = useState<'SELECTED' | 'FILTERED_ALL'>('FILTERED_ALL');
   const [operationType, setOperationType] = useState<'percentage' | 'fixed' | 'region'>('percentage');
   const [adjustValue, setAdjustValue] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [applyingAdjustment, setApplyingAdjustment] = useState(false);
 
-  // Estado da Modal de Edição Individual de Produto
+  // Modal de Ação Individual de Preço (Direto vs Escalonado)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editActionType, setEditActionType] = useState<'direct' | 'scheduled'>('direct');
   const [singleOpType, setSingleOpType] = useState<'manual' | 'percentage' | 'region'>('manual');
   const [singleValue, setSingleValue] = useState('');
-  const [singleCategoryId, setSingleCategoryId] = useState<number>(0);
-  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [scheduledMaxPct, setScheduledMaxPct] = useState('5.0');
+  const [scheduledIntervalDays, setScheduledIntervalDays] = useState('7');
   const [savingSingleProduct, setSavingSingleProduct] = useState(false);
 
-  // Estatísticas rápidas calculadas do cache
+  // Reajustes Escalonados e Snapshots
+  const [scheduledSteps, setScheduledSteps] = useState<ScheduledStep[]>([]);
+  const [snapshots, setSnapshots] = useState<PriceSnapshot[]>([]);
+  const [loadingScheduled, setLoadingScheduled] = useState(false);
+  const [loadingSnapshots, setLoadingSnapshots] = useState(false);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+
+  // Estatísticas do Catálogo
   const [stats, setStats] = useState({
     total: 0,
     curveA: 0,
     curveB: 0,
     curveC: 0,
     withNapp: 0,
-    discrepant: 0,
-    belowCost: 0
+    belowMarketAvg: 0,
+    belowMarketMin: 0,
+    belowCost: 0,
+    activeSchedules: 0,
+    totalSnapshots: 0
   });
 
-  // Função para carregar produtos
+  // Carregar produtos filtrados
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
@@ -158,9 +220,11 @@ export const PriceManager: React.FC = () => {
         limit: String(pagination.limit),
         search,
         curva,
-        filterNapp,
+        profferFilter,
+        profferDiffPercent,
+        marginFilter,
         stockFilter,
-        costFilter,
+        isNewFilter,
         categoria,
         minPrice,
         maxPrice
@@ -179,272 +243,201 @@ export const PriceManager: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search, curva, filterNapp, stockFilter, costFilter, categoria, minPrice, maxPrice, pagination.limit, addToast]);
+  }, [page, search, curva, profferFilter, profferDiffPercent, marginFilter, stockFilter, isNewFilter, categoria, minPrice, maxPrice, pagination.limit, addToast]);
 
-  // Função para carregar status do Scraper
+  // Carregar status do Scraper
   const fetchScrapeStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/price-manager/scrape-status');
-      if (!res.ok) throw new Error('Erro ao buscar status.');
-      const data = await res.json();
-      setScrapeStatus(data);
-    } catch (err) {
-      console.error('Erro ao buscar status do scraper:', err);
-    }
+      if (res.ok) {
+        const data = await res.json();
+        setScrapeStatus(data);
+      }
+    } catch (err) {}
   }, []);
 
-  // Monitora estatísticas gerais
+  // Monitorar estatísticas gerais
   const fetchStats = useCallback(async () => {
     try {
       const res = await fetch('/api/price-manager/stats');
       if (res.ok) {
         const result = await res.json();
-        if (result.success && result.data) {
-          setStats(result.data);
-        }
+        setStats(result);
       }
-    } catch (err) {
-      console.error('Erro ao calcular estatísticas:', err);
-    }
+    } catch (err) {}
   }, []);
 
-  // Busca lista de categorias do Digifarma
-  const fetchCategories = useCallback(async () => {
+  // Carregar agendamentos escalonados
+  const fetchScheduledSteps = useCallback(async () => {
+    setLoadingScheduled(true);
     try {
-      const res = await fetch('/api/price-manager/categories');
+      const res = await fetch('/api/price-manager/scheduled-steps');
       if (res.ok) {
         const result = await res.json();
-        if (result.success && Array.isArray(result.data)) {
-          setCategories(result.data);
-        }
+        if (result.success) setScheduledSteps(result.data || []);
       }
     } catch (err) {
-      console.error('Erro ao buscar categorias:', err);
+      console.error('Erro ao carregar reajustes escalonados:', err);
+    } finally {
+      setLoadingScheduled(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
-
-  useEffect(() => {
-    fetchStats();
-    fetchScrapeStatus();
-    fetchCategories();
-  }, [fetchStats, fetchScrapeStatus, fetchCategories]);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (scrapeStatus.running) {
-      interval = setInterval(() => {
-        fetchScrapeStatus();
-        fetchProducts();
-      }, 5000);
+  // Carregar snapshots de backup
+  const fetchSnapshots = useCallback(async () => {
+    setLoadingSnapshots(true);
+    try {
+      const res = await fetch('/api/price-manager/snapshots?limit=50');
+      if (res.ok) {
+        const result = await res.json();
+        if (result.success) setSnapshots(result.data || []);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar histórico de backups:', err);
+    } finally {
+      setLoadingSnapshots(false);
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [scrapeStatus.running, fetchScrapeStatus, fetchProducts]);
+  }, []);
 
-  useEffect(() => {
-    setSelectedIds([]);
-  }, [search, curva, filterNapp, stockFilter, costFilter, categoria, minPrice, maxPrice, page]);
-
-  // Lógica de seleção na tabela
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      setSelectedIds(products.map(p => p.id));
-    } else {
-      setSelectedIds([]);
-    }
-  };
-
-  const handleSelectRow = (id: string) => {
-    setSelectedIds(prev => 
-      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
-    );
-  };
-
-  // Sincronização do Catálogo & Curva ABC
+  // Sincronizar Cache Digifarma
   const handleSyncCache = async () => {
     setSyncingCache(true);
     try {
       const res = await fetch('/api/price-manager/sync-cache', { method: 'POST' });
-      if (!res.ok) throw new Error('Falha na sincronização.');
-      const data = await res.json();
-      if (data.success) {
-        addToast('🎉 Sincronização concluída! Curva ABC recalculada e cache atualizado.', 'success');
+      const result = await res.json();
+      if (result.success) {
+        addToast(result.message, 'success');
         fetchProducts();
         fetchStats();
       } else {
-        throw new Error(data.error);
+        throw new Error(result.error || 'Erro na sincronização.');
       }
     } catch (err: any) {
-      addToast(err.message || 'Erro ao sincronizar catálogo.', 'error');
+      addToast(err.message, 'error');
     } finally {
       setSyncingCache(false);
     }
   };
 
-  // Disparar Robô Napp
-  const handleTriggerScraper = async () => {
+  // Disparar Coleta Napp Proffer
+  const handleTriggerScrape = async (eansToScrape?: string[]) => {
     try {
-      const res = await fetch('/api/price-manager/trigger-napp-scrape', { method: 'POST' });
-      if (!res.ok) throw new Error('Falha ao disparar robô.');
-      const data = await res.json();
-      if (data.success) {
-        addToast('🚀 Robô de raspagem Napp iniciado em background!', 'success');
+      const res = await fetch('/api/price-manager/trigger-napp-scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eans: eansToScrape || [] })
+      });
+      const result = await res.json();
+      if (result.success) {
+        addToast('Coleta Napp Solutions iniciada em segundo plano!', 'info');
         fetchScrapeStatus();
+      } else {
+        throw new Error(result.error);
       }
     } catch (err: any) {
-      addToast(err.message || 'Erro ao iniciar robô Napp.', 'error');
+      addToast(err.message || 'Erro ao disparar coleta.', 'error');
     }
   };
 
-  // Salvar Reajuste em Massa (por seleção ou por filtro)
-  const handleSaveBulkAdjustments = async () => {
-    setApplyingAdjustment(true);
+  // Cancelar Reajuste Escalonado
+  const handleCancelScheduledStep = async (id: string) => {
     try {
-      let endpoint = '/api/price-manager/update-prices';
-      let payload: any = {};
-
-      if (bulkScope === 'FILTERED_ALL') {
-        endpoint = '/api/price-manager/update-prices-by-filter';
-        payload = {
-          filter: {
-            search,
-            curva,
-            filterNapp,
-            stockFilter,
-            costFilter,
-            categoria,
-            minPrice,
-            maxPrice
-          },
-          operationType,
-          value: adjustValue
-        };
-      } else {
-        // Selecionados manualmente na página
-        const updates = selectedIds.map(id => {
-          const prod = products.find(p => p.id === id);
-          if (!prod) return null;
-
-          let newPrice = prod.price;
-
-          if (operationType === 'percentage') {
-            const valPercent = parseFloat(adjustValue);
-            if (!isNaN(valPercent)) {
-              newPrice = prod.price * (1 + valPercent / 100);
-            }
-          } else if (operationType === 'fixed') {
-            const valFixed = parseFloat(adjustValue);
-            if (!isNaN(valFixed) && valFixed > 0) {
-              newPrice = valFixed;
-            }
-          } else if (operationType === 'region') {
-            if (prod.region_price && prod.region_price > 0) {
-              newPrice = prod.region_price;
-            }
-          }
-
-          return { id, price: newPrice };
-        }).filter(item => item !== null) as { id: string; price: number }[];
-
-        if (updates.length === 0) {
-          throw new Error('Nenhum reajuste válido pôde ser calculado.');
-        }
-
-        payload = { updates };
-      }
-
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/price-manager/scheduled-steps/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ id })
       });
-
-      if (!res.ok) throw new Error('Falha ao enviar reajuste ao servidor.');
-      
       const result = await res.json();
       if (result.success) {
-        const count = result.successCount || result.count || 0;
-        addToast(`✔ Reajuste com regra de arredondamento aplicado em ${count} produtos no Digifarma!`, 'success');
-        setSelectedIds([]);
-        setShowConfirmModal(false);
-        setAdjustValue('');
+        addToast('Agendamento escalonado cancelado com sucesso.', 'info');
+        fetchScheduledSteps();
+        fetchStats();
+      }
+    } catch (err) {
+      addToast('Erro ao cancelar agendamento.', 'error');
+    }
+  };
+
+  // Reverter (Rollback) Snapshot de Preço
+  const handleRollbackSnapshot = async (snapshotId: string) => {
+    setRollingBackId(snapshotId);
+    try {
+      const res = await fetch('/api/price-manager/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          snapshotId,
+          usuario: user?.name || 'Administrador'
+        })
+      });
+      const result = await res.json();
+      if (result.success) {
+        addToast(result.message, 'success');
+        fetchSnapshots();
         fetchProducts();
         fetchStats();
       } else {
-        throw new Error(result.error || 'Erro ao persistir preços.');
+        addToast(result.error || 'Erro ao reverter preço.', 'error');
       }
-    } catch (err: any) {
-      addToast(err.message || 'Erro ao aplicar reajustes no Digifarma.', 'error');
+    } catch (err) {
+      addToast('Erro de comunicação ao reverter preço.', 'error');
     } finally {
-      setApplyingAdjustment(false);
+      setRollingBackId(null);
     }
   };
 
-  // Salvar Reajuste Individual de Produto via Modal
+  // Salvar Alteração de Preço Individual (Direto ou Escalonado)
   const handleSaveSingleProduct = async () => {
     if (!editingProduct) return;
     setSavingSingleProduct(true);
     try {
-      let rawPrice = editingProduct.price;
+      const targetPrice = previewSingle.rounded;
 
-      if (singleOpType === 'manual') {
-        const val = parseFloat(singleValue);
-        if (isNaN(val) || val <= 0) {
-          throw new Error('Por favor, informe um preço de venda válido (maior que R$ 0,00).');
+      if (editActionType === 'direct') {
+        // Aplicação Direta Imediata
+        const res = await fetch('/api/price-manager/apply-price', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            produtoId: editingProduct.id,
+            novoPreco: targetPrice,
+            motivo: `Ajuste manual (${singleOpType === 'percentage' ? `${singleValue}%` : singleOpType === 'region' ? 'Igualar Proffer' : 'Valor Fixo'})`,
+            usuario: user?.name || 'Administrador',
+            tipo: 'direto'
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          addToast(data.message, 'success');
+          setEditingProduct(null);
+          fetchProducts();
+          fetchStats();
+        } else {
+          addToast(data.error || 'Erro ao atualizar preço.', 'error');
         }
-        rawPrice = val;
-      } else if (singleOpType === 'percentage') {
-        const pct = parseFloat(singleValue);
-        if (isNaN(pct)) {
-          throw new Error('Por favor, informe uma porcentagem válida.');
-        }
-        rawPrice = editingProduct.price * (1 + pct / 100);
-      } else if (singleOpType === 'region') {
-        if (!editingProduct.region_price || editingProduct.region_price <= 0) {
-          throw new Error('Este produto não possui preço de região (Proffer) disponível.');
-        }
-        rawPrice = editingProduct.region_price;
-      }
-
-      // Aplica regra de arredondamento
-      const finalPrice = roundUpToAcceptedCents(rawPrice);
-
-      const res = await fetch('/api/price-manager/update-prices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          updates: [{ id: editingProduct.id, price: finalPrice }]
-        })
-      });
-
-      if (!res.ok) throw new Error('Erro na requisição com o servidor.');
-      const result = await res.json();
-      if (result.success && result.successCount > 0) {
-        // Se a categoria mudou, atualiza no Digifarma
-        if (singleCategoryId && singleCategoryId !== editingProduct.categoria_id) {
-          try {
-            await fetch('/api/price-manager/update-category', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ productId: editingProduct.id, categoryId: singleCategoryId })
-            });
-          } catch (catErr) {
-            console.error('Erro ao atualizar categoria:', catErr);
-          }
-        }
-
-        addToast(`✔ Produto #${editingProduct.id} atualizado no Digifarma!`, 'success');
-        setEditingProduct(null);
-        setSingleValue('');
-        fetchProducts();
-        fetchStats();
       } else {
-        throw new Error(result.error || 'Não foi possível atualizar o produto no Digifarma.');
+        // Aplicação Escalonada (Gradual)
+        const res = await fetch('/api/price-manager/schedule-step', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            produtoId: editingProduct.id,
+            precoAlvo: targetPrice,
+            maxPctPorEtapa: parseFloat(scheduledMaxPct) || 5.0,
+            intervaloDias: parseInt(scheduledIntervalDays) || 7,
+            usuario: user?.name || 'Administrador',
+            motivo: 'Subida gradual configurada pelo Gestor'
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          addToast(data.message, 'success');
+          setEditingProduct(null);
+          fetchProducts();
+          fetchStats();
+        } else {
+          addToast(data.error || 'Erro ao agendar reajuste.', 'error');
+        }
       }
     } catch (err: any) {
       addToast(err.message || 'Erro ao salvar produto.', 'error');
@@ -453,839 +446,910 @@ export const PriceManager: React.FC = () => {
     }
   };
 
-  // Cálculo da prévia do preço na modal de edição individual
-  const calculateSinglePreview = () => {
+  // Efeitos iniciais
+  useEffect(() => {
+    fetchProducts();
+    fetchStats();
+    fetchScrapeStatus();
+  }, [fetchProducts, fetchStats, fetchScrapeStatus]);
+
+  useEffect(() => {
+    if (pricingTab === 'scheduled') fetchScheduledSteps();
+    if (pricingTab === 'history') fetchSnapshots();
+  }, [pricingTab, fetchScheduledSteps, fetchSnapshots]);
+
+  // Polling de status do Scraper
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (scrapeStatus.running) {
+      interval = setInterval(() => {
+        fetchScrapeStatus();
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [scrapeStatus.running, fetchScrapeStatus]);
+
+  // Cálculo da prévia do produto em edição individual
+  const previewSingle = React.useMemo(() => {
     if (!editingProduct) return { raw: 0, rounded: 0, profit: 0, marginPct: 0, isBelowCost: false };
     
-    let raw = editingProduct.price;
+    let base = editingProduct.price;
+    let target = base;
+
     if (singleOpType === 'manual') {
-      const val = parseFloat(singleValue);
-      if (!isNaN(val) && val > 0) raw = val;
+      const val = parseFloat(singleValue.replace(',', '.'));
+      target = isNaN(val) ? base : val;
     } else if (singleOpType === 'percentage') {
-      const pct = parseFloat(singleValue);
-      if (!isNaN(pct)) raw = editingProduct.price * (1 + pct / 100);
+      const pct = parseFloat(singleValue.replace(',', '.'));
+      if (!isNaN(pct)) {
+        target = base * (1 + pct / 100);
+      }
     } else if (singleOpType === 'region') {
-      if (editingProduct.region_price && editingProduct.region_price > 0) raw = editingProduct.region_price;
+      target = editingProduct.region_price || base;
     }
 
-    const rounded = roundUpToAcceptedCents(raw);
+    const rounded = roundUpToAcceptedCents(target);
     const profit = rounded - editingProduct.cost_price;
-    const marginPct = rounded > 0 ? (profit / rounded) * 100 : 0;
+    const marginPct = rounded > 0 ? ((profit / rounded) * 100) : 0;
     const isBelowCost = editingProduct.cost_price > 0 && rounded < editingProduct.cost_price;
 
-    return { raw, rounded, profit, marginPct, isBelowCost };
-  };
+    return { raw: target, rounded, profit, marginPct, isBelowCost };
+  }, [editingProduct, singleOpType, singleValue]);
 
-  // Helper para renderizar a diferença do preço com a região
-  const renderPriceDifference = (prod: Product) => {
-    if (prod.region_price === null) return <span className="text-slate-400 font-normal">-</span>;
-    
-    const diff = prod.price - prod.region_price;
-    const diffPercent = (diff / prod.region_price) * 100;
-    
-    if (Math.abs(diffPercent) < 0.5) {
-      return <span className="text-emerald-500 font-semibold">Equivalente</span>;
-    }
-    
-    const isHigher = diff > 0;
-    const colorClass = isHigher ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400';
-    
-    return (
-      <div className={`flex flex-col items-end ${colorClass}`}>
-        <span className="font-semibold">{isHigher ? '+' : ''}{diff.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-        <span className="text-[10px] font-medium">{isHigher ? '+' : ''}{diffPercent.toFixed(1)}%</span>
-      </div>
-    );
+  const formatMoney = (val: number) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
   };
-
-  const previewSingle = calculateSinglePreview();
 
   return (
-    <div className="flex flex-col w-full min-h-screen bg-slate-50 dark:bg-slate-900 pb-20 p-4 md:p-6 transition-colors duration-300">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300">
       
-      {/* Cabeçalho */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-            <TrendingUp className="text-emerald-500 w-8 h-8" />
-            Módulo de Reajuste & Gestão de Preços
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Reajuste por lote de filtros ou unitário com arredondamento para cima em centavos (.0, .5 e .9) aplicado diretamente no Digifarma.
-          </p>
+      {/* Header Principal */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 rounded-3xl text-white shadow-xl">
+        <div className="flex items-center gap-4">
+          <div className="p-3.5 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 shadow-inner">
+            <TrendingUp className="w-8 h-8 text-blue-300" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-black tracking-tight">Gestão Estratégica de Preços</h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/30 text-blue-200 border border-blue-400/30">
+                BelaFarma Live
+              </span>
+            </div>
+            <p className="text-xs text-blue-100/70 mt-1 max-w-xl">
+              Inteligência de mercado farmacêutico, simulação de markup divisor, reajustes escalonados com backups de segurança.
+            </p>
+          </div>
         </div>
 
-        {/* Botões de Ação do Sistema */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={handleSyncCache}
-            disabled={syncingCache || loading}
-            className="flex items-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            onClick={() => handleTriggerScrape()}
+            disabled={scrapeStatus.running}
+            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-md shadow-blue-600/30 cursor-pointer disabled:opacity-50"
+            title="Coletar preços concorrentes na Napp Solutions"
           >
-            <Database className={`w-4 h-4 text-emerald-500 ${syncingCache ? 'animate-spin' : ''}`} />
-            Sincronizar Catálogo (ABC)
-          </button>
-          
-          <button
-            onClick={handleTriggerScraper}
-            disabled={scrapeStatus.running || loading}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border shadow-sm transition duration-200 ${
-              scrapeStatus.running 
-                ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-300' 
-                : 'bg-emerald-500 hover:bg-emerald-600 border-emerald-500 text-white disabled:opacity-50'
-            }`}
-          >
-            <RefreshCw className={`w-4 h-4 ${scrapeStatus.running ? 'animate-spin' : ''}`} />
-            {scrapeStatus.running 
-              ? `Coletando Napp (${scrapeStatus.currentProgress}/${scrapeStatus.totalItems})` 
-              : 'Forçar Coleta Napp'}
+            <Bot className={`w-4 h-4 ${scrapeStatus.running ? 'animate-spin' : ''}`} />
+            <span>{scrapeStatus.running ? `Coletando (${scrapeStatus.currentProgress}/${scrapeStatus.totalItems})` : 'Forçar Coleta Proffer'}</span>
           </button>
 
           <button
-            onClick={() => window.open('/api/whatsapp-vendas/catalog/export-csv?onlyInStock=true', '_blank')}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition duration-200 shadow-sm"
-            title="Baixar arquivo CSV do catálogo formatado para Meta / WhatsApp Commerce Manager"
+            onClick={handleSyncCache}
+            disabled={syncingCache}
+            className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+            title="Recalcular Curva ABC e sincronizar Digifarma"
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            Catálogo WhatsApp (CSV)
+            <RefreshCw className={`w-4 h-4 ${syncingCache ? 'animate-spin' : ''}`} />
+            <span>Sincronizar Digifarma</span>
           </button>
         </div>
       </div>
 
-      {/* Seletor de Abas: Belinha Pricing Engine vs Monitor de Catálogo */}
-      <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
-        <button
-          onClick={() => setPricingTab('engine')}
-          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-200 ${
-            pricingTab === 'engine'
-              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
-          }`}
-        >
-          <Sparkles className="w-4 h-4" />
-          Belinha Pricing (Simulador Inteligente)
-          <span className="px-2 py-0.5 text-[10px] rounded-full bg-white/20 text-white font-extrabold uppercase">
-            100% Seguro
-          </span>
-        </button>
-
+      {/* Navegação de Abas */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar border-b border-slate-200 dark:border-slate-800 pb-2">
         <button
           onClick={() => setPricingTab('catalog')}
-          className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-200 ${
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
             pricingTab === 'catalog'
-              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
           }`}
         >
           <Layers className="w-4 h-4" />
-          Monitor de Catálogo & Reajustes Manuais
+          <span>Monitor & Catálogo de Mercado</span>
+        </button>
+
+        <button
+          onClick={() => setPricingTab('simulator')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            pricingTab === 'simulator'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Calculator className="w-4 h-4 text-emerald-400" />
+          <span>Simulador de Preço (Markup Divisor)</span>
+        </button>
+
+        <button
+          onClick={() => setPricingTab('scheduled')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            pricingTab === 'scheduled'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Clock className="w-4 h-4 text-amber-400" />
+          <span>Reajustes Escalonados</span>
+          {stats.activeSchedules > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-white">
+              {stats.activeSchedules}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setPricingTab('history')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            pricingTab === 'history'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-sky-400" />
+          <span>Histórico & Backups</span>
+        </button>
+
+        <button
+          onClick={() => setPricingTab('engine')}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            pricingTab === 'engine'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Bot className="w-4 h-4 text-purple-400" />
+          <span>Belinha Pricing Inteligente</span>
         </button>
       </div>
 
-      {pricingTab === 'engine' ? (
-        <PricingEngineView />
-      ) : (
-        <>
-          {/* Cards de Status */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-300 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Produtos no Catálogo</span>
-            <p className="text-2xl font-black text-slate-800 dark:text-white mt-1">{stats.total}</p>
-          </div>
-          <div className="p-3 bg-emerald-50 dark:bg-emerald-950 rounded-xl">
-            <Coins className="text-emerald-500 w-6 h-6" />
-          </div>
-        </div>
+      {/* ABA 1: SIMULADOR DE FORMAÇÃO DE PREÇO */}
+      {pricingTab === 'simulator' && (
+        <PricingSimulator user={user} />
+      )}
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-300 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Curva A / B / C</span>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-lg font-black text-rose-500">A: {stats.curveA}</span>
-              <span className="text-sm font-bold text-slate-400">|</span>
-              <span className="text-lg font-black text-amber-500">B: {stats.curveB}</span>
-              <span className="text-sm font-bold text-slate-400">|</span>
-              <span className="text-lg font-black text-slate-500">C: {stats.curveC}</span>
-            </div>
-          </div>
-          <div className="p-3 bg-slate-50 dark:bg-slate-700 rounded-xl">
-            <SlidersHorizontal className="text-slate-500 w-6 h-6" />
-          </div>
-        </div>
+      {/* ABA 2: BELINHA PRICING ENGINE */}
+      {pricingTab === 'engine' && (
+        <PricingEngineView onApplyRulesSuccess={() => { fetchProducts(); fetchStats(); }} />
+      )}
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-300 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preços Abaixo do Custo</span>
-            <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
-              {stats.belowCost} <span className="text-xs font-medium text-slate-400">(alerta prejuízo)</span>
-            </p>
-          </div>
-          <div className="p-3 bg-rose-50 dark:bg-rose-950 rounded-xl">
-            <AlertTriangle className="text-rose-500 w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-300 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preços Divergentes Napp</span>
-            <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-              {stats.discrepant} <span className="text-xs font-medium text-slate-400">(&gt;1% diff)</span>
-            </p>
-          </div>
-          <div className="p-3 bg-indigo-50 dark:bg-indigo-950 rounded-xl">
-            <Eye className="text-indigo-500 w-6 h-6" />
-          </div>
-        </div>
-      </div>
-
-      {/* Painel Avançado de Filtros */}
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6 space-y-4">
-        
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
-          <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-            <Filter className="w-4 h-4 text-emerald-500" />
-            Filtros para Reajuste em Lote e Pesquisa
-          </span>
-          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-900">
-            {pagination.totalItems} produtos encontrados
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          
-          {/* Busca Texto */}
-          <div className="lg:col-span-2 relative">
-            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Busca (Nome / EAN / Código)</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Ex: DIPIRONA, 789..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Filtro Curva ABC */}
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Curva ABC</label>
-            <select
-              value={curva}
-              onChange={(e) => { setCurva(e.target.value as any); setPage(1); }}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-2 rounded-xl text-xs font-medium focus:outline-none"
-            >
-              <option value="ALL">Todas as Curvas</option>
-              <option value="A">Curva A (Alta Venda)</option>
-              <option value="B">Curva B (Média Venda)</option>
-              <option value="C">Curva C (Baixa Venda)</option>
-            </select>
-          </div>
-
-          {/* Filtro Categorias */}
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Categoria</label>
-            <select
-              value={categoria}
-              onChange={(e) => { setCategoria(e.target.value as any); setPage(1); }}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-2 rounded-xl text-xs font-medium focus:outline-none"
-            >
-              <option value="ALL">Todas as Categorias</option>
-              <option value="GENERICO">Genéricos</option>
-              <option value="SIMILAR">Similares</option>
-              <option value="PERFUMARIA">Perfumaria / Higiene</option>
-              <option value="MARCA">Marca / Referência</option>
-            </select>
-          </div>
-
-          {/* Filtro Alerta Margem/Custo */}
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Alerta Margem</label>
-            <select
-              value={costFilter}
-              onChange={(e) => { setCostFilter(e.target.value as any); setPage(1); }}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-2 rounded-xl text-xs font-medium focus:outline-none"
-            >
-              <option value="ALL">Todos os Preços</option>
-              <option value="BELOW_COST">Abaixo do Custo (Prejuízo)</option>
-            </select>
-          </div>
-
-        </div>
-
-        {/* Linha secundária de filtros: Comparador Napp + Faixa de Preço */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-          
-          <div className="flex items-center gap-3">
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Preço Região (Napp)</label>
-              <select
-                value={filterNapp}
-                onChange={(e) => { setFilterNapp(e.target.value as any); setPage(1); }}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium focus:outline-none"
+      {/* ABA 3: REAJUSTES ESCALONADOS (GRADUAIS) */}
+      {pricingTab === 'scheduled' && (
+        <div className="space-y-4">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-500" />
+                  Cronograma de Reajustes Escalonados (Graduais)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Subidas graduais de preço programadas para não espantar clientes no balcão.
+                </p>
+              </div>
+              <button
+                onClick={fetchScheduledSteps}
+                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 text-slate-600 dark:text-slate-300"
               >
-                <option value="ALL">Todos os Comparadores</option>
-                <option value="WITH_NAPP">Com Preço Napp</option>
-                <option value="WITHOUT_NAPP">Sem Preço Napp</option>
-                <option value="DISCREPANT">Preço Divergente (&gt;1%)</option>
-              </select>
+                <RefreshCw className={`w-4 h-4 ${loadingScheduled ? 'animate-spin' : ''}`} />
+              </button>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Preço Mín (R$)</label>
-                <input
-                  type="number"
-                  placeholder="0.00"
-                  value={minPrice}
-                  onChange={(e) => { setMinPrice(e.target.value); setPage(1); }}
-                  className="w-24 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-medium focus:outline-none"
-                />
+            {scheduledSteps.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <Clock className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-sm font-bold">Nenhum reajuste escalonado ativo no momento.</p>
+                <p className="text-xs mt-1">Selecione um produto no catálogo e escolha "Reajuste Escalonado" para programar.</p>
               </div>
-              <span className="text-slate-400 text-xs mt-4">-</span>
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Preço Máx (R$)</label>
-                <input
-                  type="number"
-                  placeholder="999.00"
-                  value={maxPrice}
-                  onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }}
-                  className="w-24 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-2 py-1.5 rounded-xl text-xs font-medium focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setSearch('');
-                setCurva('ALL');
-                setFilterNapp('ALL');
-                setStockFilter('ALL');
-                setCostFilter('ALL');
-                setCategoria('ALL');
-                setMinPrice('');
-                setMaxPrice('');
-                setPage(1);
-              }}
-              className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 transition"
-            >
-              Limpar Filtros
-            </button>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Tabela de Produtos */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
-                <th className="p-4 w-12 text-center">
-                  <input
-                    type="checkbox"
-                    checked={products.length > 0 && selectedIds.length === products.length}
-                    onChange={handleSelectAll}
-                    className="rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 h-4 w-4 transition duration-150"
-                  />
-                </th>
-                <th className="p-4 w-28">Código / EAN</th>
-                <th className="p-4">Produto</th>
-                <th className="p-4 w-24 text-center">Curva</th>
-                <th className="p-4 w-32 text-right">Preço de Custo</th>
-                <th className="p-4 w-32 text-right">Preço Atual</th>
-                <th className="p-4 w-32 text-right">Preço Região</th>
-                <th className="p-4 w-32 text-right">Diferença</th>
-                <th className="p-4 w-28 text-center">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse border-b border-slate-100 dark:border-slate-700/50">
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-4 w-4 rounded mx-auto" /></td>
-                    <td className="p-4">
-                      <div className="bg-slate-200 dark:bg-slate-700 h-4 w-24 rounded mb-1" />
-                      <div className="bg-slate-200 dark:bg-slate-700 h-3 w-16 rounded" />
-                    </td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-4 w-2/3 rounded" /></td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-5 w-12 rounded-full mx-auto" /></td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-4 w-16 rounded ml-auto" /></td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-4 w-16 rounded ml-auto" /></td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-4 w-16 rounded ml-auto" /></td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-4 w-12 rounded ml-auto" /></td>
-                    <td className="p-4"><div className="bg-slate-200 dark:bg-slate-700 h-6 w-16 rounded mx-auto" /></td>
-                  </tr>
-                ))
-              ) : products.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="p-12 text-center text-slate-400 font-medium">
-                    Nenhum produto correspondente aos filtros foi encontrado.
-                  </td>
-                </tr>
-              ) : (
-                products.map((p) => {
-                  const isSelected = selectedIds.includes(p.id);
-                  const showCostWarning = p.cost_price > 0 && p.price < p.cost_price;
-                  
-                  return (
-                    <tr 
-                      key={p.id}
-                      onClick={() => handleSelectRow(p.id)}
-                      className={`border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition duration-150 cursor-pointer ${
-                        isSelected ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''
-                      }`}
-                    >
-                      <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleSelectRow(p.id)}
-                          className="rounded border-slate-300 dark:border-slate-700 text-emerald-600 focus:ring-emerald-500 h-4 w-4 transition duration-150"
-                        />
-                      </td>
-                      <td className="p-4">
-                        <div className="font-bold text-xs text-slate-500 dark:text-slate-400">#{p.id}</div>
-                        <div className="font-medium text-xs text-slate-400 mt-0.5">{p.ean}</div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{p.name}</div>
-                        <div className="text-[10px] text-slate-400 font-medium mt-0.5">Estoque: {p.stock} un</div>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-black ${
-                          p.curve === 'A' ? 'bg-rose-50 text-rose-500 dark:bg-rose-950/20' : 
-                          p.curve === 'B' ? 'bg-amber-50 text-amber-500 dark:bg-amber-950/20' : 
-                          'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
-                        }`}>
-                          {p.curve}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right font-medium text-slate-500 dark:text-slate-400 text-sm">
-                        {p.cost_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </td>
-                      <td className="p-4 text-right font-bold text-slate-800 dark:text-slate-100 text-sm">
-                        <div className="flex flex-col items-end">
-                          <div className="flex items-center justify-end gap-1">
-                            {showCostWarning && (
-                              <span title="Preço de venda abaixo do preço de custo (Prejuízo)!" className="text-rose-500 hover:scale-110 transition duration-150">
-                                <AlertTriangle className="w-4 h-4 animate-bounce" />
-                              </span>
-                            )}
-                            <span>{p.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                          </div>
-                          {p.promo_price && p.promo_price > 0 ? (
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded mt-0.5 border border-emerald-200 dark:border-emerald-800/40">
-                              🏷️ Promoção
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-
-                      <td className="p-4 text-right font-semibold text-slate-700 dark:text-slate-300 text-sm">
-                        {p.region_price !== null ? (
-                          <div className="flex flex-col items-end">
-                            <span className="font-bold text-slate-900 dark:text-white">
-                              {p.region_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                            {p.region_price_baixo !== undefined && p.region_price_baixo !== null && p.region_price_alto !== undefined && p.region_price_alto !== null && (
-                              <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
-                                Min {p.region_price_baixo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • Max {p.region_price_alto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              </span>
-                            )}
-                            {p.region_updated_at && (
-                              <span className="text-[9px] text-slate-400 font-medium mt-0.5">
-                                {new Date(p.region_updated_at).toLocaleDateString('pt-BR')}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 font-normal">-</span>
-                        )}
-                      </td>
-                      <td className="p-4 text-right text-sm">
-                        {renderPriceDifference(p)}
-                      </td>
-                      <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => {
-                            setEditingProduct(p);
-                            setSingleOpType('manual');
-                            setSingleValue(p.price.toFixed(2));
-                            setSingleCategoryId(p.categoria_id || 0);
-                          }}
-                          className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded-xl text-xs font-bold transition flex items-center gap-1 mx-auto border border-emerald-200 dark:border-emerald-800"
-                          title="Ajustar preço deste produto"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          Editar
-                        </button>
-                      </td>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      <th className="py-3 px-3">Produto</th>
+                      <th className="py-3 px-3 text-center">Progresso / Etapas</th>
+                      <th className="py-3 px-3 text-right">Preço Inicial</th>
+                      <th className="py-3 px-3 text-right">Preço Atual</th>
+                      <th className="py-3 px-3 text-right">Preço Alvo</th>
+                      <th className="py-3 px-3 text-center">Próxima Subida</th>
+                      <th className="py-3 px-3 text-center">Status</th>
+                      <th className="py-3 px-3 text-right">Ações</th>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Paginação */}
-        {!loading && products.length > 0 && (
-          <div className="bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 p-4 flex flex-col sm:flex-row gap-4 items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Mostrando {products.length} de {pagination.totalItems} produtos
-            </span>
-            
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setPage(1)}
-                disabled={page === 1}
-                className="p-2 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
-              >
-                <ChevronsLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 px-3">
-                Página {page} de {pagination.totalPages}
-              </span>
-
-              <button
-                onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
-                disabled={page === pagination.totalPages}
-                className="p-2 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage(pagination.totalPages)}
-                disabled={page === pagination.totalPages}
-                className="p-2 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
-              >
-                <ChevronsRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Painel Flutuante de Reajuste em Massa */}
-      <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-2xl py-3 px-4 flex items-center gap-4 flex-wrap md:flex-nowrap justify-between w-[92%] max-w-4xl transition-all duration-300 animate-slide-up">
-        
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            Reajuste em Lote:
-          </span>
-
-          {/* Seletor de Escopo do Reajuste */}
-          <select
-            value={bulkScope}
-            onChange={(e) => setBulkScope(e.target.value as any)}
-            className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold focus:outline-none"
-          >
-            <option value="FILTERED_ALL">⚡ Todos os {pagination.totalItems} produtos do Filtro Atual</option>
-            <option value="SELECTED">☑ Apenas os {selectedIds.length} produtos Marcados</option>
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2 flex-1 md:flex-none justify-end w-full md:w-auto">
-          
-          {/* Seletor do Tipo de Operação */}
-          <select
-            value={operationType}
-            onChange={(e) => {
-              setOperationType(e.target.value as any);
-              setAdjustValue('');
-            }}
-            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-2.5 py-1.5 rounded-xl text-xs font-bold focus:outline-none"
-          >
-            <option value="percentage">Reajuste Percentual (%)</option>
-            <option value="fixed">Preço Fixo (R$)</option>
-            <option value="region">Igualar Região (Proffer)</option>
-          </select>
-
-          {/* Input de Valor (Oculto se igualar à região) */}
-          {operationType !== 'region' && (
-            <div className="relative w-24">
-              <input
-                type="text"
-                placeholder={operationType === 'percentage' ? '+5%' : 'R$ 0.00'}
-                value={adjustValue}
-                onChange={(e) => setAdjustValue(e.target.value)}
-                className="w-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 pl-2 pr-6 py-1.5 rounded-xl text-xs font-bold focus:outline-none"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">
-                {operationType === 'percentage' ? '%' : 'R$'}
-              </span>
-            </div>
-          )}
-
-          <button
-            onClick={() => {
-              if (bulkScope === 'SELECTED' && selectedIds.length === 0) {
-                addToast('Nenhum produto foi selecionado manualmente na tabela.', 'warning');
-                return;
-              }
-              if (bulkScope === 'FILTERED_ALL' && pagination.totalItems === 0) {
-                addToast('Nenhum produto atende ao filtro ativo no momento.', 'warning');
-                return;
-              }
-              if (operationType !== 'region' && (!adjustValue || isNaN(parseFloat(adjustValue)))) {
-                addToast('Por favor, informe um valor numérico válido para o ajuste.', 'warning');
-                return;
-              }
-              setShowConfirmModal(true);
-            }}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition duration-150 flex items-center gap-1 shadow-md shadow-emerald-500/20 shrink-0"
-          >
-            <Check className="w-3.5 h-3.5" />
-            Aplicar Reajuste em Lote
-          </button>
-        </div>
-      </div>
-
-      {/* Modal de Confirmação de Reajuste em Lote */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-lg shadow-2xl relative animate-scale-up">
-            
-            <div className="flex items-center gap-3 text-amber-500 mb-4">
-              <AlertTriangle className="w-8 h-8 shrink-0" />
-              <h3 className="text-lg font-black text-slate-800 dark:text-white">
-                Confirmar Reajuste de Preços no Digifarma
-              </h3>
-            </div>
-            
-            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
-              Você está prestes a alterar o preço de venda de{' '}
-              <span className="font-extrabold text-slate-800 dark:text-white">
-                {bulkScope === 'FILTERED_ALL' ? `TODOS os ${pagination.totalItems} produtos` : `${selectedIds.length} produtos selecionados`}
-              </span>.
-              Esta operação será aplicada <strong>diretamente no banco de dados de produção do Digifarma (Firebird)</strong>.
-            </p>
-
-            <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 mb-4 space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ajuste Configurado</span>
-              <div className="text-slate-800 dark:text-slate-100 font-extrabold text-sm">
-                {operationType === 'percentage' && `Reajustar em ${parseFloat(adjustValue) > 0 ? '+' : ''}${adjustValue}%`}
-                {operationType === 'fixed' && `Definir preço de venda fixo para R$ ${parseFloat(adjustValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                {operationType === 'region' && 'Igualar preço de venda ao preço Proffer da Região (Napp)'}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {scheduledSteps.map(step => (
+                      <tr key={step.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-slate-900 dark:text-white">{step.descricao}</div>
+                          <div className="text-[10px] text-slate-400">Cód: {step.produto_id} • +{step.max_pct_por_etapa}% a cada {step.intervalo_dias}d</div>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className="px-2 py-0.5 rounded-lg text-xs font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                            Etapa {step.etapa_atual} de {step.total_etapas}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right font-medium text-slate-500">
+                          {formatMoney(step.preco_inicial)}
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-slate-900 dark:text-white">
+                          {formatMoney(step.preco_atual)}
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                          {formatMoney(step.preco_alvo)}
+                        </td>
+                        <td className="py-3 px-3 text-center text-slate-500 font-medium">
+                          {step.status === 'ativo' ? new Date(step.proxima_execucao).toLocaleDateString('pt-BR') : '—'}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                            step.status === 'ativo'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : step.status === 'concluido'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                              : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                          }`}>
+                            {step.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {step.status === 'ativo' && (
+                            <button
+                              onClick={() => handleCancelScheduledStep(step.id)}
+                              className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-bold transition-colors"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Arredondamento para cima ativado (finais de centavos em .0, .5 ou .9).
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 justify-end">
-              <button
-                onClick={() => setShowConfirmModal(false)}
-                disabled={applyingAdjustment}
-                className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold text-sm transition duration-150 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              
-              <button
-                onClick={handleSaveBulkAdjustments}
-                disabled={applyingAdjustment}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-sm transition duration-150 flex items-center gap-1 shadow-md shadow-emerald-500/20 disabled:opacity-50"
-              >
-                {applyingAdjustment ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Gravando no Digifarma...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    Confirmar e Gravar no Digifarma
-                  </>
-                )}
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Modal de Edição Individual de Produto */}
-      {editingProduct && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-xl shadow-2xl relative animate-scale-up">
-            
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950 text-emerald-500 rounded-2xl">
-                  <Edit3 className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-800 dark:text-white">
-                    Reajuste Unitário de Produto
-                  </h3>
-                  <span className="text-xs font-bold text-slate-400">Código #{editingProduct.id} • EAN {editingProduct.ean}</span>
-                </div>
+      {/* ABA 4: HISTÓRICO DE BACKUPS & REVERSÃO */}
+      {pricingTab === 'history' && (
+        <div className="space-y-4">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-sky-500" />
+                  Histórico de Backups de Preço & Rollback
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Snapshots automáticos gerados antes de cada alteração de preço para garantir integridade e reversão instantânea no Digifarma.
+                </p>
               </div>
               <button
-                onClick={() => setEditingProduct(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                onClick={fetchSnapshots}
+                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 text-slate-600 dark:text-slate-300"
               >
-                <XCircle className="w-6 h-6" />
+                <RefreshCw className={`w-4 h-4 ${loadingSnapshots ? 'animate-spin' : ''}`} />
               </button>
             </div>
 
-            <div className="mb-4">
-              <h4 className="font-extrabold text-slate-800 dark:text-slate-100 text-sm mb-1">{editingProduct.name}</h4>
-              <div className="flex items-center gap-4 text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">
-                <span>Estoque: <strong>{editingProduct.stock} un</strong></span>
-                <span>•</span>
-                <span>Curva ABC: <strong className="text-emerald-500">{editingProduct.curve}</strong></span>
+            {snapshots.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <ShieldCheck className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-sm font-bold">Nenhum snapshot de backup registrado ainda.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      <th className="py-3 px-3">Data / Hora</th>
+                      <th className="py-3 px-3">Produto</th>
+                      <th className="py-3 px-3 text-right">Preço Anterior</th>
+                      <th className="py-3 px-3 text-center">➔</th>
+                      <th className="py-3 px-3 text-right">Novo Preço</th>
+                      <th className="py-3 px-3">Motivo / Tipo</th>
+                      <th className="py-3 px-3">Usuário</th>
+                      <th className="py-3 px-3 text-right">Ação de Segurança</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {snapshots.map(snap => (
+                      <tr key={snap.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-3 whitespace-nowrap text-slate-500 font-medium">
+                          {snap.data_alteracao ? new Date(snap.data_alteracao).toLocaleString('pt-BR') : '—'}
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-slate-900 dark:text-white">{snap.descricao}</div>
+                          <div className="text-[10px] text-slate-400">Cód: {snap.produto_id}</div>
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-300">
+                          {formatMoney(snap.preco_anterior)}
+                        </td>
+                        <td className="py-3 px-3 text-center text-slate-400">➔</td>
+                        <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                          {formatMoney(snap.novo_preco)}
+                        </td>
+                        <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 mr-1.5 uppercase">
+                            {snap.tipo}
+                          </span>
+                          <span>{snap.motivo}</span>
+                        </td>
+                        <td className="py-3 px-3 font-medium text-slate-600 dark:text-slate-400">
+                          {snap.usuario}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {snap.revertido ? (
+                            <span className="text-[11px] font-bold text-slate-400 flex items-center justify-end gap-1">
+                              <CheckCheck className="w-3.5 h-3.5 text-emerald-500" /> Revertido
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleRollbackSnapshot(snap.id)}
+                              disabled={rollingBackId === snap.id}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1 ml-auto disabled:opacity-50"
+                              title="Reverter este preço no Digifarma para o valor anterior"
+                            >
+                              <RotateCcw className={`w-3.5 h-3.5 ${rollingBackId === snap.id ? 'animate-spin' : ''}`} />
+                              <span>Reverter Preço</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ABA 5: MONITOR & CATÁLOGO DE MERCADO (GUIA PRINCIPAL) */}
+      {pricingTab === 'catalog' && (
+        <>
+          {/* KPI Cards Rápidos */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div className="p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <div className="text-[11px] font-black uppercase text-slate-400 tracking-wider">Total Ativos</div>
+              <div className="text-2xl font-black text-slate-900 dark:text-white my-0.5">{stats.total.toLocaleString()}</div>
+              <div className="text-[10px] text-slate-500 font-medium">Curva A: <b>{stats.curveA}</b> | B: <b>{stats.curveB}</b></div>
+            </div>
+
+            <div 
+              onClick={() => { setProfferFilter('BELOW_AVG'); setPage(1); }}
+              className="p-4 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-3xl shadow-sm cursor-pointer transition-all"
+            >
+              <div className="text-[11px] font-black uppercase text-amber-700 dark:text-amber-400 tracking-wider flex items-center justify-between">
+                <span>Abaixo da Média Proffer</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-amber-700 dark:text-amber-300 my-0.5">{stats.belowMarketAvg}</div>
+              <div className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">Oportunidade de Ganho</div>
+            </div>
+
+            <div 
+              onClick={() => { setProfferFilter('BELOW_MIN'); setPage(1); }}
+              className="p-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-3xl shadow-sm cursor-pointer transition-all"
+            >
+              <div className="text-[11px] font-black uppercase text-rose-700 dark:text-rose-400 tracking-wider flex items-center justify-between">
+                <span>Abaixo do Mínimo</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-rose-700 dark:text-rose-300 my-0.5">{stats.belowMarketMin}</div>
+              <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">Mais barato que toda região</div>
+            </div>
+
+            <div 
+              onClick={() => { setMarginFilter('BELOW_COST'); setPage(1); }}
+              className="p-4 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-3xl shadow-sm cursor-pointer transition-all"
+            >
+              <div className="text-[11px] font-black uppercase text-red-700 dark:text-red-400 tracking-wider flex items-center justify-between">
+                <span>Abaixo do Custo</span>
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-red-700 dark:text-red-300 my-0.5">{stats.belowCost}</div>
+              <div className="text-[10px] text-red-600 dark:text-red-400 font-bold">Prejuízo Imediato</div>
+            </div>
+          </div>
+
+          {/* BARRA DE PESQUISA AVANÇADA & FILTROS DE MERCADO */}
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            
+            {/* Linha 1: Input de Busca com debounce */}
+            <div className="flex flex-col md:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar por nome do medicamento, código Digifarma ou EAN..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
 
-              {/* Seletor de Categoria do Digifarma */}
-              <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
-                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
-                  Categoria no Digifarma
+              {/* Seletor Curva ABC */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
+                {(['ALL', 'A', 'B', 'C'] as const).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => { setCurva(c); setPage(1); }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      curva === c
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {c === 'ALL' ? 'Todas Curvas' : `Curva ${c}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Linha 2: Filtros Avançados Proffer e Margem */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+              
+              {/* Comparador Proffer */}
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                  Comparação Proffer / Mercado
                 </label>
                 <select
-                  value={singleCategoryId}
-                  onChange={(e) => setSingleCategoryId(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-xs focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
+                  value={profferFilter}
+                  onChange={(e: any) => { setProfferFilter(e.target.value); setPage(1); }}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
                 >
-                  <option value={0}>Sem Categoria / Manter</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name} (ID: {cat.id})
-                    </option>
-                  ))}
+                  <option value="ALL">Todos os Produtos</option>
+                  <option value="BELOW_AVG">📉 Abaixo da Média de Mercado</option>
+                  <option value="BELOW_MIN">🚨 Abaixo do Mínimo de Mercado</option>
+                  <option value="ABOVE_AVG">📈 Acima da Média de Mercado</option>
+                  <option value="ABOVE_MAX">🔺 Acima do Máximo de Mercado</option>
+                  <option value="WITH_NAPP">✅ Com Preço Proffer Encontrado</option>
+                  <option value="WITHOUT_NAPP">❌ Sem Preço Proffer</option>
                 </select>
               </div>
-            </div>
 
-            {/* Painel Comparativo do Produto */}
-            <div className="grid grid-cols-3 gap-3 mb-6 bg-slate-50 dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+              {/* Desvio % Mínimo */}
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Preço de Custo</span>
-                <p className="text-sm font-extrabold text-slate-700 dark:text-slate-300 mt-0.5">
-                  {editingProduct.cost_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </p>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Preço Atual</span>
-                <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">
-                  {editingProduct.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </p>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Preço Região (Napp)</span>
-                <p className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  {editingProduct.region_price ? editingProduct.region_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Indisponível'}
-                </p>
-              </div>
-            </div>
-
-            {/* Configuração do Ajuste Unitário */}
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2 block">
-                  Como deseja ajustar o Preço?
+                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                  Desvio vs Média Mercado
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setSingleOpType('manual'); setSingleValue(editingProduct.price.toFixed(2)); }}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                      singleOpType === 'manual' 
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' 
-                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    Valor Fixo (R$)
-                  </button>
+                <select
+                  value={profferDiffPercent}
+                  onChange={(e) => { setProfferDiffPercent(e.target.value); setPage(1); }}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
+                >
+                  <option value="0">Qualquer diferença</option>
+                  <option value="5">Mais de 5% abaixo da média</option>
+                  <option value="10">Mais de 10% abaixo da média</option>
+                  <option value="15">Mais de 15% abaixo da média</option>
+                  <option value="20">Mais de 20% abaixo da média</option>
+                </select>
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => { setSingleOpType('percentage'); setSingleValue('5'); }}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                      singleOpType === 'percentage' 
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' 
-                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    Porcentagem (%)
-                  </button>
+              {/* Filtro de Margem */}
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                  Margem de Lucro Bruto
+                </label>
+                <select
+                  value={marginFilter}
+                  onChange={(e: any) => { setMarginFilter(e.target.value); setPage(1); }}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
+                >
+                  <option value="ALL">Todas as Margens</option>
+                  <option value="LOW_MARGIN">⚠️ Margem Baixa (&lt; 20%)</option>
+                  <option value="BELOW_COST">🚨 Abaixo do Custo (Negativa)</option>
+                  <option value="HIGH_MARGIN">💎 Margem Alta (&gt; 50%)</option>
+                </select>
+              </div>
 
-                  <button
-                    type="button"
-                    disabled={!editingProduct.region_price || editingProduct.region_price <= 0}
-                    onClick={() => { setSingleOpType('region'); setSingleValue(''); }}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                      singleOpType === 'region' 
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' 
-                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 disabled:opacity-40'
-                    }`}
-                  >
-                    Igualar Região
-                  </button>
+              {/* Filtro de Categoria e Novos */}
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                  Filtros Especiais / Categoria
+                </label>
+                <select
+                  value={isNewFilter === 'NEW_ENTRIES' ? 'NEW_ENTRIES' : categoria}
+                  onChange={(e) => {
+                    if (e.target.value === 'NEW_ENTRIES') {
+                      setIsNewFilter('NEW_ENTRIES');
+                      setCategoria('ALL');
+                    } else {
+                      setIsNewFilter('ALL');
+                      setCategoria(e.target.value as any);
+                    }
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 focus:outline-none"
+                >
+                  <option value="ALL">Todas as Categorias</option>
+                  <option value="NEW_ENTRIES">📦 Notas / Entradas Recentes (Mural)</option>
+                  <option value="GENERICO">💊 Genéricos</option>
+                  <option value="SIMILAR">✨ Similares</option>
+                  <option value="PERFUMARIA">💄 Perfumaria / Cosméticos</option>
+                  <option value="MARCA">🛡️ Referência / Marca</option>
+                </select>
+              </div>
+
+            </div>
+
+          </div>
+
+          {/* TABELA DE PRODUTOS */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500">
+                Mostrando {products.length} de {pagination.totalItems.toLocaleString()} produtos encontrados
+              </span>
+              <span className="text-xs font-black text-slate-700 dark:text-slate-300">
+                Página {pagination.currentPage} de {pagination.totalPages}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/50 dark:bg-slate-800/30">
+                    <th className="py-3 px-4">Produto / EAN</th>
+                    <th className="py-3 px-3 text-center">Curva</th>
+                    <th className="py-3 px-3 text-right">Estoque</th>
+                    <th className="py-3 px-3 text-right">Custo (CMV)</th>
+                    <th className="py-3 px-3 text-right">Preço Venda</th>
+                    <th className="py-3 px-3 text-center">Margem</th>
+                    <th className="py-3 px-4 text-center">Mercado Proffer (Média)</th>
+                    <th className="py-3 px-4 text-right">Ação de Preço</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-500" />
+                        Carregando produtos do catálogo...
+                      </td>
+                    </tr>
+                  ) : products.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        Nenhum produto encontrado com os filtros selecionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    products.map(prod => {
+                      const cost = prod.cost_price || 0;
+                      const price = prod.price || 0;
+                      const profit = price - cost;
+                      const marginPct = price > 0 ? ((profit / price) * 100) : 0;
+                      const profferAvg = prod.region_price_medio || prod.region_price;
+                      const isBelowAvg = profferAvg && price < profferAvg;
+                      const isBelowCost = cost > 0 && price < cost;
+
+                      return (
+                        <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-slate-900 dark:text-white">{prod.name}</div>
+                            <div className="text-[10px] text-slate-400">Cód: {prod.id} {prod.ean ? `• EAN: ${prod.ean}` : ''}</div>
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${
+                              prod.curve === 'A' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                              prod.curve === 'B' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                              'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                            }`}>
+                              {prod.curve}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-medium text-slate-600 dark:text-slate-400">
+                            {prod.stock} un
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-medium text-slate-500">
+                            {formatMoney(cost)}
+                          </td>
+
+                          <td className="py-3 px-3 text-right">
+                            <div className="font-black text-slate-900 dark:text-white">{formatMoney(price)}</div>
+                            {prod.promo_price && prod.promo_price > 0 && prod.promo_price !== prod.normal_price && (
+                              <div className="text-[9px] text-amber-500 font-bold">Promo: {formatMoney(prod.promo_price)}</div>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                              isBelowCost ? 'bg-red-500 text-white' :
+                              marginPct < 20 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                              'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            }`}>
+                              {marginPct.toFixed(1)}%
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-4 text-center">
+                            {profferAvg ? (
+                              <div>
+                                <div className="font-black text-slate-800 dark:text-slate-200">
+                                  {formatMoney(profferAvg)}
+                                </div>
+                                <div className="text-[10px] flex items-center justify-center gap-1 font-bold">
+                                  {isBelowAvg ? (
+                                    <span className="text-amber-600 dark:text-amber-400">
+                                      -{( ((profferAvg - price) / profferAvg) * 100 ).toFixed(0)}% vs média
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">
+                                      +{( ((price - profferAvg) / profferAvg) * 100 ).toFixed(0)}% vs média
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => {
+                                setEditingProduct(prod);
+                                setSingleOpType('manual');
+                                setSingleValue(prod.price.toFixed(2));
+                                setEditActionType('direct');
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-xs font-black transition-all shadow-xs flex items-center gap-1.5 ml-auto cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Reajustar</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Paginação */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={page <= 1}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              </div>
+
+              <span className="text-xs font-black text-slate-700 dark:text-slate-300">
+                Página {pagination.currentPage} de {pagination.totalPages}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
+                  disabled={page >= pagination.totalPages}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setPage(pagination.totalPages)}
+                  disabled={page >= pagination.totalPages}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50"
+                >
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </>
+      )}
+
+      {/* MODAL DE REAJUSTE DE PREÇO (DIRETO vs ESCALONADO) */}
+      {editingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-lg p-6 space-y-5">
+            
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-blue-600" />
+                Reajustar Preço do Produto
+              </h3>
+              <button onClick={() => setEditingProduct(null)} className="text-slate-400 hover:text-slate-700">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Resumo do Produto */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+              <div className="text-xs font-bold text-slate-900 dark:text-white">
+                {editingProduct.name}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Cód: {editingProduct.id} {editingProduct.ean ? `• EAN: ${editingProduct.ean}` : ''}
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">Custo:</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{formatMoney(editingProduct.cost_price)}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">Preço Atual:</span>
+                  <span className="font-black text-slate-900 dark:text-white">{formatMoney(editingProduct.price)}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">Média Proffer:</span>
+                  <span className="font-black text-blue-600 dark:text-blue-400">
+                    {editingProduct.region_price_medio ? formatMoney(editingProduct.region_price_medio) : '—'}
+                  </span>
                 </div>
               </div>
+            </div>
 
-              {singleOpType !== 'region' && (
-                <div>
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 block">
-                    {singleOpType === 'manual' ? 'Novo Preço de Venda (R$)' : 'Percentual de Reajuste (%)'}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={singleOpType === 'manual' ? 'R$ 19,90' : '+5'}
-                    value={singleValue}
-                    onChange={(e) => setSingleValue(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-extrabold text-lg focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
-                    autoFocus
-                  />
+            {/* Tipo de Aplicação: Direto ou Escalonado */}
+            <div>
+              <label className="text-[11px] font-black uppercase text-slate-400 block mb-1.5">
+                Modalidade de Aplicação
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditActionType('direct')}
+                  className={`py-2.5 px-3 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    editActionType === 'direct'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Aplicação Direta (Imediata)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditActionType('scheduled')}
+                  className={`py-2.5 px-3 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    editActionType === 'scheduled'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>Reajuste Escalonado (Gradual)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Forma de Cálculo do Preço Alvo */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setSingleOpType('manual'); setSingleValue(editingProduct.price.toFixed(2)); }}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    singleOpType === 'manual'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Valor Fixo (R$)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSingleOpType('percentage'); setSingleValue('5'); }}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    singleOpType === 'percentage'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Porcentagem (%)
+                </button>
+                <button
+                  type="button"
+                  disabled={!editingProduct.region_price_medio}
+                  onClick={() => {
+                    setSingleOpType('region');
+                    setSingleValue((editingProduct.region_price_medio || editingProduct.price).toFixed(2));
+                  }}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 ${
+                    singleOpType === 'region'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Igualar Média Proffer
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 block mb-1">
+                  {singleOpType === 'manual' ? 'Preço Alvo Desejado (R$)' : singleOpType === 'percentage' ? 'Percentual de Reajuste (%)' : 'Preço da Média Proffer (R$)'}
+                </label>
+                <input
+                  type="text"
+                  value={singleValue}
+                  onChange={(e) => setSingleValue(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-black text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Configurações do Reajuste Escalonado */}
+              {editActionType === 'scheduled' && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300">
+                    <Clock className="w-4 h-4" /> Parâmetros de Subida Gradual
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block font-bold">Máximo % por etapa:</span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={scheduledMaxPct}
+                        onChange={(e) => setScheduledMaxPct(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-bold"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block font-bold">Intervalo entre etapas (dias):</span>
+                      <input
+                        type="number"
+                        value={scheduledIntervalDays}
+                        onChange={(e) => setScheduledIntervalDays(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-bold"
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Box de Prévia Calculada */}
-              <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-2xl p-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Novo Preço Calculado (com Arredondamento):</span>
-                  <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
-                    R$ {previewSingle.rounded.toFixed(2).replace('.', ',')}
+              {/* Prévia Calculada */}
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-emerald-800 dark:text-emerald-200">
+                    {editActionType === 'direct' ? 'Novo Preço Final (com Arredondamento):' : 'Preço Alvo Final:'}
+                  </span>
+                  <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                    {formatMoney(previewSingle.rounded)}
                   </span>
                 </div>
-
-                <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400 border-t border-emerald-100 dark:border-emerald-900/30 pt-2">
-                  <span>Lucro Bruto estimado: <strong className={previewSingle.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}>R$ {previewSingle.profit.toFixed(2).replace('.', ',')}</strong></span>
-                  <span>Margem de Lucro: <strong className={previewSingle.marginPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{previewSingle.marginPct.toFixed(1)}%</strong></span>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-emerald-500/20">
+                  <span>Lucro Bruto: <b>{formatMoney(previewSingle.profit)}</b></span>
+                  <span>Margem Bruta: <b>{previewSingle.marginPct.toFixed(1)}%</b></span>
                 </div>
-
-                {previewSingle.isBelowCost && (
-                  <div className="bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 p-2.5 rounded-xl flex items-center gap-2 text-rose-700 dark:text-rose-300 text-xs font-bold">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>Atenção: O novo preço está abaixo do preço de custo!</span>
-                  </div>
-                )}
               </div>
-
             </div>
 
-            <div className="flex items-center justify-end gap-3">
+            {/* Ações do Modal */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => setEditingProduct(null)}
-                disabled={savingSingleProduct}
-                className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 font-semibold text-sm transition duration-150 disabled:opacity-50"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
@@ -1293,17 +1357,17 @@ export const PriceManager: React.FC = () => {
               <button
                 onClick={handleSaveSingleProduct}
                 disabled={savingSingleProduct}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-sm transition duration-150 flex items-center gap-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 {savingSingleProduct ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Salvando no Digifarma...
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Salvando com Backup...</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4" />
-                    Salvar no Digifarma
+                    <span>{editActionType === 'direct' ? 'Aplicar Preço no Digifarma' : 'Programar Subida Escalonada'}</span>
                   </>
                 )}
               </button>
@@ -1311,9 +1375,6 @@ export const PriceManager: React.FC = () => {
 
           </div>
         </div>
-      )}
-
-        </>
       )}
 
     </div>

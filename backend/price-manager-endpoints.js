@@ -60,42 +60,78 @@ function getEffectivePrice(p) {
  * Constrói a cláusula WHERE em SQL SQLite com base nos filtros da requisição
  */
 function buildWhereClause(query) {
-  const search = query.search || '';
+  const search = (query.search || '').trim();
   const curva = query.curva || 'ALL';
-  const filterNapp = query.filterNapp || 'ALL';
-  const costFilter = query.costFilter || 'ALL';
+  const filterNapp = query.filterNapp || query.profferFilter || 'ALL';
+  const profferDiffPercent = parseFloat(query.profferDiffPercent || 0);
+  const marginFilter = query.marginFilter || query.costFilter || 'ALL';
   const minPrice = parseFloat(query.minPrice);
   const maxPrice = parseFloat(query.maxPrice);
   const categoria = query.categoria || 'ALL';
+  const stockFilter = query.stockFilter || 'IN_STOCK';
+  const isNewFilter = query.isNewFilter || 'ALL';
 
   let whereClauses = [];
   let params = [];
 
-  whereClauses.push('c.estoque_atual > 0');
+  // Filtro de Estoque
+  if (stockFilter === 'IN_STOCK') {
+    whereClauses.push('c.estoque_atual > 0');
+  } else if (stockFilter === 'OUT_OF_STOCK') {
+    whereClauses.push('(c.estoque_atual IS NULL OR c.estoque_atual <= 0)');
+  }
 
+  // Busca textual / código / barras
   if (search) {
     whereClauses.push('(c.descricao LIKE ? OR c.codigo_barras LIKE ? OR c.produto_id LIKE ?)');
     const searchLike = `%${search}%`;
     params.push(searchLike, searchLike, searchLike);
   }
 
+  // Curva ABC
   if (curva !== 'ALL') {
     whereClauses.push('c.curva = ?');
     params.push(curva);
   }
 
+  // Filtros Avançados Proffer / NAPP
   if (filterNapp === 'WITH_NAPP') {
     whereClauses.push('n.preco_proffer IS NOT NULL');
   } else if (filterNapp === 'WITHOUT_NAPP') {
     whereClauses.push('n.preco_proffer IS NULL');
+  } else if (filterNapp === 'BELOW_AVG') {
+    whereClauses.push('COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_medio, n.preco_proffer)');
+  } else if (filterNapp === 'BELOW_MIN') {
+    whereClauses.push('COALESCE(n.preco_proffer_baixo, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_baixo, n.preco_proffer)');
+  } else if (filterNapp === 'ABOVE_AVG') {
+    whereClauses.push('COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND c.preco_venda > COALESCE(n.preco_proffer_medio, n.preco_proffer)');
+  } else if (filterNapp === 'ABOVE_MAX') {
+    whereClauses.push('COALESCE(n.preco_proffer_alto, n.preco_proffer) IS NOT NULL AND c.preco_venda > COALESCE(n.preco_proffer_alto, n.preco_proffer)');
   } else if (filterNapp === 'DISCREPANT') {
     whereClauses.push('n.preco_proffer IS NOT NULL AND ABS(c.preco_venda - n.preco_proffer) / c.preco_venda > 0.01');
   }
 
-  if (costFilter === 'BELOW_COST') {
-    whereClauses.push('c.preco_custo > 0 AND c.preco_venda < c.preco_custo');
+  // Desvio percentual em relação à média Proffer
+  if (!isNaN(profferDiffPercent) && profferDiffPercent > 0) {
+    whereClauses.push('COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND (((COALESCE(n.preco_proffer_medio, n.preco_proffer) - c.preco_venda) / COALESCE(n.preco_proffer_medio, n.preco_proffer)) * 100) >= ?');
+    params.push(profferDiffPercent);
   }
 
+  // Filtros de Margem
+  if (marginFilter === 'BELOW_COST') {
+    whereClauses.push('c.preco_custo > 0 AND c.preco_venda < c.preco_custo');
+  } else if (marginFilter === 'LOW_MARGIN') {
+    whereClauses.push('c.preco_custo > 0 AND ((c.preco_venda - c.preco_custo) / c.preco_venda * 100) < 20');
+  } else if (marginFilter === 'HIGH_MARGIN') {
+    whereClauses.push('c.preco_custo > 0 AND ((c.preco_venda - c.preco_custo) / c.preco_venda * 100) > 50');
+  }
+
+  // Filtro de Novos Produtos / Entradas Recentes
+  if (isNewFilter === 'NEW_ENTRIES') {
+    whereClauses.push("c.produto_id IN (SELECT DISTINCT produto_id FROM mural_variacao_precos WHERE status = 'pendente')");
+  }
+
+  // Faixa de Preço
   if (!isNaN(minPrice) && minPrice >= 0) {
     whereClauses.push('c.preco_venda >= ?');
     params.push(minPrice);
@@ -106,6 +142,7 @@ function buildWhereClause(query) {
     params.push(maxPrice);
   }
 
+  // Categoria
   if (categoria === 'GENERICO') {
     whereClauses.push('(c.descricao LIKE ? OR c.descricao LIKE ? OR c.descricao LIKE ?)');
     params.push('%GENERICO%', '% GEN %', '%GEN %');
@@ -124,11 +161,156 @@ function buildWhereClause(query) {
   return { whereSQL, params };
 }
 
+/**
+ * Executa as etapas de reajuste gradual que venceram a data de execução
+ */
+async function processScheduledPriceSteps(db) {
+  try {
+    const nowIso = new Date().toISOString();
+    const dueSteps = db.prepare(`
+      SELECT * FROM price_scheduled_steps 
+      WHERE status = 'ativo' AND proxima_execucao <= ?
+    `).all(nowIso);
+
+    if (!dueSteps || dueSteps.length === 0) return;
+
+    console.log(`[PriceManager Engine] Processando ${dueSteps.length} etapas de reajuste escalonado agendadas...`);
+
+    const updateCacheStmt = db.prepare(`
+      UPDATE digifarma_products_cache 
+      SET preco_venda = ?,
+          preco_normal = ?,
+          atualizado_em = ?
+      WHERE produto_id = ?
+    `);
+
+    const insertSnapshotStmt = db.prepare(`
+      INSERT INTO price_change_snapshots (
+        id, produto_id, descricao, cod_barras, preco_anterior, novo_preco, preco_custo, tipo, motivo, usuario, data_alteracao
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'escalonado', ?, ?, datetime('now', 'localtime'))
+    `);
+
+    const updateScheduleStmt = db.prepare(`
+      UPDATE price_scheduled_steps 
+      SET preco_atual = ?,
+          etapa_atual = ?,
+          proxima_execucao = ?,
+          status = ?,
+          ultima_atualizacao = datetime('now', 'localtime')
+      WHERE id = ?
+    `);
+
+    for (const step of dueSteps) {
+      try {
+        const prodId = step.produto_id;
+        const currentPrice = Number(step.preco_atual);
+        const targetPrice = Number(step.preco_alvo);
+        const maxPct = Number(step.max_pct_por_etapa || 5);
+        const intervalDays = Number(step.intervalo_dias || 7);
+
+        // Calcula próximo preço
+        let nextPrice = currentPrice * (1 + maxPct / 100);
+        if (targetPrice > currentPrice && nextPrice >= targetPrice) {
+          nextPrice = targetPrice;
+        } else if (targetPrice < currentPrice && nextPrice <= targetPrice) {
+          nextPrice = targetPrice;
+        }
+        nextPrice = roundUpToAcceptedCents(nextPrice);
+
+        // Grava Snapshot de Backup
+        const snapId = `snap_${Date.now()}_${prodId}`;
+        insertSnapshotStmt.run(
+          snapId,
+          prodId,
+          step.descricao,
+          step.cod_barras,
+          currentPrice,
+          nextPrice,
+          0,
+          `Etapa ${step.etapa_atual} de ${step.total_etapas} (Reajuste Escalonado)`,
+          step.criado_por || 'Sistema Automático'
+        );
+
+        // Atualiza Digifarma Firebird
+        await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [nextPrice, prodId]);
+        await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [nextPrice, prodId]);
+
+        // Atualiza SQLite cache
+        updateCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId);
+
+        // Atualiza status do agendamento
+        const isComplete = nextPrice === targetPrice || step.etapa_atual >= step.total_etapas;
+        const nextExec = new Date(Date.now() + intervalDays * 24 * 60 * 60 * 1000).toISOString();
+
+        updateScheduleStmt.run(
+          nextPrice,
+          step.etapa_atual + 1,
+          nextExec,
+          isComplete ? 'concluido' : 'ativo',
+          step.id
+        );
+
+        console.log(`[PriceManager Engine] ✅ Produto ${prodId} (${step.descricao}) reajustado de R$ ${currentPrice} para R$ ${nextPrice} (Etapa ${step.etapa_atual}).`);
+      } catch (stepErr) {
+        console.error(`[PriceManager Engine] Erro ao executar etapa do produto ${step.produto_id}:`, stepErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('[PriceManager Engine] Erro ao processar etapas de reajuste:', err);
+  }
+}
+
 module.exports = function (db) {
   const router = express.Router();
 
   /**
-   * 1. GET /api/price-manager/products
+   * 1. GET /api/price-manager/search
+   * Busca rápida e otimizada por nome, código EAN e ID para autocomplete
+   */
+  router.get('/search', (req, res) => {
+    try {
+      const q = (req.query.q || '').trim();
+      const limit = parseInt(req.query.limit) || 12;
+
+      if (!q || q.length < 2) {
+        return res.json([]);
+      }
+
+      const searchLike = `%${q}%`;
+      const rows = db.prepare(`
+        SELECT 
+          c.produto_id as PRODUTO_ID,
+          c.descricao as PRODUTO,
+          c.codigo_barras as COD_BARRAS,
+          c.preco_venda as PROD_PRVENDA,
+          c.preco_promocao as PROD_PRPROMOCAO,
+          c.preco_custo as PROD_PRCOMPRA,
+          c.estoque_atual as ESTOQUE,
+          c.curva as CURVA,
+          COALESCE(n.preco_proffer_medio, n.preco_proffer) as PRECO_PROFFER_MEDIO,
+          COALESCE(n.preco_proffer_baixo, n.preco_proffer) as PRECO_PROFFER_BAIXO,
+          COALESCE(n.preco_proffer_alto, n.preco_proffer) as PRECO_PROFFER_ALTO
+        FROM digifarma_products_cache c
+        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
+        WHERE c.descricao LIKE ? OR c.codigo_barras LIKE ? OR c.produto_id LIKE ?
+        ORDER BY 
+          CASE WHEN c.produto_id = ? THEN 1
+               WHEN c.codigo_barras = ? THEN 2
+               WHEN c.descricao LIKE ? THEN 3
+               ELSE 4 END,
+          c.curva ASC, c.descricao ASC
+        LIMIT ?
+      `).all(searchLike, searchLike, searchLike, q, q, `${q}%`, limit);
+
+      res.json(rows);
+    } catch (err) {
+      console.error('[Price Manager API] Erro na busca rápida:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 2. GET /api/price-manager/products
    * Retorna lista paginada e filtrada de produtos unindo o cache SQLite e preços da Napp
    */
   router.get('/products', (req, res) => {
@@ -201,7 +383,7 @@ module.exports = function (db) {
   });
 
   /**
-   * 1b. GET /api/price-manager/stats
+   * 3. GET /api/price-manager/stats
    * Retorna estatísticas resumidas do catálogo
    */
   router.get('/stats', (req, res) => {
@@ -214,22 +396,28 @@ module.exports = function (db) {
           SUM(CASE WHEN c.curva = 'C' THEN 1 ELSE 0 END) as curveC,
           SUM(CASE WHEN c.preco_custo > 0 AND c.preco_venda < c.preco_custo THEN 1 ELSE 0 END) as belowCost,
           SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL THEN 1 ELSE 0 END) as withNapp,
+          SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_medio, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketAvg,
+          SUM(CASE WHEN COALESCE(n.preco_proffer_baixo, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_baixo, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketMin,
           SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND ABS(c.preco_venda - COALESCE(n.preco_proffer_medio, n.preco_proffer)) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
         FROM digifarma_products_cache c
         LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
       `).get();
 
+      const scheduledCountRow = db.prepare(`SELECT COUNT(1) as total FROM price_scheduled_steps WHERE status = 'ativo'`).get();
+      const snapshotsCountRow = db.prepare(`SELECT COUNT(1) as total FROM price_change_snapshots`).get();
+
       res.json({
-        success: true,
-        data: {
-          total: row ? row.total || 0 : 0,
-          curveA: row ? row.curveA || 0 : 0,
-          curveB: row ? row.curveB || 0 : 0,
-          curveC: row ? row.curveC || 0 : 0,
-          belowCost: row ? row.belowCost || 0 : 0,
-          withNapp: row ? row.withNapp || 0 : 0,
-          discrepant: row ? row.discrepant || 0 : 0
-        }
+        total: row.total || 0,
+        curveA: row.curveA || 0,
+        curveB: row.curveB || 0,
+        curveC: row.curveC || 0,
+        belowCost: row.belowCost || 0,
+        withNapp: row.withNapp || 0,
+        belowMarketAvg: row.belowMarketAvg || 0,
+        belowMarketMin: row.belowMarketMin || 0,
+        discrepant: row.discrepant || 0,
+        activeSchedules: scheduledCountRow ? scheduledCountRow.total : 0,
+        totalSnapshots: snapshotsCountRow ? snapshotsCountRow.total : 0
       });
     } catch (err) {
       console.error('[Price Manager API] Erro ao obter estatísticas:', err);
@@ -238,29 +426,336 @@ module.exports = function (db) {
   });
 
   /**
-   * 2. POST /api/price-manager/sync-cache
-   * Recalcula a curva ABC das vendas de 60 dias no Digifarma (Firebird) e atualiza o SQLite local
-   * Considera o Preço de Promoção ativo (PROD_PRPROMOCAO) se houver, caso contrário o Preço de Venda (PROD_PRVENDA)
+   * 4. POST /api/price-manager/apply-price
+   * Aplica preço direto para 1 produto com snapshot de backup e log de auditoria
+   */
+  router.post('/apply-price', async (req, res) => {
+    try {
+      const { produtoId, novoPreco, motivo, usuario, tipo } = req.body;
+
+      if (!produtoId || isNaN(novoPreco) || novoPreco <= 0) {
+        return res.status(400).json({ error: 'Produto ID e Novo Preço válido são obrigatórios.' });
+      }
+
+      const prodId = parseInt(produtoId);
+      const finalPrice = roundUpToAcceptedCents(parseFloat(novoPreco));
+
+      // Obter produto atual para snapshot de backup
+      const prodCache = db.prepare('SELECT * FROM digifarma_products_cache WHERE produto_id = ?').get(prodId);
+      const previousPrice = prodCache ? prodCache.preco_venda : 0;
+      const descricao = prodCache ? prodCache.descricao : `Produto ID ${prodId}`;
+      const codBarras = prodCache ? prodCache.codigo_barras : '';
+      const precoCusto = prodCache ? prodCache.preco_custo : 0;
+
+      // 1. Gravar Snapshot de Backup
+      const snapId = `snap_${Date.now()}_${prodId}`;
+      db.prepare(`
+        INSERT INTO price_change_snapshots (
+          id, produto_id, descricao, cod_barras, preco_anterior, novo_preco, preco_custo, tipo, motivo, usuario
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        snapId,
+        prodId,
+        descricao,
+        codBarras,
+        previousPrice,
+        finalPrice,
+        precoCusto,
+        tipo || 'direto',
+        motivo || 'Alteração manual no Gestão de Preços / Simulador',
+        usuario || 'Administrador'
+      );
+
+      // 2. Gravar Log de Auditoria em logs
+      const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      try {
+        db.prepare(`
+          INSERT INTO logs (id, timestamp, userName, userId, action, category, details)
+          VALUES (?, datetime('now', 'localtime'), ?, ?, 'PRICE_UPDATE', 'PRECOS', ?)
+        `).run(
+          logId,
+          usuario || 'Administrador',
+          'admin',
+          `Preço de "${descricao}" (Cód ${prodId}) alterado de R$ ${previousPrice.toFixed(2)} para R$ ${finalPrice.toFixed(2)}. Motivo: ${motivo || 'Reajuste'}`
+        );
+      } catch (logErr) {}
+
+      // 3. Atualizar no Digifarma Firebird
+      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [finalPrice, prodId]);
+      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [finalPrice, prodId]);
+
+      // 4. Atualizar no SQLite Cache Local
+      db.prepare(`
+        UPDATE digifarma_products_cache 
+        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ?
+      `).run(finalPrice, finalPrice, prodId);
+
+      res.json({
+        success: true,
+        message: `✅ Preço de "${descricao}" alterado para R$ ${finalPrice.toFixed(2)} com backup registrado!`,
+        snapshotId: snapId,
+        newPrice: finalPrice,
+        previousPrice
+      });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao aplicar preço:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 5. POST /api/price-manager/schedule-step
+   * Cria agendamento de reajuste escalonado (gradual)
+   */
+  router.post('/schedule-step', async (req, res) => {
+    try {
+      const { produtoId, precoAlvo, maxPctPorEtapa, intervaloDias, usuario, motivo } = req.body;
+
+      if (!produtoId || isNaN(precoAlvo) || precoAlvo <= 0) {
+        return res.status(400).json({ error: 'Produto ID e Preço Alvo válido são obrigatórios.' });
+      }
+
+      const prodId = parseInt(produtoId);
+      const targetPrice = roundUpToAcceptedCents(parseFloat(precoAlvo));
+      const maxPct = Math.max(1, parseFloat(maxPctPorEtapa) || 5.0);
+      const intervalDays = Math.max(1, parseInt(intervaloDias) || 7);
+
+      const prodCache = db.prepare('SELECT * FROM digifarma_products_cache WHERE produto_id = ?').get(prodId);
+      if (!prodCache) {
+        return res.status(404).json({ error: 'Produto não encontrado no cache.' });
+      }
+
+      const currentPrice = Number(prodCache.preco_venda);
+      if (currentPrice === targetPrice) {
+        return res.status(400).json({ error: 'O preço atual já é igual ao preço alvo.' });
+      }
+
+      // Calcula número total de etapas
+      let simPrice = currentPrice;
+      let totalSteps = 0;
+      while ((targetPrice > simPrice && simPrice < targetPrice) || (targetPrice < simPrice && simPrice > targetPrice)) {
+        totalSteps++;
+        let stepPrice = simPrice * (1 + maxPct / 100);
+        if (stepPrice >= targetPrice) break;
+        simPrice = stepPrice;
+        if (totalSteps > 20) break; // Segurança
+      }
+      totalSteps = Math.max(1, totalSteps);
+
+      // Aplica a primeira etapa imediatamente
+      let firstStepPrice = currentPrice * (1 + maxPct / 100);
+      if (firstStepPrice >= targetPrice) firstStepPrice = targetPrice;
+      firstStepPrice = roundUpToAcceptedCents(firstStepPrice);
+
+      const schedId = `sched_${Date.now()}_${prodId}`;
+      const nextExec = new Date(Date.now() + intervalDays * 24 * 60 * 60 * 1000).toISOString();
+      const isCompleted = firstStepPrice === targetPrice || totalSteps <= 1;
+
+      // 1. Grava Snapshot de Backup
+      const snapId = `snap_${Date.now()}_${prodId}`;
+      db.prepare(`
+        INSERT INTO price_change_snapshots (
+          id, produto_id, descricao, cod_barras, preco_anterior, novo_preco, preco_custo, tipo, motivo, usuario
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'escalonado', ?, ?)
+      `).run(
+        snapId,
+        prodId,
+        prodCache.descricao,
+        prodCache.codigo_barras,
+        currentPrice,
+        firstStepPrice,
+        prodCache.preco_custo,
+        `Reajuste Escalonado Etapa 1/${totalSteps}: ${motivo || 'Subida gradual'}`,
+        usuario || 'Administrador'
+      );
+
+      // 2. Atualiza Digifarma Firebird na 1ª etapa
+      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [firstStepPrice, prodId]);
+      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [firstStepPrice, prodId]);
+
+      // 3. Atualiza SQLite Cache
+      db.prepare(`
+        UPDATE digifarma_products_cache 
+        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ?
+      `).run(firstStepPrice, firstStepPrice, prodId);
+
+      // 4. Insere registro de agendamento escalonado
+      db.prepare(`
+        INSERT INTO price_scheduled_steps (
+          id, produto_id, descricao, cod_barras, preco_inicial, preco_alvo, preco_atual,
+          max_pct_por_etapa, intervalo_dias, etapa_atual, total_etapas, proxima_execucao,
+          status, criado_por, ultima_atualizacao
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, datetime('now', 'localtime'))
+      `).run(
+        schedId,
+        prodId,
+        prodCache.descricao,
+        prodCache.codigo_barras,
+        currentPrice,
+        targetPrice,
+        firstStepPrice,
+        maxPct,
+        intervalDays,
+        totalSteps,
+        nextExec,
+        isCompleted ? 'concluido' : 'ativo',
+        usuario || 'Administrador'
+      );
+
+      res.json({
+        success: true,
+        message: `✅ 1ª Etapa aplicada: R$ ${currentPrice.toFixed(2)} ➔ R$ ${firstStepPrice.toFixed(2)}. ${isCompleted ? 'Preço alvo atingido!' : `Próximo reajuste (+${maxPct}%) agendado para daqui a ${intervalDays} dias.`}`,
+        firstStepPrice,
+        totalSteps,
+        isCompleted
+      });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao agendar reajuste escalonado:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 6. GET /api/price-manager/scheduled-steps
+   * Lista todos os reajustes escalonados ativos e recentes
+   */
+  router.get('/scheduled-steps', (req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT * FROM price_scheduled_steps 
+        ORDER BY CASE WHEN status = 'ativo' THEN 1 ELSE 2 END, proxima_execucao ASC 
+        LIMIT 50
+      `).all();
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao listar agendamentos:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 7. POST /api/price-manager/scheduled-steps/cancel
+   * Cancela um agendamento escalonado
+   */
+  router.post('/scheduled-steps/cancel', (req, res) => {
+    try {
+      const { id } = req.body;
+      if (!id) return res.status(400).json({ error: 'ID do agendamento é obrigatório.' });
+
+      db.prepare(`UPDATE price_scheduled_steps SET status = 'cancelado' WHERE id = ?`).run(id);
+      res.json({ success: true, message: 'Agendamento cancelado com sucesso.' });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao cancelar agendamento:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 8. GET /api/price-manager/snapshots
+   * Lista o histórico de snapshots de backup de preços
+   */
+  router.get('/snapshots', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 50;
+      const rows = db.prepare(`
+        SELECT * FROM price_change_snapshots 
+        ORDER BY data_alteracao DESC 
+        LIMIT ?
+      `).all(limit);
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao listar snapshots:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 9. POST /api/price-manager/rollback
+   * Reverte o preço de um produto de volta para o snapshot gravado no Digifarma
+   */
+  router.post('/rollback', async (req, res) => {
+    try {
+      const { snapshotId, usuario } = req.body;
+      if (!snapshotId) return res.status(400).json({ error: 'ID do snapshot é obrigatório.' });
+
+      const snap = db.prepare('SELECT * FROM price_change_snapshots WHERE id = ?').get(snapshotId);
+      if (!snap) {
+        return res.status(404).json({ error: 'Snapshot de backup não encontrado.' });
+      }
+
+      if (snap.revertido) {
+        return res.status(400).json({ error: 'Este snapshot já foi revertido anteriormente.' });
+      }
+
+      const prodId = snap.produto_id;
+      const revertPrice = Number(snap.preco_anterior);
+
+      // 1. Reverte no Digifarma Firebird
+      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [revertPrice, prodId]);
+      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [revertPrice, prodId]);
+
+      // 2. Reverte no SQLite Cache
+      db.prepare(`
+        UPDATE digifarma_products_cache 
+        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ?
+      `).run(revertPrice, revertPrice, prodId);
+
+      // 3. Marca Snapshot como Revertido
+      db.prepare(`
+        UPDATE price_change_snapshots 
+        SET revertido = 1, revertido_em = datetime('now', 'localtime'), revertido_por = ?
+        WHERE id = ?
+      `).run(usuario || 'Administrador', snapshotId);
+
+      // 4. Log de Auditoria
+      const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      try {
+        db.prepare(`
+          INSERT INTO logs (id, timestamp, userName, userId, action, category, details)
+          VALUES (?, datetime('now', 'localtime'), ?, ?, 'PRICE_ROLLBACK', 'PRECOS', ?)
+        `).run(
+          logId,
+          usuario || 'Administrador',
+          'admin',
+          `REVERSÃO (ROLLBACK): Preço de "${snap.descricao}" (Cód ${prodId}) revertido para R$ ${revertPrice.toFixed(2)}.`
+        );
+      } catch (logErr) {}
+
+      res.json({
+        success: true,
+        message: `✅ Preço de "${snap.descricao}" revertido para R$ ${revertPrice.toFixed(2)} no Digifarma com sucesso!`,
+        revertedPrice: revertPrice
+      });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao reverter preço:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 10. POST /api/price-manager/sync-cache
+   * Recalcula Curva ABC e sincroniza cache Digifarma
    */
   router.post('/sync-cache', async (req, res) => {
     try {
-      console.log('[Price Manager API] Iniciando sincronização e recálculo da Curva ABC (Preço de Promoção/Venda)...');
+      console.log('[Price Manager API] Iniciando sincronização e recálculo da Curva ABC...');
       
-      // 1. Obter todos os produtos ativos do Digifarma incluindo preços de promoção, custos e dados fiscais
       const digifarmaProducts = await queryDigifarma(`
         SELECT 
-          COD_BARRAS, 
-          PRODUTO_ID, 
+          PRODUTO_ID,
+          PRODUTO,
+          APRESENTACAO,
+          COD_BARRAS,
           CATEGORIA_ID,
-          PRODUTO, 
-          PROD_SALDO, 
-          PROD_PRVENDA, 
+          ESTOQUE,
+          PROD_PRVENDA,
+          PROD_PRCOMPRA,
           PROD_PRPROMOCAO,
           INICIO_PROMOCAO,
           TERMINO_PROMOCAO,
-          PROD_PRCOMPRA,
-          VALOR_ULT_COMPRA,
-          PROD_CMV,
           TRIBUTACAO_MONOFASICA,
           CST_PIS,
           CST_COFINS,
@@ -268,141 +763,101 @@ module.exports = function (db) {
           IMPOSTO_ALIQ,
           NCM,
           CEST
-        FROM PRODUTOS 
+        FROM PRODUTOS
         WHERE PROD_ATIVO = 'S'
       `);
 
-      console.log(`[Price Manager API] Obtidos ${digifarmaProducts.length} produtos do Digifarma.`);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const dataInicioStr = formatarDataFirebird(thirtyDaysAgo);
 
-      // 2. Obter faturamento dos últimos 60 dias das vendas do Firebird
-      const data60DiasAtras = new Date();
-      data60DiasAtras.setDate(data60DiasAtras.getDate() - 60);
-      const data60dStr = formatarDataFirebird(data60DiasAtras);
-
-      const salesRevenue = await queryDigifarma(`
-        SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT * iv.ITEMVEND_PRVENDA) as TOTAL_REVENUE
+      const salesData = await queryDigifarma(`
+        SELECT 
+          iv.PRODUTO_ID,
+          SUM(iv.ITEM_VENDAS_QUANT) as TOTAL_QTD,
+          SUM(iv.ITEM_VENDAS_VALOR) as TOTAL_VALOR
         FROM ITEM_VENDAS iv
-        INNER JOIN CAB_VENDAS cv ON cv.VENDA_NOTA_ID = iv.VENDA_NOTA_ID
-        WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= ?
+        JOIN CAB_VENDAS cv ON iv.CAB_VENDAS_ID = cv.CAB_VENDAS_ID
+        WHERE cv.DATA_EMISSAO >= '${dataInicioStr}'
         GROUP BY iv.PRODUTO_ID
-      `, [data60dStr]);
+      `);
 
-      console.log(`[Price Manager API] Vendas registradas para ${salesRevenue.length} produtos nos últimos 60 dias.`);
+      const salesMap = new Map();
+      let totalRevenue = 0;
 
-      // Criar mapa de faturamento de produtos
-      const revenueMap = new Map();
-      let totalRevenueGeral = 0;
-      for (const r of salesRevenue) {
-        const prodId = String(r.PRODUTO_ID);
-        const revenue = parseFloat(r.TOTAL_REVENUE || 0);
-        revenueMap.set(prodId, revenue);
-        totalRevenueGeral += revenue;
+      for (const sale of salesData) {
+        const val = parseFloat(sale.TOTAL_VALOR || 0);
+        salesMap.set(sale.PRODUTO_ID, val);
+        totalRevenue += val;
       }
 
-      // Ordenar produtos vendidos por faturamento decrescente para calcular curva ABC
-      const soldProductsSorted = [...revenueMap.entries()]
-        .map(([id, rev]) => ({ id, revenue: rev }))
-        .sort((a, b) => b.revenue - a.revenue);
+      const productsWithSales = digifarmaProducts.map(p => {
+        const revenue = salesMap.get(p.PRODUTO_ID) || 0;
+        return { ...p, revenue };
+      });
 
-      // Mapear classificação da curva ABC para cada produto
-      const curveMap = new Map();
-      let cumulativeRevenue = 0;
-      for (const p of soldProductsSorted) {
-        cumulativeRevenue += p.revenue;
-        const percentage = totalRevenueGeral > 0 ? (cumulativeRevenue / totalRevenueGeral) * 100 : 0;
+      productsWithSales.sort((a, b) => b.revenue - a.revenue);
+
+      let accumulated = 0;
+      const productsWithCurve = productsWithSales.map(p => {
+        accumulated += p.revenue;
+        const accumulatedPercent = totalRevenue > 0 ? (accumulated / totalRevenue) * 100 : 100;
         
         let curve = 'C';
-        if (percentage <= 80) {
+        if (accumulatedPercent <= 80) {
           curve = 'A';
-        } else if (percentage <= 95) {
+        } else if (accumulatedPercent <= 95) {
           curve = 'B';
         }
-        curveMap.set(p.id, curve);
-      }
 
-      // 3. Atualizar no SQLite local (digifarma_products_cache)
-      const deleteStmt = db.prepare("DELETE FROM digifarma_products_cache");
-      const insertStmt = db.prepare(`
-        INSERT OR REPLACE INTO digifarma_products_cache 
-        (
-          codigo_barras, produto_id, categoria_id, descricao, estoque_atual, 
+        return { ...p, curve };
+      });
+
+      const insertOrReplaceStmt = db.prepare(`
+        INSERT OR REPLACE INTO digifarma_products_cache (
+          produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
           preco_venda, preco_custo, preco_promocao, preco_normal, curva, 
           tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
           atualizado_em
-        ) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      const timestamp = new Date().toISOString();
-
-      // Executa em uma transação SQLite para melhor performance
-      const runTransaction = db.transaction((prods) => {
-        deleteStmt.run();
+      const insertMany = db.transaction((prods) => {
         for (const p of prods) {
-          const barcode = (p.COD_BARRAS || '').trim() || String(p.PRODUTO_ID);
-          if (!barcode) continue;
-          
-          const prodId = String(p.PRODUTO_ID);
-          const curve = curveMap.get(prodId) || 'C';
-          
+          const effectivePrice = getEffectivePrice(p);
           const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
           const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
-          const effectivePrice = getEffectivePrice(p);
-          const refPrice = effectivePrice > 0 ? effectivePrice : normalPrice;
 
-          // CORREÇÃO DE CUSTO: Priorizar VALOR_ULT_COMPRA (Custo Líquido Real na NF com Descontos)
-          const prCompra = parseFloat(p.PROD_PRCOMPRA || 0);
-          const ultCompra = parseFloat(p.VALOR_ULT_COMPRA || 0);
-          const cmv = parseFloat(p.PROD_CMV || 0);
-
-          let unitCost = ultCompra > 0 ? ultCompra : (cmv > 0 ? cmv : prCompra);
-
-          // Se o custo ainda for maior que o preço de venda de balcão, trata-se de caixa master/display fracionado
-          if (refPrice > 0 && unitCost > refPrice * 1.2) {
-            const desc = (p.PRODUTO || '').toUpperCase();
-            const match = desc.match(/(?:C\/|COM|CX COM|\/)\s*(\d{1,4})\s*(?:UN|CPR|DRG|ENV|CAP|PC|FL|PCT|AMP)?/);
-            if (match && parseInt(match[1]) > 1) {
-              const qty = parseInt(match[1]);
-              unitCost = unitCost / qty;
-            } else if (cmv > 0 && cmv < refPrice) {
-              unitCost = cmv;
-            } else {
-              unitCost = Math.min(unitCost, refPrice * 0.65);
-            }
-          }
-          
-          insertStmt.run(
-            barcode,
-            prodId,
-            parseInt(p.CATEGORIA_ID) || 0,
-            (p.PRODUTO || '').trim(),
-            parseFloat(p.PROD_SALDO || 0),
+          insertOrReplaceStmt.run(
+            p.PRODUTO_ID,
+            (p.PRODUTO || '').trim() + (p.APRESENTACAO ? ` ${(p.APRESENTACAO).trim()}` : ''),
+            (p.COD_BARRAS || '').trim(),
+            p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID) : null,
+            parseFloat(p.ESTOQUE || 0),
             effectivePrice,
-            unitCost,
+            parseFloat(p.PROD_PRCOMPRA || 0),
             promoPrice,
             normalPrice,
-            curve,
-            (p.TRIBUTACAO_MONOFASICA || '').trim(),
-            (p.CST_PIS || '').trim(),
-            (p.CST_COFINS || '').trim(),
-            parseFloat(p.ALIQUOTA_ST || 0),
-            parseFloat(p.IMPOSTO_ALIQ || 0),
-            (p.NCM || '').trim(),
-            (p.CEST || '').trim(),
-            timestamp
+            p.curve,
+            p.TRIBUTACAO_MONOFASICA || null,
+            p.CST_PIS || null,
+            p.CST_COFINS || null,
+            p.ALIQUOTA_ST ? parseFloat(p.ALIQUOTA_ST) : null,
+            p.IMPOSTO_ALIQ ? parseFloat(p.IMPOSTO_ALIQ) : null,
+            p.NCM ? String(p.NCM).trim() : null,
+            p.CEST ? String(p.CEST).trim() : null,
+            new Date().toISOString()
           );
         }
       });
 
-      runTransaction(digifarmaProducts);
-      console.log(`[Price Manager API] Cache atualizado: ${digifarmaProducts.length} produtos gravados (considerando Preço de Promoção/Venda).`);
+      insertMany(productsWithCurve);
 
       res.json({
         success: true,
-        message: 'Cache atualizado e Curva ABC recalculada com sucesso (Preço de Promoção considerado quando ativo)!',
+        message: 'Cache atualizado e Curva ABC recalculada com sucesso!',
         count: digifarmaProducts.length
       });
-
     } catch (err) {
       console.error('[Price Manager API] Erro ao sincronizar cache local:', err);
       res.status(500).json({ error: err.message });
@@ -410,208 +865,18 @@ module.exports = function (db) {
   });
 
   /**
-   * 3. POST /api/price-manager/update-prices
-   * Executa atualização de preços de produtos específicos no Firebird (Digifarma) e no cache SQLite local
-   */
-  router.post('/update-prices', async (req, res) => {
-    try {
-      const { updates } = req.body;
-      
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return res.status(400).json({ error: 'Nenhum reajuste de preço foi enviado.' });
-      }
-
-      console.log(`[Price Manager API] Recebido pedido de reajuste individual/específico para ${updates.length} produtos.`);
-
-      const successUpdates = [];
-      const failedUpdates = [];
-
-      const updateCacheStmt = db.prepare(`
-        UPDATE digifarma_products_cache 
-        SET preco_venda = ?,
-            preco_normal = ?,
-            preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END,
-            atualizado_em = ?
-        WHERE produto_id = ?
-      `);
-
-      for (const item of updates) {
-        const prodId = String(item.id);
-        const rawPrice = parseFloat(item.price);
-
-        if (isNaN(rawPrice) || rawPrice <= 0) {
-          failedUpdates.push({ id: prodId, error: 'Preço inválido.' });
-          continue;
-        }
-
-        // Aplica regra de arredondamento (finais 0, 5, 9)
-        const finalPrice = roundUpToAcceptedCents(rawPrice);
-
-        try {
-          // Atualiza Digifarma (Firebird) - Preço de Venda
-
-          await queryDigifarma(
-            'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
-            [finalPrice, prodId]
-          );
-
-          // Atualiza Preço de Promoção se o produto possuir promoção ativa
-          await queryDigifarma(
-            'UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', 
-            [finalPrice, prodId]
-          );
-
-          // Atualiza cache SQLite local
-          updateCacheStmt.run(finalPrice, finalPrice, finalPrice, new Date().toISOString(), prodId);
-
-          successUpdates.push({ id: prodId, price: finalPrice });
-        } catch (dbErr) {
-
-          console.error(`[Price Manager API] Erro ao atualizar produto ${prodId} no Digifarma:`, dbErr.message);
-          failedUpdates.push({ id: prodId, error: dbErr.message });
-        }
-      }
-
-      res.json({
-        success: true,
-        message: `Reajuste concluído. Sucesso: ${successUpdates.length} | Falha: ${failedUpdates.length}`,
-        successCount: successUpdates.length,
-        failedCount: failedUpdates.length,
-        failures: failedUpdates
-      });
-    } catch (err) {
-      console.error('[Price Manager API] Erro ao atualizar preços:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  /**
-   * 3b. POST /api/price-manager/update-prices-by-filter
-   * Aplica reajustes de preço a TODOS os produtos que correspondem aos filtros atuais
-   */
-  router.post('/update-prices-by-filter', async (req, res) => {
-    try {
-      const { filter, operationType, value } = req.body;
-      if (!filter || !operationType) {
-        return res.status(400).json({ error: 'Filtro e tipo de operação são obrigatórios.' });
-      }
-
-      const { whereSQL, params } = buildWhereClause(filter);
-
-      // Buscar todos os produtos afetados no SQLite local
-      const selectQuery = `
-        SELECT 
-          c.produto_id as id,
-          c.preco_venda as price,
-          n.preco_proffer as region_price
-        FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
-        ${whereSQL}
-      `;
-
-      const targetProducts = db.prepare(selectQuery).all(...params);
-
-      if (targetProducts.length === 0) {
-        return res.status(400).json({ error: 'Nenhum produto corresponde aos filtros informados.' });
-      }
-
-      console.log(`[Price Manager API] Reajustando por filtro ${targetProducts.length} produtos (Operação: ${operationType}, Valor: ${value})...`);
-
-      const updates = [];
-      const valNumber = parseFloat(value);
-
-      for (const prod of targetProducts) {
-        let newPrice = prod.price;
-
-        if (operationType === 'percentage') {
-          if (!isNaN(valNumber)) {
-            newPrice = prod.price * (1 + valNumber / 100);
-          }
-        } else if (operationType === 'fixed') {
-          if (!isNaN(valNumber) && valNumber > 0) {
-            newPrice = valNumber;
-          }
-        } else if (operationType === 'region') {
-          if (prod.region_price && prod.region_price > 0) {
-            newPrice = prod.region_price;
-          }
-        }
-
-        // Aplica regra de arredondamento para centavos terminados em 0, 5, 9
-        newPrice = roundUpToAcceptedCents(newPrice);
-
-        if (newPrice > 0) {
-          updates.push({ id: String(prod.id), price: newPrice });
-        }
-      }
-
-      if (updates.length === 0) {
-        return res.status(400).json({ error: 'Nenhum reajuste válido pôde ser calculado para os produtos filtrados.' });
-      }
-
-      const successUpdates = [];
-      const failedUpdates = [];
-
-      const updateCacheStmt = db.prepare(`
-        UPDATE digifarma_products_cache 
-        SET preco_venda = ?,
-            preco_normal = ?,
-            preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END,
-            atualizado_em = ?
-        WHERE produto_id = ?
-      `);
-
-      for (const item of updates) {
-        try {
-          await queryDigifarma(
-            'UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', 
-            [item.price, item.id]
-          );
-
-          await queryDigifarma(
-            'UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', 
-            [item.price, item.id]
-          );
-
-
-          updateCacheStmt.run(item.price, item.price, item.price, new Date().toISOString(), item.id);
-          successUpdates.push(item);
-        } catch (dbErr) {
-          console.error(`[Price Manager API] Erro ao atualizar produto ${item.id} no Digifarma:`, dbErr.message);
-          failedUpdates.push({ id: item.id, error: dbErr.message });
-        }
-      }
-
-      res.json({
-        success: true,
-        message: `Reajuste em lote por filtro concluído! Sucesso: ${successUpdates.length} | Falhas: ${failedUpdates.length}`,
-        totalAffected: targetProducts.length,
-        successCount: successUpdates.length,
-        failedCount: failedUpdates.length,
-        failures: failedUpdates
-      });
-
-    } catch (err) {
-      console.error('[Price Manager API] Erro ao atualizar preços por filtro:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  /**
-   * 4. POST /api/price-manager/trigger-napp-scrape
-   * Dispara a raspagem da Napp Solutions em background
+   * 11. POST /api/price-manager/trigger-napp-scrape
    */
   router.post('/trigger-napp-scrape', (req, res) => {
     try {
       const { eans } = req.body;
-      
       const status = getScrapeStatus();
       if (status.running) {
         return res.status(400).json({ error: 'Um processo de raspagem já está em execução.' });
       }
 
       runNappScraper(eans).catch(err => {
-        console.error('[Price Manager API] Erro assíncrono na raspagem da Napp:', err);
+        console.error('[Price Manager API] Erro assíncrono na raspagem Napp:', err);
       });
 
       res.json({
@@ -624,8 +889,7 @@ module.exports = function (db) {
   });
 
   /**
-   * 5. GET /api/price-manager/scrape-status
-   * Retorna o status atual da raspagem
+   * 12. GET /api/price-manager/scrape-status
    */
   router.get('/scrape-status', (req, res) => {
     try {
@@ -636,46 +900,45 @@ module.exports = function (db) {
   });
 
   /**
-   * 6. GET /api/price-manager/categories
-   * Retorna lista de categorias do Firebird
+   * 13. GET /api/price-manager/categories
    */
   router.get('/categories', async (req, res) => {
     try {
-        const categories = await queryDigifarma('SELECT CATEGORIA_ID, CATEGORIA FROM CATEGORIA ORDER BY CATEGORIA');
-        res.json({
-            success: true,
-            data: categories.map(c => ({ id: c.CATEGORIA_ID, name: (c.CATEGORIA || '').trim() }))
-        });
+      const categories = await queryDigifarma('SELECT CATEGORIA_ID, CATEGORIA FROM CATEGORIA ORDER BY CATEGORIA');
+      res.json({
+        success: true,
+        data: categories.map(c => ({ id: c.CATEGORIA_ID, name: (c.CATEGORIA || '').trim() }))
+      });
     } catch (err) {
-        console.error('[Price Manager API] Erro ao buscar categorias:', err);
-        res.status(500).json({ error: err.message });
+      console.error('[Price Manager API] Erro ao buscar categorias:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
   /**
-   * 7. POST /api/price-manager/update-category
-   * Atualiza a categoria de um produto no Firebird e no cache
+   * 14. POST /api/price-manager/update-category
    */
   router.post('/update-category', async (req, res) => {
     try {
-        const { productId, categoryId } = req.body;
-        if (!productId || categoryId === undefined) {
-            return res.status(400).json({ error: 'productId e categoryId são obrigatórios.' });
-        }
-        await queryDigifarma(
-            'UPDATE PRODUTOS SET CATEGORIA_ID = ? WHERE PRODUTO_ID = ?',
-            [parseInt(categoryId), parseInt(productId)]
-        );
-        // Atualiza cache SQLite local
-        db.prepare('UPDATE digifarma_products_cache SET categoria_id = ? WHERE produto_id = ?')
-            .run(parseInt(categoryId), String(productId));
-        
-        res.json({ success: true, message: 'Categoria atualizada com sucesso!' });
+      const { productId, categoryId } = req.body;
+      if (!productId || categoryId === undefined) {
+        return res.status(400).json({ error: 'productId e categoryId são obrigatórios.' });
+      }
+      await queryDigifarma(
+        'UPDATE PRODUTOS SET CATEGORIA_ID = ? WHERE PRODUTO_ID = ?',
+        [parseInt(categoryId), parseInt(productId)]
+      );
+      db.prepare('UPDATE digifarma_products_cache SET categoria_id = ? WHERE produto_id = ?')
+        .run(parseInt(categoryId), String(productId));
+      
+      res.json({ success: true, message: 'Categoria atualizada com sucesso!' });
     } catch (err) {
-        console.error('[Price Manager API] Erro ao atualizar categoria:', err);
-        res.status(500).json({ error: err.message });
+      console.error('[Price Manager API] Erro ao atualizar categoria:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
   return router;
 };
+
+module.exports.processScheduledPriceSteps = processScheduledPriceSteps;

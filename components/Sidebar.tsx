@@ -205,14 +205,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
     { id: 'system-watcher', label: 'Vigilante', icon: Activity },
     { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp },
-    { id: 'pricing-simulator', label: 'Simulador de Preço', icon: Calculator },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'pricing-simulator', 'card-machines']; 
+    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

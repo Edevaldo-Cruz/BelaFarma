@@ -1172,10 +1172,7 @@ const App: React.FC = () => {
                 <CardMachinesManager user={user} />
               )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
-                <PriceManager />
-              )}
-              {currentView === 'pricing-simulator' && (
-                <PricingSimulator user={user} />
+                <PriceManager user={user} />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>

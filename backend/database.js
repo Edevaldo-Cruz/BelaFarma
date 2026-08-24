@@ -515,10 +515,57 @@ try {
     db.exec(createAnvisaAlertsTable);
     db.exec(createMuralVariacaoPrecosTable);
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_mural_var_status ON mural_variacao_precos(status);'); } catch(e) {}
-    try { db.exec('CREATE INDEX IF NOT EXISTS idx_mural_var_data ON mural_variacao_precos(data_entrada);'); } catch(e) {}
     try { db.exec('ALTER TABLE mural_variacao_precos ADD COLUMN preco_promocional REAL DEFAULT 0'); } catch(e) {}
     try { db.exec('ALTER TABLE mural_variacao_precos ADD COLUMN preco_venda_normal REAL DEFAULT 0'); } catch(e) {}
     try { db.exec('ALTER TABLE mural_variacao_precos ADD COLUMN is_promocao INTEGER DEFAULT 0'); } catch(e) {}
+
+    // Price Manager: Snapshots de Backup e Reajustes Escalonados
+    const createPriceSnapshotsTable = `
+      CREATE TABLE IF NOT EXISTS price_change_snapshots (
+        id TEXT PRIMARY KEY,
+        produto_id INTEGER NOT NULL,
+        descricao TEXT NOT NULL,
+        cod_barras TEXT,
+        preco_anterior REAL NOT NULL,
+        novo_preco REAL NOT NULL,
+        preco_custo REAL DEFAULT 0,
+        tipo TEXT DEFAULT 'direto',
+        motivo TEXT,
+        usuario TEXT,
+        data_alteracao TEXT DEFAULT (datetime('now', 'localtime')),
+        revertido INTEGER DEFAULT 0,
+        revertido_em TEXT,
+        revertido_por TEXT
+      );
+    `;
+    db.exec(createPriceSnapshotsTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_snap_prod ON price_change_snapshots(produto_id);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_snap_data ON price_change_snapshots(data_alteracao);'); } catch(e) {}
+
+    const createPriceScheduledStepsTable = `
+      CREATE TABLE IF NOT EXISTS price_scheduled_steps (
+        id TEXT PRIMARY KEY,
+        produto_id INTEGER NOT NULL,
+        descricao TEXT NOT NULL,
+        cod_barras TEXT,
+        preco_inicial REAL NOT NULL,
+        preco_alvo REAL NOT NULL,
+        preco_atual REAL NOT NULL,
+        max_pct_por_etapa REAL DEFAULT 5.0,
+        intervalo_dias INTEGER DEFAULT 7,
+        etapa_atual INTEGER DEFAULT 1,
+        total_etapas INTEGER DEFAULT 1,
+        proxima_execucao TEXT NOT NULL,
+        status TEXT DEFAULT 'ativo',
+        criado_por TEXT,
+        criado_em TEXT DEFAULT (datetime('now', 'localtime')),
+        ultima_atualizacao TEXT
+      );
+    `;
+    db.exec(createPriceScheduledStepsTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_status ON price_scheduled_steps(status);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_exec ON price_scheduled_steps(proxima_execucao);'); } catch(e) {}
+
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN match_score INTEGER DEFAULT 0'); } catch(e) {}

@@ -128,30 +128,30 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(`/api/search-medications?q=${encodeURIComponent(searchTerm)}&limit=8`);
+        const res = await fetch(`/api/price-manager/search?q=${encodeURIComponent(searchTerm)}&limit=15`);
         if (res.ok) {
           const data = await res.json();
           // Mapeia os dados do endpoint de busca
           const items: DigifarmaSearchProduct[] = (data || []).map((p: any) => ({
-            PRODUTO_ID: p.PRODUTO_ID || p.id,
-            PRODUTO: p.PRODUTO || p.name || p.descricao,
-            APRESENTACAO: p.APRESENTACAO || p.presentation || '',
-            COD_BARRAS: p.COD_BARRAS || p.barcode || '',
-            PROD_PRVENDA: Number(p.PROD_PRVENDA || p.price || 0),
-            PROD_PRPROMOCAO: Number(p.PROD_PRPROMOCAO || p.promo_price || 0),
-            PROD_PRCOMPRA: Number(p.PROD_PRCOMPRA || p.cost_price || p.custo || 0),
-            ESTOQUE: Number(p.ESTOQUE || p.stock || 0),
-            CATEGORIA: p.CATEGORIA || p.category || ''
+            PRODUTO_ID: p.PRODUTO_ID,
+            PRODUTO: p.PRODUTO,
+            APRESENTACAO: '',
+            COD_BARRAS: p.COD_BARRAS || '',
+            PROD_PRVENDA: Number(p.PROD_PRVENDA || 0),
+            PROD_PRPROMOCAO: Number(p.PROD_PRPROMOCAO || 0),
+            PROD_PRCOMPRA: Number(p.PROD_PRCOMPRA || 0),
+            ESTOQUE: Number(p.ESTOQUE || 0),
+            CATEGORIA: p.CURVA ? `Curva ${p.CURVA}` : ''
           }));
           setSearchResults(items);
           setShowDropdown(true);
         }
       } catch (err) {
-        console.error('Erro ao buscar produtos:', err);
+        console.error('Erro ao buscar produtos no simulador:', err);
       } finally {
         setIsSearching(false);
       }
-    }, 300);
+    }, 250);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -175,7 +175,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   // Selecionar Produto da Busca
   const handleSelectProduct = (prod: DigifarmaSearchProduct) => {
     setSelectedProduct(prod);
-    setProductName(prod.PRODUTO + (prod.APRESENTACAO ? ` - ${prod.APRESENTACAO}` : ''));
+    setProductName(prod.PRODUTO);
     setSearchTerm('');
     setShowDropdown(false);
 
@@ -187,7 +187,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     setInputs(prev => ({ ...prev, cmv: roundMoney(custo) }));
     setCurrentStorePrice(precoVendaReal > 0 ? precoVendaReal.toFixed(2) : '');
 
-    addToast(`Produto "${prod.PRODUTO}" carregado com custo de R$ ${custo.toFixed(2)}!`, 'success');
+    addToast(`Produto "${prod.PRODUTO}" carregado! Custo: R$ ${custo.toFixed(2)} | Venda: R$ ${precoVendaReal.toFixed(2)}`, 'success');
   };
 
   // Limpar Produto Selecionado (Modo Livre)
@@ -252,18 +252,20 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     if (!selectedProduct) return;
     setIsApplyingPrice(true);
     try {
-      const res = await fetch('/api/mural/price-variations/resolve', {
+      const res = await fetch('/api/price-manager/apply-price', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           produtoId: selectedProduct.PRODUTO_ID,
           novoPreco: pricingResult.precoSugerido,
-          resolvidoPor: user?.name || 'Administrador (Simulador)'
+          motivo: `Simulador de Precificação (Markup Divisor ${pricingResult.markupDivisor})`,
+          usuario: user?.name || 'Administrador',
+          tipo: 'simulador'
         })
       });
       const data = await res.json();
       if (data.success) {
-        addToast(`✅ Preço de R$ ${pricingResult.precoSugerido.toFixed(2)} aplicado no Digifarma para ${selectedProduct.PRODUTO}!`, 'success');
+        addToast(`✅ Preço de R$ ${pricingResult.precoSugerido.toFixed(2)} aplicado no Digifarma com backup gravado!`, 'success');
         setCurrentStorePrice(pricingResult.precoSugerido.toFixed(2));
         setIsApplyModalOpen(false);
       } else {
