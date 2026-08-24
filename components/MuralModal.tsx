@@ -95,7 +95,7 @@ export const MuralModal: React.FC<MuralModalProps> = ({
   onRefreshPending
 }) => {
   const { addToast } = useToast();
-  const isAdmin = user.role === UserRole.ADM;
+  const isAdmin = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
 
   const [activeTab, setActiveTab] = useState<'produtos' | 'tarefas' | 'boletos' | 'alertas' | 'variacao_precos'>('produtos');
   const [produtos, setProdutos] = useState<MuralProdutoParado[]>([]);

@@ -325,7 +325,10 @@ const App: React.FC = () => {
           if (!res.ok) return;
           const data = await res.json();
           if (data.success) {
-            const count = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
+            const isAdm = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
+            const parados = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
+            const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
+            const count = parados + variacoes;
             setMuralPendingCount(count);
             
             const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
@@ -1213,7 +1216,10 @@ const App: React.FC = () => {
               if (res.ok) {
                 const data = await res.json();
                 if (data.success) {
-                  setMuralPendingCount(data.totalMinhasPendencias || 0);
+                  const isAdm = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
+                  const parados = data.totalMinhasPendencias || 0;
+                  const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
+                  setMuralPendingCount(parados + variacoes);
                 }
               }
             } catch (e) {}
