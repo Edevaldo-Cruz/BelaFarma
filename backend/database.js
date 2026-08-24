@@ -516,6 +516,9 @@ try {
     db.exec(createMuralVariacaoPrecosTable);
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_mural_var_status ON mural_variacao_precos(status);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_mural_var_data ON mural_variacao_precos(data_entrada);'); } catch(e) {}
+    try { db.exec('ALTER TABLE mural_variacao_precos ADD COLUMN preco_promocional REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE mural_variacao_precos ADD COLUMN preco_venda_normal REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE mural_variacao_precos ADD COLUMN is_promocao INTEGER DEFAULT 0'); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN match_score INTEGER DEFAULT 0'); } catch(e) {}

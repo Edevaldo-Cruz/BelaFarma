@@ -39,6 +39,9 @@ export interface ItemEntrada {
   variacaoPercentual: number;
   variacaoTipo: 'aumento' | 'reducao' | 'estavel' | 'primeira_compra';
   precoVendaAtual: number;
+  precoPromocional?: number;
+  precoVendaNormal?: number;
+  isPromocao?: boolean;
   precoVendaSugerido: number;
   margemAtual: number;
   margemNovaSeManter: number;
@@ -563,8 +566,15 @@ export const EntradasRelatorioModal: React.FC<EntradasRelatorioModalProps> = ({
                                 </td>
 
                                 {/* Preço Venda Atual */}
-                                <td className="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300">
-                                  {formatMoney(item.precoVendaAtual)}
+                                <td className="py-3 px-4 text-right">
+                                  <div className="font-bold text-slate-700 dark:text-slate-300">
+                                    {formatMoney(item.precoVendaAtual)}
+                                  </div>
+                                  {item.isPromocao && (
+                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                                      Promo
+                                    </span>
+                                  )}
                                 </td>
 
                                 {/* Preço Venda Sugerido */}

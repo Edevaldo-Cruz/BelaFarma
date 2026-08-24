@@ -126,6 +126,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
           p.APRESENTACAO,
           p.COD_BARRAS,
           p.PROD_PRVENDA,
+          p.PROD_PRPROMOCAO,
           i.ITEM_NOTAS_QUANT,
           i.ITEM_NOTAS_PRCOMPRA
         FROM ITEM_NOTAS i
@@ -140,7 +141,11 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
 
       for (const item of (itens || [])) {
         const custoAtual = round2(item.ITEM_NOTAS_PRCOMPRA);
-        const precoVendaAtual = round2(item.PROD_PRVENDA);
+        const precoPromo = Number(item.PROD_PRPROMOCAO) || 0;
+        const precoNormal = Number(item.PROD_PRVENDA) || 0;
+        // Prioriza o Preço Promocional se for > 0, senão usa o Preço Normal
+        const precoVendaAtual = round2(precoPromo > 0 ? precoPromo : precoNormal);
+        const isPromocao = precoPromo > 0;
         const produtoNome = (item.PRODUTO || '').trim();
         const produtoNomeUpper = produtoNome.toUpperCase();
 
@@ -214,7 +219,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
         }
 
         itensDetalhados.push({
-          itemId: item.ITEM_NOTAS_ID,
+          itemId: item.ITEM_NOTA_ID,
           produtoId: item.PRODUTO_ID,
           descricao: produtoNome,
           apresentacao: (item.APRESENTACAO || '').trim(),
@@ -226,6 +231,9 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
           variacaoPercentual,
           variacaoTipo,
           precoVendaAtual,
+          precoPromocional: round2(precoPromo),
+          precoVendaNormal: round2(precoNormal),
+          isPromocao,
           precoVendaSugerido,
           margemAtual,
           margemNovaSeManter,
@@ -281,8 +289,9 @@ async function sincronizarVariacaoPrecosMural(dias = 7) {
       INSERT INTO mural_variacao_precos (
         id, produto_id, descricao, cod_barras, apresentacao, custo_anterior, custo_novo,
         variacao_percentual, preco_venda_atual, preco_venda_sugerido, margem_atual,
-        margem_nova_se_manter, fornecedor, nota_fiscal, data_entrada, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente')
+        margem_nova_se_manter, fornecedor, nota_fiscal, data_entrada, status,
+        preco_promocional, preco_venda_normal, is_promocao
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?)
     `);
 
     const checkStmt = db.prepare(`
@@ -313,7 +322,10 @@ async function sincronizarVariacaoPrecosMural(dias = 7) {
                 item.margemNovaSeManter,
                 nota.fornecedor,
                 nota.notaFiscal,
-                nota.dataEmissao ? new Date(nota.dataEmissao).toISOString() : new Date().toISOString()
+                nota.dataEmissao ? new Date(nota.dataEmissao).toISOString() : new Date().toISOString(),
+                item.precoPromocional || 0,
+                item.precoVendaNormal || item.precoVendaAtual,
+                item.isPromocao ? 1 : 0
               );
               insertCount++;
             }

@@ -64,6 +64,9 @@ export interface MuralVariacaoPreco {
   nota_fiscal: string;
   data_entrada: string;
   status: 'pendente' | 'resolvido' | 'ignorado';
+  preco_promocional?: number;
+  preco_venda_normal?: number;
+  is_promocao?: number;
   novo_preco_aplicado?: number;
   acao_tomada?: string;
   resolvido_por?: string;
@@ -361,19 +364,21 @@ export const MuralModal: React.FC<MuralModalProps> = ({
         </div>
 
         {/* Abas */}
-        <div className="px-6 pt-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex gap-2 overflow-x-auto">
+        <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 flex gap-2.5 overflow-x-auto no-scrollbar items-center">
           <button
             onClick={() => setActiveTab('produtos')}
-            className={`px-4 py-3 text-xs font-bold rounded-t-2xl border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all flex items-center gap-2 whitespace-nowrap shadow-xs cursor-pointer ${
               activeTab === 'produtos'
-                ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-900 shadow-sm'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                ? 'bg-orange-500 text-white shadow-md shadow-orange-500/25 ring-2 ring-orange-400/30'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
             }`}
           >
             <Package className="w-4 h-4" />
-            Produtos Parados (+90d)
+            <span className="font-extrabold tracking-tight">Produtos Parados (+90d)</span>
             {produtos.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                activeTab === 'produtos' ? 'bg-white/25 text-white' : 'bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300'
+              }`}>
                 {produtos.length}
               </span>
             )}
@@ -382,16 +387,18 @@ export const MuralModal: React.FC<MuralModalProps> = ({
           {isAdmin && (
             <button
               onClick={() => setActiveTab('variacao_precos')}
-              className={`px-4 py-3 text-xs font-bold rounded-t-2xl border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+              className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all flex items-center gap-2 whitespace-nowrap shadow-xs cursor-pointer ${
                 activeTab === 'variacao_precos'
-                  ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-900 shadow-sm'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-600/25 ring-2 ring-rose-400/30'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
               }`}
             >
               <TrendingUp className="w-4 h-4" />
-              Variações de Custo (ADM)
+              <span className="font-extrabold tracking-tight">Variações de Custo (ADM)</span>
               {variacoes.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'variacao_precos' ? 'bg-white/25 text-white' : 'bg-rose-500 text-white animate-pulse'
+                }`}>
                   {variacoes.length}
                 </span>
               )}
@@ -400,16 +407,18 @@ export const MuralModal: React.FC<MuralModalProps> = ({
 
           <button
             onClick={() => setActiveTab('tarefas')}
-            className={`px-4 py-3 text-xs font-bold rounded-t-2xl border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all flex items-center gap-2 whitespace-nowrap shadow-xs cursor-pointer ${
               activeTab === 'tarefas'
-                ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-900 shadow-sm'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 ring-2 ring-blue-400/30'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
             }`}
           >
             <Clock className="w-4 h-4" />
-            Tarefas Pendentes
+            <span className="font-extrabold tracking-tight">Tarefas Pendentes</span>
             {userPendingTasks.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                activeTab === 'tarefas' ? 'bg-white/25 text-white' : 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+              }`}>
                 {userPendingTasks.length}
               </span>
             )}
@@ -418,16 +427,18 @@ export const MuralModal: React.FC<MuralModalProps> = ({
           {isAdmin && (
             <button
               onClick={() => setActiveTab('boletos')}
-              className={`px-4 py-3 text-xs font-bold rounded-t-2xl border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+              className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all flex items-center gap-2 whitespace-nowrap shadow-xs cursor-pointer ${
                 activeTab === 'boletos'
-                  ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-900 shadow-sm'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  ? 'bg-red-600 text-white shadow-md shadow-red-600/25 ring-2 ring-red-400/30'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
               }`}
             >
               <DollarSign className="w-4 h-4" />
-              Boletos Vencidos
+              <span className="font-extrabold tracking-tight">Boletos Vencidos</span>
               {overdueBoletos.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300">
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'boletos' ? 'bg-white/25 text-white' : 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300'
+                }`}>
                   {overdueBoletos.length}
                 </span>
               )}
@@ -436,16 +447,18 @@ export const MuralModal: React.FC<MuralModalProps> = ({
 
           <button
             onClick={() => setActiveTab('alertas')}
-            className={`px-4 py-3 text-xs font-bold rounded-t-2xl border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+            className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all flex items-center gap-2 whitespace-nowrap shadow-xs cursor-pointer ${
               activeTab === 'alertas'
-                ? 'border-orange-500 text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-900 shadow-sm'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25 ring-2 ring-amber-400/30'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
             }`}
           >
             <ShieldAlert className="w-4 h-4" />
-            Alertas & Auditoria
+            <span className="font-extrabold tracking-tight">Alertas & Auditoria</span>
             {(pendingReviewCount > 0 || anvisaAlertCount > 0) && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                activeTab === 'alertas' ? 'bg-white/25 text-white' : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+              }`}>
                 {pendingReviewCount + anvisaAlertCount}
               </span>
             )}
@@ -696,10 +709,22 @@ export const MuralModal: React.FC<MuralModalProps> = ({
 
                           {/* Preço de Venda Atual & Margem */}
                           <div className="md:col-span-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venda Atual na Loja</div>
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venda Atual</span>
+                              {(item.is_promocao === 1 || (item.preco_promocional || 0) > 0) && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                  Promoção
+                                </span>
+                              )}
+                            </div>
                             <div className="text-base font-black text-slate-800 dark:text-slate-200 mt-0.5">
                               {formatMoney(item.preco_venda_atual)}
                             </div>
+                            {(item.is_promocao === 1 || (item.preco_promocional || 0) > 0) && item.preco_venda_normal && item.preco_venda_normal !== item.preco_venda_atual ? (
+                              <div className="text-[10px] text-slate-400">
+                                Normal: {formatMoney(item.preco_venda_normal)}
+                              </div>
+                            ) : null}
                             <div className="text-[11px] text-slate-500 mt-1">
                               Margem original: <b>{item.margem_atual}%</b>
                             </div>
