@@ -4067,6 +4067,24 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000);
 
+// Rotina periódica em segundo plano para auditar variações de preço de entradas recentes (a cada 15 min)
+const { sincronizarVariacaoPrecosMural } = require('./services/entradas-sync.service');
+setInterval(async () => {
+  try {
+    console.log('[Cron Mural Entradas] 📦 Sincronizando notas de entrada recentes para auditoria de preços...');
+    await sincronizarVariacaoPrecosMural(7);
+  } catch (errEntrada) {
+    console.error('[Cron Mural Entradas] Erro na sincronização periódica de entradas:', errEntrada.message);
+  }
+}, 15 * 60 * 1000);
+
+// Sincronização inicial 15 segundos após a inicialização
+setTimeout(async () => {
+  try {
+    await sincronizarVariacaoPrecosMural(7);
+  } catch (e) {}
+}, 15000);
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BACKUP AUTOMÁTICO — Cópia local do banco + log

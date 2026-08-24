@@ -14,6 +14,10 @@ function round2(val) {
  */
 async function buscarCompraAnterior(produtoId, dataEmissaoRef, cabNotaIdAtual) {
   try {
+    const dataRef = dataEmissaoRef 
+      ? (dataEmissaoRef instanceof Date ? dataEmissaoRef.toISOString().replace('T', ' ').substring(0, 19) : String(dataEmissaoRef).replace('T', ' ').substring(0, 19))
+      : new Date().toISOString().replace('T', ' ').substring(0, 19);
+
     const sql = `
       SELECT FIRST 1
         c.CAB_NOTA_ID,
@@ -32,7 +36,7 @@ async function buscarCompraAnterior(produtoId, dataEmissaoRef, cabNotaIdAtual) {
         AND c.DATA_EMISSAO <= ?
       ORDER BY c.DATA_EMISSAO DESC, c.CAB_NOTA_ID DESC
     `;
-    const res = await queryDigifarma(sql, [produtoId, cabNotaIdAtual, dataEmissaoRef]);
+    const res = await queryDigifarma(sql, [produtoId, cabNotaIdAtual, dataRef]);
     if (res && res.length > 0) {
       return {
         cabNotaId: res[0].CAB_NOTA_ID,
@@ -65,8 +69,11 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
       where += " AND CAST(c.DATA_EMISSAO AS DATE) BETWEEN ? AND ?";
       params.push(dataInicio, dataFim);
     } else {
-      where += " AND c.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - ?";
-      params.push(dias);
+      const dataLimite = new Date();
+      dataLimite.setDate(dataLimite.getDate() - parseInt(dias, 10));
+      const dataStr = dataLimite.toISOString().split('T')[0] + ' 00:00:00';
+      where += " AND c.DATA_EMISSAO >= ?";
+      params.push(dataStr);
     }
 
     const sqlCab = `
@@ -76,7 +83,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
         c.DATA_EMISSAO,
         c.FORNECEDOR_ID,
         f.FORNECEDOR,
-        c.TOTAL_NOTA
+        COALESCE(c.VALOR_TOTAL, c.VALOR_TOTAL_DEC, 0) as TOTAL_NOTA
       FROM CAB_NOTAS c
       LEFT JOIN FORNECEDORES f ON c.FORNECEDOR_ID = f.FORNECEDOR_ID
       WHERE ${where}
@@ -112,7 +119,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
     for (const nota of notasCab) {
       const sqlItens = `
         SELECT 
-          i.ITEM_NOTAS_ID,
+          i.ITEM_NOTA_ID,
           i.CAB_NOTA_ID,
           i.PRODUTO_ID,
           p.PRODUTO,
