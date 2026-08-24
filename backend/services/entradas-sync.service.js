@@ -285,6 +285,7 @@ async function sincronizarVariacaoPrecosMural(dias = 7) {
     }
 
     let insertCount = 0;
+    let updateCount = 0;
     const insertStmt = db.prepare(`
       INSERT INTO mural_variacao_precos (
         id, produto_id, descricao, cod_barras, apresentacao, custo_anterior, custo_novo,
@@ -294,8 +295,20 @@ async function sincronizarVariacaoPrecosMural(dias = 7) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?)
     `);
 
+    const updateStmt = db.prepare(`
+      UPDATE mural_variacao_precos SET
+        preco_venda_atual = ?,
+        preco_venda_sugerido = ?,
+        margem_atual = ?,
+        margem_nova_se_manter = ?,
+        preco_promocional = ?,
+        preco_venda_normal = ?,
+        is_promocao = ?
+      WHERE id = ? AND status = 'pendente'
+    `);
+
     const checkStmt = db.prepare(`
-      SELECT id FROM mural_variacao_precos 
+      SELECT id, status FROM mural_variacao_precos 
       WHERE produto_id = ? AND nota_fiscal = ?
     `);
 
@@ -328,14 +341,26 @@ async function sincronizarVariacaoPrecosMural(dias = 7) {
                 item.isPromocao ? 1 : 0
               );
               insertCount++;
+            } else if (jaExiste.status === 'pendente') {
+              updateStmt.run(
+                item.precoVendaAtual,
+                item.precoVendaSugerido,
+                item.margemAtual,
+                item.margemNovaSeManter,
+                item.precoPromocional || 0,
+                item.precoVendaNormal || item.precoVendaAtual,
+                item.isPromocao ? 1 : 0,
+                jaExiste.id
+              );
+              updateCount++;
             }
           }
         }
       }
     })();
 
-    console.log(`[EntradasSync] ✅ Sincronização concluída: ${insertCount} novas pendências de variação geradas.`);
-    return { totalNovasPendencias: insertCount };
+    console.log(`[EntradasSync] ✅ Sincronização concluída: ${insertCount} novas pendências geradas, ${updateCount} pendências atualizadas.`);
+    return { totalNovasPendencias: insertCount, totalAtualizadas: updateCount };
   } catch (err) {
     console.error('[EntradasSync] Erro ao sincronizar variações para o mural:', err.message);
     return { totalNovasPendencias: 0, error: err.message };
