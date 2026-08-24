@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   CreditCard, 
   DollarSign, 
@@ -15,9 +15,10 @@ import {
   ArrowRight,
   Layers,
   ChevronDown,
-  Check
+  Check,
+  Percent
 } from 'lucide-react';
-import { CardMachineReceivable } from '../types';
+import { CardMachineReceivable, CardBrand } from '../types';
 import { useToast } from './ToastContext';
 
 interface CardMachineReconcileModalProps {
@@ -26,6 +27,17 @@ interface CardMachineReconcileModalProps {
   onNavigateToFullView?: () => void;
   userName?: string;
   onReconcileSuccess?: () => void;
+}
+
+interface GroupedBrandItem {
+  key: string; // e.g. "Visa_Débito", "Master_Crédito à Vista"
+  brand: string;
+  modality: string;
+  items: CardMachineReceivable[];
+  totalGross: number;
+  m1Gross: number;
+  m2Gross: number;
+  isWeekend: boolean;
 }
 
 export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps> = ({
@@ -38,16 +50,16 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   const { addToast } = useToast();
   const [pendingItems, setPendingItems] = useState<CardMachineReceivable[]>([]);
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [isSavingConsolidated, setIsSavingConsolidated] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [isSavingAllWeekend, setIsSavingAllWeekend] = useState(false);
   
-  // State for typed net deposited values per item: { [id]: string }
-  const [typedValues, setTypedValues] = useState<Record<string, string>>({});
-  const [notesValues, setNotesValues] = useState<Record<string, string>>({});
+  // State for typed net deposited values per group key: { [groupKey]: string }
+  const [groupTypedValues, setGroupTypedValues] = useState<Record<string, string>>({});
+  const [groupNotes, setGroupNotes] = useState<Record<string, string>>({});
 
-  // State for weekend consolidated net deposit
+  // State for optional full weekend consolidated net deposit
   const [weekendNetTyped, setWeekendNetTyped] = useState<string>('');
-  const [isWeekendExpanded, setIsWeekendExpanded] = useState<boolean>(false);
+  const [showWeekendQuickAll, setShowWeekendQuickAll] = useState<boolean>(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -62,15 +74,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       if (!res.ok) throw new Error('Erro ao buscar pendências');
       const data: CardMachineReceivable[] = await res.json();
       setPendingItems(data);
-
-      // Pre-fill typed values if already partially entered
-      const initialTyped: Record<string, string> = {};
-      data.forEach(item => {
-        if (item.net_deposited_value) {
-          initialTyped[item.id] = (item.net_deposited_value * 100).toFixed(0);
-        }
-      });
-      setTypedValues(initialTyped);
     } catch (err: any) {
       console.error('Erro ao carregar pendências:', err);
       addToast('Não foi possível carregar os repasses de hoje.', 'error');
@@ -80,6 +83,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   };
 
   const parseCurrencyInput = (raw: string): number => {
+    if (!raw) return 0;
     const cleaned = raw.replace(/\D/g, '');
     return (parseInt(cleaned, 10) || 0) / 100;
   };
@@ -111,88 +115,102 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   const weekendItems = pendingItems.filter(item => item.is_weekend_accumulated === 1);
   const regularItems = pendingItems.filter(item => item.is_weekend_accumulated !== 1);
 
-  const weekendGrossTotal = weekendItems.reduce((acc, curr) => acc + (Number(curr.gross_value) || 0), 0);
-  const weekendNetVal = parseCurrencyInput(weekendNetTyped);
-  const weekendFeeVal = Math.max(0, weekendGrossTotal - weekendNetVal);
-  const weekendFeePct = weekendGrossTotal > 0 && weekendNetVal > 0 ? (weekendFeeVal / weekendGrossTotal) * 100 : 0;
+  // Agrupamento por BANDEIRA & MODALIDADE (Somando M1 + M2)
+  const groupedBrandItems = useMemo(() => {
+    const map = new Map<string, GroupedBrandItem>();
 
-  // Conciliação consolidada do fim de semana
-  const handleReconcileWeekendConsolidated = async () => {
-    if (weekendItems.length === 0) return;
-    if (weekendNetVal <= 0) {
-      addToast('Digite o valor total líquido creditado na conta bancária.', 'warning');
+    pendingItems.forEach(item => {
+      const brand = item.brand || 'Outros';
+      const modality = item.modality || 'Débito';
+      const key = `${brand}_${modality}`;
+
+      const gross = Number(item.gross_value) || 0;
+      const isM2 = item.machine_name === 'M2';
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          brand,
+          modality,
+          items: [item],
+          totalGross: gross,
+          m1Gross: isM2 ? 0 : gross,
+          m2Gross: isM2 ? gross : 0,
+          isWeekend: item.is_weekend_accumulated === 1
+        });
+      } else {
+        const entry = map.get(key)!;
+        entry.items.push(item);
+        entry.totalGross += gross;
+        if (isM2) entry.m2Gross += gross;
+        else entry.m1Gross += gross;
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      // Ordena por bandeira e depois modalidade
+      if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
+      return a.modality.localeCompare(b.modality);
+    });
+  }, [pendingItems]);
+
+  // Totalizadores Gerais do Topo (M1 + M2 somados)
+  const totalsSummary = useMemo(() => {
+    let totalDebit = 0;
+    let totalCredit = 0;
+    let totalGross = 0;
+
+    pendingItems.forEach(item => {
+      const val = Number(item.gross_value) || 0;
+      totalGross += val;
+      if (item.modality === 'Débito') {
+        totalDebit += val;
+      } else {
+        totalCredit += val; // Crédito à Vista + Parcelado
+      }
+    });
+
+    return {
+      totalDebit: Number(totalDebit.toFixed(2)),
+      totalCredit: Number(totalCredit.toFixed(2)),
+      totalGross: Number(totalGross.toFixed(2))
+    };
+  }, [pendingItems]);
+
+  // Conciliação de um grupo de Bandeira + Modalidade (somando M1 e M2)
+  const handleReconcileGroup = async (group: GroupedBrandItem) => {
+    const rawVal = groupTypedValues[group.key] || '';
+    const netValue = parseCurrencyInput(rawVal);
+
+    if (netValue <= 0) {
+      addToast(`Informe o valor líquido creditado para ${group.brand} (${group.modality}).`, 'warning');
       return;
     }
 
-    setIsSavingConsolidated(true);
+    setSavingKey(group.key);
     try {
+      const itemIds = group.items.map(i => i.id);
+
       const res = await fetch('/api/card-machine-receivables/reconcile-consolidated', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          itemIds: weekendItems.map(item => item.id),
-          total_net_deposited: weekendNetVal,
+          itemIds,
+          total_net_deposited: netValue,
           reconciled_by: userName || 'edevaldo',
-          notes: 'Conferência consolidada de fim de semana (Sexta, Sábado e Domingo)'
+          notes: groupNotes[group.key] || `Conferência ${group.brand} (${group.modality})`
         })
       });
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.details || err.error || 'Falha ao conciliar');
+        throw new Error(err.details || err.error || 'Falha ao conciliar grupo');
       }
 
-      addToast(`✅ Acumulado de Fim de Semana (${weekendItems.length} repasses) conferido com taxa de ${weekendFeePct.toFixed(2)}%!`, 'success');
+      const resData = await res.json();
+      addToast(`✅ Repasse ${group.brand} - ${group.modality} (${group.items.length} itens M1/M2) conferido com taxa de ${resData.overallFeePercent}%!`, 'success');
       
-      const updatedPending = pendingItems.filter(p => !weekendItems.some(w => w.id === p.id));
-      setPendingItems(updatedPending);
-      setWeekendNetTyped('');
-
-      if (onReconcileSuccess) onReconcileSuccess();
-
-      if (updatedPending.length === 0) {
-        sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
-        setTimeout(() => onClose(), 800);
-      }
-    } catch (err: any) {
-      console.error('Erro na conciliação consolidada:', err);
-      addToast(err.message || 'Erro ao conciliar repasses do fim de semana.', 'error');
-    } finally {
-      setIsSavingConsolidated(false);
-    }
-  };
-
-  // Conciliação de item individual
-  const handleReconcileSingle = async (item: CardMachineReceivable) => {
-    const rawVal = typedValues[item.id] || '';
-    const netValue = parseCurrencyInput(rawVal);
-
-    if (netValue <= 0) {
-      addToast('Informe o valor líquido creditado na conta.', 'warning');
-      return;
-    }
-
-    setSavingId(item.id);
-    try {
-      const res = await fetch(`/api/card-machine-receivables/${item.id}/reconcile`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          net_deposited_value: netValue,
-          reconciled_by: userName || 'edevaldo',
-          notes: notesValues[item.id] || null
-        })
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.details || err.error || 'Falha ao conciliar');
-      }
-
-      const updated = await res.json();
-      addToast(`✅ Repasse ${updated.modality} (${updated.brand || 'Geral'}) conferido com taxa de ${updated.fee_percent}%!`, 'success');
-      
-      const updatedList = pendingItems.filter(p => p.id !== item.id);
+      const updatedList = pendingItems.filter(p => !itemIds.includes(p.id));
       setPendingItems(updatedList);
 
       if (onReconcileSuccess) onReconcileSuccess();
@@ -202,10 +220,59 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
         setTimeout(() => onClose(), 800);
       }
     } catch (err: any) {
-      console.error('Erro ao salvar conciliação:', err);
-      addToast(err.message || 'Erro ao conciliar repasse.', 'error');
+      console.error('Erro ao conciliar grupo:', err);
+      addToast(err.message || 'Erro ao conciliar repasse da bandeira.', 'error');
     } finally {
-      setSavingId(null);
+      setSavingKey(null);
+    }
+  };
+
+  // Conciliação de TODO o Fim de Semana com 1 único clique (se desejar)
+  const handleReconcileAllWeekend = async () => {
+    if (weekendItems.length === 0) return;
+    const netTotal = parseCurrencyInput(weekendNetTyped);
+    if (netTotal <= 0) {
+      addToast('Digite o valor total líquido creditado no banco para o fim de semana.', 'warning');
+      return;
+    }
+
+    setIsSavingAllWeekend(true);
+    try {
+      const itemIds = weekendItems.map(i => i.id);
+      const res = await fetch('/api/card-machine-receivables/reconcile-consolidated', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemIds,
+          total_net_deposited: netTotal,
+          reconciled_by: userName || 'edevaldo',
+          notes: 'Conferência total consolidada do fim de semana (Sexta, Sábado e Domingo)'
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.details || err.error || 'Falha ao conciliar');
+      }
+
+      const data = await res.json();
+      addToast(`✅ Acumulado de Fim de Semana (${weekendItems.length} repasses) conferido com taxa média de ${data.overallFeePercent}%!`, 'success');
+      
+      const updatedList = pendingItems.filter(p => !itemIds.includes(p.id));
+      setPendingItems(updatedList);
+      setWeekendNetTyped('');
+
+      if (onReconcileSuccess) onReconcileSuccess();
+
+      if (updatedList.length === 0) {
+        sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
+        setTimeout(() => onClose(), 800);
+      }
+    } catch (err: any) {
+      console.error('Erro na conciliação total do FDS:', err);
+      addToast(err.message || 'Erro ao conciliar lote do fim de semana.', 'error');
+    } finally {
+      setIsSavingAllWeekend(false);
     }
   };
 
@@ -213,10 +280,10 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-scale-up">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-scale-up">
         
         {/* Header */}
-        <div className="px-6 py-5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between shadow-sm relative overflow-hidden">
+        <div className="px-6 py-5 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-700 text-white flex items-center justify-between shadow-sm relative overflow-hidden">
           <div className="absolute -right-6 -top-6 w-32 h-32 bg-white/10 rounded-full blur-xl pointer-events-none" />
           
           <div className="flex items-center space-x-3 z-10">
@@ -225,13 +292,13 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-xl font-black tracking-tight">Conferência de Repasses Bancários</h3>
+                <h3 className="text-xl font-black tracking-tight">Conferência de Repasses das Maquininhas</h3>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/25 text-white border border-white/30">
                   {isMonday ? 'Segunda-feira (Acumulado FDS)' : 'Diário'}
                 </span>
               </div>
               <p className="text-xs text-emerald-100 font-medium">
-                Olá, {userName}! Compare os créditos da maquininha no seu banco e audite as taxas retidas.
+                Olá, {userName}! Confira os valores somados por bandeira e audite as taxas retidas no banco.
               </p>
             </div>
           </div>
@@ -272,201 +339,215 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
             </div>
           ) : (
             <>
-              {/* SEÇÃO 1: ACUMULADO DE FIM DE SEMANA (SEXTA, SÁBADO E DOMINGO) */}
-              {weekendItems.length > 0 && (
-                <div className="bg-gradient-to-br from-indigo-50/80 to-blue-50/50 dark:from-indigo-950/30 dark:to-blue-950/20 border-2 border-indigo-200/80 dark:border-indigo-800/60 rounded-3xl p-5 space-y-4 shadow-sm relative overflow-hidden">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-indigo-200/60 dark:border-indigo-800/40">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
-                        <Layers className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <h4 className="text-base font-black text-indigo-950 dark:text-indigo-200">
-                            Acumulado do Fim de Semana (Sexta, Sáb e Dom)
-                          </h4>
-                          <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-200/70 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300 rounded-md">
-                            {weekendItems.length} lançamentos
-                          </span>
-                        </div>
-                        <p className="text-xs text-indigo-700 dark:text-indigo-400">
-                          Como sábado e domingo não liquidam, a operadora deposita o montante total conjunto na segunda.
-                        </p>
-                      </div>
-                    </div>
+              {/* TOP TOTALIZADORES GERAIS (DÉBITO E CRÉDITO SOMADOS DE M1 + M2) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+                      Total Débito (M1+M2)
+                    </span>
+                    <h3 className="text-xl font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                      {formatCurrency(totalsSummary.totalDebit)}
+                    </h3>
+                    <span className="text-[10px] text-emerald-600/80 font-medium">Soma de todas as bandeiras</span>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-xs shadow-sm">
+                    DÉB
+                  </div>
+                </div>
 
-                    <div className="text-right sm:self-auto self-end">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">Total Bruto Esperado</span>
-                      <span className="text-xl font-black text-indigo-950 dark:text-white">
-                        {formatCurrency(weekendGrossTotal)}
-                      </span>
+                <div className="bg-indigo-50 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">
+                      Total Crédito (M1+M2)
+                    </span>
+                    <h3 className="text-xl font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
+                      {formatCurrency(totalsSummary.totalCredit)}
+                    </h3>
+                    <span className="text-[10px] text-indigo-600/80 font-medium">À vista + Parcelado somados</span>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-sm">
+                    CRÉD
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                      Total Geral Bruto
+                    </span>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                      {formatCurrency(totalsSummary.totalGross)}
+                    </h3>
+                    <span className="text-[10px] text-slate-400 font-medium">{pendingItems.length} lançamentos a conferir</span>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-sm">
+                    <DollarSign className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
+
+              {/* OPÇÃO DE CONFERÊNCIA GLOBAL DO FDS (SE FOR SEGUNDA-FEIRA) */}
+              {isMonday && weekendItems.length > 0 && (
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/30 dark:to-blue-950/20 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3">
+                    <Layers className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                    <div>
+                      <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200">
+                        Acumulado de Fim de Semana ({weekendItems.length} repasses de Sexta, Sáb e Dom)
+                      </h4>
+                      <p className="text-[11px] text-indigo-700 dark:text-indigo-400">
+                        Você pode conferir por bandeira abaixo ou liquidar todo o montante de uma vez só.
+                      </p>
                     </div>
                   </div>
 
-                  {/* Resumo das bandeiras/modalidades que compõem o FDS */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {['Débito', 'Crédito à Vista', 'Crédito Parcelado'].map(mod => {
-                      const modItems = weekendItems.filter(i => i.modality === mod || (mod === 'Crédito à Vista' && i.modality === 'Crédito'));
-                      const sumMod = modItems.reduce((s, i) => s + (Number(i.gross_value) || 0), 0);
-                      if (sumMod <= 0) return null;
-                      return (
-                        <div key={mod} className="bg-white/80 dark:bg-slate-800/80 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block truncate">{mod}</span>
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-200">{formatCurrency(sumMod)}</span>
-                        </div>
-                      );
-                    })}
+                  <button
+                    onClick={() => setShowWeekendQuickAll(!showWeekendQuickAll)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
+                  >
+                    {showWeekendQuickAll ? 'Fechar Lote Único' : 'Conferir Lote Único Total'}
+                  </button>
+                </div>
+              )}
+
+              {/* SEÇÃO RÁPIDA DE CONFERÊNCIA TOTAL FDS */}
+              {showWeekendQuickAll && weekendItems.length > 0 && (
+                <div className="p-4 bg-white dark:bg-slate-900 border-2 border-indigo-300 dark:border-indigo-700 rounded-2xl space-y-3 animate-scale-up">
+                  <div className="flex justify-between items-center text-xs font-black">
+                    <span className="text-slate-600 dark:text-slate-300">Total Bruto FDS (Sexta + Sáb + Dom):</span>
+                    <span className="text-base text-indigo-600 dark:text-indigo-400">{formatCurrency(totalsSummary.totalGross)}</span>
                   </div>
 
-                  {/* Input de Valor Líquido Consolidado */}
-                  <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
-                    <div className="w-full sm:w-1/2 space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
-                        <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Valor Total Depositado no Banco (R$)</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                    <div className="sm:col-span-6 space-y-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Total Líquido Creditado no Banco (R$)
                       </label>
                       <input 
                         type="text"
                         placeholder="R$ 0,00"
-                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800/80 rounded-xl text-base font-black text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm font-black text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
                         value={formatCurrencyInputDisplay(weekendNetTyped)}
                         onChange={(e) => setWeekendNetTyped(e.target.value.replace(/\D/g, ''))}
                       />
                     </div>
 
-                    {/* Exibição da Taxa Calculada do FDS */}
-                    <div className="w-full sm:w-1/2 flex items-center justify-between sm:justify-end sm:space-x-4 bg-indigo-50/50 dark:bg-slate-800/50 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold uppercase text-slate-500 block">Taxa Retida</span>
-                        <div className="flex items-center space-x-1.5">
-                          <span className="text-sm font-black text-amber-600 dark:text-amber-400">
-                            {formatCurrency(weekendFeeVal)}
-                          </span>
-                          <span className="text-xs font-black px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
-                            {weekendFeePct.toFixed(2)}%
-                          </span>
-                        </div>
+                    <div className="sm:col-span-4 bg-indigo-50/60 dark:bg-indigo-950/40 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-900/60 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[9px] uppercase text-slate-400 font-bold block">Taxa Retida</span>
+                        <span className="font-black text-amber-600">
+                          {formatCurrency(Math.max(0, totalsSummary.totalGross - parseCurrencyInput(weekendNetTyped)))}
+                        </span>
                       </div>
+                      <div className="text-right">
+                        <span className="text-[9px] uppercase text-slate-400 font-bold block">% Média</span>
+                        <span className="font-black text-amber-700 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded">
+                          {totalsSummary.totalGross > 0 && parseCurrencyInput(weekendNetTyped) > 0
+                            ? `${(((totalsSummary.totalGross - parseCurrencyInput(weekendNetTyped)) / totalsSummary.totalGross) * 100).toFixed(2)}%`
+                            : '0%'}
+                        </span>
+                      </div>
+                    </div>
 
+                    <div className="sm:col-span-2 flex items-end">
                       <button
-                        onClick={handleReconcileWeekendConsolidated}
-                        disabled={isSavingConsolidated || weekendNetVal <= 0}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all flex items-center space-x-1.5"
+                        onClick={handleReconcileAllWeekend}
+                        disabled={isSavingAllWeekend || parseCurrencyInput(weekendNetTyped) <= 0}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
                       >
-                        {isSavingConsolidated ? (
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <>
-                            <Check className="w-4 h-4" />
-                            <span>Confirmar Tudo</span>
-                          </>
-                        )}
+                        {isSavingAllWeekend ? 'Salvando...' : 'Confirmar'}
                       </button>
                     </div>
-                  </div>
-
-                  {/* Toggle para ver detalhamento item a item */}
-                  <div>
-                    <button
-                      onClick={() => setIsWeekendExpanded(!isWeekendExpanded)}
-                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center space-x-1"
-                    >
-                      <span>{isWeekendExpanded ? 'Ocultar lançamentos individuais do FDS' : 'Ver detalhamento individual dos lançamentos do FDS'}</span>
-                      <ChevronDown className={`w-3.5 h-3.5 transform transition-transform ${isWeekendExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {isWeekendExpanded && (
-                      <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-1">
-                        {weekendItems.map(item => (
-                          <div key={item.id} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-bold text-slate-700 dark:text-slate-300">{formatDate(item.sale_date)}</span>
-                              <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                                {item.modality}
-                              </span>
-                              <span className="text-[10px] font-semibold text-slate-400">
-                                {item.brand || 'Outros'}
-                              </span>
-                            </div>
-                            <span className="font-black text-slate-900 dark:text-white">{formatCurrency(item.gross_value)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
 
-              {/* SEÇÃO 2: REPASSES DO DIA ÚTIL NORMAL OU PENDÊNCIAS AVULSAS */}
-              {regularItems.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Repasses Regulares ({regularItems.length})
-                    </h4>
-                  </div>
+              {/* LISTA DE CARDS POR BANDEIRA & MODALIDADE (SOMANDO M1 + M2) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Repasses por Bandeira ({groupedBrandItems.length} grupos consolidados)
+                  </h4>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    Cada card soma as máquinas M1 e M2 daquela bandeira
+                  </span>
+                </div>
 
-                  {regularItems.map((item) => {
-                    const rawTyped = typedValues[item.id] || '';
+                <div className="grid grid-cols-1 gap-3">
+                  {groupedBrandItems.map((group) => {
+                    const rawTyped = groupTypedValues[group.key] || '';
                     const typedNet = parseCurrencyInput(rawTyped);
-                    const gross = Number(item.gross_value) || 0;
-                    const feeVal = Math.max(0, gross - typedNet);
-                    const feePct = gross > 0 && typedNet > 0 ? (feeVal / gross) * 100 : 0;
-                    const isSaving = savingId === item.id;
+                    const feeVal = Math.max(0, group.totalGross - typedNet);
+                    const feePct = group.totalGross > 0 && typedNet > 0 ? (feeVal / group.totalGross) * 100 : 0;
+                    const isSaving = savingKey === group.key;
 
                     return (
                       <div 
-                        key={item.id}
-                        className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 transition-all hover:border-emerald-300 dark:hover:border-emerald-700 space-y-3"
+                        key={group.key}
+                        className="bg-slate-50 dark:bg-slate-800/60 border-2 border-slate-200/80 dark:border-slate-700/80 rounded-2xl p-4 transition-all hover:border-emerald-400 dark:hover:border-emerald-600 space-y-3 shadow-sm"
                       >
+                        {/* Header do Card da Bandeira */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                           <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center font-bold">
-                              <CreditCard className="w-5 h-5" />
+                            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-md">
+                              {group.brand.slice(0, 3).toUpperCase()}
                             </div>
                             <div>
                               <div className="flex items-center space-x-2">
-                                <span className="text-sm font-black text-slate-800 dark:text-slate-100">
-                                  {item.modality}
+                                <span className="text-sm font-black text-slate-900 dark:text-white">
+                                  Total {group.brand} - {group.modality}
                                 </span>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                                  {item.brand || 'Outros'}
-                                </span>
+                                {group.isWeekend && (
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-black bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                    FDS
+                                  </span>
+                                )}
                               </div>
-                              <p className="text-[11px] text-slate-400 font-medium">
-                                Venda: {formatDate(item.sale_date)} • Repasse Previsto: {formatDate(item.expected_payment_date)}
-                              </p>
+                              <div className="flex items-center space-x-2 text-[11px] text-slate-500 font-medium mt-0.5">
+                                <span>Origem:</span>
+                                {group.m1Gross > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold">
+                                    M1: {formatCurrency(group.m1Gross)}
+                                  </span>
+                                )}
+                                {group.m2Gross > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-bold">
+                                    M2: {formatCurrency(group.m2Gross)}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
                           <div className="text-right">
-                            <span className="text-[10px] font-bold uppercase text-slate-400 block">Valor Bruto</span>
-                            <span className="text-base font-black text-slate-900 dark:text-slate-100">
-                              {formatCurrency(item.gross_value)}
+                            <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Bruto Esperado</span>
+                            <span className="text-base font-black text-slate-900 dark:text-white">
+                              {formatCurrency(group.totalGross)}
                             </span>
                           </div>
                         </div>
 
-                        {/* Input do valor líquido e cálculo em tempo real */}
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                        {/* Input do Valor Líquido Depositado & Cálculo de Taxa */}
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-slate-200 dark:border-slate-700 items-center">
                           <div className="sm:col-span-6 space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                              Valor Líquido que Caiu na Conta
+                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                              Valor Líquido Creditado na Conta (R$)
                             </label>
                             <input 
                               type="text"
                               placeholder="R$ 0,00"
-                              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-black text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
                               value={formatCurrencyInputDisplay(rawTyped)}
                               onChange={(e) => {
                                 const val = e.target.value.replace(/\D/g, '');
-                                setTypedValues({ ...typedValues, [item.id]: val });
+                                setGroupTypedValues({ ...groupTypedValues, [group.key]: val });
                               }}
                             />
                           </div>
 
-                          {/* Preview da Taxa */}
-                          <div className="sm:col-span-4 bg-white/60 dark:bg-slate-900/60 p-2 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                          {/* Preview da Taxa Cobrada */}
+                          <div className="sm:col-span-4 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                             <div className="text-left">
                               <span className="text-[9px] font-bold uppercase text-slate-400 block">Taxa Retida</span>
                               <span className="text-xs font-black text-amber-600 dark:text-amber-400">
@@ -474,25 +555,27 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                               </span>
                             </div>
                             <div className="text-right">
-                              <span className="text-[9px] font-bold uppercase text-slate-400 block">% Cobrado</span>
-                              <span className={`text-xs font-black px-1.5 py-0.5 rounded ${feePct > 4 ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                              <span className="text-[9px] font-bold uppercase text-slate-400 block">% Taxa</span>
+                              <span className={`text-xs font-black px-1.5 py-0.5 rounded ${
+                                feePct > 4 ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
+                              }`}>
                                 {feePct > 0 ? `${feePct.toFixed(2)}%` : '0%'}
                               </span>
                             </div>
                           </div>
 
-                          {/* Botão de Salvar Individual */}
+                          {/* Botão de Confirmação do Grupo */}
                           <div className="sm:col-span-2 flex items-end">
                             <button
-                              onClick={() => handleReconcileSingle(item)}
+                              onClick={() => handleReconcileGroup(group)}
                               disabled={isSaving || typedNet <= 0}
-                              className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1"
+                              className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1 shadow-sm"
                             >
                               {isSaving ? (
                                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                               ) : (
                                 <>
-                                  <Save className="w-3.5 h-3.5" />
+                                  <Check className="w-3.5 h-3.5" />
                                   <span>Salvar</span>
                                 </>
                               )}
@@ -503,7 +586,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                     );
                   })}
                 </div>
-              )}
+              </div>
             </>
           )}
         </div>

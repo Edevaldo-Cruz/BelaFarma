@@ -9,7 +9,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { useToast } from './ToastContext';
-import { User, SafeEntry, CashClosingRecord, DailyRecordEntry } from '../types';
+import { User, SafeEntry, CashClosingRecord, DailyRecordEntry, CardBrand, CardMachineGridState } from '../types';
 
 interface CashClosingProps {
   user: User;
@@ -35,6 +35,13 @@ const denominations = [
   { label: 'R$ 0,10', key: '0.10', val: 0.1 },
   { label: 'R$ 0,05', key: '0.05', val: 0.05 },
 ];
+
+const initialCardGrid: CardMachineGridState = {
+  Visa: { m1_debit: 0, m1_credit: 0, m1_installments: 0, m2_debit: 0, m2_credit: 0, m2_installments: 0 },
+  Master: { m1_debit: 0, m1_credit: 0, m1_installments: 0, m2_debit: 0, m2_credit: 0, m2_installments: 0 },
+  Elo: { m1_debit: 0, m1_credit: 0, m1_installments: 0, m2_debit: 0, m2_credit: 0, m2_installments: 0 },
+  Outros: { m1_debit: 0, m1_credit: 0, m1_installments: 0, m2_debit: 0, m2_credit: 0, m2_installments: 0 },
+};
 
 export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog, onSave, dailyRecords, onMarkDailyRecordsProcessed }) => {
   const { addToast } = useToast();
@@ -65,6 +72,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     '1': 0, '0.50': 0, '0.25': 0, '0.10': 0, '0.05': 0,
   });
 
+  const [cardGrid, setCardGrid] = useState<CardMachineGridState>(initialCardGrid);
   const [credit, setCredit] = useState(0);
   const [creditInstallments, setCreditInstallments] = useState(0);
   const [debit, setDebit] = useState(0);
@@ -232,6 +240,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
         setInitialCash(state.initialCash || 0);
       }
       setCurrencyCount(state.currencyCount || denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {}));
+      if (state.cardGrid) {
+        setCardGrid(state.cardGrid);
+      }
       setCreditInstallments(state.creditInstallments || 0);
       // Only set pixDirect from saved state if it wasn't populated from daily records
       if (combinedPixDireto.length === 0) { // If no current pix direto entries from daily records, use saved state
@@ -265,6 +276,50 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     }
   }, [currentStep, activeTab]);
 
+  // Cálculo das somas da Grade de 2 Maquininhas
+  const gridTotals = useMemo(() => {
+    let m1_deb = 0, m1_cred = 0, m1_inst = 0;
+    let m2_deb = 0, m2_cred = 0, m2_inst = 0;
+    const brandTotals: Record<CardBrand, number> = { Visa: 0, Master: 0, Elo: 0, Outros: 0 };
+
+    (['Visa', 'Master', 'Elo', 'Outros'] as CardBrand[]).forEach(brand => {
+      const row = cardGrid[brand] || { m1_debit: 0, m1_credit: 0, m1_installments: 0, m2_debit: 0, m2_credit: 0, m2_installments: 0 };
+      const rowSum = (Number(row.m1_debit) || 0) + (Number(row.m1_credit) || 0) + (Number(row.m1_installments) || 0) +
+                     (Number(row.m2_debit) || 0) + (Number(row.m2_credit) || 0) + (Number(row.m2_installments) || 0);
+      brandTotals[brand] = Number(rowSum.toFixed(2));
+
+      m1_deb += (Number(row.m1_debit) || 0);
+      m1_cred += (Number(row.m1_credit) || 0);
+      m1_inst += (Number(row.m1_installments) || 0);
+      m2_deb += (Number(row.m2_debit) || 0);
+      m2_cred += (Number(row.m2_credit) || 0);
+      m2_inst += (Number(row.m2_installments) || 0);
+    });
+
+    const totalDebit = Number((m1_deb + m2_deb).toFixed(2));
+    const totalCredit = Number((m1_cred + m2_cred).toFixed(2));
+    const totalInstallments = Number((m1_inst + m2_inst).toFixed(2));
+    const totalM1 = Number((m1_deb + m1_cred + m1_inst).toFixed(2));
+    const totalM2 = Number((m2_deb + m2_cred + m2_inst).toFixed(2));
+    const totalCards = Number((totalDebit + totalCredit + totalInstallments).toFixed(2));
+
+    return {
+      m1_deb: Number(m1_deb.toFixed(2)),
+      m1_cred: Number(m1_cred.toFixed(2)),
+      m1_inst: Number(m1_inst.toFixed(2)),
+      m2_deb: Number(m2_deb.toFixed(2)),
+      m2_cred: Number(m2_cred.toFixed(2)),
+      m2_inst: Number(m2_inst.toFixed(2)),
+      totalDebit,
+      totalCredit,
+      totalInstallments,
+      totalM1,
+      totalM2,
+      totalCards,
+      brandTotals
+    };
+  }, [cardGrid]);
+
   useEffect(() => {
     // Save form state to localStorage
     const formState = {
@@ -272,9 +327,10 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       receivedExtra,
       initialCash,
       currencyCount,
-      credit,
-      creditInstallments,
-      debit,
+      cardGrid,
+      credit: gridTotals.totalCredit,
+      creditInstallments: gridTotals.totalInstallments,
+      debit: gridTotals.totalDebit,
       pix,
       pixDirect,
       others,
@@ -282,7 +338,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       currentStep,
     };
     localStorage.setItem('belinha_closing_form_state', JSON.stringify(formState));
-  }, [totalSales, receivedExtra, initialCash, currencyCount, credit, creditInstallments, debit, pix, pixDirect, others, safeDepositValue, currentStep]);
+  }, [totalSales, receivedExtra, initialCash, currencyCount, cardGrid, gridTotals, pix, pixDirect, others, safeDepositValue, currentStep]);
 
   const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0), [expensesList]);
   const totalIfood = useMemo(() => ifoodList.reduce((acc, curr) => acc + curr.val, 0), [ifoodList]);
@@ -298,7 +354,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     }, 0);
   }, [currencyCount]);
 
-    const totalDigital = useMemo(() => credit + creditInstallments + debit + pix + pixDirect + others, [credit, creditInstallments, debit, pix, pixDirect, others]);
+  const totalDigital = useMemo(() => {
+    return Number((gridTotals.totalCards + pix + pixDirect + others).toFixed(2));
+  }, [gridTotals.totalCards, pix, pixDirect, others]);
 
     // Expected Balance (Saldo Esperado): 
     // Venda Bruta + Troco + Entradas Extras + Produtos não registrados + Pix Direto
@@ -456,38 +514,18 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   
 
           const newRecord: CashClosingRecord = {
-
-  
-
             id: Date.now().toString(),
-
-  
-
             date: new Date().toISOString(),
-
-  
-
             totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer,
-
-  
-
             difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses + totalIfood, userName: user.name,
-
-  
-
-            credit,
-            credit_installments: creditInstallments,
-            debit, pix, pixDirect,
-
-  
-
+            credit: gridTotals.totalCredit,
+            credit_installments: gridTotals.totalInstallments,
+            debit: gridTotals.totalDebit,
+            pix, pixDirect,
             totalCrediario,
             creditReceipts: creditReceiptsList,
-
             crediarioList,
-
-  
-
+            card_grid_json: JSON.stringify(cardGrid),
           };
 
   
@@ -688,7 +726,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
             const response = await fetch('/api/cash-closings', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newRecord),
+              body: JSON.stringify({ ...newRecord, cardGrid }),
             });
 
             if (!response.ok) {
@@ -767,7 +805,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
               }
 
               setCurrencyCount(denominations.reduce((acc, d) => ({ ...acc, [d.key]: 0 }), {}));
-
+              setCardGrid(initialCardGrid);
               setCredit(0);
 
               setCreditInstallments(0);
@@ -922,45 +960,258 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   
 
                 {currentStep === 'digital' && (
-
-                  <div className="space-y-10">
-
-                    <div className="text-center mb-8">
-
-                      <h2 className="text-xl font-black text-slate-900 uppercase">3. Valores Digitais</h2>
-
+                  <div className="space-y-8 animate-in fade-in-50 duration-300">
+                    <div className="text-center">
+                      <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight">
+                        3. Valores Digitais & Maquininhas
+                      </h2>
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+                        Preencha os valores consolidados das maquininhas (M1 e M2) por bandeira e modalidade.
+                      </p>
                     </div>
 
-                    <div className="max-w-md mx-auto space-y-5">
+                    {/* GRADE DE 2 MAQUININHAS X BANDEIRAS */}
+                    <div className="bg-white dark:bg-slate-900/60 rounded-3xl border-2 border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden p-4 md:p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <CreditCard className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                          <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                            Grade de Cartões (M1 & M2)
+                          </h3>
+                        </div>
+                        <span className="text-xs font-bold text-slate-400">
+                          Total Cartões: <strong className="text-indigo-600 dark:text-indigo-400 font-black">{formatCurrency(gridTotals.totalCards)}</strong>
+                        </span>
+                      </div>
 
-                      {[
-                        { label: 'Cartão de Crédito (à Vista)', val: credit, set: setCredit },
-                        { label: 'Cartão de Crédito (Parcelado)', val: creditInstallments, set: setCreditInstallments },
-                        { label: 'Cartão de Débito', val: debit, set: setDebit },
-                        { label: 'Pix (Maquininha)', val: pix, set: setPix },
-                        { label: 'Pix Direto na Conta (Entrada)', val: pixDirect, set: setPixDirect },
-                      ].map((field, idx) => (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-center border-collapse min-w-[720px]">
+                          <thead>
+                            {/* Header Nível 1: Agrupamento de Maquininhas */}
+                            <tr className="text-xs font-black uppercase">
+                              <th className="p-2.5 text-left text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-tl-2xl border-b border-slate-200 dark:border-slate-700 w-28">
+                                Bandeira
+                              </th>
+                              <th colSpan={3} className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-b border-indigo-200 dark:border-indigo-800 border-r border-slate-200 dark:border-slate-700">
+                                💳 Maquininha 1 (M1)
+                              </th>
+                              <th colSpan={3} className="p-2.5 bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-b border-teal-200 dark:border-teal-800 border-r border-slate-200 dark:border-slate-700">
+                                💳 Maquininha 2 (M2)
+                              </th>
+                              <th className="p-2.5 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 rounded-tr-2xl border-b border-slate-200 dark:border-slate-700 text-right w-28 pr-4">
+                                Total Linha
+                              </th>
+                            </tr>
+                            {/* Header Nível 2: Modalidades */}
+                            <tr className="text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30">
+                              <th className="p-2 text-left"></th>
+                              {/* M1 */}
+                              <th className="p-2 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400">Débito</th>
+                              <th className="p-2 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400">Créd. 1x</th>
+                              <th className="p-2 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-r border-slate-200 dark:border-slate-700">Parcelado</th>
+                              {/* M2 */}
+                              <th className="p-2 bg-teal-50/40 dark:bg-teal-950/20 text-teal-600 dark:text-teal-400">Débito</th>
+                              <th className="p-2 bg-teal-50/40 dark:bg-teal-950/20 text-teal-600 dark:text-teal-400">Créd. 1x</th>
+                              <th className="p-2 bg-teal-50/40 dark:bg-teal-950/20 text-teal-600 dark:text-teal-400 border-r border-slate-200 dark:border-slate-700">Parcelado</th>
+                              {/* Total */}
+                              <th className="p-2 text-right pr-4 text-slate-600 dark:text-slate-300">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                            {(['Visa', 'Master', 'Elo', 'Outros'] as CardBrand[]).map((brand, brandIdx) => {
+                              const row = cardGrid[brand] || { m1_debit: 0, m1_credit: 0, m1_installments: 0, m2_debit: 0, m2_credit: 0, m2_installments: 0 };
+                              const rowSum = gridTotals.brandTotals[brand] || 0;
 
-                        <div key={idx} className="space-y-1">
+                              return (
+                                <tr key={brand} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                  {/* Nome da Bandeira */}
+                                  <td className="p-2 text-left font-black text-slate-800 dark:text-slate-200">
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                                      <span>{brand}</span>
+                                    </div>
+                                  </td>
 
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">{field.label}</label>
+                                  {/* M1 Débito */}
+                                  <td className="p-1.5 bg-indigo-50/20 dark:bg-indigo-950/10">
+                                    <input 
+                                      ref={brandIdx === 0 ? firstInputRef : null}
+                                      type="text" 
+                                      placeholder="0,00"
+                                      className="w-full px-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                                      value={row.m1_debit > 0 ? formatCurrency(row.m1_debit) : ''}
+                                      onChange={(e) => {
+                                        const v = parseCurrency(e.target.value);
+                                        setCardGrid(prev => ({ ...prev, [brand]: { ...prev[brand], m1_debit: v } }));
+                                      }}
+                                    />
+                                  </td>
 
-                          <input 
-                            ref={idx === 0 ? firstInputRef : null}
-                            type="text" step="0.01" 
-                            className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-xl text-slate-900 dark:text-slate-100 outline-none focus:border-slate-400 dark:focus:border-slate-500 transition-all"
-                            value={formatCurrency(field.val)}
-                            onChange={(e) => field.set(parseCurrency(e.target.value))}
-                          />
+                                  {/* M1 Crédito 1x */}
+                                  <td className="p-1.5 bg-indigo-50/20 dark:bg-indigo-950/10">
+                                    <input 
+                                      type="text" 
+                                      placeholder="0,00"
+                                      className="w-full px-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                                      value={row.m1_credit > 0 ? formatCurrency(row.m1_credit) : ''}
+                                      onChange={(e) => {
+                                        const v = parseCurrency(e.target.value);
+                                        setCardGrid(prev => ({ ...prev, [brand]: { ...prev[brand], m1_credit: v } }));
+                                      }}
+                                    />
+                                  </td>
 
+                                  {/* M1 Parcelado */}
+                                  <td className="p-1.5 bg-indigo-50/20 dark:bg-indigo-950/10 border-r border-slate-200 dark:border-slate-700">
+                                    <input 
+                                      type="text" 
+                                      placeholder="0,00"
+                                      className="w-full px-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+                                      value={row.m1_installments > 0 ? formatCurrency(row.m1_installments) : ''}
+                                      onChange={(e) => {
+                                        const v = parseCurrency(e.target.value);
+                                        setCardGrid(prev => ({ ...prev, [brand]: { ...prev[brand], m1_installments: v } }));
+                                      }}
+                                    />
+                                  </td>
+
+                                  {/* M2 Débito */}
+                                  <td className="p-1.5 bg-teal-50/20 dark:bg-teal-950/10">
+                                    <input 
+                                      type="text" 
+                                      placeholder="0,00"
+                                      className="w-full px-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-teal-500"
+                                      value={row.m2_debit > 0 ? formatCurrency(row.m2_debit) : ''}
+                                      onChange={(e) => {
+                                        const v = parseCurrency(e.target.value);
+                                        setCardGrid(prev => ({ ...prev, [brand]: { ...prev[brand], m2_debit: v } }));
+                                      }}
+                                    />
+                                  </td>
+
+                                  {/* M2 Crédito 1x */}
+                                  <td className="p-1.5 bg-teal-50/20 dark:bg-teal-950/10">
+                                    <input 
+                                      type="text" 
+                                      placeholder="0,00"
+                                      className="w-full px-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-teal-500"
+                                      value={row.m2_credit > 0 ? formatCurrency(row.m2_credit) : ''}
+                                      onChange={(e) => {
+                                        const v = parseCurrency(e.target.value);
+                                        setCardGrid(prev => ({ ...prev, [brand]: { ...prev[brand], m2_credit: v } }));
+                                      }}
+                                    />
+                                  </td>
+
+                                  {/* M2 Parcelado */}
+                                  <td className="p-1.5 bg-teal-50/20 dark:bg-teal-950/10 border-r border-slate-200 dark:border-slate-700">
+                                    <input 
+                                      type="text" 
+                                      placeholder="0,00"
+                                      className="w-full px-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center font-black text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-teal-500"
+                                      value={row.m2_installments > 0 ? formatCurrency(row.m2_installments) : ''}
+                                      onChange={(e) => {
+                                        const v = parseCurrency(e.target.value);
+                                        setCardGrid(prev => ({ ...prev, [brand]: { ...prev[brand], m2_installments: v } }));
+                                      }}
+                                    />
+                                  </td>
+
+                                  {/* Total Linha da Bandeira */}
+                                  <td className="p-2 text-right pr-4 font-black text-slate-900 dark:text-white">
+                                    {formatCurrency(rowSum)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          {/* Linha de Totais por Coluna */}
+                          <tfoot>
+                            <tr className="bg-slate-100/80 dark:bg-slate-800/80 font-black text-xs border-t-2 border-slate-300 dark:border-slate-700">
+                              <td className="p-3 text-left uppercase text-[10px] text-slate-500 tracking-wider">
+                                Totais:
+                              </td>
+                              {/* Totais M1 */}
+                              <td className="p-2 text-indigo-700 dark:text-indigo-300">{formatCurrency(gridTotals.m1_deb)}</td>
+                              <td className="p-2 text-indigo-700 dark:text-indigo-300">{formatCurrency(gridTotals.m1_cred)}</td>
+                              <td className="p-2 text-indigo-700 dark:text-indigo-300 border-r border-slate-200 dark:border-slate-700">{formatCurrency(gridTotals.m1_inst)}</td>
+                              {/* Totais M2 */}
+                              <td className="p-2 text-teal-700 dark:text-teal-300">{formatCurrency(gridTotals.m2_deb)}</td>
+                              <td className="p-2 text-teal-700 dark:text-teal-300">{formatCurrency(gridTotals.m2_cred)}</td>
+                              <td className="p-2 text-teal-700 dark:text-teal-300 border-r border-slate-200 dark:border-slate-700">{formatCurrency(gridTotals.m2_inst)}</td>
+                              {/* Total Geral de Cartões */}
+                              <td className="p-2 text-right pr-4 text-emerald-600 dark:text-emerald-400 text-sm">
+                                {formatCurrency(gridTotals.totalCards)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      {/* Cards de Resumo Consolidado de Cartões */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Total Débito (M1+M2)</span>
+                          <span className="text-sm font-black text-slate-900 dark:text-white mt-0.5 block">{formatCurrency(gridTotals.totalDebit)}</span>
+                          <span className="text-[9px] font-semibold text-slate-400 block">M1: {formatCurrency(gridTotals.m1_deb)} • M2: {formatCurrency(gridTotals.m2_deb)}</span>
                         </div>
 
-                      ))}
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Crédito à Vista (M1+M2)</span>
+                          <span className="text-sm font-black text-slate-900 dark:text-white mt-0.5 block">{formatCurrency(gridTotals.totalCredit)}</span>
+                          <span className="text-[9px] font-semibold text-slate-400 block">M1: {formatCurrency(gridTotals.m1_cred)} • M2: {formatCurrency(gridTotals.m2_cred)}</span>
+                        </div>
 
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-700">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Crédito Parcelado (M1+M2)</span>
+                          <span className="text-sm font-black text-slate-900 dark:text-white mt-0.5 block">{formatCurrency(gridTotals.totalInstallments)}</span>
+                          <span className="text-[9px] font-semibold text-slate-400 block">M1: {formatCurrency(gridTotals.m1_inst)} • M2: {formatCurrency(gridTotals.m2_inst)}</span>
+                        </div>
+
+                        <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-2xl border border-emerald-200 dark:border-emerald-800/60">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300 block">Total Cartões</span>
+                          <span className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">{formatCurrency(gridTotals.totalCards)}</span>
+                          <span className="text-[9px] font-semibold text-emerald-600/80 block">M1: {formatCurrency(gridTotals.totalM1)} • M2: {formatCurrency(gridTotals.totalM2)}</span>
+                        </div>
+                      </div>
                     </div>
 
-                  </div>
+                    {/* PIX E DEMAIS ENTRADAS DIGITAIS */}
+                    <div className="bg-white dark:bg-slate-900/60 rounded-3xl border-2 border-slate-100 dark:border-slate-800 shadow-sm p-4 md:p-6 space-y-4 max-w-xl mx-auto">
+                      <div className="flex items-center space-x-2">
+                        <Smartphone className="w-5 h-5 text-emerald-600" />
+                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                          Pix & Entradas Diretas
+                        </h3>
+                      </div>
 
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">
+                            Pix (Maquininha)
+                          </label>
+                          <input 
+                            type="text" 
+                            className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500 transition-all"
+                            value={formatCurrency(pix)}
+                            onChange={(e) => setPix(parseCurrency(e.target.value))}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">
+                            Pix Direto na Conta (Entrada)
+                          </label>
+                          <input 
+                            type="text" 
+                            className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-lg text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500 transition-all"
+                            value={formatCurrency(pixDirect)}
+                            onChange={(e) => setPixDirect(parseCurrency(e.target.value))}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
   

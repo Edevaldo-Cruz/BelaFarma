@@ -15,6 +15,7 @@ module.exports = (db) => {
       expected_payment_date TEXT NOT NULL,
       modality TEXT NOT NULL,
       brand TEXT NOT NULL DEFAULT 'Outros',
+      machine_name TEXT NOT NULL DEFAULT 'M1',
       is_weekend_accumulated INTEGER DEFAULT 0,
       gross_value REAL NOT NULL,
       net_deposited_value REAL,
@@ -30,6 +31,7 @@ module.exports = (db) => {
     CREATE INDEX IF NOT EXISTS idx_card_machine_status ON card_machine_receivables(status);
     CREATE INDEX IF NOT EXISTS idx_card_machine_expected ON card_machine_receivables(expected_payment_date);
     CREATE INDEX IF NOT EXISTS idx_card_machine_brand ON card_machine_receivables(brand);
+    CREATE INDEX IF NOT EXISTS idx_card_machine_machine ON card_machine_receivables(machine_name);
   `);
 
   // Helper para calcular data útil seguinte (pula sábado e domingo para segunda-feira)
@@ -61,7 +63,7 @@ module.exports = (db) => {
   // GET /api/card-machine-receivables - Lista recebíveis com filtros
   router.get('/card-machine-receivables', (req, res) => {
     try {
-      const { month, year, status, modality, brand, search } = req.query;
+      const { month, year, status, modality, brand, machine, search } = req.query;
       let query = 'SELECT * FROM card_machine_receivables WHERE 1=1';
       const params = [];
 
@@ -89,10 +91,15 @@ module.exports = (db) => {
         params.push(brand);
       }
 
+      if (machine && machine !== 'all') {
+        query += ' AND machine_name = ?';
+        params.push(machine);
+      }
+
       if (search) {
-        query += ' AND (notes LIKE ? OR modality LIKE ? OR brand LIKE ? OR reconciled_by LIKE ?)';
+        query += ' AND (notes LIKE ? OR modality LIKE ? OR brand LIKE ? OR machine_name LIKE ? OR reconciled_by LIKE ?)';
         const searchPattern = `%${search}%`;
-        params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+        params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
       }
 
       query += ' ORDER BY expected_payment_date DESC, sale_date DESC, created_at DESC';
@@ -114,7 +121,7 @@ module.exports = (db) => {
       const stmt = db.prepare(`
         SELECT * FROM card_machine_receivables 
         WHERE status = 'Pendente' AND expected_payment_date <= ?
-        ORDER BY expected_payment_date ASC, is_weekend_accumulated DESC, sale_date ASC
+        ORDER BY expected_payment_date ASC, is_weekend_accumulated DESC, brand ASC, modality ASC, sale_date ASC
       `);
       const rows = stmt.all(today);
       res.json(rows);
@@ -127,7 +134,7 @@ module.exports = (db) => {
   // GET /api/card-machine-receivables/dashboard - Estatísticas e KPIs consolidados
   router.get('/card-machine-receivables/dashboard', (req, res) => {
     try {
-      const { month, year } = req.query;
+      const { month, year, machine } = req.query;
       let query = 'SELECT * FROM card_machine_receivables WHERE 1=1';
       const params = [];
 
@@ -138,6 +145,11 @@ module.exports = (db) => {
       } else if (year) {
         query += ` AND (sale_date LIKE ? OR expected_payment_date LIKE ?)`;
         params.push(`${year}%`, `${year}%`);
+      }
+
+      if (machine && machine !== 'all') {
+        query += ' AND machine_name = ?';
+        params.push(machine);
       }
 
       const rows = db.prepare(query).all(...params);
@@ -164,6 +176,11 @@ module.exports = (db) => {
         'Outros': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
       };
 
+      const byMachine = {
+        'M1': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'M2': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 }
+      };
+
       rows.forEach(item => {
         const gross = Number(item.gross_value) || 0;
         const net = item.net_deposited_value !== null && item.net_deposited_value !== undefined ? Number(item.net_deposited_value) : null;
@@ -179,6 +196,10 @@ module.exports = (db) => {
         byBrand[brandKey].gross += gross;
         byBrand[brandKey].count += 1;
 
+        const machKey = item.machine_name === 'M2' ? 'M2' : 'M1';
+        byMachine[machKey].gross += gross;
+        byMachine[machKey].count += 1;
+
         if (item.status === 'Conferido' && net !== null) {
           totalNet += net;
           totalFees += fee;
@@ -192,6 +213,10 @@ module.exports = (db) => {
           byBrand[brandKey].net += net;
           byBrand[brandKey].fee += fee;
           byBrand[brandKey].reconciledGross += gross;
+
+          byMachine[machKey].net += net;
+          byMachine[machKey].fee += fee;
+          byMachine[machKey].reconciledGross += gross;
         } else {
           totalPendingCount += 1;
         }
@@ -231,7 +256,8 @@ module.exports = (db) => {
         totalPendingCount,
         totalReconciledCount,
         byModality: modalityStats,
-        byBrand: brandStats
+        byBrand: brandStats,
+        byMachine
       });
     } catch (err) {
       console.error('[CardMachines] Erro ao calcular dashboard:', err);
@@ -438,6 +464,7 @@ module.exports = (db) => {
         expected_payment_date,
         modality,
         brand,
+        machine_name,
         gross_value,
         notes
       } = req.body;
@@ -454,11 +481,11 @@ module.exports = (db) => {
 
       const stmt = db.prepare(`
         INSERT INTO card_machine_receivables (
-          id, closing_id, sale_date, expected_payment_date, modality, brand, is_weekend_accumulated,
+          id, closing_id, sale_date, expected_payment_date, modality, brand, machine_name, is_weekend_accumulated,
           gross_value, net_deposited_value, fee_value, fee_percent,
           status, reconciled_at, reconciled_by, notes, created_at
         ) VALUES (
-          @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @is_weekend_accumulated,
+          @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @machine_name, @is_weekend_accumulated,
           @gross_value, NULL, NULL, NULL,
           'Pendente', NULL, NULL, @notes, @created_at
         )
@@ -471,6 +498,7 @@ module.exports = (db) => {
         expected_payment_date: expectedDate,
         modality,
         brand: brand || 'Outros',
+        machine_name: machine_name || 'M1',
         is_weekend_accumulated: isWeekendAcc,
         gross_value: Number(gross_value),
         notes: notes || null,
@@ -548,6 +576,7 @@ module.exports = (db) => {
         expected_payment_date,
         modality,
         brand,
+        machine_name,
         is_weekend_accumulated,
         gross_value,
         net_deposited_value,
@@ -581,6 +610,7 @@ module.exports = (db) => {
             expected_payment_date = ?,
             modality = ?,
             brand = ?,
+            machine_name = ?,
             is_weekend_accumulated = ?,
             gross_value = ?,
             net_deposited_value = ?,
@@ -597,6 +627,7 @@ module.exports = (db) => {
         expected_payment_date || record.expected_payment_date,
         modality || record.modality,
         brand || record.brand,
+        machine_name || record.machine_name || 'M1',
         is_weekend_accumulated !== undefined ? is_weekend_accumulated : record.is_weekend_accumulated,
         newGross,
         newNet,

@@ -585,6 +585,7 @@ try {
         expected_payment_date TEXT NOT NULL,
         modality TEXT NOT NULL,
         brand TEXT NOT NULL DEFAULT 'Outros',
+        machine_name TEXT NOT NULL DEFAULT 'M1',
         is_weekend_accumulated INTEGER DEFAULT 0,
         gross_value REAL NOT NULL,
         net_deposited_value REAL,
@@ -1692,11 +1693,13 @@ try {
     } catch(e) {}
     console.log('✅ Contador de Visitantes: Tabela page_visitors criada/verificada!');
 
-    // Migrations para Card Machines (Bandeiras, Fim de semana acumulado) e Fechamento (Crédito Parcelado)
+    // Migrations para Card Machines (Bandeiras, Fim de semana acumulado, Maquininhas M1/M2) e Fechamento (Crédito Parcelado, Grade)
     try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN brand TEXT NOT NULL DEFAULT 'Outros'"); } catch(e) {}
     try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN is_weekend_accumulated INTEGER DEFAULT 0"); } catch(e) {}
+    try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN machine_name TEXT NOT NULL DEFAULT 'M1'"); } catch(e) {}
     try { db.exec("ALTER TABLE cash_closings ADD COLUMN credit_installments REAL DEFAULT 0"); } catch(e) {}
-    console.log('✅ Maquininhas: Migrações de bandeira, parcelado e acumulado de fim de semana verificadas!');
+    try { db.exec("ALTER TABLE cash_closings ADD COLUMN card_grid_json TEXT"); } catch(e) {}
+    console.log('✅ Maquininhas: Migrações de bandeira, máquina M1/M2, parcelado e acumulado de fim de semana verificadas!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

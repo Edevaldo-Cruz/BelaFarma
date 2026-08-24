@@ -81,6 +81,7 @@ export interface CashClosingRecord {
   pix: number;
   userName: string;
   totalCrediario: number;
+  card_grid_json?: string;
   crediarioList: Array<{ id: string, client: string, val: number, customerId?: string }>;
   creditReceipts?: Array<{ id: string, date: string, customer: string, val: number, description?: string }>;
 }
@@ -496,6 +497,7 @@ export interface CardMachineReceivable {
   expected_payment_date: string;
   modality: 'Débito' | 'Crédito à Vista' | 'Crédito Parcelado' | 'Crédito' | string;
   brand: 'Visa' | 'Master' | 'Elo' | 'Outros' | string;
+  machine_name?: 'M1' | 'M2' | string;
   is_weekend_accumulated?: number;
   gross_value: number;
   net_deposited_value?: number | null;
@@ -506,6 +508,31 @@ export interface CardMachineReceivable {
   reconciled_by?: string | null;
   notes?: string | null;
   created_at: string;
+}
+
+export type CardBrand = 'Visa' | 'Master' | 'Elo' | 'Outros';
+export type CardModality = 'Débito' | 'Crédito à Vista' | 'Crédito Parcelado';
+export type CardMachineType = 'M1' | 'M2';
+
+export interface CardMachineGridValues {
+  m1_debit: number;
+  m1_credit: number;
+  m1_installments: number;
+  m2_debit: number;
+  m2_credit: number;
+  m2_installments: number;
+}
+
+export type CardMachineGridState = Record<CardBrand, CardMachineGridValues>;
+
+export interface ConsolidatedBrandGroup {
+  groupKey: string;
+  brand: string;
+  modality: string;
+  totalGross: number;
+  m1Gross: number;
+  m2Gross: number;
+  items: CardMachineReceivable[];
 }
 
 export interface CardMachineDashboard {

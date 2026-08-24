@@ -52,6 +52,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
   const [filterStatus, setFilterStatus] = useState<'all' | 'Pendente' | 'Conferido'>('all');
   const [filterModality, setFilterModality] = useState<string>('all');
   const [filterBrand, setFilterBrand] = useState<string>('all');
+  const [filterMachine, setFilterMachine] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Modals
@@ -66,6 +67,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
     expected_payment_date: '',
     modality: 'Débito',
     brand: 'Visa',
+    machine_name: 'M1',
     gross_value: '',
     notes: ''
   });
@@ -122,11 +124,12 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
       if (filterStatus !== 'all') queryParams.append('status', filterStatus);
       if (filterModality !== 'all') queryParams.append('modality', filterModality);
       if (filterBrand !== 'all') queryParams.append('brand', filterBrand);
+      if (filterMachine !== 'all') queryParams.append('machine', filterMachine);
       if (searchTerm) queryParams.append('search', searchTerm);
 
       const [resList, resDash, resAudit] = await Promise.all([
         fetch(`/api/card-machine-receivables?${queryParams.toString()}`),
-        fetch(`/api/card-machine-receivables/dashboard?month=${filterMonth}&year=${filterYear}`),
+        fetch(`/api/card-machine-receivables/dashboard?month=${filterMonth}&year=${filterYear}&machine=${filterMachine}`),
         fetch(`/api/card-machine-receivables/fee-audit?month=${filterMonth}&year=${filterYear}`)
       ]);
 
@@ -151,7 +154,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
 
   useEffect(() => {
     fetchData();
-  }, [filterMonth, filterYear, filterStatus, filterModality, filterBrand, searchTerm]);
+  }, [filterMonth, filterYear, filterStatus, filterModality, filterBrand, filterMachine, searchTerm]);
 
   // Handle manual creation / editing
   const handleOpenAddModal = (itemToEdit?: CardMachineReceivable) => {
@@ -162,6 +165,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
         expected_payment_date: itemToEdit.expected_payment_date,
         modality: itemToEdit.modality,
         brand: itemToEdit.brand || 'Visa',
+        machine_name: itemToEdit.machine_name || 'M1',
         gross_value: (itemToEdit.gross_value * 100).toFixed(0),
         notes: itemToEdit.notes || ''
       });
@@ -172,6 +176,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
         expected_payment_date: '',
         modality: 'Débito',
         brand: 'Visa',
+        machine_name: 'M1',
         gross_value: '',
         notes: ''
       });
@@ -204,6 +209,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
           expected_payment_date: formData.expected_payment_date || undefined,
           modality: formData.modality,
           brand: formData.brand,
+          machine_name: formData.machine_name,
           gross_value: grossNum,
           notes: formData.notes,
           reconciled_by: user.name
@@ -474,6 +480,17 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                 <option value="Elo">Elo</option>
                 <option value="Outros">Outros</option>
               </select>
+
+              {/* Machine Filter */}
+              <select
+                value={filterMachine}
+                onChange={(e) => setFilterMachine(e.target.value)}
+                className="bg-slate-50 dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+              >
+                <option value="all">Máquina: Todas</option>
+                <option value="M1">Maquininha 1 (M1)</option>
+                <option value="M2">Maquininha 2 (M2)</option>
+              </select>
             </div>
 
             {/* Search Input */}
@@ -497,7 +514,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                   <tr className="border-b border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/30 text-[10px] font-black uppercase tracking-widest text-slate-400">
                     <th className="py-4 px-6">Data da Venda</th>
                     <th className="py-4 px-6">Repasse Previsto</th>
-                    <th className="py-4 px-6">Modalidade & Bandeira</th>
+                    <th className="py-4 px-6">Máquina & Modalidade</th>
                     <th className="py-4 px-6 text-right">Valor Bruto</th>
                     <th className="py-4 px-6 text-right">Líquido Depositado</th>
                     <th className="py-4 px-6 text-right">Taxa (R$ / %)</th>
@@ -545,6 +562,13 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                           </td>
                           <td className="py-4 px-6">
                             <div className="flex items-center space-x-2">
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                item.machine_name === 'M2' 
+                                  ? 'bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800' 
+                                  : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                              }`}>
+                                {item.machine_name || 'M1'}
+                              </span>
                               <span className="font-black text-slate-800 dark:text-slate-100">
                                 {item.modality}
                               </span>
@@ -864,7 +888,19 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-500 uppercase tracking-wider text-[10px]">Maquininha</label>
+                  <select
+                    value={formData.machine_name}
+                    onChange={(e) => setFormData({ ...formData, machine_name: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none cursor-pointer"
+                  >
+                    <option value="M1">M1 (Maquininha 1)</option>
+                    <option value="M2">M2 (Maquininha 2)</option>
+                  </select>
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-slate-500 uppercase tracking-wider text-[10px]">Modalidade</label>
                   <select

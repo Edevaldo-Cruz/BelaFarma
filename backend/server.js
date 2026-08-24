@@ -1546,8 +1546,8 @@ app.post('/api/cash-closings', (req, res) => {
     const closing = req.body;
     console.log('Received closing data:', closing); // Debugging line
     const insertClosingStmt = db.prepare(`
-      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, credit_installments, debit, pix, pixDirect, totalCrediario, crediarioList, creditReceipts)
-      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @credit_installments, @debit, @pix, @pixDirect, @totalCrediario, @crediarioList, @creditReceipts)
+      INSERT INTO cash_closings (id, date, totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer, difference, safeDeposit, expenses, userName, credit, credit_installments, debit, pix, pixDirect, totalCrediario, crediarioList, creditReceipts, card_grid_json)
+      VALUES (@id, @date, @totalSales, @initialCash, @receivedExtra, @totalDigital, @totalInDrawer, @difference, @safeDeposit, @expenses, @userName, @credit, @credit_installments, @debit, @pix, @pixDirect, @totalCrediario, @crediarioList, @creditReceipts, @card_grid_json)
     `);
     
     const insertTransactionStmt = db.prepare(`
@@ -1562,11 +1562,11 @@ app.post('/api/cash-closings', (req, res) => {
 
     const insertCardMachineStmt = db.prepare(`
       INSERT INTO card_machine_receivables (
-        id, closing_id, sale_date, expected_payment_date, modality, brand, is_weekend_accumulated,
+        id, closing_id, sale_date, expected_payment_date, modality, brand, machine_name, is_weekend_accumulated,
         gross_value, net_deposited_value, fee_value, fee_percent,
         status, reconciled_at, reconciled_by, notes, created_at
       ) VALUES (
-        @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @is_weekend_accumulated,
+        @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @machine_name, @is_weekend_accumulated,
         @gross_value, NULL, NULL, NULL,
         'Pendente', NULL, NULL, @notes, @created_at
       )
@@ -1596,11 +1596,15 @@ app.post('/api/cash-closings', (req, res) => {
     };
 
     db.transaction(() => {
+      const cardGridObj = closing.cardGrid || (closing.card_grid_json ? JSON.parse(closing.card_grid_json) : null);
+      const cardGridJson = cardGridObj ? JSON.stringify(cardGridObj) : null;
+
       insertClosingStmt.run({
         ...closing,
         credit_installments: Number(closing.credit_installments || 0),
         crediarioList: JSON.stringify(closing.crediarioList || []),
-        creditReceipts: JSON.stringify(closing.creditReceipts || [])
+        creditReceipts: JSON.stringify(closing.creditReceipts || []),
+        card_grid_json: cardGridJson
       });
 
       const transactionDate = new Date().toISOString();
@@ -1624,84 +1628,206 @@ app.post('/api/cash-closings', (req, res) => {
         });
       }
 
-      // Crédito à Vista
-      const creditVal = Number(closing.credit || 0);
-      if (creditVal > 0) {
+      // Se enviou a grade detalhada de 2 maquininhas por bandeira
+      if (cardGridObj) {
+        const brands = ['Visa', 'Master', 'Elo', 'Outros'];
+        brands.forEach(brand => {
+          const row = cardGridObj[brand] || {};
+
+          // Maquininha 1 (M1)
+          const m1Deb = Number(row.m1_debit || 0);
+          const m1Cred = Number(row.m1_credit || 0);
+          const m1Inst = Number(row.m1_installments || 0);
+
+          // Maquininha 2 (M2)
+          const m2Deb = Number(row.m2_debit || 0);
+          const m2Cred = Number(row.m2_credit || 0);
+          const m2Inst = Number(row.m2_installments || 0);
+
+          if (m1Deb > 0) {
+            insertCardMachineStmt.run({
+              id: `cmr_m1_deb_${brand}_${closing.id}`,
+              closing_id: closing.id,
+              sale_date: saleDate,
+              expected_payment_date: busDayInfo.nextDate,
+              modality: 'Débito',
+              brand,
+              machine_name: 'M1',
+              is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+              gross_value: m1Deb,
+              notes: `Fechamento ${saleDate} - M1 ${brand} Débito`,
+              created_at: transactionDate
+            });
+          }
+
+          if (m1Cred > 0) {
+            insertCardMachineStmt.run({
+              id: `cmr_m1_cred_${brand}_${closing.id}`,
+              closing_id: closing.id,
+              sale_date: saleDate,
+              expected_payment_date: busDayInfo.nextDate,
+              modality: 'Crédito à Vista',
+              brand,
+              machine_name: 'M1',
+              is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+              gross_value: m1Cred,
+              notes: `Fechamento ${saleDate} - M1 ${brand} Crédito à Vista`,
+              created_at: transactionDate
+            });
+          }
+
+          if (m1Inst > 0) {
+            insertCardMachineStmt.run({
+              id: `cmr_m1_inst_${brand}_${closing.id}`,
+              closing_id: closing.id,
+              sale_date: saleDate,
+              expected_payment_date: busDayInfo.nextDate,
+              modality: 'Crédito Parcelado',
+              brand,
+              machine_name: 'M1',
+              is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+              gross_value: m1Inst,
+              notes: `Fechamento ${saleDate} - M1 ${brand} Crédito Parcelado`,
+              created_at: transactionDate
+            });
+          }
+
+          if (m2Deb > 0) {
+            insertCardMachineStmt.run({
+              id: `cmr_m2_deb_${brand}_${closing.id}`,
+              closing_id: closing.id,
+              sale_date: saleDate,
+              expected_payment_date: busDayInfo.nextDate,
+              modality: 'Débito',
+              brand,
+              machine_name: 'M2',
+              is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+              gross_value: m2Deb,
+              notes: `Fechamento ${saleDate} - M2 ${brand} Débito`,
+              created_at: transactionDate
+            });
+          }
+
+          if (m2Cred > 0) {
+            insertCardMachineStmt.run({
+              id: `cmr_m2_cred_${brand}_${closing.id}`,
+              closing_id: closing.id,
+              sale_date: saleDate,
+              expected_payment_date: busDayInfo.nextDate,
+              modality: 'Crédito à Vista',
+              brand,
+              machine_name: 'M2',
+              is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+              gross_value: m2Cred,
+              notes: `Fechamento ${saleDate} - M2 ${brand} Crédito à Vista`,
+              created_at: transactionDate
+            });
+          }
+
+          if (m2Inst > 0) {
+            insertCardMachineStmt.run({
+              id: `cmr_m2_inst_${brand}_${closing.id}`,
+              closing_id: closing.id,
+              sale_date: saleDate,
+              expected_payment_date: busDayInfo.nextDate,
+              modality: 'Crédito Parcelado',
+              brand,
+              machine_name: 'M2',
+              is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+              gross_value: m2Inst,
+              notes: `Fechamento ${saleDate} - M2 ${brand} Crédito Parcelado`,
+              created_at: transactionDate
+            });
+          }
+        });
+      } else {
+        // Fallback para entradas simples caso não tenha enviado a grade
+        const creditVal = Number(closing.credit || 0);
+        if (creditVal > 0) {
+          insertCardMachineStmt.run({
+            id: `cmr_cred_${closing.id}`,
+            closing_id: closing.id,
+            sale_date: saleDate,
+            expected_payment_date: busDayInfo.nextDate,
+            modality: 'Crédito à Vista',
+            brand: 'Outros',
+            machine_name: 'M1',
+            is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+            gross_value: creditVal,
+            notes: `Fechamento de Caixa ${saleDate} - Crédito à Vista`,
+            created_at: transactionDate
+          });
+        }
+
+        const installmentsVal = Number(closing.credit_installments || 0);
+        if (installmentsVal > 0) {
+          insertCardMachineStmt.run({
+            id: `cmr_inst_${closing.id}`,
+            closing_id: closing.id,
+            sale_date: saleDate,
+            expected_payment_date: busDayInfo.nextDate,
+            modality: 'Crédito Parcelado',
+            brand: 'Outros',
+            machine_name: 'M1',
+            is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+            gross_value: installmentsVal,
+            notes: `Fechamento de Caixa ${saleDate} - Crédito Parcelado`,
+            created_at: transactionDate
+          });
+        }
+
+        const debitVal = Number(closing.debit || 0);
+        if (debitVal > 0) {
+          insertCardMachineStmt.run({
+            id: `cmr_deb_${closing.id}`,
+            closing_id: closing.id,
+            sale_date: saleDate,
+            expected_payment_date: busDayInfo.nextDate,
+            modality: 'Débito',
+            brand: 'Outros',
+            machine_name: 'M1',
+            is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
+            gross_value: debitVal,
+            notes: `Fechamento de Caixa ${saleDate} - Débito`,
+            created_at: transactionDate
+          });
+        }
+      }
+
+      // Lançamentos no extrato de conta corrente
+      const totalCreditVal = Number(closing.credit || 0);
+      if (totalCreditVal > 0) {
         insertTransactionStmt.run({
           id: `txn_credit_${closing.id}`,
           date: transactionDate,
           description: 'Cartão de Crédito à Vista',
           type: 'Entrada',
-          value: creditVal,
+          value: totalCreditVal,
           cashClosingId: closing.id
-        });
-
-        // Registrar em card_machine_receivables
-        insertCardMachineStmt.run({
-          id: `cmr_cred_${closing.id}`,
-          closing_id: closing.id,
-          sale_date: saleDate,
-          expected_payment_date: busDayInfo.nextDate,
-          modality: 'Crédito à Vista',
-          brand: 'Outros',
-          is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
-          gross_value: creditVal,
-          notes: `Fechamento de Caixa ${saleDate} - Crédito à Vista`,
-          created_at: transactionDate
         });
       }
 
-      // Crédito Parcelado
-      const installmentsVal = Number(closing.credit_installments || 0);
-      if (installmentsVal > 0) {
+      const totalInstVal = Number(closing.credit_installments || 0);
+      if (totalInstVal > 0) {
         insertTransactionStmt.run({
           id: `txn_cred_inst_${closing.id}`,
           date: transactionDate,
           description: 'Cartão de Crédito Parcelado',
           type: 'Entrada',
-          value: installmentsVal,
+          value: totalInstVal,
           cashClosingId: closing.id
-        });
-
-        // Registrar em card_machine_receivables
-        insertCardMachineStmt.run({
-          id: `cmr_inst_${closing.id}`,
-          closing_id: closing.id,
-          sale_date: saleDate,
-          expected_payment_date: busDayInfo.nextDate,
-          modality: 'Crédito Parcelado',
-          brand: 'Outros',
-          is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
-          gross_value: installmentsVal,
-          notes: `Fechamento de Caixa ${saleDate} - Crédito Parcelado`,
-          created_at: transactionDate
         });
       }
 
-      // Débito
-      const debitVal = Number(closing.debit || 0);
-      if (debitVal > 0) {
+      const totalDebVal = Number(closing.debit || 0);
+      if (totalDebVal > 0) {
         insertTransactionStmt.run({
           id: `txn_debit_${closing.id}`,
           date: transactionDate,
           description: 'Cartão de Débito',
           type: 'Entrada',
-          value: debitVal,
+          value: totalDebVal,
           cashClosingId: closing.id
-        });
-
-        // Registrar em card_machine_receivables
-        insertCardMachineStmt.run({
-          id: `cmr_deb_${closing.id}`,
-          closing_id: closing.id,
-          sale_date: saleDate,
-          expected_payment_date: busDayInfo.nextDate,
-          modality: 'Débito',
-          brand: 'Outros',
-          is_weekend_accumulated: busDayInfo.isWeekendAccumulated,
-          gross_value: debitVal,
-          notes: `Fechamento de Caixa ${saleDate} - Débito`,
-          created_at: transactionDate
         });
       }
 
