@@ -566,6 +566,53 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_status ON price_scheduled_steps(status);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_exec ON price_scheduled_steps(proxima_execucao);'); } catch(e) {}
 
+    // Digifarma Replication & Continuous Sync Tables
+    const createDigifarmaSyncTables = `
+      CREATE TABLE IF NOT EXISTS digifarma_sync_metadata (
+        tabela TEXT PRIMARY KEY,
+        ultima_sincronizacao TEXT,
+        total_registros INTEGER DEFAULT 0,
+        duracao_ms INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'ok',
+        mensagem_erro TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS digifarma_crediario_cache (
+        id TEXT PRIMARY KEY,
+        cliente_id INTEGER,
+        cliente_nome TEXT,
+        telefone TEXT,
+        valor REAL NOT NULL,
+        data_compra TEXT,
+        data_vencimento TEXT,
+        venda_nota_id INTEGER,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
+      CREATE TABLE IF NOT EXISTS digifarma_stock_summary_cache (
+        id TEXT PRIMARY KEY DEFAULT 'current',
+        total_ativos INTEGER DEFAULT 0,
+        total_saidas_mes REAL DEFAULT 0,
+        qtd_parados_90d INTEGER DEFAULT 0,
+        valor_parado_90d REAL DEFAULT 0,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
+      CREATE TABLE IF NOT EXISTS digifarma_vendas_hoje_cache (
+        venda_nota_id INTEGER PRIMARY KEY,
+        data_hora TEXT NOT NULL,
+        valor_total REAL NOT NULL,
+        cancelado TEXT DEFAULT 'N',
+        formas_pagamento TEXT,
+        total_itens INTEGER DEFAULT 0,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `;
+    db.exec(createDigifarmaSyncTables);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_cli ON digifarma_crediario_cache(cliente_id);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_venc ON digifarma_crediario_cache(data_vencimento);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_vendas_data ON digifarma_vendas_hoje_cache(data_hora);'); } catch(e) {}
+
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN match_score INTEGER DEFAULT 0'); } catch(e) {}

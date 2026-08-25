@@ -4067,6 +4067,65 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DIGIFARMA CONTINUOUS REPLICATION & SYNC DAEMON
+// ═══════════════════════════════════════════════════════════════════════════
+const { syncProdutos, syncCrediario, syncVendasHoje, syncEstoqueResumo, syncTudo, getSyncStatus } = require('./services/digifarma-sync.service');
+
+// Status de Sincronização
+app.get('/api/sync/status', (req, res) => {
+  try {
+    const status = getSyncStatus(db);
+    res.json({ success: true, data: status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Forçar Sincronização Manual Imediata
+app.post('/api/sync/force', async (req, res) => {
+  try {
+    const { target } = req.body || {};
+    let result = {};
+
+    if (target === 'produtos') {
+      result = await syncProdutos(db);
+    } else if (target === 'crediario') {
+      result = await syncCrediario(db);
+    } else if (target === 'vendas_hoje') {
+      result = await syncVendasHoje(db);
+    } else if (target === 'estoque') {
+      result = await syncEstoqueResumo(db);
+    } else {
+      result = await syncTudo(db);
+    }
+
+    res.json({ success: true, message: 'Sincronização concluída com sucesso!', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Ciclo Rápido (a cada 2 min): Vendas do dia e Crediário
+setInterval(async () => {
+  try {
+    await syncVendasHoje(db);
+    await syncCrediario(db);
+  } catch (e) {
+    console.error('[Sync Daemon Rápido] Erro:', e.message);
+  }
+}, 2 * 60 * 1000);
+
+// Ciclo Completo (a cada 10 min): Catálogo de Produtos, Curva ABC e Resumo de Estoque
+setInterval(async () => {
+  try {
+    await syncProdutos(db);
+    await syncEstoqueResumo(db);
+  } catch (e) {
+    console.error('[Sync Daemon Completo] Erro:', e.message);
+  }
+}, 10 * 60 * 1000);
+
 // Rotina periódica em segundo plano para auditar variações de preço de entradas recentes (a cada 15 min)
 const { sincronizarVariacaoPrecosMural } = require('./services/entradas-sync.service');
 const { processScheduledPriceSteps } = require('./price-manager-endpoints');
@@ -4086,13 +4145,17 @@ setInterval(async () => {
   }
 }, 15 * 60 * 1000);
 
-// Sincronização inicial 15 segundos após a inicialização
+// Sincronização inicial completa 10 segundos após a inicialização
 setTimeout(async () => {
   try {
+    console.log('[Digifarma Boot Sync] 🚀 Executando primeira sincronização do Digifarma...');
+    await syncTudo(db);
     await sincronizarVariacaoPrecosMural(7);
     await processScheduledPriceSteps(db);
-  } catch (e) {}
-}, 15000);
+  } catch (e) {
+    console.warn('[Digifarma Boot Sync] Aviso no boot sync:', e.message);
+  }
+}, 10000);
 
 
 // ═══════════════════════════════════════════════════════════════════════════

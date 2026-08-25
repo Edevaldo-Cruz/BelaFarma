@@ -32,8 +32,22 @@ function limparCacheEstoque() {
  * @returns {Promise<Object>}
  */
 async function obterResumoEstoque(bypassCache = false) {
+  // 1. Tenta ler do cache SQLite local (instantâneo < 5ms)
+  if (!bypassCache) {
+    try {
+      const row = db.prepare('SELECT * FROM digifarma_stock_summary_cache WHERE id = ?').get('current');
+      if (row && row.total_ativos > 0) {
+        return {
+          totalAtivos: row.total_ativos,
+          totalSaidasMes: row.total_saidas_mes,
+          qtdParados: row.qtd_parados_90d,
+          valorParado: row.valor_parado_90d
+        };
+      }
+    } catch (e) {}
+  }
+
   if (!bypassCache && cacheStorage.resumo.data && Date.now() < cacheStorage.resumo.expireAt) {
-    console.log('[Stock Service] Devolvendo resumo de estoque do cache.');
     return cacheStorage.resumo.data;
   }
 

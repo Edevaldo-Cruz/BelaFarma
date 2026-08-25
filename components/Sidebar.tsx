@@ -39,9 +39,9 @@ import {
   Printer, // Added for Labels
   Activity, // Added for Vigilante
   Calendar, // Added for Purchase Calendar
-  Truck, // Added for Deliveries
   ShieldAlert, // Added for Alertas ANVISA
   NotebookPen, // Added for Bloco de Notas
+  RefreshCw, // Added for Digifarma Sync
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -86,6 +86,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [hasOverdue, setHasOverdue] = React.useState(false);
   const [ifoodNotifCount, setIfoodNotifCount] = React.useState(0);
   const [pendingReviewCount, setPendingReviewCount] = React.useState(0);
+  const [isSyncingDigifarma, setIsSyncingDigifarma] = React.useState(false);
+  const [digifarmaSyncText, setDigifarmaSyncText] = React.useState('Sincronizado');
+
+  // Monitora status de sincronização do Digifarma
+  React.useEffect(() => {
+    const checkSyncStatus = async () => {
+      try {
+        const res = await fetch('/api/sync/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+            const latest = data.data.reduce((max: any, item: any) => {
+              return (!max || new Date(item.ultima_sincronizacao) > new Date(max.ultima_sincronizacao)) ? item : max;
+            }, null);
+            if (latest && latest.ultima_sincronizacao) {
+              const diffMin = Math.max(0, Math.floor((Date.now() - new Date(latest.ultima_sincronizacao).getTime()) / 60000));
+              setDigifarmaSyncText(diffMin === 0 ? 'Sincronizado agora' : `Sincronizado há ${diffMin}m`);
+            }
+          }
+        }
+      } catch (e) {}
+    };
+    checkSyncStatus();
+    const interval = setInterval(checkSyncStatus, 20000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleForceSyncDigifarma = async () => {
+    if (isSyncingDigifarma) return;
+    setIsSyncingDigifarma(true);
+    try {
+      const res = await fetch('/api/sync/force', { method: 'POST' });
+      if (res.ok) {
+        setDigifarmaSyncText('Sincronizado agora');
+      }
+    } catch (e) {
+    } finally {
+      setIsSyncingDigifarma(false);
+    }
+  };
 
   // Check pending audit reviews for WhatsApp deliveries
   React.useEffect(() => {
@@ -512,11 +552,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </nav>
 
-          <div className={`p-4 border-t transition-colors ${
+          <div className={`p-4 border-t transition-colors space-y-2 ${
             isBudgetBusted 
               ? 'border-red-900/50 bg-red-950/85' 
               : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50'
           }`}>
+            {/* Status do Cache Digifarma */}
+            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-200/60 dark:bg-slate-800/60 border border-slate-300/40 dark:border-slate-700/40 text-[11px]">
+              <div className="flex items-center gap-2 truncate">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                <span className="font-bold text-slate-700 dark:text-slate-300 truncate">
+                  {digifarmaSyncText}
+                </span>
+              </div>
+              <button
+                onClick={handleForceSyncDigifarma}
+                disabled={isSyncingDigifarma}
+                title="Sincronizar Digifarma com a VPS agora"
+                className="p-1 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDigifarma ? 'animate-spin text-blue-500' : ''}`} />
+              </button>
+            </div>
+
             <button
               onClick={onLogout}
               className={`flex items-center w-full gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all ${getLogoutBtnClass()}`}
