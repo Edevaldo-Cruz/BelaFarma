@@ -39,6 +39,7 @@ import {
   Printer, // Added for Labels
   Activity, // Added for Vigilante
   Calendar, // Added for Purchase Calendar
+  Truck, // Added for Deliveries
   ShieldAlert, // Added for Alertas ANVISA
   NotebookPen, // Added for Bloco de Notas
   RefreshCw, // Added for Digifarma Sync
