@@ -654,19 +654,115 @@ module.exports = function (db) {
 
   /**
    * 8. GET /api/price-manager/snapshots
-   * Lista o histórico de snapshots de backup de preços
+   * Lista o histórico de snapshots de backup de preços e calcula impacto no faturamento
    */
   router.get('/snapshots', (req, res) => {
     try {
-      const limit = parseInt(req.query.limit) || 50;
-      const rows = db.prepare(`
-        SELECT * FROM price_change_snapshots 
-        ORDER BY data_alteracao DESC 
+      const limit = parseInt(req.query.limit) || 100;
+      const period = req.query.period || 'all'; // 'today', '7d', '30d', 'month', 'all'
+      const search = (req.query.search || '').trim();
+
+      let whereClauses = [];
+      let params = [];
+
+      if (period === 'today') {
+        whereClauses.push("date(s.data_alteracao) = date('now', 'localtime')");
+      } else if (period === '7d') {
+        whereClauses.push("s.data_alteracao >= datetime('now', '-7 days', 'localtime')");
+      } else if (period === '30d') {
+        whereClauses.push("s.data_alteracao >= datetime('now', '-30 days', 'localtime')");
+      } else if (period === 'month') {
+        whereClauses.push("strftime('%Y-%m', s.data_alteracao) = strftime('%Y-%m', 'now', 'localtime')");
+      }
+
+      if (search) {
+        whereClauses.push("(s.descricao LIKE ? OR s.cod_barras LIKE ? OR CAST(s.produto_id AS TEXT) LIKE ?)");
+        const searchParam = `%${search}%`;
+        params.push(searchParam, searchParam, searchParam);
+      }
+
+      const whereSQL = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      const query = `
+        SELECT 
+          s.id,
+          s.produto_id,
+          s.descricao,
+          s.cod_barras,
+          s.preco_anterior,
+          s.novo_preco,
+          s.preco_custo,
+          s.tipo,
+          s.motivo,
+          s.usuario,
+          s.data_alteracao,
+          s.revertido,
+          s.revertido_em,
+          s.revertido_por,
+          c.curva,
+          c.estoque_atual,
+          (s.novo_preco - s.preco_anterior) as diff_preco,
+          CASE WHEN s.preco_anterior > 0 
+               THEN round(((s.novo_preco - s.preco_anterior) / s.preco_anterior) * 100, 2)
+               ELSE 0 END as diff_percentual,
+          CASE 
+            WHEN c.curva = 'A' THEN 35
+            WHEN c.curva = 'B' THEN 15
+            ELSE 5 
+          END as volume_mensal_estimado,
+          round((s.novo_preco - s.preco_anterior) * (CASE WHEN c.curva = 'A' THEN 35 WHEN c.curva = 'B' THEN 15 ELSE 5 END), 2) as impacto_mensal_faturamento,
+          round(((s.novo_preco - s.preco_anterior) * (CASE WHEN c.curva = 'A' THEN 35 WHEN c.curva = 'B' THEN 15 ELSE 5 END)) * 0.85, 2) as impacto_mensal_lucro
+        FROM price_change_snapshots s
+        LEFT JOIN digifarma_products_cache c ON s.produto_id = c.produto_id
+        ${whereSQL}
+        ORDER BY s.data_alteracao DESC 
         LIMIT ?
-      `).all(limit);
-      res.json({ success: true, data: rows });
+      `;
+
+      const rows = db.prepare(query).all(...params, limit);
+
+      // Métricas Consolidadas do Impacto
+      let totalChanges = rows.length;
+      let totalIncrease = 0;
+      let totalDecrease = 0;
+      let totalReverted = 0;
+      let totalMonthlyRevenueImpact = 0;
+      let totalMonthlyProfitImpact = 0;
+      let sumPct = 0;
+
+      for (const r of rows) {
+        if (r.revertido) {
+          totalReverted++;
+        } else {
+          if (r.diff_preco > 0) totalIncrease++;
+          else if (r.diff_preco < 0) totalDecrease++;
+
+          totalMonthlyRevenueImpact += (r.impacto_mensal_faturamento || 0);
+          totalMonthlyProfitImpact += (r.impacto_mensal_lucro || 0);
+          sumPct += (r.diff_percentual || 0);
+        }
+      }
+
+      const averagePriceChangePct = (totalChanges - totalReverted) > 0 
+        ? roundUpToAcceptedCents(sumPct / (totalChanges - totalReverted)) 
+        : 0;
+
+      res.json({ 
+        success: true, 
+        data: rows,
+        summary: {
+          totalChanges,
+          totalIncrease,
+          totalDecrease,
+          totalReverted,
+          activeChanges: totalChanges - totalReverted,
+          totalMonthlyRevenueImpact: roundUpToAcceptedCents(totalMonthlyRevenueImpact),
+          totalMonthlyProfitImpact: roundUpToAcceptedCents(totalMonthlyProfitImpact),
+          averagePriceChangePct
+        }
+      });
     } catch (err) {
-      console.error('[Price Manager API] Erro ao listar snapshots:', err);
+      console.error('[Price Manager API] Erro ao listar snapshots e calcular impacto:', err);
       res.status(500).json({ error: err.message });
     }
   });

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   TrendingUp, 
+  TrendingDown,
+  Wallet,
+  BarChart3,
   RefreshCw, 
   Search, 
   DollarSign, 
@@ -121,6 +124,24 @@ interface PriceSnapshot {
   revertido: number;
   revertido_em?: string;
   revertido_por?: string;
+  curva?: string;
+  estoque_atual?: number;
+  diff_preco?: number;
+  diff_percentual?: number;
+  volume_mensal_estimado?: number;
+  impacto_mensal_faturamento?: number;
+  impacto_mensal_lucro?: number;
+}
+
+interface ImpactSummary {
+  totalChanges: number;
+  totalIncrease: number;
+  totalDecrease: number;
+  totalReverted: number;
+  activeChanges: number;
+  totalMonthlyRevenueImpact: number;
+  totalMonthlyProfitImpact: number;
+  averagePriceChangePct: number;
 }
 
 interface PriceManagerProps {
@@ -193,6 +214,18 @@ export const PriceManager: React.FC<PriceManagerProps> = ({ user }) => {
   // Reajustes Escalonados e Snapshots
   const [scheduledSteps, setScheduledSteps] = useState<ScheduledStep[]>([]);
   const [snapshots, setSnapshots] = useState<PriceSnapshot[]>([]);
+  const [snapshotPeriod, setSnapshotPeriod] = useState<'all' | 'today' | '7d' | '30d' | 'month'>('all');
+  const [snapshotSearch, setSnapshotSearch] = useState<string>('');
+  const [impactSummary, setImpactSummary] = useState<ImpactSummary>({
+    totalChanges: 0,
+    totalIncrease: 0,
+    totalDecrease: 0,
+    totalReverted: 0,
+    activeChanges: 0,
+    totalMonthlyRevenueImpact: 0,
+    totalMonthlyProfitImpact: 0,
+    averagePriceChangePct: 0
+  });
   const [loadingScheduled, setLoadingScheduled] = useState(false);
   const [loadingSnapshots, setLoadingSnapshots] = useState(false);
   const [rollingBackId, setRollingBackId] = useState<string | null>(null);
@@ -283,21 +316,29 @@ export const PriceManager: React.FC<PriceManagerProps> = ({ user }) => {
     }
   }, []);
 
-  // Carregar snapshots de backup
+  // Carregar snapshots de backup e métricas de impacto no faturamento
   const fetchSnapshots = useCallback(async () => {
     setLoadingSnapshots(true);
     try {
-      const res = await fetch('/api/price-manager/snapshots?limit=50');
+      const params = new URLSearchParams({
+        limit: '100',
+        period: snapshotPeriod,
+        search: snapshotSearch
+      });
+      const res = await fetch(`/api/price-manager/snapshots?${params.toString()}`);
       if (res.ok) {
         const result = await res.json();
-        if (result.success) setSnapshots(result.data || []);
+        if (result.success) {
+          setSnapshots(result.data || []);
+          if (result.summary) setImpactSummary(result.summary);
+        }
       }
     } catch (err) {
       console.error('Erro ao carregar histórico de backups:', err);
     } finally {
       setLoadingSnapshots(false);
     }
-  }, []);
+  }, [snapshotPeriod, snapshotSearch]);
 
   // Sincronizar Cache Digifarma
   const handleSyncCache = async () => {
@@ -596,8 +637,8 @@ export const PriceManager: React.FC<PriceManagerProps> = ({ user }) => {
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
           }`}
         >
-          <ShieldCheck className="w-4 h-4 text-sky-400" />
-          <span>Histórico & Backups</span>
+          <TrendingUp className="w-4 h-4 text-emerald-400" />
+          <span>Histórico & Impacto no Faturamento</span>
         </button>
 
         <button
@@ -721,32 +762,166 @@ export const PriceManager: React.FC<PriceManagerProps> = ({ user }) => {
         </div>
       )}
 
-      {/* ABA 4: HISTÓRICO DE BACKUPS & REVERSÃO */}
+      {/* ABA 4: HISTÓRICO & IMPACTO NO FATURAMENTO MÉDIO */}
       {pricingTab === 'history' && (
-        <div className="space-y-4">
+        <div className="space-y-5 animate-in fade-in duration-200">
+          
+          {/* Header da Sub-guia */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-sky-500" />
-                  Histórico de Backups de Preço & Rollback
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <TrendingUp className="w-6 h-6 text-emerald-500" />
+                  Histórico de Alterações & Impacto no Faturamento
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Snapshots automáticos gerados antes de cada alteração de preço para garantir integridade e reversão instantânea no Digifarma.
+                <p className="text-xs text-slate-500 mt-1">
+                  Acompanhe em tempo real todas as alterações de preço aplicadas no Digifarma, a projeção financeira de ganho mensal e execute reversões seguras (rollbacks).
                 </p>
               </div>
-              <button
-                onClick={fetchSnapshots}
-                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 text-slate-600 dark:text-slate-300"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingSnapshots ? 'animate-spin' : ''}`} />
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchSnapshots}
+                  className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingSnapshots ? 'animate-spin text-blue-500' : ''}`} />
+                  <span>Atualizar</span>
+                </button>
+              </div>
             </div>
 
+            {/* Grid de 4 Cards de Impacto Financeiro Consolidado */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2">
+              
+              {/* Card 1: Impacto Estimado no Faturamento */}
+              <div className={`p-4 rounded-3xl text-white shadow-lg relative overflow-hidden flex flex-col justify-between ${
+                impactSummary.totalMonthlyRevenueImpact >= 0
+                  ? 'bg-gradient-to-br from-emerald-500 via-teal-600 to-emerald-700 shadow-emerald-500/20'
+                  : 'bg-gradient-to-br from-rose-500 via-rose-600 to-red-700 shadow-rose-500/20'
+              }`}>
+                <div className="flex items-center justify-between text-white/80">
+                  <span className="text-[11px] font-black uppercase tracking-wider">Impacto no Faturamento</span>
+                  <Wallet className="w-4 h-4" />
+                </div>
+                <div className="my-2">
+                  <div className="text-2xl sm:text-3xl font-black tracking-tight">
+                    {impactSummary.totalMonthlyRevenueImpact >= 0 ? '+' : ''}{formatMoney(impactSummary.totalMonthlyRevenueImpact)}
+                    <span className="text-xs font-bold text-white/80 ml-1">/ mês</span>
+                  </div>
+                  <div className="text-[11px] text-white/80 font-medium">
+                    Projeção estimada pelo giro de vendas
+                  </div>
+                </div>
+                <div className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-lg w-fit">
+                  {impactSummary.totalIncrease} altas • {impactSummary.totalDecrease} reduções
+                </div>
+              </div>
+
+              {/* Card 2: Ganho em Lucro Líquido Estimado */}
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[11px] font-black uppercase tracking-wider">Ganho em Lucro Livre</span>
+                  <Coins className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="my-2">
+                  <div className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">
+                    {impactSummary.totalMonthlyProfitImpact >= 0 ? '+' : ''}{formatMoney(impactSummary.totalMonthlyProfitImpact)}
+                    <span className="text-xs font-bold text-slate-400 ml-1">/ mês</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-medium">
+                    Margem adicional direta no caixa
+                  </div>
+                </div>
+                <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-lg w-fit">
+                  Após deduções operacionais
+                </div>
+              </div>
+
+              {/* Card 3: Variação Média de Preço */}
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[11px] font-black uppercase tracking-wider">Variação Média</span>
+                  <Percent className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="my-2">
+                  <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {impactSummary.averagePriceChangePct >= 0 ? '+' : ''}{impactSummary.averagePriceChangePct.toFixed(1)}%
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-medium">
+                    Ajuste médio nas mercadorias
+                  </div>
+                </div>
+                <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 rounded-lg w-fit">
+                  {impactSummary.activeChanges} produtos ativos
+                </div>
+              </div>
+
+              {/* Card 4: Auditoria & Segurança */}
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[11px] font-black uppercase tracking-wider">Segurança & Backups</span>
+                  <ShieldCheck className="w-4 h-4 text-sky-500" />
+                </div>
+                <div className="my-2">
+                  <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {impactSummary.totalChanges}
+                    <span className="text-xs font-bold text-slate-400 ml-1">alterações</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-medium">
+                    Snapshots auditáveis registrados
+                  </div>
+                </div>
+                <div className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg w-fit">
+                  {impactSummary.totalReverted} reversões realizadas
+                </div>
+              </div>
+
+            </div>
+
+            {/* Barra de Filtros por Período e Busca Textual */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              {/* Botões de Período */}
+              <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
+                <span className="text-[10px] font-black uppercase text-slate-400 mr-1">Período:</span>
+                {[
+                  { id: 'all', label: 'Todas as Alterações' },
+                  { id: 'today', label: 'Hoje' },
+                  { id: '7d', label: 'Últimos 7 dias' },
+                  { id: '30d', label: 'Últimos 30 dias' },
+                  { id: 'month', label: 'Mês Atual' }
+                ].map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSnapshotPeriod(p.id as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      snapshotPeriod === p.id
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Busca por Nome / EAN / ID */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Filtrar por produto ou código..."
+                  value={snapshotSearch}
+                  onChange={(e) => setSnapshotSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Tabela Linha a Linha com Diagnóstico Financeiro */}
             {snapshots.length === 0 ? (
               <div className="text-center py-12 text-slate-400">
                 <ShieldCheck className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                <p className="text-sm font-bold">Nenhum snapshot de backup registrado ainda.</p>
+                <p className="text-sm font-bold">Nenhuma alteração de preço encontrada para o filtro selecionado.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -758,56 +933,103 @@ export const PriceManager: React.FC<PriceManagerProps> = ({ user }) => {
                       <th className="py-3 px-3 text-right">Preço Anterior</th>
                       <th className="py-3 px-3 text-center">➔</th>
                       <th className="py-3 px-3 text-right">Novo Preço</th>
+                      <th className="py-3 px-3 text-center">Variação (%)</th>
+                      <th className="py-3 px-3 text-center">Giro Mensal</th>
+                      <th className="py-3 px-3 text-right">Impacto Faturamento</th>
+                      <th className="py-3 px-3 text-right">Impacto Lucro</th>
                       <th className="py-3 px-3">Motivo / Tipo</th>
                       <th className="py-3 px-3">Usuário</th>
-                      <th className="py-3 px-3 text-right">Ação de Segurança</th>
+                      <th className="py-3 px-3 text-right">Segurança</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {snapshots.map(snap => (
-                      <tr key={snap.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="py-3 px-3 whitespace-nowrap text-slate-500 font-medium">
-                          {snap.data_alteracao ? new Date(snap.data_alteracao).toLocaleString('pt-BR') : '—'}
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="font-bold text-slate-900 dark:text-white">{snap.descricao}</div>
-                          <div className="text-[10px] text-slate-400">Cód: {snap.produto_id}</div>
-                        </td>
-                        <td className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-300">
-                          {formatMoney(snap.preco_anterior)}
-                        </td>
-                        <td className="py-3 px-3 text-center text-slate-400">➔</td>
-                        <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
-                          {formatMoney(snap.novo_preco)}
-                        </td>
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 mr-1.5 uppercase">
-                            {snap.tipo}
-                          </span>
-                          <span>{snap.motivo}</span>
-                        </td>
-                        <td className="py-3 px-3 font-medium text-slate-600 dark:text-slate-400">
-                          {snap.usuario}
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          {snap.revertido ? (
-                            <span className="text-[11px] font-bold text-slate-400 flex items-center justify-end gap-1">
-                              <CheckCheck className="w-3.5 h-3.5 text-emerald-500" /> Revertido
+                    {snapshots.map(snap => {
+                      const isAumento = (snap.diff_preco || 0) > 0;
+                      const isQueda = (snap.diff_preco || 0) < 0;
+
+                      return (
+                        <tr key={snap.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${snap.revertido ? 'opacity-50' : ''}`}>
+                          <td className="py-3 px-3 whitespace-nowrap text-slate-500 font-medium text-[11px]">
+                            {snap.data_alteracao ? new Date(snap.data_alteracao).toLocaleString('pt-BR') : '—'}
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                              <span>{snap.descricao}</span>
+                              {snap.curva && (
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-black ${
+                                  snap.curva === 'A' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' :
+                                  snap.curva === 'B' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' :
+                                  'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                                }`}>
+                                  Curva {snap.curva}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {snap.cod_barras ? `EAN: ${snap.cod_barras} • ` : ''}Cód: {snap.produto_id}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-right font-bold text-slate-500 dark:text-slate-400">
+                            {formatMoney(snap.preco_anterior)}
+                          </td>
+                          <td className="py-3 px-3 text-center text-slate-400 text-[10px]">➔</td>
+                          <td className="py-3 px-3 text-right font-black text-slate-900 dark:text-white">
+                            {formatMoney(snap.novo_preco)}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black inline-flex items-center gap-0.5 ${
+                              isAumento
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : isQueda
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                            }`}>
+                              {isAumento ? <ArrowUpRight className="w-3 h-3" /> : isQueda ? <TrendingDown className="w-3 h-3" /> : null}
+                              {snap.diff_percentual !== undefined ? `${snap.diff_percentual > 0 ? '+' : ''}${snap.diff_percentual.toFixed(1)}%` : '0%'}
                             </span>
-                          ) : (
-                            <button
-                              onClick={() => handleRollbackSnapshot(snap.id)}
-                              disabled={rollingBackId === snap.id}
-                              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1 ml-auto disabled:opacity-50"
-                              title="Reverter este preço no Digifarma para o valor anterior"
-                            >
-                              <RotateCcw className={`w-3.5 h-3.5 ${rollingBackId === snap.id ? 'animate-spin' : ''}`} />
-                              <span>Reverter Preço</span>
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-3 px-3 text-center text-[11px] font-bold text-slate-500">
+                            ~{snap.volume_mensal_estimado || 15} un/mês
+                          </td>
+                          <td className="py-3 px-3 text-right font-black">
+                            <span className={isAumento ? 'text-emerald-600 dark:text-emerald-400' : isQueda ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'}>
+                              {snap.impacto_mensal_faturamento !== undefined ? `${snap.impacto_mensal_faturamento >= 0 ? '+' : ''}${formatMoney(snap.impacto_mensal_faturamento)}` : '—'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right font-black">
+                            <span className={isAumento ? 'text-indigo-600 dark:text-indigo-400' : isQueda ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'}>
+                              {snap.impacto_mensal_lucro !== undefined ? `${snap.impacto_mensal_lucro >= 0 ? '+' : ''}${formatMoney(snap.impacto_mensal_lucro)}` : '—'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 mr-1.5 uppercase text-slate-700 dark:text-slate-300">
+                              {snap.tipo}
+                            </span>
+                            <span className="text-[11px]">{snap.motivo}</span>
+                          </td>
+                          <td className="py-3 px-3 font-medium text-slate-600 dark:text-slate-400 text-[11px]">
+                            {snap.usuario}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {snap.revertido ? (
+                              <span className="text-[11px] font-bold text-slate-400 flex items-center justify-end gap-1">
+                                <CheckCheck className="w-3.5 h-3.5 text-emerald-500" /> Revertido
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleRollbackSnapshot(snap.id)}
+                                disabled={rollingBackId === snap.id}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1 ml-auto disabled:opacity-50 cursor-pointer"
+                                title="Reverter este preço no Digifarma para o valor anterior"
+                              >
+                                <RotateCcw className={`w-3.5 h-3.5 ${rollingBackId === snap.id ? 'animate-spin' : ''}`} />
+                                <span>Reverter</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
