@@ -28,7 +28,9 @@ import {
   TrendingDown,
   Globe,
   Target,
-  BarChart2
+  BarChart2,
+  Edit3,
+  RotateCcw
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { useToast } from './ToastContext';
