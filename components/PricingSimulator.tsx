@@ -113,11 +113,12 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   // Modal para aplicar preço no Digifarma
   const [isApplyModalOpen, setIsApplyModalOpen] = useState<boolean>(false);
   const [isApplyingPrice, setIsApplyingPrice] = useState<boolean>(false);
-  const [customApplyPrice, setCustomApplyPrice] = useState<number | null>(null);
+  const [inputApplyPrice, setInputApplyPrice] = useState<string>('');
   const [customApplyReason, setCustomApplyReason] = useState<string>('');
 
   const handleOpenApplyModal = (priceToApply?: number, reason?: string) => {
-    setCustomApplyPrice(priceToApply !== undefined ? priceToApply : pricingResult.precoSugerido);
+    const target = priceToApply !== undefined ? priceToApply : pricingResult.precoSugerido;
+    setInputApplyPrice(target > 0 ? target.toFixed(2) : '');
     setCustomApplyReason(reason || `Simulador de Precificação (Markup Divisor)`);
     setIsApplyModalOpen(true);
   };
@@ -268,7 +269,12 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   // Atualizar Preço no Digifarma
   const handleApplyPriceToDigifarma = async () => {
     if (!selectedProduct) return;
-    const finalPriceToApply = customApplyPrice !== null && customApplyPrice !== undefined ? customApplyPrice : pricingResult.precoSugerido;
+    const numPrice = parseFloat(inputApplyPrice);
+    if (isNaN(numPrice) || numPrice <= 0) {
+      addToast('Digite um novo preço de venda válido maior que zero.', 'error');
+      return;
+    }
+    const finalPriceToApply = roundMoney(numPrice);
     const finalReason = customApplyReason || `Simulador de Precificação (Markup Divisor ${pricingResult.markupDivisor.toFixed(4)})`;
 
     setIsApplyingPrice(true);
@@ -1085,49 +1091,161 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 <Store className="w-5 h-5 text-emerald-600" />
                 Atualizar Preço no Digifarma
               </h3>
-              <button onClick={() => setIsApplyModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+              <button onClick={() => setIsApplyModalOpen(false)} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+            {/* Informações do Produto */}
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1.5">
               <div className="text-xs font-bold text-slate-900 dark:text-white">
                 {selectedProduct.PRODUTO}
               </div>
-              <div className="text-[11px] text-slate-400">
-                {selectedProduct.APRESENTACAO} {selectedProduct.COD_BARRAS ? `• Cód: ${selectedProduct.PRODUTO_ID}` : ''}
+              <div className="text-[11px] text-slate-400 flex flex-wrap gap-2">
+                <span>{selectedProduct.APRESENTACAO}</span>
+                {selectedProduct.COD_BARRAS && <span>• EAN: {selectedProduct.COD_BARRAS}</span>}
+                <span>• Cód: {selectedProduct.PRODUTO_ID}</span>
               </div>
-
               <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-700 text-xs">
-                <span className="text-slate-500">Preço Atual: <b>{formatMoney(currentPriceNum)}</b></span>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-                <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                  Novo Preço: {formatMoney(customApplyPrice !== null && customApplyPrice !== undefined ? customApplyPrice : pricingResult.precoSugerido)}
-                </span>
+                <span className="text-slate-500">Custo de Compra (CMV): <b>{formatMoney(inputs.cmv)}</b></span>
+                <span className="text-slate-500">Preço Atual da Loja: <b>{formatMoney(currentPriceNum)}</b></span>
               </div>
             </div>
 
-            <p className="text-xs text-slate-500">
-              ⚠️ Esta ação atualizará o preço de venda diretamente no banco de dados do Digifarma (Firebird) para o valor de <b>{formatMoney(customApplyPrice !== null && customApplyPrice !== undefined ? customApplyPrice : pricingResult.precoSugerido)}</b> ({customApplyReason || 'Simulador de Precificação'}).
+            {/* Campo Editável: Novo Preço de Venda */}
+            <div className="space-y-2">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider block">
+                Novo Preço de Venda (R$) *
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-black text-emerald-600 dark:text-emerald-400">
+                  R$
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  autoFocus
+                  placeholder="0,00"
+                  value={inputApplyPrice}
+                  onChange={(e) => setInputApplyPrice(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border-2 border-emerald-500 text-lg font-black text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-emerald-500/20 shadow-sm"
+                />
+              </div>
+
+              {/* Atalhos Rápidos para Preencher o Preço */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Sugestões:</span>
+                
+                {pricingResult.precoSugerido > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInputApplyPrice(pricingResult.precoSugerido.toFixed(2));
+                      setCustomApplyReason(`Simulador de Precificação (Markup Divisor ${pricingResult.markupDivisor.toFixed(4)})`);
+                    }}
+                    className={`text-[10px] font-extrabold px-2.5 py-1 rounded-xl border transition-all cursor-pointer ${
+                      parseFloat(inputApplyPrice) === pricingResult.precoSugerido
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                    }`}
+                  >
+                    ⚡ Markup: {formatMoney(pricingResult.precoSugerido)}
+                  </button>
+                )}
+
+                {selectedProduct.PRECO_PROFFER_MEDIO && selectedProduct.PRECO_PROFFER_MEDIO > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = roundMoney(selectedProduct.PRECO_PROFFER_MEDIO! * 0.90);
+                        setInputApplyPrice(val.toFixed(2));
+                        setCustomApplyReason(`Estratégico: 10% abaixo da média Proffer (${formatMoney(selectedProduct.PRECO_PROFFER_MEDIO!)})`);
+                      }}
+                      className={`text-[10px] font-extrabold px-2.5 py-1 rounded-xl border transition-all cursor-pointer ${
+                        parseFloat(inputApplyPrice) === roundMoney(selectedProduct.PRECO_PROFFER_MEDIO * 0.90)
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:border-indigo-500'
+                      }`}
+                    >
+                      🎯 Proffer -10%: {formatMoney(selectedProduct.PRECO_PROFFER_MEDIO * 0.90)}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInputApplyPrice(selectedProduct.PRECO_PROFFER_MEDIO!.toFixed(2));
+                        setCustomApplyReason(`Mercado: Média Regional Proffer (${formatMoney(selectedProduct.PRECO_PROFFER_MEDIO!)})`);
+                      }}
+                      className={`text-[10px] font-extrabold px-2.5 py-1 rounded-xl border transition-all cursor-pointer ${
+                        parseFloat(inputApplyPrice) === selectedProduct.PRECO_PROFFER_MEDIO
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-500'
+                      }`}
+                    >
+                      📊 Média Proffer: {formatMoney(selectedProduct.PRECO_PROFFER_MEDIO)}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Diagnóstico em Tempo Real do Preço Digitado */}
+            {(() => {
+              const typedPrice = parseFloat(inputApplyPrice) || 0;
+              if (typedPrice <= 0 || inputs.cmv <= 0) return null;
+              const diag = diagnoseCurrentPrice(inputs.cmv, typedPrice, inputs);
+              const isPrejuizo = diag.status === 'prejuizo';
+              const isSaudavel = diag.status === 'lucro_saudavel';
+
+              return (
+                <div className={`p-3 rounded-2xl border transition-all text-xs font-bold ${
+                  isSaudavel
+                    ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                    : isPrejuizo
+                    ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                    : 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      {isSaudavel ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : isPrejuizo ? <TrendingDown className="w-4 h-4 text-rose-600" /> : <AlertTriangle className="w-4 h-4 text-amber-600" />}
+                      <span>{isSaudavel ? 'Lucro Líquido Garantido' : isPrejuizo ? 'Prejuízo Operacional!' : 'Margem Líquida Reduzida'}</span>
+                    </span>
+                    <span className="text-xs font-black">
+                      {diag.lucroLiquidoPercent >= 0 ? '+' : ''}{diag.lucroLiquidoPercent.toFixed(1)}% ({formatMoney(diag.lucroLiquidoReais)} / un)
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-normal mt-1 opacity-90">
+                    {diag.mensagem}
+                  </p>
+                </div>
+              );
+            })()}
+
+            <p className="text-[11px] text-slate-500">
+              ⚠️ Esta ação atualizará o preço de venda diretamente no banco de dados do Digifarma (Firebird) e gerará um backup antes da alteração.
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
+                type="button"
                 onClick={() => setIsApplyModalOpen(false)}
                 disabled={isApplyingPrice}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={handleApplyPriceToDigifarma}
-                disabled={isApplyingPrice}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2"
+                disabled={isApplyingPrice || !(parseFloat(inputApplyPrice) > 0)}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-black transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
               >
                 {isApplyingPrice ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Aplicando...</span>
+                    <span>Aplicando no Digifarma...</span>
                   </>
                 ) : (
                   <>
