@@ -299,6 +299,8 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     }
     const finalPriceToApply = roundMoney(numPrice);
     const finalReason = customApplyReason || `Simulador de Precificação (Markup Divisor ${pricingResult.markupDivisor.toFixed(4)})`;
+    const previousPrice = parseFloat(currentStorePrice) || selectedProduct.PROD_PRPROMOCAO || selectedProduct.PROD_PRVENDA || 0;
+    const costPrice = selectedProduct.PROD_PRCOMPRA || inputs.cmv || 0;
 
     setIsApplyingPrice(true);
     try {
@@ -307,6 +309,10 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           produtoId: selectedProduct.PRODUTO_ID,
+          descricao: selectedProduct.PRODUTO,
+          codBarras: selectedProduct.COD_BARRAS || '',
+          precoAnterior: previousPrice,
+          precoCusto: costPrice,
           novoPreco: finalPriceToApply,
           motivo: finalReason,
           usuario: user?.name || 'Administrador',

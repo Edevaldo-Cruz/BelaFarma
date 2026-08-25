@@ -440,12 +440,40 @@ module.exports = function (db) {
       const prodId = parseInt(produtoId);
       const finalPrice = roundUpToAcceptedCents(parseFloat(novoPreco));
 
-      // Obter produto atual para snapshot de backup
-      const prodCache = db.prepare('SELECT * FROM digifarma_products_cache WHERE produto_id = ?').get(prodId);
-      const previousPrice = prodCache ? prodCache.preco_venda : 0;
-      const descricao = prodCache ? prodCache.descricao : `Produto ID ${prodId}`;
-      const codBarras = prodCache ? prodCache.codigo_barras : '';
-      const precoCusto = prodCache ? prodCache.preco_custo : 0;
+      // Obter produto atual para snapshot de backup (tentando cache e Firebird)
+      let descricao = req.body.descricao || '';
+      let codBarras = req.body.codBarras || '';
+      let previousPrice = parseFloat(req.body.precoAnterior) || 0;
+      let precoCusto = parseFloat(req.body.precoCusto) || 0;
+
+      const prodCache = db.prepare(`
+        SELECT * FROM digifarma_products_cache 
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).get(String(prodId), prodId, String(codBarras));
+
+      if (prodCache) {
+        if (!previousPrice) previousPrice = prodCache.preco_venda || prodCache.preco_normal || 0;
+        if (!descricao) descricao = prodCache.descricao;
+        if (!codBarras) codBarras = prodCache.codigo_barras;
+        if (!precoCusto) precoCusto = prodCache.preco_custo;
+      }
+
+      // Se ainda não tiver nome ou preço anterior, consulta o Firebird do Digifarma diretamente
+      if (!descricao || !previousPrice) {
+        try {
+          const fbProd = await queryDigifarma('SELECT PRODUTO, APRESENTACAO, COD_BARRAS, PROD_PRVENDA, PROD_PRPROMOCAO, PROD_PRCOMPRA FROM PRODUTOS WHERE PRODUTO_ID = ?', [prodId]);
+          if (fbProd && fbProd[0]) {
+            const p = fbProd[0];
+            if (!descricao) descricao = (p.PRODUTO || '').trim() + (p.APRESENTACAO ? ` ${(p.APRESENTACAO).trim()}` : '');
+            if (!previousPrice) previousPrice = (p.PROD_PRPROMOCAO > 0 ? p.PROD_PRPROMOCAO : p.PROD_PRVENDA) || 0;
+            if (!codBarras) codBarras = (p.COD_BARRAS || '').trim();
+            if (!precoCusto) precoCusto = p.PROD_PRCOMPRA || 0;
+          }
+        } catch (fbErr) {}
+      }
+
+      if (!descricao) descricao = `Produto Cód ${prodId}`;
+      if (!previousPrice) previousPrice = finalPrice;
 
       // 1. Gravar Snapshot de Backup
       const snapId = `snap_${Date.now()}_${prodId}`;
@@ -658,6 +686,23 @@ module.exports = function (db) {
    */
   router.get('/snapshots', (req, res) => {
     try {
+      // Auto-recupera nomes de produtos que ficaram como 'Produto ID %' se existirem no cache
+      try {
+        db.prepare(`
+          UPDATE price_change_snapshots 
+          SET descricao = (
+            SELECT c.descricao FROM digifarma_products_cache c 
+            WHERE c.produto_id = price_change_snapshots.produto_id OR CAST(c.produto_id AS TEXT) = CAST(price_change_snapshots.produto_id AS TEXT) 
+            LIMIT 1
+          )
+          WHERE (descricao LIKE 'Produto ID%' OR descricao LIKE 'Produto Cód%') 
+            AND EXISTS (
+              SELECT 1 FROM digifarma_products_cache c 
+              WHERE c.produto_id = price_change_snapshots.produto_id OR CAST(c.produto_id AS TEXT) = CAST(price_change_snapshots.produto_id AS TEXT)
+            )
+        `).run();
+      } catch (autoErr) {}
+
       const limit = parseInt(req.query.limit) || 100;
       const period = req.query.period || 'all'; // 'today', '7d', '30d', 'month', 'all'
       const search = (req.query.search || '').trim();
@@ -687,9 +732,13 @@ module.exports = function (db) {
         SELECT 
           s.id,
           s.produto_id,
-          s.descricao,
-          s.cod_barras,
-          s.preco_anterior,
+          COALESCE(NULLIF(c.descricao, ''), NULLIF(s.descricao, ''), 'Produto Cód ' || s.produto_id) as descricao,
+          COALESCE(NULLIF(s.cod_barras, ''), c.codigo_barras, '') as cod_barras,
+          CASE 
+            WHEN s.preco_anterior > 0 THEN s.preco_anterior 
+            WHEN c.preco_normal > 0 THEN c.preco_normal
+            ELSE s.novo_preco 
+          END as preco_anterior,
           s.novo_preco,
           s.preco_custo,
           s.tipo,
@@ -701,19 +750,23 @@ module.exports = function (db) {
           s.revertido_por,
           c.curva,
           c.estoque_atual,
-          (s.novo_preco - s.preco_anterior) as diff_preco,
-          CASE WHEN s.preco_anterior > 0 
-               THEN round(((s.novo_preco - s.preco_anterior) / s.preco_anterior) * 100, 2)
-               ELSE 0 END as diff_percentual,
+          CASE 
+            WHEN s.preco_anterior > 0 THEN (s.novo_preco - s.preco_anterior)
+            ELSE 0 
+          END as diff_preco,
+          CASE 
+            WHEN s.preco_anterior > 0 THEN round(((s.novo_preco - s.preco_anterior) / s.preco_anterior) * 100, 2)
+            ELSE 0 
+          END as diff_percentual,
           CASE 
             WHEN c.curva = 'A' THEN 35
             WHEN c.curva = 'B' THEN 15
             ELSE 5 
           END as volume_mensal_estimado,
-          round((s.novo_preco - s.preco_anterior) * (CASE WHEN c.curva = 'A' THEN 35 WHEN c.curva = 'B' THEN 15 ELSE 5 END), 2) as impacto_mensal_faturamento,
-          round(((s.novo_preco - s.preco_anterior) * (CASE WHEN c.curva = 'A' THEN 35 WHEN c.curva = 'B' THEN 15 ELSE 5 END)) * 0.85, 2) as impacto_mensal_lucro
+          round((CASE WHEN s.preco_anterior > 0 THEN (s.novo_preco - s.preco_anterior) ELSE 0 END) * (CASE WHEN c.curva = 'A' THEN 35 WHEN c.curva = 'B' THEN 15 ELSE 5 END), 2) as impacto_mensal_faturamento,
+          round(((CASE WHEN s.preco_anterior > 0 THEN (s.novo_preco - s.preco_anterior) ELSE 0 END) * (CASE WHEN c.curva = 'A' THEN 35 WHEN c.curva = 'B' THEN 15 ELSE 5 END)) * 0.85, 2) as impacto_mensal_lucro
         FROM price_change_snapshots s
-        LEFT JOIN digifarma_products_cache c ON s.produto_id = c.produto_id
+        LEFT JOIN digifarma_products_cache c ON (s.produto_id = c.produto_id OR CAST(s.produto_id AS TEXT) = c.produto_id OR (s.cod_barras != '' AND s.cod_barras = c.codigo_barras))
         ${whereSQL}
         ORDER BY s.data_alteracao DESC 
         LIMIT ?
