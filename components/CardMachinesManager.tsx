@@ -25,7 +25,8 @@ import {
   PieChart,
   BarChart3,
   SlidersHorizontal,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Save
 } from 'lucide-react';
 import { User, CardMachineReceivable, CardMachineDashboard, FeeAuditData } from '../types';
 import { useToast } from './ToastContext';
@@ -51,8 +52,6 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
   const [filterYear, setFilterYear] = useState<number>(now.getFullYear());
   const [filterStatus, setFilterStatus] = useState<'all' | 'Pendente' | 'Conferido'>('all');
   const [filterModality, setFilterModality] = useState<string>('all');
-  const [filterBrand, setFilterBrand] = useState<string>('all');
-  const [filterMachine, setFilterMachine] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Modals
@@ -65,9 +64,9 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
   const [formData, setFormData] = useState({
     sale_date: new Date().toISOString().split('T')[0],
     expected_payment_date: '',
-    modality: 'Débito',
-    brand: 'Visa',
-    machine_name: 'M1',
+    modality: 'Débito Geral',
+    brand: 'Geral',
+    machine_name: 'Geral',
     gross_value: '',
     notes: ''
   });
@@ -123,13 +122,11 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
 
       if (filterStatus !== 'all') queryParams.append('status', filterStatus);
       if (filterModality !== 'all') queryParams.append('modality', filterModality);
-      if (filterBrand !== 'all') queryParams.append('brand', filterBrand);
-      if (filterMachine !== 'all') queryParams.append('machine', filterMachine);
       if (searchTerm) queryParams.append('search', searchTerm);
 
       const [resList, resDash, resAudit] = await Promise.all([
         fetch(`/api/card-machine-receivables?${queryParams.toString()}`),
-        fetch(`/api/card-machine-receivables/dashboard?month=${filterMonth}&year=${filterYear}&machine=${filterMachine}`),
+        fetch(`/api/card-machine-receivables/dashboard?month=${filterMonth}&year=${filterYear}`),
         fetch(`/api/card-machine-receivables/fee-audit?month=${filterMonth}&year=${filterYear}`)
       ]);
 
@@ -154,7 +151,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
 
   useEffect(() => {
     fetchData();
-  }, [filterMonth, filterYear, filterStatus, filterModality, filterBrand, filterMachine, searchTerm]);
+  }, [filterMonth, filterYear, filterStatus, filterModality, searchTerm]);
 
   // Handle manual creation / editing
   const handleOpenAddModal = (itemToEdit?: CardMachineReceivable) => {
@@ -163,9 +160,9 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
       setFormData({
         sale_date: itemToEdit.sale_date,
         expected_payment_date: itemToEdit.expected_payment_date,
-        modality: itemToEdit.modality,
-        brand: itemToEdit.brand || 'Visa',
-        machine_name: itemToEdit.machine_name || 'M1',
+        modality: itemToEdit.modality || 'Débito Geral',
+        brand: itemToEdit.brand || 'Geral',
+        machine_name: itemToEdit.machine_name || 'Geral',
         gross_value: (itemToEdit.gross_value * 100).toFixed(0),
         notes: itemToEdit.notes || ''
       });
@@ -174,9 +171,9 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
       setFormData({
         sale_date: new Date().toISOString().split('T')[0],
         expected_payment_date: '',
-        modality: 'Débito',
-        brand: 'Visa',
-        machine_name: 'M1',
+        modality: 'Débito Geral',
+        brand: 'Geral',
+        machine_name: 'Geral',
         gross_value: '',
         notes: ''
       });
@@ -463,33 +460,8 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                 className="bg-slate-50 dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
               >
                 <option value="all">Modalidade: Todas</option>
-                <option value="Débito">Débito</option>
-                <option value="Crédito à Vista">Crédito à Vista</option>
-                <option value="Crédito Parcelado">Crédito Parcelado</option>
-              </select>
-
-              {/* Brand Filter */}
-              <select
-                value={filterBrand}
-                onChange={(e) => setFilterBrand(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
-              >
-                <option value="all">Bandeira: Todas</option>
-                <option value="Visa">Visa</option>
-                <option value="Master">Master</option>
-                <option value="Elo">Elo</option>
-                <option value="Outros">Outros</option>
-              </select>
-
-              {/* Machine Filter */}
-              <select
-                value={filterMachine}
-                onChange={(e) => setFilterMachine(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-900 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
-              >
-                <option value="all">Máquina: Todas</option>
-                <option value="M1">Maquininha 1 (M1)</option>
-                <option value="M2">Maquininha 2 (M2)</option>
+                <option value="Débito Geral">Débito Geral</option>
+                <option value="Crédito Geral">Crédito Geral</option>
               </select>
             </div>
 
@@ -514,7 +486,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                   <tr className="border-b border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/30 text-[10px] font-black uppercase tracking-widest text-slate-400">
                     <th className="py-4 px-6">Data da Venda</th>
                     <th className="py-4 px-6">Repasse Previsto</th>
-                    <th className="py-4 px-6">Máquina & Modalidade</th>
+                    <th className="py-4 px-6">Modalidade</th>
                     <th className="py-4 px-6 text-right">Valor Bruto</th>
                     <th className="py-4 px-6 text-right">Líquido Depositado</th>
                     <th className="py-4 px-6 text-right">Taxa (R$ / %)</th>
@@ -540,6 +512,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                     receivables.map((item) => {
                       const isReconciled = item.status === 'Conferido';
                       const isWeekend = item.is_weekend_accumulated === 1;
+                      const isDebit = (item.modality || '').toLowerCase().includes('deb') || (item.modality || '').toLowerCase().includes('déb');
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/20 transition-all">
@@ -562,19 +535,17 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                           </td>
                           <td className="py-4 px-6">
                             <div className="flex items-center space-x-2">
-                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                                item.machine_name === 'M2' 
-                                  ? 'bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800' 
-                                  : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                              }`}>
-                                {item.machine_name || 'M1'}
-                              </span>
-                              <span className="font-black text-slate-800 dark:text-slate-100">
-                                {item.modality}
-                              </span>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                                {item.brand || 'Outros'}
-                              </span>
+                              {isDebit ? (
+                                <span className="px-3 py-1 rounded-xl text-xs font-black bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center space-x-1.5 w-fit">
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  <span>Débito Geral</span>
+                                </span>
+                              ) : (
+                                <span className="px-3 py-1 rounded-xl text-xs font-black bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center space-x-1.5 w-fit">
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  <span>Crédito Geral</span>
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="py-4 px-6 text-right font-black text-slate-900 dark:text-white">
@@ -681,12 +652,12 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
 
             <div className="bg-white dark:bg-slate-800 p-5 rounded-3xl border border-slate-100 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Média Débito</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Média Débito Geral</span>
                 <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-                  {feeAudit?.byModality?.['Débito']?.avgFeePercent || 0}%
+                  {feeAudit?.byModality?.['Débito Geral']?.avgFeePercent || feeAudit?.byModality?.['Débito']?.avgFeePercent || 0}%
                 </h3>
                 <span className="text-[11px] font-bold text-slate-400 mt-1 block">
-                  {formatCurrency(feeAudit?.byModality?.['Débito']?.gross)} transacionados
+                  {formatCurrency(feeAudit?.byModality?.['Débito Geral']?.gross || feeAudit?.byModality?.['Débito']?.gross)} transacionados
                 </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 flex items-center justify-center font-black text-xs">
@@ -696,31 +667,31 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
 
             <div className="bg-white dark:bg-slate-800 p-5 rounded-3xl border border-slate-100 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Média Crédito 1x</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Média Crédito Geral</span>
                 <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-                  {feeAudit?.byModality?.['Crédito à Vista']?.avgFeePercent || 0}%
+                  {feeAudit?.byModality?.['Crédito Geral']?.avgFeePercent || feeAudit?.byModality?.['Crédito à Vista']?.avgFeePercent || 0}%
                 </h3>
                 <span className="text-[11px] font-bold text-slate-400 mt-1 block">
-                  {formatCurrency(feeAudit?.byModality?.['Crédito à Vista']?.gross)} transacionados
+                  {formatCurrency(feeAudit?.byModality?.['Crédito Geral']?.gross || feeAudit?.byModality?.['Crédito à Vista']?.gross)} transacionados
                 </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 flex items-center justify-center font-black text-xs">
-                1X
+                CRÉD
               </div>
             </div>
 
             <div className="bg-white dark:bg-slate-800 p-5 rounded-3xl border border-slate-100 dark:border-slate-700/60 shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Média Parcelado</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Repasses Auditados</span>
                 <h3 className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                  {feeAudit?.byModality?.['Crédito Parcelado']?.avgFeePercent || 0}%
+                  {feeAudit?.recentAudits?.length || 0}
                 </h3>
                 <span className="text-[11px] font-bold text-slate-400 mt-1 block">
-                  {formatCurrency(feeAudit?.byModality?.['Crédito Parcelado']?.gross)} transacionados
+                  Lançamentos conferidos
                 </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center font-black text-xs">
-                PARC
+                <CheckCircle2 className="w-6 h-6" />
               </div>
             </div>
           </div>
@@ -888,45 +859,16 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-500 uppercase tracking-wider text-[10px]">Maquininha</label>
-                  <select
-                    value={formData.machine_name}
-                    onChange={(e) => setFormData({ ...formData, machine_name: e.target.value })}
-                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none cursor-pointer"
-                  >
-                    <option value="M1">M1 (Maquininha 1)</option>
-                    <option value="M2">M2 (Maquininha 2)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-slate-500 uppercase tracking-wider text-[10px]">Modalidade</label>
-                  <select
-                    value={formData.modality}
-                    onChange={(e) => setFormData({ ...formData, modality: e.target.value })}
-                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none cursor-pointer"
-                  >
-                    <option value="Débito">Débito</option>
-                    <option value="Crédito à Vista">Crédito à Vista</option>
-                    <option value="Crédito Parcelado">Crédito Parcelado</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-slate-500 uppercase tracking-wider text-[10px]">Bandeira</label>
-                  <select
-                    value={formData.brand}
-                    onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none cursor-pointer"
-                  >
-                    <option value="Visa">Visa</option>
-                    <option value="Master">Master</option>
-                    <option value="Elo">Elo</option>
-                    <option value="Outros">Outros</option>
-                  </select>
-                </div>
+              <div className="space-y-1">
+                <label className="text-slate-500 uppercase tracking-wider text-[10px]">Modalidade</label>
+                <select
+                  value={formData.modality}
+                  onChange={(e) => setFormData({ ...formData, modality: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none cursor-pointer font-bold text-xs"
+                >
+                  <option value="Débito Geral">Débito Geral</option>
+                  <option value="Crédito Geral">Crédito Geral</option>
+                </select>
               </div>
 
               <div className="space-y-1">
@@ -946,7 +888,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Ex: Lote maquininha balcão 1, antecipação..."
+                  placeholder="Ex: Lote consolidado dia..."
                   rows={2}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white outline-none"
                 />
@@ -1000,9 +942,11 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
             <form onSubmit={handleReconcileSubmit} className="p-6 space-y-4 text-xs font-bold">
               <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl space-y-2 border border-slate-200 dark:border-slate-700">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Modalidade & Bandeira:</span>
+                  <span className="text-slate-400">Modalidade:</span>
                   <span className="font-black text-slate-800 dark:text-white">
-                    {selectedItemForReconcile.modality} ({selectedItemForReconcile.brand || 'Outros'})
+                    {(selectedItemForReconcile.modality || '').toLowerCase().includes('deb') || (selectedItemForReconcile.modality || '').toLowerCase().includes('déb')
+                      ? 'Débito Geral'
+                      : 'Crédito Geral'}
                   </span>
                 </div>
                 <div className="flex justify-between">

@@ -34,6 +34,121 @@ module.exports = (db) => {
     CREATE INDEX IF NOT EXISTS idx_card_machine_machine ON card_machine_receivables(machine_name);
   `);
 
+  // Migração: Limpar registros pendentes de Pix e consolidar pendências de cartão em Débito Geral e Crédito Geral
+  try {
+    // 1. Remover Pix da tabela de recebíveis de maquininha
+    db.exec(`
+      DELETE FROM card_machine_receivables 
+      WHERE status = 'Pendente' 
+        AND (
+          modality LIKE '%Pix%' 
+          OR modality = 'Pix' 
+          OR notes LIKE '%Pix Maquininha%'
+        );
+    `);
+
+    // 2. Consolidar registros pendentes que estão divididos por máquina/bandeira
+    const pendingRows = db.prepare(`SELECT * FROM card_machine_receivables WHERE status = 'Pendente'`).all();
+    if (pendingRows.length > 0) {
+      const groups = {};
+      pendingRows.forEach(row => {
+        const key = `${row.sale_date}_${row.expected_payment_date}`;
+        if (!groups[key]) {
+          groups[key] = {
+            sale_date: row.sale_date,
+            expected_payment_date: row.expected_payment_date,
+            is_weekend_accumulated: row.is_weekend_accumulated || 0,
+            debits: [],
+            credits: [],
+            other: []
+          };
+        }
+        const mod = (row.modality || '').toLowerCase();
+        if (mod.includes('deb') || mod.includes('déb')) {
+          groups[key].debits.push(row);
+        } else if (mod.includes('cred') || mod.includes('créd') || mod.includes('inst')) {
+          groups[key].credits.push(row);
+        } else {
+          groups[key].other.push(row);
+        }
+      });
+
+      const insertConsolidatedStmt = db.prepare(`
+        INSERT INTO card_machine_receivables (
+          id, closing_id, sale_date, expected_payment_date, modality, brand, machine_name, is_weekend_accumulated,
+          gross_value, net_deposited_value, fee_value, fee_percent,
+          status, reconciled_at, reconciled_by, notes, created_at
+        ) VALUES (
+          @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @machine_name, @is_weekend_accumulated,
+          @gross_value, NULL, NULL, NULL,
+          'Pendente', NULL, NULL, @notes, @created_at
+        )
+      `);
+
+      const deleteIdsStmt = (ids) => {
+        if (!ids.length) return;
+        const placeholders = ids.map(() => '?').join(',');
+        db.prepare(`DELETE FROM card_machine_receivables WHERE id IN (${placeholders})`).run(...ids);
+      };
+
+      db.transaction(() => {
+        Object.values(groups).forEach(g => {
+          // Processar Débitos
+          if (g.debits.length > 0) {
+            const needsMigration = g.debits.length > 1 || g.debits[0].modality !== 'Débito Geral';
+            if (needsMigration) {
+              const totalDeb = g.debits.reduce((sum, r) => sum + (Number(r.gross_value) || 0), 0);
+              const debIds = g.debits.map(r => r.id);
+              deleteIdsStmt(debIds);
+              if (totalDeb > 0) {
+                insertConsolidatedStmt.run({
+                  id: `cmr_mig_deb_${g.sale_date.replace(/-/g, '')}_${g.expected_payment_date.replace(/-/g, '')}`,
+                  closing_id: g.debits[0].closing_id || null,
+                  sale_date: g.sale_date,
+                  expected_payment_date: g.expected_payment_date,
+                  modality: 'Débito Geral',
+                  brand: 'Geral',
+                  machine_name: 'Geral',
+                  is_weekend_accumulated: g.is_weekend_accumulated,
+                  gross_value: totalDeb,
+                  notes: `Fechamento ${g.sale_date} - Débito Geral`,
+                  created_at: new Date().toISOString()
+                });
+              }
+            }
+          }
+
+          // Processar Créditos
+          if (g.credits.length > 0) {
+            const needsMigration = g.credits.length > 1 || g.credits[0].modality !== 'Crédito Geral';
+            if (needsMigration) {
+              const totalCred = g.credits.reduce((sum, r) => sum + (Number(r.gross_value) || 0), 0);
+              const credIds = g.credits.map(r => r.id);
+              deleteIdsStmt(credIds);
+              if (totalCred > 0) {
+                insertConsolidatedStmt.run({
+                  id: `cmr_mig_cred_${g.sale_date.replace(/-/g, '')}_${g.expected_payment_date.replace(/-/g, '')}`,
+                  closing_id: g.credits[0].closing_id || null,
+                  sale_date: g.sale_date,
+                  expected_payment_date: g.expected_payment_date,
+                  modality: 'Crédito Geral',
+                  brand: 'Geral',
+                  machine_name: 'Geral',
+                  is_weekend_accumulated: g.is_weekend_accumulated,
+                  gross_value: totalCred,
+                  notes: `Fechamento ${g.sale_date} - Crédito Geral`,
+                  created_at: new Date().toISOString()
+                });
+              }
+            }
+          }
+        });
+      })();
+    }
+  } catch (migErr) {
+    console.error('[CardMachines] Erro na migração de consolidação:', migErr.message);
+  }
+
   // Helper para calcular data útil seguinte (pula sábado e domingo para segunda-feira)
   const getNextBusinessDayInfo = (dateStr) => {
     const d = new Date(dateStr + 'T12:00:00');
@@ -82,8 +197,14 @@ module.exports = (db) => {
       }
 
       if (modality && modality !== 'all') {
-        query += ' AND modality = ?';
-        params.push(modality);
+        if (modality === 'Débito Geral' || modality === 'Débito') {
+          query += " AND (modality LIKE '%Débito%' OR modality LIKE '%Debito%')";
+        } else if (modality === 'Crédito Geral' || modality === 'Crédito') {
+          query += " AND (modality LIKE '%Crédito%' OR modality LIKE '%Credito%')";
+        } else {
+          query += ' AND modality = ?';
+          params.push(modality);
+        }
       }
 
       if (brand && brand !== 'all') {
@@ -162,14 +283,13 @@ module.exports = (db) => {
       let totalReconciledCount = 0;
 
       const byModality = {
-        'Débito': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
-        'Crédito à Vista': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
-        'Crédito Parcelado': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
-        'Crédito': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Débito Geral': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
+        'Crédito Geral': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'Outros': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
       };
 
       const byBrand = {
+        'Geral': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'Visa': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'Master': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'Elo': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
@@ -177,6 +297,7 @@ module.exports = (db) => {
       };
 
       const byMachine = {
+        'Geral': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'M1': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 },
         'M2': { gross: 0, net: 0, fee: 0, reconciledGross: 0, count: 0 }
       };
@@ -188,7 +309,14 @@ module.exports = (db) => {
 
         totalGross += gross;
 
-        const modKey = byModality[item.modality] ? item.modality : 'Outros';
+        const mLower = (item.modality || '').toLowerCase();
+        let modKey = 'Outros';
+        if (mLower.includes('deb') || mLower.includes('déb')) {
+          modKey = 'Débito Geral';
+        } else if (mLower.includes('cred') || mLower.includes('créd') || mLower.includes('inst')) {
+          modKey = 'Crédito Geral';
+        }
+
         byModality[modKey].gross += gross;
         byModality[modKey].count += 1;
 
@@ -196,7 +324,7 @@ module.exports = (db) => {
         byBrand[brandKey].gross += gross;
         byBrand[brandKey].count += 1;
 
-        const machKey = item.machine_name === 'M2' ? 'M2' : 'M1';
+        const machKey = byMachine[item.machine_name] ? item.machine_name : 'Geral';
         byMachine[machKey].gross += gross;
         byMachine[machKey].count += 1;
 
@@ -226,7 +354,7 @@ module.exports = (db) => {
 
       const modalityStats = {};
       Object.entries(byModality).forEach(([mod, data]) => {
-        if (data.count > 0 || ['Débito', 'Crédito à Vista', 'Crédito Parcelado'].includes(mod)) {
+        if (data.count > 0 || ['Débito Geral', 'Crédito Geral'].includes(mod)) {
           modalityStats[mod] = {
             gross: data.gross,
             net: data.net,
@@ -289,13 +417,13 @@ module.exports = (db) => {
       let totalFees = 0;
 
       const byModality = {
-        'Débito': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
-        'Crédito à Vista': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
-        'Crédito Parcelado': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Débito Geral': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
+        'Crédito Geral': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
         'Outros': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
       };
 
       const byBrand = {
+        'Geral': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
         'Visa': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
         'Master': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
         'Elo': { gross: 0, net: 0, fee: 0, avgFeePercent: 0, count: 0 },
@@ -313,7 +441,14 @@ module.exports = (db) => {
         totalNet += net;
         totalFees += fee;
 
-        const modKey = byModality[item.modality] ? item.modality : (item.modality === 'Crédito' ? 'Crédito à Vista' : 'Outros');
+        const mLower = (item.modality || '').toLowerCase();
+        let modKey = 'Outros';
+        if (mLower.includes('deb') || mLower.includes('déb')) {
+          modKey = 'Débito Geral';
+        } else if (mLower.includes('cred') || mLower.includes('créd') || mLower.includes('inst')) {
+          modKey = 'Crédito Geral';
+        }
+
         byModality[modKey].gross += gross;
         byModality[modKey].net += net;
         byModality[modKey].fee += fee;

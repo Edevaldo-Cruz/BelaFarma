@@ -120,9 +120,10 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     const map = new Map<string, GroupedBrandItem>();
 
     pendingItems.forEach(item => {
-      const brand = item.brand || 'Outros';
-      const modality = item.modality || 'Débito';
-      const key = `${brand}_${modality}`;
+      const isDeb = (item.modality || '').toLowerCase().includes('deb') || (item.modality || '').toLowerCase().includes('déb');
+      const modality = isDeb ? 'Débito Geral' : 'Crédito Geral';
+      const brand = item.brand || 'Geral';
+      const key = modality;
 
       const gross = Number(item.gross_value) || 0;
       const isM2 = item.machine_name === 'M2';
@@ -148,8 +149,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     });
 
     return Array.from(map.values()).sort((a, b) => {
-      // Ordena por bandeira e depois modalidade
-      if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
       return a.modality.localeCompare(b.modality);
     });
   }, [pendingItems]);
@@ -163,10 +162,11 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     pendingItems.forEach(item => {
       const val = Number(item.gross_value) || 0;
       totalGross += val;
-      if (item.modality === 'Débito') {
+      const mod = (item.modality || '').toLowerCase();
+      if (mod.includes('deb') || mod.includes('déb')) {
         totalDebit += val;
       } else {
-        totalCredit += val; // Crédito à Vista + Parcelado
+        totalCredit += val; // Crédito Geral
       }
     });
 
