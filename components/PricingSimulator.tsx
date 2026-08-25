@@ -113,6 +113,14 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   // Modal para aplicar preço no Digifarma
   const [isApplyModalOpen, setIsApplyModalOpen] = useState<boolean>(false);
   const [isApplyingPrice, setIsApplyingPrice] = useState<boolean>(false);
+  const [customApplyPrice, setCustomApplyPrice] = useState<number | null>(null);
+  const [customApplyReason, setCustomApplyReason] = useState<string>('');
+
+  const handleOpenApplyModal = (priceToApply?: number, reason?: string) => {
+    setCustomApplyPrice(priceToApply !== undefined ? priceToApply : pricingResult.precoSugerido);
+    setCustomApplyReason(reason || `Simulador de Precificação (Markup Divisor)`);
+    setIsApplyModalOpen(true);
+  };
 
   // Fechar dropdown de busca ao clicar fora
   useEffect(() => {
@@ -260,6 +268,9 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   // Atualizar Preço no Digifarma
   const handleApplyPriceToDigifarma = async () => {
     if (!selectedProduct) return;
+    const finalPriceToApply = customApplyPrice !== null && customApplyPrice !== undefined ? customApplyPrice : pricingResult.precoSugerido;
+    const finalReason = customApplyReason || `Simulador de Precificação (Markup Divisor ${pricingResult.markupDivisor.toFixed(4)})`;
+
     setIsApplyingPrice(true);
     try {
       const res = await fetch('/api/price-manager/apply-price', {
@@ -267,16 +278,16 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           produtoId: selectedProduct.PRODUTO_ID,
-          novoPreco: pricingResult.precoSugerido,
-          motivo: `Simulador de Precificação (Markup Divisor ${pricingResult.markupDivisor})`,
+          novoPreco: finalPriceToApply,
+          motivo: finalReason,
           usuario: user?.name || 'Administrador',
           tipo: 'simulador'
         })
       });
       const data = await res.json();
       if (data.success) {
-        addToast(`✅ Preço de R$ ${pricingResult.precoSugerido.toFixed(2)} aplicado no Digifarma com backup gravado!`, 'success');
-        setCurrentStorePrice(pricingResult.precoSugerido.toFixed(2));
+        addToast(`✅ Preço de R$ ${finalPriceToApply.toFixed(2)} aplicado no Digifarma com backup gravado!`, 'success');
+        setCurrentStorePrice(finalPriceToApply.toFixed(2));
         setIsApplyModalOpen(false);
       } else {
         addToast(data.error || 'Erro ao atualizar preço no Digifarma.', 'error');
@@ -511,125 +522,6 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
             </div>
           </div>
 
-          {/* Card Especial: Inteligência de Mercado Proffer / Concorrência */}
-          {selectedProduct && (
-            <div className="bg-gradient-to-br from-indigo-900/30 via-slate-900/90 to-indigo-950/40 p-5 rounded-3xl border-2 border-indigo-500/30 shadow-lg shadow-indigo-950/30 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-xs">
-                    <Globe className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black text-white flex items-center gap-1.5">
-                      Inteligência de Mercado Proffer
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
-                        Regional
-                      </span>
-                    </h4>
-                    <p className="text-[11px] text-slate-400">
-                      {selectedProduct.COD_BARRAS ? `EAN: ${selectedProduct.COD_BARRAS}` : `Cód: ${selectedProduct.PRODUTO_ID}`}
-                    </p>
-                  </div>
-                </div>
-
-                {selectedProduct.PRECO_PROFFER_MEDIO && selectedProduct.PRECO_PROFFER_MEDIO > 0 && (
-                  <button
-                    onClick={() => {
-                      setCurrentStorePrice(selectedProduct.PRECO_PROFFER_MEDIO!.toFixed(2));
-                      addToast('Preço da Loja atualizado com a Média Proffer para diagnóstico!', 'info');
-                    }}
-                    className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-                    title="Copiar preço médio da concorrência para o campo Preço Atual"
-                  >
-                    <Target className="w-3.5 h-3.5" />
-                    <span>Usar Média na Loja</span>
-                  </button>
-                )}
-              </div>
-
-              {selectedProduct.PRECO_PROFFER_MEDIO && selectedProduct.PRECO_PROFFER_MEDIO > 0 ? (
-                <>
-                  {/* Grid de Preços da Região */}
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    {/* Mínimo */}
-                    <div className="p-3 rounded-2xl bg-slate-800/80 border border-slate-700/60 text-center">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Mínimo
-                      </div>
-                      <div className="text-xs sm:text-sm font-black text-emerald-400 mt-0.5">
-                        {formatMoney(selectedProduct.PRECO_PROFFER_BAIXO || selectedProduct.PRECO_PROFFER_MEDIO)}
-                      </div>
-                    </div>
-
-                    {/* Média Regional */}
-                    <div className="p-3 rounded-2xl bg-indigo-950/70 border-2 border-indigo-500/50 text-center shadow-inner">
-                      <div className="text-[10px] font-black text-indigo-300 uppercase tracking-wider">
-                        Média Região
-                      </div>
-                      <div className="text-sm sm:text-base font-black text-indigo-200 mt-0.5">
-                        {formatMoney(selectedProduct.PRECO_PROFFER_MEDIO)}
-                      </div>
-                    </div>
-
-                    {/* Máximo */}
-                    <div className="p-3 rounded-2xl bg-slate-800/80 border border-slate-700/60 text-center">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Máximo
-                      </div>
-                      <div className="text-xs sm:text-sm font-black text-amber-400 mt-0.5">
-                        {formatMoney(selectedProduct.PRECO_PROFFER_ALTO || selectedProduct.PRECO_PROFFER_MEDIO)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Comparativo Inteligente entre Preço Sugerido vs Média Proffer */}
-                  {pricingResult.isValid && pricingResult.precoSugerido > 0 && (
-                    <div className="p-3 rounded-2xl bg-slate-800/70 border border-slate-700/60 text-xs">
-                      {(() => {
-                        const diff = pricingResult.precoSugerido - selectedProduct.PRECO_PROFFER_MEDIO;
-                        const diffPct = (diff / selectedProduct.PRECO_PROFFER_MEDIO) * 100;
-                        const isCheaper = diff < 0;
-                        const isSame = Math.abs(diff) < 0.05;
-
-                        if (isSame) {
-                          return (
-                            <div className="flex items-center gap-2 text-indigo-300 font-bold">
-                              <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-400" />
-                              <span>Seu preço sugerido está <b>alinhado com a média exata do mercado</b>.</span>
-                            </div>
-                          );
-                        }
-                        if (isCheaper) {
-                          return (
-                            <div className="flex items-center gap-2 text-emerald-300 font-bold">
-                              <ArrowDownRight className="w-4 h-4 shrink-0 text-emerald-400" />
-                              <span>
-                                Preço sugerido fica <b>{formatMoney(Math.abs(diff))} ({Math.abs(diffPct).toFixed(1)}%) mais barato</b> que a média concorrente (Excelente poder de atração!).
-                              </span>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div className="flex items-center gap-2 text-amber-300 font-bold">
-                            <ArrowUpRight className="w-4 h-4 shrink-0 text-amber-400" />
-                            <span>
-                              Preço sugerido fica <b>{formatMoney(diff)} (+{diffPct.toFixed(1)}%) acima</b> da média regional da Proffer.
-                            </span>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="p-3 rounded-2xl bg-slate-800/40 border border-slate-700/40 text-[11px] text-slate-400 flex items-center gap-2">
-                  <Info className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span>Nenhum preço concorrente registrado na Proffer/NAPP para este código de barras.</span>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Card 2: Deduções Percentuais e Sliders */}
           <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
@@ -859,6 +751,132 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
             </div>
           </div>
 
+          {/* Card Especial: Inteligência de Mercado Proffer & Sugestão Estratégica (-10% da Média) */}
+          {selectedProduct && selectedProduct.PRECO_PROFFER_MEDIO && selectedProduct.PRECO_PROFFER_MEDIO > 0 ? (
+            <div className="p-5 rounded-3xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border-2 border-indigo-500/40 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white flex items-center gap-2">
+                      Inteligência de Mercado Proffer
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
+                        Regional
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      {selectedProduct.COD_BARRAS ? `EAN: ${selectedProduct.COD_BARRAS}` : `Cód: ${selectedProduct.PRODUTO_ID}`}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setCurrentStorePrice(selectedProduct.PRECO_PROFFER_MEDIO!.toFixed(2));
+                    addToast('Preço da Loja preenchido com a Média Proffer para diagnóstico!', 'info');
+                  }}
+                  className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Copiar preço médio da concorrência para o campo Preço Atual da Loja"
+                >
+                  <Target className="w-3.5 h-3.5" />
+                  <span>Copiar Média na Loja</span>
+                </button>
+              </div>
+
+              {/* Grid dos 3 Preços Proffer */}
+              <div className="grid grid-cols-3 gap-2.5">
+                <div className="p-3 rounded-2xl bg-slate-800/80 border border-slate-700/60 text-center">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Mínimo da Região
+                  </div>
+                  <div className="text-sm sm:text-base font-black text-emerald-400 mt-0.5">
+                    {formatMoney(selectedProduct.PRECO_PROFFER_BAIXO || selectedProduct.PRECO_PROFFER_MEDIO)}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-indigo-950/80 border-2 border-indigo-500/60 text-center shadow-inner">
+                  <div className="text-[10px] font-black text-indigo-300 uppercase tracking-wider">
+                    Média da Região
+                  </div>
+                  <div className="text-base sm:text-lg font-black text-indigo-200 mt-0.5">
+                    {formatMoney(selectedProduct.PRECO_PROFFER_MEDIO)}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-slate-800/80 border border-slate-700/60 text-center">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Máximo da Região
+                  </div>
+                  <div className="text-sm sm:text-base font-black text-amber-400 mt-0.5">
+                    {formatMoney(selectedProduct.PRECO_PROFFER_ALTO || selectedProduct.PRECO_PROFFER_MEDIO)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Box Estratégico: Sugestão 10% Abaixo da Média Proffer */}
+              {(() => {
+                const precoMeta10Pct = roundMoney(selectedProduct.PRECO_PROFFER_MEDIO * 0.90);
+                const diagMeta = diagnoseCurrentPrice(inputs.cmv, precoMeta10Pct, inputs);
+                const isViavel = precoMeta10Pct >= pricingResult.pontoEquilibrioUnitario && diagMeta.status !== 'prejuizo';
+
+                return (
+                  <div className={`p-4 rounded-2xl border-2 transition-all space-y-2.5 ${
+                    isViavel 
+                      ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-100'
+                      : 'bg-amber-950/30 border-amber-500/40 text-amber-100'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className={`w-4 h-4 ${isViavel ? 'text-emerald-400' : 'text-amber-400'}`} />
+                        <span className="text-xs font-black uppercase tracking-wider">
+                          Sugestão Estratégica: 10% Abaixo da Média Concorrente
+                        </span>
+                      </div>
+                      <div className="text-lg font-black">
+                        {formatMoney(precoMeta10Pct)}
+                      </div>
+                    </div>
+
+                    <div className="text-xs font-medium space-y-1">
+                      {isViavel ? (
+                        <p className="text-emerald-300/90">
+                          ✅ <b>Estratégia Altamente Viável:</b> Vendendo a <b>{formatMoney(precoMeta10Pct)}</b> você fica <b>10% mais barato</b> que a média concorrente ({formatMoney(selectedProduct.PRECO_PROFFER_MEDIO)}), garantindo <b>{diagMeta.lucroLiquidoPercent.toFixed(1)}% de margem líquida</b> (+{formatMoney(diagMeta.lucroLiquidoReais)} de lucro livre por unidade).
+                        </p>
+                      ) : (
+                        <p className="text-amber-300/90">
+                          ⚠️ <b>Atenção à Margem:</b> Vender a <b>{formatMoney(precoMeta10Pct)}</b> ficaria abaixo do seu ponto de equilíbrio ({formatMoney(pricingResult.pontoEquilibrioUnitario)}), gerando margem negativa ({diagMeta.lucroLiquidoPercent.toFixed(1)}%). Recomendamos usar o <b>Preço Sugerido Markup ({formatMoney(pricingResult.precoSugerido)})</b> para preservar sua margem.
+                        </p>
+                      )}
+                    </div>
+
+                    {user?.role === UserRole.ADM && (
+                      <div className="pt-1 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => handleOpenApplyModal(precoMeta10Pct, `Estratégico: 10% abaixo da média Proffer (${formatMoney(selectedProduct.PRECO_PROFFER_MEDIO)})`)}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
+                            isViavel 
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                              : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
+                          }`}
+                        >
+                          <Store className="w-3.5 h-3.5" />
+                          <span>Aplicar {formatMoney(precoMeta10Pct)} no Digifarma (-10% Proffer)</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : selectedProduct ? (
+            <div className="p-4 rounded-3xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 flex items-center gap-2.5">
+              <Info className="w-4 h-4 text-slate-500 shrink-0" />
+              <span>Nenhum histórico de concorrência regional registrado na Proffer para este produto.</span>
+            </div>
+          ) : null}
+
           {/* Comparador com Preço Atual da Loja */}
           {healthDiagnosis && (
             <div className={`p-4 rounded-3xl border-2 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
@@ -1084,13 +1102,13 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 <span className="text-slate-500">Preço Atual: <b>{formatMoney(currentPriceNum)}</b></span>
                 <ArrowRight className="w-4 h-4 text-slate-400" />
                 <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                  Novo Preço: {formatMoney(pricingResult.precoSugerido)}
+                  Novo Preço: {formatMoney(customApplyPrice !== null && customApplyPrice !== undefined ? customApplyPrice : pricingResult.precoSugerido)}
                 </span>
               </div>
             </div>
 
             <p className="text-xs text-slate-500">
-              ⚠️ Esta ação atualizará o preço de venda diretamente no banco de dados do Digifarma (Firebird) para o valor sugerido de <b>{formatMoney(pricingResult.precoSugerido)}</b>.
+              ⚠️ Esta ação atualizará o preço de venda diretamente no banco de dados do Digifarma (Firebird) para o valor de <b>{formatMoney(customApplyPrice !== null && customApplyPrice !== undefined ? customApplyPrice : pricingResult.precoSugerido)}</b> ({customApplyReason || 'Simulador de Precificação'}).
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">

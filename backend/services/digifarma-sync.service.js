@@ -245,7 +245,7 @@ async function syncVendasHoje(db) {
       SELECT 
         v.VENDA_NOTA_ID,
         v.VENDA_DATA_HORA,
-        v.VENDA_TOTAL_LIQUIDO,
+        COALESCE(v.VENDA_TOTAL, 0) as VENDA_TOTAL_LIQUIDO,
         v.CANCELADO,
         (SELECT COUNT(1) FROM ITEM_VENDAS iv WHERE iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID) as TOTAL_ITENS
       FROM CAB_VENDAS v
@@ -256,12 +256,11 @@ async function syncVendasHoje(db) {
     const pagtosData = await queryDigifarma(`
       SELECT 
         fp.VENDA_NOTA_ID,
-        fp.FPAGTO_ID,
-        fp.VENDA_FPAGTO_VALOR,
-        f.FPAGTO_DESCRICAO
+        fp.TIPO_PAGAMENTO_ID as FPAGTO_ID,
+        fp.VALOR as VENDA_FPAGTO_VALOR,
+        fp.BANDEIRA as FPAGTO_DESCRICAO
       FROM CAB_VENDAS_FPAGTOS fp
       JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-      LEFT JOIN FORMAS_PAGTO f ON fp.FPAGTO_ID = f.FPAGTO_ID
       WHERE CAST(v.VENDA_DATA_HORA AS DATE) = CURRENT_DATE
     `, [], 25000);
 

@@ -291,7 +291,7 @@ module.exports = function (db) {
           COALESCE(n.preco_proffer_baixo, n.preco_proffer) as PRECO_PROFFER_BAIXO,
           COALESCE(n.preco_proffer_alto, n.preco_proffer) as PRECO_PROFFER_ALTO
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
+        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         WHERE c.descricao LIKE ? OR c.codigo_barras LIKE ? OR c.produto_id LIKE ?
         ORDER BY 
           CASE WHEN c.produto_id = ? THEN 1
@@ -325,7 +325,7 @@ module.exports = function (db) {
       const totalQuery = `
         SELECT COUNT(1) as total 
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
+        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         ${whereSQL}
       `;
       const totalRow = db.prepare(totalQuery).get(...params);
@@ -358,7 +358,7 @@ module.exports = function (db) {
           COALESCE(n.preco_proffer_alto, n.preco_proffer) as region_price_alto,
           n.atualizado_em as region_updated_at
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
+        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         ${whereSQL}
         ORDER BY c.curva ASC, c.descricao ASC
         LIMIT ? OFFSET ?
@@ -400,7 +400,7 @@ module.exports = function (db) {
           SUM(CASE WHEN COALESCE(n.preco_proffer_baixo, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_baixo, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketMin,
           SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND ABS(c.preco_venda - COALESCE(n.preco_proffer_medio, n.preco_proffer)) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
         FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON (TRIM(c.codigo_barras) = TRIM(n.ean) OR (c.produto_id IS NOT NULL AND c.produto_id = n.produto_id))
+        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
       `).get();
 
       const scheduledCountRow = db.prepare(`SELECT COUNT(1) as total FROM price_scheduled_steps WHERE status = 'ativo'`).get();

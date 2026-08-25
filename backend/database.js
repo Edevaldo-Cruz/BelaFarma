@@ -612,6 +612,12 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_cli ON digifarma_crediario_cache(cliente_id);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_venc ON digifarma_crediario_cache(data_vencimento);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_vendas_data ON digifarma_vendas_hoje_cache(data_hora);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_ean ON digifarma_products_cache(codigo_barras);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_id ON digifarma_products_cache(produto_id);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_desc ON digifarma_products_cache(descricao);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_curva ON digifarma_products_cache(curva);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_ean ON napp_prices(ean);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_prod_id ON napp_prices(produto_id);'); } catch(e) {}
 
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
