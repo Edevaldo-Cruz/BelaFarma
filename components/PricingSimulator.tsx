@@ -88,6 +88,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   const [productName, setProductName] = useState<string>('');
   const [selectedProduct, setSelectedProduct] = useState<DigifarmaSearchProduct | null>(null);
   const [currentStorePrice, setCurrentStorePrice] = useState<string>('');
+  const [customSimulatedPrice, setCustomSimulatedPrice] = useState<string>('');
   
   const [inputs, setInputs] = useState<PricingInputs>({
     cmv: 10.0,
@@ -330,6 +331,115 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   const pricingResult: PricingResult = useMemo(() => {
     return calculatePricing(inputs);
   }, [inputs]);
+
+  // Preço efetivo que comanda todos os gráficos e KPIs
+  const effectiveSimulatedPrice = useMemo(() => {
+    const parsed = parseFloat(customSimulatedPrice.replace(',', '.'));
+    if (!isNaN(parsed) && parsed > 0) return roundMoney(parsed);
+    return pricingResult.precoSugerido;
+  }, [customSimulatedPrice, pricingResult.precoSugerido]);
+
+  const isCustomPriceActive = useMemo(() => {
+    const parsed = parseFloat(customSimulatedPrice.replace(',', '.'));
+    return !isNaN(parsed) && parsed > 0;
+  }, [customSimulatedPrice]);
+
+  // Diagnóstico do Preço Simulado Manual
+  const simulatedPriceDiagnosis = useMemo(() => {
+    if (effectiveSimulatedPrice <= 0 || inputs.cmv <= 0) return null;
+    return diagnoseCurrentPrice(inputs.cmv, effectiveSimulatedPrice, inputs);
+  }, [inputs, effectiveSimulatedPrice]);
+
+  // Decomposição Dinâmica que reage a qualquer valor digitado
+  const dynamicDecomposition = useMemo(() => {
+    const p = effectiveSimulatedPrice;
+    if (!p || p <= 0) return pricingResult.decomposicao;
+
+    const cmvReais = roundMoney(inputs.cmv);
+    const impostoReais = roundMoney(p * (inputs.impostoPercent / 100));
+    const taxaCartaoReais = roundMoney(p * (inputs.taxaCartaoPercent / 100));
+    const custosVariaveisReais = roundMoney(p * (inputs.custosVariaveisPercent / 100));
+    const custoFixoReais = roundMoney(p * (inputs.custoFixoPercent / 100));
+    const proLabore1Reais = roundMoney(p * (inputs.proLaboreSocio1Percent / 100));
+    const proLabore2Reais = roundMoney(p * (inputs.proLaboreSocio2Percent / 100));
+
+    const totalDeducoes = cmvReais + impostoReais + taxaCartaoReais + custosVariaveisReais + custoFixoReais + proLabore1Reais + proLabore2Reais;
+    const lucroLiquidoReais = roundMoney(p - totalDeducoes);
+    const lucroLiquidoPercent = p > 0 ? (lucroLiquidoReais / p) * 100 : 0;
+
+    return [
+      {
+        id: 'cmv',
+        label: 'Custo da Mercadoria (CMV)',
+        percentual: (cmvReais / p) * 100,
+        valorReais: cmvReais,
+        cor: '#64748b',
+        descricao: 'Reposição do estoque (Custo da NF)'
+      },
+      {
+        id: 'imposto',
+        label: `Impostos (${inputs.impostoPercent}%)`,
+        percentual: inputs.impostoPercent,
+        valorReais: impostoReais,
+        cor: '#f59e0b',
+        descricao: 'Simples Nacional / DAS / Tributos'
+      },
+      {
+        id: 'cartao',
+        label: `Taxas de Cartão (${inputs.taxaCartaoPercent}%)`,
+        percentual: inputs.taxaCartaoPercent,
+        valorReais: taxaCartaoReais,
+        cor: '#06b6d4',
+        descricao: 'Maquininha / Antecipação'
+      },
+      {
+        id: 'variaveis',
+        label: `Custos Variáveis (${inputs.custosVariaveisPercent}%)`,
+        percentual: inputs.custosVariaveisPercent,
+        valorReais: custosVariaveisReais,
+        cor: '#8b5cf6',
+        descricao: 'Embalagens, sacolas, perdas'
+      },
+      {
+        id: 'fixo',
+        label: `Despesas Fixas (${inputs.custoFixoPercent}%)`,
+        percentual: inputs.custoFixoPercent,
+        valorReais: custoFixoReais,
+        cor: '#3b82f6',
+        descricao: 'Aluguel, salários, energia, rateio'
+      },
+      {
+        id: 'prolabore',
+        label: `Pró-labore Sócios (${inputs.proLaboreSocio1Percent + inputs.proLaboreSocio2Percent}%)`,
+        percentual: inputs.proLaboreSocio1Percent + inputs.proLaboreSocio2Percent,
+        valorReais: roundMoney(proLabore1Reais + proLabore2Reais),
+        cor: '#14b8a6',
+        descricao: 'Retirada dos 2 sócios administradores'
+      },
+      {
+        id: 'lucro',
+        label: `Lucro Líquido Real (${lucroLiquidoPercent.toFixed(1)}%)`,
+        percentual: Math.max(0, lucroLiquidoPercent),
+        valorReais: lucroLiquidoReais,
+        cor: lucroLiquidoReais >= 0 ? '#10b981' : '#f43f5e',
+        descricao: lucroLiquidoReais >= 0 ? 'Margem livre restante no caixa' : 'Déficit / Prejuízo operacional na venda'
+      }
+    ];
+  }, [effectiveSimulatedPrice, inputs, pricingResult.decomposicao]);
+
+  const dynamicMultiplicador = useMemo(() => {
+    if (inputs.cmv <= 0) return 0;
+    return roundMoney(effectiveSimulatedPrice / inputs.cmv);
+  }, [effectiveSimulatedPrice, inputs.cmv]);
+
+  const dynamicMargemBruta = useMemo(() => {
+    if (effectiveSimulatedPrice <= 0) return 0;
+    return roundMoney(((effectiveSimulatedPrice - inputs.cmv) / effectiveSimulatedPrice) * 100);
+  }, [effectiveSimulatedPrice, inputs.cmv]);
+
+  const dynamicLucroBruto = useMemo(() => {
+    return roundMoney(effectiveSimulatedPrice - inputs.cmv);
+  }, [effectiveSimulatedPrice, inputs.cmv]);
 
   // Diagnóstico do Preço Atual praticado
   const currentPriceNum = parseFloat(currentStorePrice) || 0;
@@ -732,54 +842,140 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
             </div>
           )}
 
-          {/* Grid de KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+          {/* Grid de 4 KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
             
-            {/* Card 1: Preço de Venda Sugerido (Destaque) */}
-            <div className="col-span-2 sm:col-span-1 p-4 bg-gradient-to-br from-emerald-500 via-teal-600 to-emerald-700 rounded-3xl text-white shadow-lg shadow-emerald-500/20 relative overflow-hidden flex flex-col justify-between">
+            {/* Card 1: Preço de Venda Sugerido (Markup Divisor) */}
+            <div className="p-4 bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-800 rounded-3xl text-white shadow-lg shadow-emerald-500/20 relative overflow-hidden flex flex-col justify-between">
               <div className="flex items-center justify-between text-emerald-100">
                 <span className="text-[11px] font-black uppercase tracking-wider">Preço Sugerido</span>
-                <Sparkles className="w-4 h-4 animate-pulse" />
+                <Sparkles className="w-4 h-4" />
               </div>
-              <div className="my-2">
-                <div className="text-3xl font-black tracking-tight">
+              <div className="my-1.5">
+                <div className="text-2xl sm:text-3xl font-black tracking-tight">
                   {formatMoney(pricingResult.precoSugerido)}
                 </div>
-                <div className="text-[11px] text-emerald-100/90 font-medium">
+                <div className="text-[10px] text-emerald-100/90 font-medium">
                   Markup Divisor: <b>{pricingResult.markupDivisor.toFixed(4)}</b>
                 </div>
               </div>
-              <div className="text-[10px] text-emerald-200 font-bold bg-white/10 px-2 py-0.5 rounded-lg w-fit">
-                Cobre 100% dos custos + Lucro
+              <button
+                onClick={() => setCustomSimulatedPrice(pricingResult.precoSugerido.toFixed(2))}
+                className="text-[10px] text-emerald-100 font-bold bg-white/15 hover:bg-white/25 px-2.5 py-1 rounded-xl w-fit transition-all cursor-pointer flex items-center gap-1"
+                title="Copiar preço sugerido para o campo de teste manual"
+              >
+                <span>Usar este preço</span> ➔
+              </button>
+            </div>
+
+            {/* Card 2 (NOVO): Testar Preço Manual / Simulado */}
+            <div className={`p-4 rounded-3xl border-2 transition-all flex flex-col justify-between ${
+              isCustomPriceActive
+                ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-500 shadow-md shadow-indigo-500/10'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                  <Edit3 className="w-3.5 h-3.5" /> Preço Simulado
+                </span>
+                {isCustomPriceActive && (
+                  <button
+                    onClick={() => setCustomSimulatedPrice('')}
+                    className="text-[10px] font-bold text-slate-400 hover:text-rose-500 flex items-center gap-0.5 cursor-pointer"
+                    title="Restaurar para o Preço Sugerido"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Reset
+                  </button>
+                )}
+              </div>
+
+              <div className="my-1.5">
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder={pricingResult.precoSugerido > 0 ? pricingResult.precoSugerido.toFixed(2) : '0,00'}
+                    value={customSimulatedPrice}
+                    onChange={(e) => setCustomSimulatedPrice(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl font-black text-lg text-slate-900 dark:text-white bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {simulatedPriceDiagnosis && (
+                  <div className="text-[10px] font-bold mt-1">
+                    {simulatedPriceDiagnosis.status === 'lucro_saudavel' && (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        +{simulatedPriceDiagnosis.lucroLiquidoPercent.toFixed(1)}% líq ({formatMoney(simulatedPriceDiagnosis.lucroLiquidoReais)} / un)
+                      </span>
+                    )}
+                    {simulatedPriceDiagnosis.status === 'margem_apertada' && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        +{simulatedPriceDiagnosis.lucroLiquidoPercent.toFixed(1)}% líq (Apertada)
+                      </span>
+                    )}
+                    {simulatedPriceDiagnosis.status === 'prejuizo' && (
+                      <span className="text-rose-600 dark:text-rose-400">
+                        ⚠️ Prejuízo de {formatMoney(Math.abs(simulatedPriceDiagnosis.lucroLiquidoReais))}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Atalhos Rápidos */}
+              <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                <button
+                  onClick={() => setCustomSimulatedPrice(pricingResult.precoSugerido.toFixed(2))}
+                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 cursor-pointer"
+                >
+                  ⚡ Sugerido
+                </button>
+                {selectedProduct?.PRECO_PROFFER_MEDIO && selectedProduct.PRECO_PROFFER_MEDIO > 0 && (
+                  <>
+                    <button
+                      onClick={() => setCustomSimulatedPrice((selectedProduct.PRECO_PROFFER_MEDIO! * 0.9).toFixed(2))}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 cursor-pointer"
+                    >
+                      🎯 Proffer -10%
+                    </button>
+                    <button
+                      onClick={() => setCustomSimulatedPrice(selectedProduct.PRECO_PROFFER_MEDIO!.toFixed(2))}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 cursor-pointer"
+                    >
+                      📊 Média
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Card 2: Markup Multiplicador */}
+            {/* Card 3: Multiplicador Dinâmico */}
             <div className="p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
               <div className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
                 Multiplicador
               </div>
               <div className="my-1">
                 <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {pricingResult.markupMultiplicador > 0 ? `${pricingResult.markupMultiplicador}x` : '—'}
+                  {dynamicMultiplicador > 0 ? `${dynamicMultiplicador}x` : '—'}
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   Preço ÷ CMV
                 </div>
               </div>
               <div className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">
-                {inputs.cmv > 0 ? `+${formatMoney(pricingResult.lucroBrutoReais)} bruto` : '—'}
+                {inputs.cmv > 0 ? `+${formatMoney(dynamicLucroBruto)} bruto` : '—'}
               </div>
             </div>
 
-            {/* Card 3: Margem Bruta */}
+            {/* Card 4: Margem Bruta Dinâmica */}
             <div className="p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
               <div className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
                 Margem Bruta
               </div>
               <div className="my-1">
                 <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
-                  {pricingResult.margemBrutaPercent}%
+                  {dynamicMargemBruta}%
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   (Preço - Custo) ÷ Preço
@@ -967,29 +1163,36 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
           {/* Card da Decomposição Financeira (Onde vai cada centavo) */}
           <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
             <div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                   <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                   3. Destinação da Venda (Para Onde Vai Cada Centavo)
                 </h3>
-                <span className="text-xs font-bold text-slate-400">
-                  Base 100% da Venda: <b>{formatMoney(pricingResult.precoSugerido)}</b>
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {isCustomPriceActive && (
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
+                      🎯 Preço Simulado
+                    </span>
+                  )}
+                  <span className="text-xs font-bold text-slate-400">
+                    Base da Venda: <b className="text-slate-900 dark:text-white">{formatMoney(effectiveSimulatedPrice)}</b>
+                  </span>
+                </div>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">
-                Visualização detalhada da divisão de receitas para cada unidade vendida no balcão.
+                Visualização em tempo real da divisão de receitas e lucro líquido gerado para cada unidade vendida no balcão.
               </p>
             </div>
 
             {/* Barra Visual Segmentada Proporcional */}
-            {pricingResult.decomposicao.length > 0 && (
+            {dynamicDecomposition.length > 0 && (
               <div className="space-y-1.5">
                 <div className="w-full h-5 rounded-xl overflow-hidden flex shadow-inner border border-slate-200 dark:border-slate-700">
-                  {pricingResult.decomposicao.map(item => (
+                  {dynamicDecomposition.map(item => (
                     <div
                       key={item.id}
-                      style={{ width: `${item.percentual}%`, backgroundColor: item.cor }}
-                      title={`${item.label}: ${item.percentual}% (${formatMoney(item.valorReais)})`}
+                      style={{ width: `${Math.max(0, item.percentual)}%`, backgroundColor: item.cor }}
+                      title={`${item.label}: ${item.percentual.toFixed(1)}% (${formatMoney(item.valorReais)})`}
                       className="h-full transition-all duration-300 hover:opacity-80 relative group"
                     />
                   ))}
@@ -997,7 +1200,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 <div className="flex justify-between text-[10px] text-slate-400 font-bold">
                   <span>0% (Custo)</span>
                   <span>50%</span>
-                  <span>100% (Preço Final)</span>
+                  <span>100% ({formatMoney(effectiveSimulatedPrice)})</span>
                 </div>
               </div>
             )}
@@ -1014,7 +1217,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {pricingResult.decomposicao.map((item) => (
+                  {dynamicDecomposition.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
                       <td className="py-2.5 px-3 font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.cor }}></span>
@@ -1041,10 +1244,10 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                       100.0%
                     </td>
                     <td className="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatMoney(pricingResult.precoSugerido)}
+                      {formatMoney(effectiveSimulatedPrice)}
                     </td>
                     <td className="py-3 px-3 text-[10px] text-slate-400 uppercase">
-                      Equilíbrio + Margem Alvo
+                      {isCustomPriceActive ? 'Preço Manual Simulado' : 'Equilíbrio + Margem Alvo'}
                     </td>
                   </tr>
                 </tfoot>
