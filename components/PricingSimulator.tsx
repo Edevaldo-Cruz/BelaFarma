@@ -37,6 +37,8 @@ import {
   PricingResult,
   CategoryPreset,
   DEFAULT_PRESETS,
+  STORE_FINANCIAL_BASELINE,
+  detectProductCategory,
   calculatePricing,
   diagnoseCurrentPrice,
   roundMoney
@@ -109,6 +111,9 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   const [isPresetModalOpen, setIsPresetModalOpen] = useState<boolean>(false);
   const [newPresetName, setNewPresetName] = useState<string>('');
   const [newPresetDesc, setNewPresetDesc] = useState<string>('');
+
+  // Modal para Visualizar o Quadro Geral de Rateio Ponderado
+  const [isRateioModalOpen, setIsRateioModalOpen] = useState<boolean>(false);
 
   // Modal para aplicar preço no Digifarma
   const [isApplyModalOpen, setIsApplyModalOpen] = useState<boolean>(false);
@@ -188,10 +193,10 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
       proLaboreSocio2Percent: preset.proLaboreSocio2Percent,
       margemLiquidaPercent: preset.margemLiquidaPercent
     }));
-    addToast(`Preset "${preset.nome}" aplicado com sucesso!`, 'info');
+    addToast(`Preset "${preset.nome}" aplicado (Rateio Fixo: ${preset.custoFixoPercent}%)!`, 'info');
   };
 
-  // Selecionar Produto da Busca
+  // Selecionar Produto da Busca com Detecção Automática de Categoria e Rateio
   const handleSelectProduct = (prod: DigifarmaSearchProduct) => {
     setSelectedProduct(prod);
     setProductName(prod.PRODUTO);
@@ -203,10 +208,25 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
       ? prod.PROD_PRPROMOCAO 
       : prod.PROD_PRVENDA;
 
-    setInputs(prev => ({ ...prev, cmv: roundMoney(custo) }));
+    // Detectar automaticamente a categoria pelo nome/descrição
+    const detectedCatId = detectProductCategory(prod.PRODUTO);
+    const matchedPreset = presets.find(p => p.id === detectedCatId) || presets[0];
+
+    setActivePresetId(matchedPreset.id);
+    setInputs({
+      cmv: roundMoney(custo),
+      impostoPercent: matchedPreset.impostoPercent,
+      taxaCartaoPercent: matchedPreset.taxaCartaoPercent,
+      custosVariaveisPercent: matchedPreset.custosVariaveisPercent,
+      custoFixoPercent: matchedPreset.custoFixoPercent,
+      proLaboreSocio1Percent: matchedPreset.proLaboreSocio1Percent,
+      proLaboreSocio2Percent: matchedPreset.proLaboreSocio2Percent,
+      margemLiquidaPercent: matchedPreset.margemLiquidaPercent
+    });
+
     setCurrentStorePrice(precoVendaReal > 0 ? precoVendaReal.toFixed(2) : '');
 
-    addToast(`Produto "${prod.PRODUTO}" carregado! Custo: R$ ${custo.toFixed(2)} | Venda: R$ ${precoVendaReal.toFixed(2)}`, 'success');
+    addToast(`🏷️ Categoria Identificada: "${matchedPreset.nome}" (Rateio Fixo: ${matchedPreset.custoFixoPercent}%) | Custo: R$ ${custo.toFixed(2)}`, 'success');
   };
 
   // Limpar Produto Selecionado (Modo Livre)
@@ -343,15 +363,24 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
               </span>
             </div>
             <p className="text-xs text-blue-100/80 mt-1 max-w-xl">
-              Formação de preço de venda para farmácia com decomposição transparente de cada centavo em impostos, taxas, custos fixos, pró-labore e lucro real.
+              Formação de preço de venda para farmácia com rateio ponderado de despesas fixas por categoria de produto (Maio até hoje) e cobertura matemática garantida de 100% das contas fixas (R$ 10.500/mês).
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setIsRateioModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-100 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+            title="Ver demonstrativo matemático do rateio de despesas fixas"
+          >
+            <BarChart2 className="w-4 h-4 text-emerald-300" />
+            <span>Quadro de Rateio</span>
+          </button>
+
+          <button
             onClick={() => setIsPresetModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
             title="Salvar configuração atual como novo preset"
           >
             <Plus className="w-4 h-4" />
@@ -360,11 +389,11 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Barra de Presets Rápidos */}
+      {/* Barra de Presets Rápidos com Rateio Diferenciado */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-400 tracking-wider whitespace-nowrap">
           <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          Presets de Categoria:
+          Categorias & Rateio Fixo:
         </div>
 
         <div className="flex gap-2 overflow-x-auto no-scrollbar items-center flex-1">
@@ -381,6 +410,11 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 }`}
               >
                 <span>{preset.nome}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'
+                }`}>
+                  Fixo: {preset.custoFixoPercent}%
+                </span>
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
                   isActive ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                 }`}>
@@ -1253,6 +1287,146 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                     <span>Confirmar e Atualizar</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: QUADRO GERAL DE RATEIO DE DESPESAS FIXAS */}
+      {isRateioModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400">
+                  <BarChart2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Quadro de Rateio das Despesas Fixas por Categoria
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Mix real de vendas (Maio até hoje) com garantia matemática de 100% de cobertura das contas.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsRateioModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* KPIs de Base Financeira da Farmácia */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Faturamento Alvo</span>
+                <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                  R$ 36.500,00 <span className="text-[10px] text-slate-400">/mês</span>
+                </div>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Contas Fixas Totais</span>
+                <div className="text-sm font-black text-blue-600 dark:text-blue-400 mt-0.5">
+                  R$ 10.500,00 <span className="text-[10px] text-slate-400">/mês</span>
+                </div>
+              </div>
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800">
+                <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-wider">Cobertura Garantida</span>
+                <div className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5 flex items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4" /> 100.0% das Contas
+                </div>
+              </div>
+            </div>
+
+            {/* Tabela de Rateio Ponderado por Categoria */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-800">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/80 text-[10px] font-black uppercase text-slate-400 tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <th className="py-2.5 px-3">Categoria</th>
+                    <th className="py-2.5 px-3 text-center">Mix de Vendas</th>
+                    <th className="py-2.5 px-3 text-center">Rateio Fixo (%)</th>
+                    <th className="py-2.5 px-3 text-center">Margem Alvo</th>
+                    <th className="py-2.5 px-3 text-right">Absorção Mensal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Genéricos
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-600 dark:text-slate-300">31.1%</td>
+                    <td className="py-2.5 px-3 text-center font-black text-emerald-600 dark:text-emerald-400">36.00%</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">15.0% líq</td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-800 dark:text-slate-200">R$ 4.086,00</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Perfumarias & Higiene
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-600 dark:text-slate-300">27.7%</td>
+                    <td className="py-2.5 px-3 text-center font-black text-blue-600 dark:text-blue-400">26.00%</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">8.0% líq</td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-800 dark:text-slate-200">R$ 2.628,00</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                      Similares / Bonificados
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-600 dark:text-slate-300">16.8%</td>
+                    <td className="py-2.5 px-3 text-center font-black text-purple-600 dark:text-purple-400">33.00%</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">12.0% líq</td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-800 dark:text-slate-200">R$ 2.023,00</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      Outros & Acessórios
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-600 dark:text-slate-300">13.7%</td>
+                    <td className="py-2.5 px-3 text-center font-black text-amber-600 dark:text-amber-400">23.00%</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">10.0% líq</td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-800 dark:text-slate-200">R$ 1.150,00</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      Referência / Marca
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-600 dark:text-slate-300">10.7%</td>
+                    <td className="py-2.5 px-3 text-center font-black text-rose-600 dark:text-rose-400">15.70%</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-500">4.0% líq</td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-800 dark:text-slate-200">R$ 613,00</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white">
+                    <td className="py-3 px-3">TOTAL PONDERADO</td>
+                    <td className="py-3 px-3 text-center text-emerald-600">100.0%</td>
+                    <td className="py-3 px-3 text-center text-blue-600">28.77% (Média)</td>
+                    <td className="py-3 px-3 text-center">—</td>
+                    <td className="py-3 px-3 text-right text-emerald-600">R$ 10.500,00 /mês</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200 dark:border-blue-800 text-[11px] text-blue-900 dark:text-blue-200">
+              💡 <strong>Lógica Estratégica:</strong> Medicamentos de Referência têm preço competitivo e margem menor no balcão, por isso carregam apenas <strong>15.70%</strong> de custos fixos. Em contrapartida, Genéricos e Similares têm margem maior e absorvem <strong>36%</strong> e <strong>33%</strong>. A soma ponderada cobre com precisão <strong>100% de todas as despesas da farmácia</strong> no final do mês!
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setIsRateioModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black transition-colors cursor-pointer"
+              >
+                Entendi e Fechar
               </button>
             </div>
           </div>

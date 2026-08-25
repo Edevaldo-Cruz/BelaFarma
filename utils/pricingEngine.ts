@@ -43,70 +43,198 @@ export interface CategoryPreset {
   nome: string;
   descricao: string;
   icone: string;
+  participacaoFaturamentoPercent: number; // Mix real de vendas (% do faturamento total)
   impostoPercent: number;
   taxaCartaoPercent: number;
   custosVariaveisPercent: number;
-  custoFixoPercent: number;
+  custoFixoPercent: number; // Rateio Ponderado de Custo Fixo
   proLaboreSocio1Percent: number;
   proLaboreSocio2Percent: number;
   margemLiquidaPercent: number;
   isCustom?: boolean;
 }
 
+export const STORE_FINANCIAL_BASELINE = {
+  faturamentoMedioMensal: 36500.00,
+  custoFixoTotalMensal: 10500.00,
+  custoFixoMedioPercent: 28.77
+};
+
 export const DEFAULT_PRESETS: CategoryPreset[] = [
   {
     id: 'genericos',
-    nome: 'Genéricos (Alta Margem)',
-    descricao: 'Medicamentos genéricos com foco em alta rentabilidade e indicação no balcão.',
+    nome: 'Genéricos (Alta Absorção)',
+    descricao: 'Medicamentos genéricos (31.1% do faturamento). Alta margem bruta que absorve 36.00% de custo fixo.',
     icone: 'Pill',
+    participacaoFaturamentoPercent: 31.1,
     impostoPercent: 4.0,
     taxaCartaoPercent: 2.5,
     custosVariaveisPercent: 1.0,
-    custoFixoPercent: 28.77,
+    custoFixoPercent: 36.00,
     proLaboreSocio1Percent: 6.0,
     proLaboreSocio2Percent: 6.0,
     margemLiquidaPercent: 15.0
   },
   {
-    id: 'similares',
-    nome: 'Similares / Bonificados',
-    descricao: 'Medicamentos similares com margem líquida média-alta.',
-    icone: 'Sparkles',
-    impostoPercent: 4.0,
-    taxaCartaoPercent: 2.5,
-    custosVariaveisPercent: 1.0,
-    custoFixoPercent: 28.77,
-    proLaboreSocio1Percent: 6.0,
-    proLaboreSocio2Percent: 6.0,
-    margemLiquidaPercent: 12.0
-  },
-  {
     id: 'perfumaria',
-    nome: 'Perfumaria & Cosméticos',
-    descricao: 'Itens de higiene, perfumaria e conveniência com tributação padrão.',
+    nome: 'Perfumarias & Higiene',
+    descricao: 'Produtos de perfumaria e conveniência (27.7% do faturamento). Rateio de 26.00% de custo fixo.',
     icone: 'Sparkle',
+    participacaoFaturamentoPercent: 27.7,
     impostoPercent: 6.0,
     taxaCartaoPercent: 2.5,
     custosVariaveisPercent: 1.0,
-    custoFixoPercent: 28.77,
+    custoFixoPercent: 26.00,
     proLaboreSocio1Percent: 6.0,
     proLaboreSocio2Percent: 6.0,
     margemLiquidaPercent: 8.0
   },
   {
-    id: 'referencia',
-    nome: 'Marca / Referência (Alto Giro)',
-    descricao: 'Medicamentos de marca/referência conhecidos, com preço travado e alto giro.',
-    icone: 'Shield',
+    id: 'similares',
+    nome: 'Similares / Bonificados',
+    descricao: 'Medicamentos similares (16.8% do faturamento). Margem média-alta com 33.00% de custo fixo.',
+    icone: 'Sparkles',
+    participacaoFaturamentoPercent: 16.8,
     impostoPercent: 4.0,
     taxaCartaoPercent: 2.5,
     custosVariaveisPercent: 1.0,
-    custoFixoPercent: 28.77,
+    custoFixoPercent: 33.00,
     proLaboreSocio1Percent: 6.0,
     proLaboreSocio2Percent: 6.0,
+    margemLiquidaPercent: 12.0
+  },
+  {
+    id: 'outros',
+    nome: 'Outros & Acessórios',
+    descricao: 'Correlatos, primeiros socorros e itens diversos (13.7% do faturamento). Rateio de 23.00% de custo fixo.',
+    icone: 'Package',
+    participacaoFaturamentoPercent: 13.7,
+    impostoPercent: 5.0,
+    taxaCartaoPercent: 2.5,
+    custosVariaveisPercent: 1.0,
+    custoFixoPercent: 23.00,
+    proLaboreSocio1Percent: 6.0,
+    proLaboreSocio2Percent: 6.0,
+    margemLiquidaPercent: 10.0
+  },
+  {
+    id: 'referencia',
+    nome: 'Referência / Marca (Alto Giro)',
+    descricao: 'Medicamentos éticos de marca (10.7% do faturamento). Preço competitivo de mercado com 15.70% de custo fixo.',
+    icone: 'Shield',
+    participacaoFaturamentoPercent: 10.7,
+    impostoPercent: 4.0,
+    taxaCartaoPercent: 2.5,
+    custosVariaveisPercent: 1.0,
+    custoFixoPercent: 15.70,
+    proLaboreSocio1Percent: 5.0,
+    proLaboreSocio2Percent: 5.0,
     margemLiquidaPercent: 4.0
   }
 ];
+
+/**
+ * Detecta a categoria de um produto automaticamente com base na descrição ou nome
+ */
+export function detectProductCategory(description: string = ''): 'genericos' | 'similares' | 'perfumaria' | 'outros' | 'referencia' {
+  const text = description.toUpperCase();
+
+  // 1. Genéricos
+  if (
+    text.includes('GENERICO') || 
+    text.includes(' GEN ') || 
+    text.includes('GEN.') || 
+    text.includes('EMS GEN') || 
+    text.includes('MEDLEY GEN') || 
+    text.includes('NEO QUIMICA GEN') || 
+    text.includes('PRATI GEN') || 
+    text.includes('EUROFARMA GEN') || 
+    text.includes('SANDOZ GEN') || 
+    text.includes('TEUTO GEN') || 
+    text.includes('ACHE GEN') ||
+    text.includes('LEGRAND GEN') ||
+    text.includes('CIMED GEN') ||
+    text.includes('GEOLAB GEN') ||
+    text.includes('NOVA QUIMICA GEN')
+  ) {
+    return 'genericos';
+  }
+
+  // 2. Perfumarias e Higiene
+  if (
+    text.includes('SHAMPOO') || 
+    text.includes('SABONETE') || 
+    text.includes('CREME') || 
+    text.includes('DESODORANTE') || 
+    text.includes('FRALDA') || 
+    text.includes('PERFUME') || 
+    text.includes('ESMALTE') || 
+    text.includes('HIDRATANTE') || 
+    text.includes('PROTETOR') || 
+    text.includes('ESCOVA') || 
+    text.includes('COLONIA') || 
+    text.includes('CONDICIONADOR') || 
+    text.includes('ABSORVENTE') || 
+    text.includes('LENCO') || 
+    text.includes('TINTURA') ||
+    text.includes('LOÇÃO') ||
+    text.includes('LOCAO') ||
+    text.includes('GEL DENTAL') ||
+    text.includes('ENXAGUANTE') ||
+    text.includes('REPELENTE')
+  ) {
+    return 'perfumaria';
+  }
+
+  // 3. Similares e Bonificados
+  if (
+    text.includes('SIMILAR') || 
+    text.includes('SIMIL.') || 
+    text.includes('BONIF') ||
+    text.includes('SIM ')
+  ) {
+    return 'similares';
+  }
+
+  // 4. Outros / Correlatos / Acessórios
+  if (
+    text.includes('SERINGA') || 
+    text.includes('AGULHA') || 
+    text.includes('ALCOOL') || 
+    text.includes('ÁLCOOL') || 
+    text.includes('ALGODAO') || 
+    text.includes('ALGODÃO') || 
+    text.includes('GAZE') || 
+    text.includes('CURATIVO') || 
+    text.includes('ESPARADRAPO') || 
+    text.includes('TERMOMETRO') || 
+    text.includes('BICO') || 
+    text.includes('MAMADEIRA') || 
+    text.includes('CHUPETA') || 
+    text.includes('PRESERVATIVO') || 
+    text.includes('TESTE DE')
+  ) {
+    return 'outros';
+  }
+
+  // 5. Se tiver dosagens farmacêuticas típicas (MG, ML, CPR, COMP, GTS, etc.), classifica como Referência/Marca
+  if (
+    /\b\d+\s*(MG|MCG|G|ML|UI)\b/.test(text) ||
+    text.includes('CPR') ||
+    text.includes('COMP') ||
+    text.includes('GTS') ||
+    text.includes('CAPS') ||
+    text.includes('AMP') ||
+    text.includes('XPE') ||
+    text.includes('POMADA') ||
+    text.includes('COLIRIO') ||
+    text.includes('SPRAY')
+  ) {
+    return 'referencia';
+  }
+
+  return 'outros';
+}
 
 /**
  * Arredonda um número para 2 casas decimais.
