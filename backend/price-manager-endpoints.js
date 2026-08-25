@@ -839,7 +839,58 @@ module.exports = function (db) {
       }
 
       const prodId = snap.produto_id;
-      const revertPrice = Number(snap.preco_anterior);
+      let revertPrice = parseFloat(snap.preco_anterior) || 0;
+
+      // Se o preco_anterior estava zerado no snapshot, tenta recuperar o preço real
+      if (revertPrice <= 0) {
+        // 1. Tentar achar snapshot anterior deste produto que tenha preço válido
+        const prevSnap = db.prepare(`
+          SELECT preco_anterior, novo_preco FROM price_change_snapshots 
+          WHERE produto_id = ? AND id != ? AND (preco_anterior > 0 OR novo_preco > 0)
+          ORDER BY data_alteracao DESC LIMIT 1
+        `).get(prodId, snapshotId);
+
+        if (prevSnap && prevSnap.preco_anterior > 0) {
+          revertPrice = parseFloat(prevSnap.preco_anterior);
+        } else if (prevSnap && prevSnap.novo_preco > 0) {
+          revertPrice = parseFloat(prevSnap.novo_preco);
+        }
+
+        // 2. Tentar buscar no cache do Digifarma
+        if (revertPrice <= 0) {
+          const cacheProd = db.prepare(`
+            SELECT preco_normal, preco_venda FROM digifarma_products_cache 
+            WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ?
+          `).get(String(prodId), prodId);
+
+          if (cacheProd && cacheProd.preco_normal > 0) {
+            revertPrice = parseFloat(cacheProd.preco_normal);
+          } else if (cacheProd && cacheProd.preco_venda > 0) {
+            revertPrice = parseFloat(cacheProd.preco_venda);
+          }
+        }
+
+        // 3. Tentar buscar no Firebird direto
+        if (revertPrice <= 0) {
+          try {
+            const fbProd = await queryDigifarma('SELECT PROD_PRVENDA, PROD_PRPROMOCAO FROM PRODUTOS WHERE PRODUTO_ID = ?', [prodId]);
+            if (fbProd && fbProd[0]) {
+              const p = fbProd[0];
+              if (p.PROD_PRVENDA > 0) revertPrice = parseFloat(p.PROD_PRVENDA);
+              else if (p.PROD_PRPROMOCAO > 0) revertPrice = parseFloat(p.PROD_PRPROMOCAO);
+            }
+          } catch (fbErr) {}
+        }
+      }
+
+      // TRAVA DE SEGURANÇA: NUNCA permitir reverter para R$ 0,00
+      if (isNaN(revertPrice) || revertPrice <= 0) {
+        return res.status(400).json({
+          error: `⚠️ Não é possível reverter: o preço anterior deste registro está zerado (R$ 0,00). Por segurança da loja, o Digifarma não aceita preço zero.`
+        });
+      }
+
+      revertPrice = roundUpToAcceptedCents(revertPrice);
 
       // 1. Reverte no Digifarma Firebird
       await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [revertPrice, prodId]);
@@ -852,12 +903,12 @@ module.exports = function (db) {
         WHERE produto_id = ?
       `).run(revertPrice, revertPrice, prodId);
 
-      // 3. Marca Snapshot como Revertido
+      // 3. Atualiza o snapshot com o preco_anterior corrigido e marca como Revertido
       db.prepare(`
         UPDATE price_change_snapshots 
-        SET revertido = 1, revertido_em = datetime('now', 'localtime'), revertido_por = ?
+        SET preco_anterior = ?, revertido = 1, revertido_em = datetime('now', 'localtime'), revertido_por = ?
         WHERE id = ?
-      `).run(usuario || 'Administrador', snapshotId);
+      `).run(revertPrice, usuario || 'Administrador', snapshotId);
 
       // 4. Log de Auditoria
       const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -869,7 +920,7 @@ module.exports = function (db) {
           logId,
           usuario || 'Administrador',
           'admin',
-          `REVERSÃO (ROLLBACK): Preço de "${snap.descricao}" (Cód ${prodId}) revertido para R$ ${revertPrice.toFixed(2)}.`
+          `REVERSÃO (ROLLBACK): Preço de "${snap.descricao}" (Cód ${prodId}) revertido com segurança para R$ ${revertPrice.toFixed(2)}.`
         );
       } catch (logErr) {}
 
