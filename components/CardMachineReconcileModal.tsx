@@ -61,11 +61,51 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   const [weekendNetTyped, setWeekendNetTyped] = useState<string>('');
   const [showWeekendQuickAll, setShowWeekendQuickAll] = useState<boolean>(false);
 
+  // State for confirmed individual caixinha provisions
+  const [confirmedProvisions, setConfirmedProvisions] = useState<{
+    prolabore: boolean;
+    impostos: boolean;
+    reserva: boolean;
+  }>({
+    prolabore: false,
+    impostos: false,
+    reserva: false,
+  });
+
   useEffect(() => {
     if (isOpen) {
       fetchPendingItems();
+      const hoje = new Date().toISOString().slice(0, 10);
+      try {
+        const saved = localStorage.getItem(`belafarma_provisions_confirmed_${hoje}`);
+        if (saved) {
+          setConfirmedProvisions(JSON.parse(saved));
+        } else {
+          setConfirmedProvisions({ prolabore: false, impostos: false, reserva: false });
+        }
+      } catch (e) {}
     }
   }, [isOpen]);
+
+  const handleToggleProvision = (key: 'prolabore' | 'impostos' | 'reserva') => {
+    setConfirmedProvisions(prev => {
+      const updated = { ...prev, [key]: !prev[key] };
+      const hoje = new Date().toISOString().slice(0, 10);
+      localStorage.setItem(`belafarma_provisions_confirmed_${hoje}`, JSON.stringify(updated));
+      
+      const nomes = {
+        prolabore: 'Pró-Labore (12%)',
+        impostos: 'Impostos / DAS (4%)',
+        reserva: 'Reserva de Emergência (1%)'
+      };
+      if (updated[key]) {
+        addToast(`✅ Provisão de ${nomes[key]} marcada como separada na caixinha!`, 'success');
+      } else {
+        addToast(`Separação de ${nomes[key]} desfeita.`, 'info');
+      }
+      return updated;
+    });
+  };
 
   const fetchPendingItems = async () => {
     setLoading(true);
@@ -380,11 +420,183 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
             </div>
           ) : (
             <>
-              {/* RESUMO POR BANDEIRA DE CARTÃO */}
+              {/* BANNER DE PROVISÕES DAS CAIXINHAS COM DESTAQUE DO TOTAL BRUTO DE REPASSE */}
+              {totalsSummary.totalGross > 0 && (
+                <div className="bg-slate-900 dark:bg-slate-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-800 space-y-4">
+                  {/* Cabeçalho do Banner com Total em Grande Destaque */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                        <Percent className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h4 className="text-base font-black tracking-tight text-white">
+                            Provisões Obrigatórias das Caixinhas
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
+                            Regra BelaFarma
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Ao cair o repasse no banco, separe imediatamente os valores nas caixinhas para manter reservas e tributos em dia.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Card de Destaque Máximo do Total Bruto */}
+                    <div className="bg-emerald-950/70 border-2 border-emerald-500/50 rounded-2xl px-5 py-3.5 flex sm:flex-col justify-between items-end min-w-[220px] shadow-lg shadow-emerald-950/50">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                        Total Bruto dos Repasses
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight mt-0.5">
+                        {formatCurrency(totalsSummary.totalGross)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 3 Caixinhas de Provisão com Botões Individuais de Confirmação */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    {/* 1. Pró-Labore (12%) */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      confirmedProvisions.prolabore 
+                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
+                        : 'bg-slate-800/80 border-slate-700/80'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-300">
+                          Pró-Labore
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          12%
+                        </span>
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-white">
+                        {formatCurrency(provisions.prolabore)}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Caixinha Pró-Labore
+                      </p>
+                      <div className="pt-3 mt-2 border-t border-slate-700/60">
+                        <button
+                          onClick={() => handleToggleProvision('prolabore')}
+                          className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                            confirmedProvisions.prolabore
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                              : 'bg-slate-700 hover:bg-purple-600 text-slate-200 hover:text-white'
+                          }`}
+                        >
+                          {confirmedProvisions.prolabore ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                              <span>Separado na Caixinha ✅</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Confirmar Separação</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 2. Impostos / DAS (4%) */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      confirmedProvisions.impostos 
+                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
+                        : 'bg-slate-800/80 border-slate-700/80'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-rose-300">
+                          Impostos / DAS
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                          4%
+                        </span>
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-white">
+                        {formatCurrency(provisions.impostos)}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Caixinha Tributos
+                      </p>
+                      <div className="pt-3 mt-2 border-t border-slate-700/60">
+                        <button
+                          onClick={() => handleToggleProvision('impostos')}
+                          className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                            confirmedProvisions.impostos
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                              : 'bg-slate-700 hover:bg-rose-600 text-slate-200 hover:text-white'
+                          }`}
+                        >
+                          {confirmedProvisions.impostos ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                              <span>Separado na Caixinha ✅</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Confirmar Separação</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 3. Reserva Emergência (1%) */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      confirmedProvisions.reserva 
+                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
+                        : 'bg-slate-800/80 border-slate-700/80'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-sky-300">
+                          Reserva Emergência
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                          1%
+                        </span>
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-white">
+                        {formatCurrency(provisions.reserva)}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Caixinha Reserva
+                      </p>
+                      <div className="pt-3 mt-2 border-t border-slate-700/60">
+                        <button
+                          onClick={() => handleToggleProvision('reserva')}
+                          className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                            confirmedProvisions.reserva
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                              : 'bg-slate-700 hover:bg-sky-600 text-slate-200 hover:text-white'
+                          }`}
+                        >
+                          {confirmedProvisions.reserva ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                              <span>Separado na Caixinha ✅</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Confirmar Separação</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* RECEBÍVEIS PREVISTOS POR BANDEIRA (M1 + M2) */}
               <div className="space-y-3">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5" />
-                  Recebíveis por Bandeira (M1 + M2 consolidados)
+                  Recebíveis Previstos por Bandeira (M1 + M2)
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {brandSummary.map(b => (
@@ -476,49 +688,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                   </div>
                 </div>
               </div>
-
-              {/* PROVISÕES (Caixinhas: 12% Prolabore, 4% Impostos, 1% Reserva) */}
-              {totalsSummary.totalGross > 0 && (
-                <div className="space-y-3">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                    <Percent className="w-3.5 h-3.5" />
-                    Provisões sobre o Bruto (Separar nas Caixinhas)
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/60">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Pró-Labore (12%)</span>
-                      <h4 className="text-base font-black text-purple-800 dark:text-purple-200 mt-1">
-                        {formatCurrency(provisions.prolabore)}
-                      </h4>
-                      <span className="text-[10px] text-purple-500/70 font-medium">12% de {formatCurrency(totalsSummary.totalGross)}</span>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400">Impostos (4%)</span>
-                      <h4 className="text-base font-black text-rose-800 dark:text-rose-200 mt-1">
-                        {formatCurrency(provisions.impostos)}
-                      </h4>
-                      <span className="text-[10px] text-rose-500/70 font-medium">4% de {formatCurrency(totalsSummary.totalGross)}</span>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/60">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-sky-600 dark:text-sky-400">Reserva (1%)</span>
-                      <h4 className="text-base font-black text-sky-800 dark:text-sky-200 mt-1">
-                        {formatCurrency(provisions.reserva)}
-                      </h4>
-                      <span className="text-[10px] text-sky-500/70 font-medium">1% de {formatCurrency(totalsSummary.totalGross)}</span>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">Total Provisões (17%)</span>
-                      <h4 className="text-base font-black text-amber-800 dark:text-amber-200 mt-1">
-                        {formatCurrency(provisions.total)}
-                      </h4>
-                      <span className="text-[10px] text-amber-500/70 font-medium">Líquido após caixinhas: <strong className="text-emerald-600">{formatCurrency(provisions.liquidoAposProvisoes)}</strong></span>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* OPÇÃO DE CONFERÊNCIA GLOBAL DO FDS (SE FOR SEGUNDA-FEIRA) */}
               {isMonday && weekendItems.length > 0 && (
