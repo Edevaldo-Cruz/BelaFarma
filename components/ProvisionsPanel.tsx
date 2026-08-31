@@ -1,629 +1,418 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Target, Wallet, Calendar as CalendarIcon, Save, Info, AlertTriangle, CheckCircle2, DollarSign, Edit2, X, TrendingUp, Sliders, Calculator, Percent } from 'lucide-react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  PiggyBank, 
+  Landmark, 
+  ShieldCheck, 
+  Calendar as CalendarIcon, 
+  TrendingUp, 
+  CheckCircle2, 
+  Clock, 
+  Layers,
+  Info
+} from 'lucide-react';
 import { CashClosingRecord, FixedAccount } from '../types';
+import { useToast } from './ToastContext';
 
 interface ProvisionsPanelProps {
   cashClosings: CashClosingRecord[];
-  fixedAccounts: FixedAccount[];
+  fixedAccounts?: FixedAccount[];
 }
 
-const formatBRL = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+const formatBRL = (val: number) => 
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
-export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings, fixedAccounts }) => {
+export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }) => {
+  const { addToast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  
-  const [salesGoal, setSalesGoal] = useState<number>(40000);
-  const [prolaboreGoal, setProlaboreGoal] = useState<number>(10000);
-  const [vacationGoal, setVacationGoal] = useState<number>(2000);
-  
-  const [isEditingSettings, setIsEditingSettings] = useState(false);
-  const [tempProlabore, setTempProlabore] = useState('');
-  const [tempVacation, setTempVacation] = useState('');
-  const [tempSales, setTempSales] = useState('');
-  
-  const [initialDebt, setInitialDebt] = useState<number>(0);
-  const [tempDebt, setTempDebt] = useState('');
-  
   const [paidProvisionsDates, setPaidProvisionsDates] = useState<string[]>([]);
-  const [showFixedDetails, setShowFixedDetails] = useState(false);
-  const [calcSales, setCalcSales] = useState<string>('');
-  const [calcMargin, setCalcMargin] = useState<number>(36.6);
-  const [calcTaxes, setCalcTaxes] = useState<number>(10);
-  const [calcExtraProvision, setCalcExtraProvision] = useState<number>(1500);
+  const [isUpdating, setIsUpdating] = useState(false);
 
-
-  const now = new Date();
-
+  // Busca configurações de datas de provisões pagas
   useEffect(() => {
-    const fetchGoals = async () => {
+    const fetchPaidDates = async () => {
       try {
-        const [resSales, resProlabore, resVacation, resDebt, resPaid] = await Promise.all([
-          fetch('/api/settings/monthly_sales_goal'),
-          fetch('/api/settings/prolabore_monthly'),
-          fetch('/api/settings/vacation_monthly'),
-          fetch('/api/settings/initial_prolabore_debt'),
-          fetch('/api/settings/paid_provisions_dates')
-        ]);
-
-        if (resSales.ok) {
-          const d = await resSales.json();
-          if (d && d.value) setSalesGoal(Number(d.value));
-        }
-        if (resProlabore.ok) {
-          const d = await resProlabore.json();
-          if (d && d.value) setProlaboreGoal(Number(d.value));
-        }
-        if (resVacation.ok) {
-          const d = await resVacation.json();
-          if (d && d.value) setVacationGoal(Number(d.value));
-        }
-        if (resDebt.ok) {
-          const d = await resDebt.json();
-          if (d && d.value) setInitialDebt(Number(d.value));
-        }
-        if (resPaid.ok) {
-          const d = await resPaid.json();
+        const res = await fetch('/api/settings/paid_provisions_dates');
+        if (res.ok) {
+          const d = await res.json();
           if (d && d.value) {
             try { setPaidProvisionsDates(JSON.parse(d.value)); } catch(e) {}
           }
         }
       } catch (err) {
-        console.error('Erro ao buscar configurações de metas', err);
+        console.error('Erro ao buscar status de provisões pagas:', err);
       }
     };
-    fetchGoals();
+    fetchPaidDates();
   }, []);
 
-  const handleSaveSettings = async () => {
-    const numSales = Number(tempSales.replace(/[^0-9.]/g, ''));
-    const numProlabore = Number(tempProlabore.replace(/[^0-9.]/g, ''));
-    const numVacation = Number(tempVacation.replace(/[^0-9.]/g, ''));
-    const numDebt = Number(tempDebt.replace(/[^0-9.]/g, ''));
-
-    if (numSales > 0) setSalesGoal(numSales);
-    if (numProlabore >= 0) setProlaboreGoal(numProlabore);
-    if (numVacation >= 0) setVacationGoal(numVacation);
-    if (numDebt >= 0) setInitialDebt(numDebt);
-
-    try {
-      await Promise.all([
-        fetch('/api/settings/monthly_sales_goal', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: numSales > 0 ? String(numSales) : String(salesGoal) })
-        }),
-        fetch('/api/settings/prolabore_monthly', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: numProlabore >= 0 ? String(numProlabore) : String(prolaboreGoal) })
-        }),
-        fetch('/api/settings/vacation_monthly', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: numVacation >= 0 ? String(numVacation) : String(vacationGoal) })
-        }),
-        fetch('/api/settings/initial_prolabore_debt', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: numDebt >= 0 ? String(numDebt) : String(initialDebt) })
-        })
-      ]);
-    } catch (e) {
-      console.error(e);
-    }
-    
-    setIsEditingSettings(false);
-  };
-
-  const startEditing = () => {
-    setTempSales(salesGoal.toString());
-    setTempProlabore(prolaboreGoal.toString());
-    setTempVacation(vacationGoal.toString());
-    setTempDebt(initialDebt.toString());
-    setIsEditingSettings(true);
-  };
-
-  // Calculations
-  const currentMonthSales = useMemo(() => {
+  // Fechamentos filtrados para o mês/ano selecionado
+  const monthClosings = useMemo(() => {
     return cashClosings
       .filter(c => {
         if (!c.date) return false;
         const [y, m] = c.date.split('-');
         return parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth;
       })
-      .reduce((acc, curr) => acc + (curr.totalSales || 0), 0);
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [cashClosings, selectedMonth, selectedYear]);
 
-  // Sincroniza o faturamento simulado inicial com o faturamento do mês selecionado
-  useEffect(() => {
-    setCalcSales(currentMonthSales > 0 ? currentMonthSales.toString() : salesGoal.toString());
-  }, [currentMonthSales, salesGoal]);
+  // Faturamento total do mês selecionado
+  const totalMonthSales = useMemo(() => {
+    return monthClosings.reduce((sum, c) => sum + (Number(c.totalSales) || 0), 0);
+  }, [monthClosings]);
 
-  const fixedAccountsTotal = useMemo(() => {
-    return fixedAccounts.filter(fa => fa.isActive).reduce((acc, fa) => acc + fa.value, 0);
-  }, [fixedAccounts]);
+  // Cálculos das Caixinhas
+  const prolaboreTotal = totalMonthSales * 0.12;
+  const taxTotal = totalMonthSales * 0.04;
+  const reserveTotal = totalMonthSales * 0.01;
+  const grandTotalProvisions = prolaboreTotal + taxTotal + reserveTotal;
 
-  const totalProvisionsTarget = fixedAccountsTotal + prolaboreGoal + vacationGoal;
-  
-  // Progresso baseado nas Vendas:
-  // Se eu faturei X de uma meta de Vendas de Y, eu preenchi (X/Y) das minhas provisões.
-  const salesProgressPercent = salesGoal > 0 ? Math.min(currentMonthSales / salesGoal, 1) : 0;
-  
-  const provisionedAmount = totalProvisionsTarget * salesProgressPercent;
-  const missingSalesAmount = Math.max(0, salesGoal - currentMonthSales);
+  // Totais Pagos / Separados
+  const paidStats = useMemo(() => {
+    let paidProlabore = 0;
+    let paidTax = 0;
+    let paidReserve = 0;
 
-  // Cálculos do Saldo Devedor
-  const totalPaidProvisions = useMemo(() => {
-    let sum = 0;
-    cashClosings.forEach(c => {
-      if (c.date && paidProvisionsDates.includes(c.date)) {
-        // Reconstituir o valor pago
-        const [y, m] = c.date.split('-');
-        const daysInMonth = new Date(parseInt(y), parseInt(m), 0).getDate();
-        const dailyGoal = salesGoal / daysInMonth; // Aproximação baseada na meta atual
-        
-        let provisionValue = 50;
-        const surplus = c.totalSales - dailyGoal;
-        if (surplus > 0) {
-          provisionValue += Math.floor(surplus / 100) * 10;
-        }
-        sum += provisionValue;
+    monthClosings.forEach(c => {
+      const sales = Number(c.totalSales) || 0;
+      if (paidProvisionsDates.includes(`prolabore-${c.date}`)) {
+        paidProlabore += sales * 0.12;
+      }
+      if (paidProvisionsDates.includes(`tax-${c.date}`)) {
+        paidTax += sales * 0.04;
+      }
+      if (paidProvisionsDates.includes(`reserve-${c.date}`)) {
+        paidReserve += sales * 0.01;
       }
     });
-    return sum;
-  }, [cashClosings, paidProvisionsDates, salesGoal]);
 
-  const currentDebt = Math.max(0, initialDebt - totalPaidProvisions);
-
-  // Cálculos do Fechamento Societário
-  // Se for o dia 1 (ou qualquer dia) e estivermos olhando para um mês anterior:
-  const isPastMonth = selectedYear < now.getFullYear() || (selectedYear === now.getFullYear() && selectedMonth < now.getMonth());
-  const partnerShare = (prolaboreGoal * salesProgressPercent) / 2;
-
-  // Lógica da Calculadora Open to Buy (Compra Segura) e Provisões
-  const simulatedSales = Number(calcSales) || 0;
-  const simulatedTaxesValue = simulatedSales * (calcTaxes / 100);
-  const simulatedCMVValue = simulatedSales * (1 - (calcMargin / 100));
-  const totalFixedCosts = fixedAccountsTotal + prolaboreGoal + vacationGoal;
-  const rawOTBMensal = simulatedSales - simulatedTaxesValue - totalFixedCosts - calcExtraProvision;
-  const otbMensal = Math.max(0, rawOTBMensal);
-  const otbSemanal = Math.max(0, otbMensal / 4);
-  const surplusBeforePurchasing = simulatedSales - simulatedTaxesValue - totalFixedCosts;
-
-  const getOTBAdvice = () => {
-    if (simulatedSales <= 0) {
-      return {
-        type: 'info',
-        bg: 'bg-blue-50 border-blue-100 text-blue-800 dark:bg-blue-950/20 dark:border-blue-900/30 dark:text-blue-400',
-        icon: <Info className="w-5 h-5 text-blue-600 shrink-0" />,
-        message: 'Insira um faturamento de referência para calcular seu orçamento de compras seguro.'
-      };
-    }
-    if (surplusBeforePurchasing < calcExtraProvision) {
-      const diff = calcExtraProvision - surplusBeforePurchasing;
-      return {
-        type: 'danger',
-        bg: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/20 dark:border-red-900/30 dark:text-red-400',
-        icon: <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 animate-pulse" />,
-        message: `Alerta Crítico: O faturamento de ${formatBRL(simulatedSales)} não cobre os impostos, custos fixos, pró-labore e a provisão extra desejada de ${formatBRL(calcExtraProvision)}. Faltam ${formatBRL(diff)} no caixa. Para realizar a provisão, você terá que reduzir drasticamente as compras ou queimar estoque antigo parado.`
-      };
-    }
-    if (rawOTBMensal < simulatedCMVValue) {
-      return {
-        type: 'warning',
-        bg: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-400',
-        icon: <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />,
-        message: `Compre menos que a reposição: Seu limite de compras seguro é de ${formatBRL(otbMensal)}, mas o custo teórico do que saiu foi de ${formatBRL(simulatedCMVValue)}. Você precisará frear suas compras de reposição em ${formatBRL(simulatedCMVValue - otbMensal)} neste mês para forçar o estoque parado a girar e liberar a provisão no caixa.`
-      };
-    }
     return {
-      type: 'success',
-      bg: 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400',
-      icon: <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />,
-      message: `Caixa Saudável! Você pode comprar a reposição completa das mercadorias vendidas (${formatBRL(simulatedCMVValue)}) e ainda sobrará dinheiro suficiente no caixa para pagar as contas fixas, os pró-labores e guardar a provisão de ${formatBRL(calcExtraProvision)}.`
+      paidProlabore,
+      pendingProlabore: Math.max(0, prolaboreTotal - paidProlabore),
+      paidTax,
+      pendingTax: Math.max(0, taxTotal - paidTax),
+      paidReserve,
+      pendingReserve: Math.max(0, reserveTotal - paidReserve),
+      totalPaid: paidProlabore + paidTax + paidReserve,
+      totalPending: Math.max(0, grandTotalProvisions - (paidProlabore + paidTax + paidReserve))
     };
-  };
+  }, [monthClosings, paidProvisionsDates, prolaboreTotal, taxTotal, reserveTotal, grandTotalProvisions]);
 
-  const advice = getOTBAdvice();
+  // Alternar status de pagamento de uma provisão diária específica
+  const handleToggleProvision = async (provisionKey: string) => {
+    if (isUpdating) return;
+    setIsUpdating(true);
+
+    let newDates = [...paidProvisionsDates];
+    const isPaid = newDates.includes(provisionKey);
+
+    if (isPaid) {
+      newDates = newDates.filter(d => d !== provisionKey);
+    } else {
+      newDates.push(provisionKey);
+    }
+
+    setPaidProvisionsDates(newDates);
+
+    try {
+      const res = await fetch('/api/settings/paid_provisions_dates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: JSON.stringify(newDates) })
+      });
+
+      if (!res.ok) throw new Error('Falha ao salvar status da provisão');
+      addToast(
+        isPaid ? 'Provisão marcada como pendente' : 'Provisão marcada como reservada/paga com sucesso!', 
+        'success'
+      );
+    } catch (e) {
+      console.error(e);
+      addToast('Erro ao atualizar status da provisão', 'error');
+      // Reverter estado local em caso de erro
+      setPaidProvisionsDates(paidProvisionsDates);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(selectedYear, i, 1);
     return { value: i, label: d.toLocaleString('pt-BR', { month: 'long' }) };
   });
 
-  const getProgressColor = (percent: number) => {
-    if (percent >= 1) return 'bg-emerald-500 shadow-emerald-200';
-    if (percent >= 0.75) return 'bg-blue-500 shadow-blue-200';
-    if (percent >= 0.4) return 'bg-yellow-500 shadow-yellow-200';
-    return 'bg-red-500 shadow-red-200';
-  };
-
-
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500 pb-12">
+      {/* Header com Seletor de Período */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tighter leading-none flex items-center gap-2">
-            <Target className="w-6 h-6 text-indigo-600" /> Progresso de Provisões
+            <PiggyBank className="w-7 h-7 text-emerald-600" /> Caixinhas de Provisão
           </h1>
-          <p className="text-slate-500 font-medium text-sm mt-1">Acompanhamento unificado das reservas do mês baseado nas vendas.</p>
+          <p className="text-slate-500 font-medium text-sm mt-1">
+            Separação diária sobre o faturamento: Pró-labore (12%), Impostos (4%) e Fundo de Reserva (1%).
+          </p>
         </div>
         
-        <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="relative w-full md:w-48">
+        <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="relative w-44">
             <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <select 
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold capitalize appearance-none focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(Number(e.target.value))}
             >
-              {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label.toUpperCase()}</option>)}
+              {monthOptions.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
             </select>
           </div>
-          <div className="relative w-full md:w-32">
-             <select 
-              className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-            >
-              {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
+
+          <select 
+            className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold appearance-none focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+          >
+            {[selectedYear - 1, selectedYear, selectedYear + 1].map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
       </header>
 
-      {/* PAINEL SALDO DEVEDOR */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="col-span-1 md:col-span-2 bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col justify-center">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-               Saldo Devedor de Prolabore (Atrasados)
-            </h3>
-          </div>
-          <div className="flex flex-col md:flex-row md:items-end gap-6 mt-2">
-             <div>
-               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Dívida Base</p>
-               <p className="text-xl font-bold text-slate-700">{formatBRL(initialDebt)}</p>
-             </div>
-             <div className="hidden md:block text-slate-300 font-light text-2xl">-</div>
-             <div>
-               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Provisões Pagas</p>
-               <p className="text-xl font-bold text-emerald-600">{formatBRL(totalPaidProvisions)}</p>
-             </div>
-             <div className="hidden md:block text-slate-300 font-light text-2xl">=</div>
-             <div>
-               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Saldo Atual</p>
-               <p className="text-3xl font-black text-red-600 tracking-tighter">{formatBRL(currentDebt)}</p>
-             </div>
-          </div>
-        </div>
-        
-        {/* FECHAMENTO MENSAL SOCIETÁRIO */}
-        <div className={`col-span-1 rounded-[2rem] p-6 border ${isPastMonth ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200 opacity-60'} flex flex-col justify-center`}>
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
-               Acerto de Sócios
-            </h3>
-            {isPastMonth && <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-[9px] font-bold uppercase rounded-lg">Fechado</span>}
-          </div>
-          
-          {isPastMonth ? (
-             <div className="space-y-3">
-               <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-indigo-100/50">
-                 <span className="text-xs font-bold text-slate-600 uppercase">Edevaldo</span>
-                 <span className="text-sm font-black text-indigo-700">{formatBRL(partnerShare)}</span>
-               </div>
-               <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-indigo-100/50">
-                 <span className="text-xs font-bold text-slate-600 uppercase">Sócia</span>
-                 <span className="text-sm font-black text-indigo-700">{formatBRL(partnerShare)}</span>
-               </div>
-             </div>
-          ) : (
-             <div className="text-center text-slate-400 p-4">
-               <p className="text-xs font-bold uppercase">Mês em andamento</p>
-               <p className="text-[10px] mt-1">O acerto será liberado no dia 1º do próximo mês.</p>
-             </div>
-          )}
-        </div>
-      </div>
-
-      {/* PAINEL CENTRAL (BURACO) */}
-      <div className="bg-gradient-to-br from-emerald-950 to-slate-900 rounded-[3rem] p-8 md:p-12 text-white shadow-2xl relative overflow-hidden border border-emerald-900/30">
-        {/* Decorative background elements */}
-        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-emerald-550 rounded-full blur-3xl opacity-20 animate-pulse"></div>
-        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-80 h-80 bg-teal-500 rounded-full blur-3xl opacity-10"></div>
-        
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center">
-          <div className="col-span-2 space-y-6">
-            <h2 className="text-sm font-black text-emerald-350 dark:text-emerald-400 uppercase tracking-[0.2em] flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" /> Desempenho Geral do Mês
-            </h2>
-            <div className="space-y-2">
-              <div className="flex justify-between items-end">
-                <p className="text-4xl md:text-6xl font-black tracking-tighter">
-                  {formatBRL(currentMonthSales)}
-                </p>
-                <p className="text-emerald-200 font-bold mb-2">
-                  de {formatBRL(salesGoal)}
-                </p>
-              </div>
-              
-              <div className="w-full bg-slate-800/80 rounded-full h-4 backdrop-blur-sm p-0.5 border border-slate-700">
-                <div 
-                  className={`h-full rounded-full transition-all duration-1000 shadow-lg ${getProgressColor(salesProgressPercent)}`}
-                  style={{ width: `${salesProgressPercent * 100}%` }}
-                ></div>
-              </div>
-              <p className="text-xs text-right font-black tracking-widest text-emerald-350 dark:text-emerald-400">
-                {(salesProgressPercent * 100).toFixed(1)}% ATINGIDO
-              </p>
+      {/* Resumo Geral de Faturamento e Total Provisionado (17%) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card Faturamento Total */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Faturamento do Mês</span>
+            <div className="p-2 rounded-xl bg-slate-100 text-slate-600">
+              <TrendingUp className="w-5 h-5" />
             </div>
           </div>
-          
-          <div className="bg-white/10 backdrop-blur-md rounded-[2rem] p-6 border border-white/10 flex flex-col items-center justify-center text-center h-full">
-            <p className="text-[10px] font-black text-emerald-250 dark:text-emerald-300 uppercase tracking-widest mb-2">Buraco a Faturar</p>
-            {missingSalesAmount > 0 ? (
-              <>
-                <p className="text-3xl font-black text-white tracking-tighter">{formatBRL(missingSalesAmount)}</p>
-                <p className="text-xs font-bold text-emerald-300 dark:text-emerald-400 mt-2 opacity-80">Faltam para garantir 100% das provisões do mês</p>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
-                <p className="text-lg font-black text-emerald-300 uppercase tracking-widest">Meta Batida!</p>
-                <p className="text-xs text-emerald-200/70 mt-1">Todas as provisões garantidas.</p>
-              </>
-            )}
+          <div className="mt-3">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight">{formatBRL(totalMonthSales)}</h3>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              {monthClosings.length} {monthClosings.length === 1 ? 'fechamento registrado' : 'fechamentos registrados'}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 1: Pró-labore (12%) */}
+        <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-2xl p-5 border border-emerald-100 shadow-sm relative overflow-hidden">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[10px] font-black text-emerald-800 uppercase tracking-widest flex items-center gap-1.5">
+                <PiggyBank className="w-3.5 h-3.5 text-emerald-600" /> Pró-labore dos Sócios
+              </span>
+              <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                12% do Faturamento
+              </span>
+            </div>
+          </div>
+          <div className="mt-3">
+            <h3 className="text-2xl font-black text-emerald-950 tracking-tight">{formatBRL(prolaboreTotal)}</h3>
+            <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-emerald-200/60 font-semibold">
+              <span className="text-emerald-700">Reservado: {formatBRL(paidStats.paidProlabore)}</span>
+              <span className="text-amber-700 font-bold">Pendente: {formatBRL(paidStats.pendingProlabore)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Impostos (4%) */}
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50/50 rounded-2xl p-5 border border-blue-100 shadow-sm relative overflow-hidden">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[10px] font-black text-blue-800 uppercase tracking-widest flex items-center gap-1.5">
+                <Landmark className="w-3.5 h-3.5 text-blue-600" /> Impostos / Tributos
+              </span>
+              <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-md">
+                4% do Faturamento
+              </span>
+            </div>
+          </div>
+          <div className="mt-3">
+            <h3 className="text-2xl font-black text-blue-950 tracking-tight">{formatBRL(taxTotal)}</h3>
+            <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-blue-200/60 font-semibold">
+              <span className="text-blue-700">Reservado: {formatBRL(paidStats.paidTax)}</span>
+              <span className="text-amber-700 font-bold">Pendente: {formatBRL(paidStats.pendingTax)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Reserva (1%) */}
+        <div className="bg-gradient-to-br from-purple-50 to-violet-50/50 rounded-2xl p-5 border border-purple-100 shadow-sm relative overflow-hidden">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[10px] font-black text-purple-800 uppercase tracking-widest flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" /> Fundo de Reserva
+              </span>
+              <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md">
+                1% do Faturamento
+              </span>
+            </div>
+          </div>
+          <div className="mt-3">
+            <h3 className="text-2xl font-black text-purple-950 tracking-tight">{formatBRL(reserveTotal)}</h3>
+            <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-purple-200/60 font-semibold">
+              <span className="text-purple-700">Reservado: {formatBRL(paidStats.paidReserve)}</span>
+              <span className="text-amber-700 font-bold">Pendente: {formatBRL(paidStats.pendingReserve)}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between px-2">
-        <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
-           Os 3 Grandes Potes
-        </h3>
-        
-        {isEditingSettings ? (
-          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-750">
-             <button onClick={() => setIsEditingSettings(false)} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
-                <X className="w-4 h-4" />
-             </button>
-             <button onClick={handleSaveSettings} className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md flex items-center gap-1">
-                <Save className="w-3 h-3" /> Salvar Metas
-             </button>
+      {/* Card de Total Acumulado Provisionado (17%) */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+            <Layers className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-slate-900 tracking-tight">Total Geral de Provisões do Mês (17%)</h3>
+            <p className="text-xs text-slate-500 font-medium">Soma de todas as reservas destinadas a pró-labore, impostos e fundo de emergência.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6 self-stretch md:self-auto justify-between md:justify-end">
+          <div className="text-right">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Reservado</span>
+            <span className="text-lg font-black text-emerald-600">{formatBRL(paidStats.totalPaid)}</span>
+          </div>
+          <div className="h-8 w-px bg-slate-200" />
+          <div className="text-right">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Provisionado</span>
+            <span className="text-2xl font-black text-slate-900">{formatBRL(grandTotalProvisions)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabela Analítica Dia a Dia */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+              <CalendarIcon className="w-4 h-4 text-slate-500" /> Detalhamento Diário das Provisões
+            </h2>
+            <p className="text-xs text-slate-400 font-medium">
+              Clique nos botões de status para marcar cada provisão diária como reservada/paga.
+            </p>
+          </div>
+          <span className="text-xs font-bold text-slate-500 px-3 py-1 bg-slate-50 rounded-lg border border-slate-200 self-start sm:self-auto">
+            {monthClosings.length} {monthClosings.length === 1 ? 'Dia com Fechamento' : 'Dias com Fechamentos'}
+          </span>
+        </div>
+
+        {monthClosings.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">
+            <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p className="font-bold text-sm">Nenhum fechamento de caixa registrado para este mês.</p>
           </div>
         ) : (
-          <button onClick={startEditing} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-xl transition-all">
-             <Edit2 className="w-3 h-3" /> Configurar Valores
-          </button>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-100">
+                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest">Data</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Faturamento</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center">Pró-labore (12%)</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center">Impostos (4%)</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center">Reserva (1%)</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Total Dia (17%)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {monthClosings.map(c => {
+                  const sales = Number(c.totalSales) || 0;
+                  const valProlabore = sales * 0.12;
+                  const valTax = sales * 0.04;
+                  const valReserve = sales * 0.01;
+                  const valDayTotal = valProlabore + valTax + valReserve;
+
+                  const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${c.date}`);
+                  const isTaxPaid = paidProvisionsDates.includes(`tax-${c.date}`);
+                  const isReservePaid = paidProvisionsDates.includes(`reserve-${c.date}`);
+
+                  const dateFormatted = c.date.split('-').reverse().join('/');
+
+                  return (
+                    <tr key={c.id || c.date} className="hover:bg-slate-50/60 transition-colors">
+                      {/* Data */}
+                      <td className="px-6 py-4 font-bold text-slate-900 text-sm whitespace-nowrap">
+                        {dateFormatted}
+                      </td>
+
+                      {/* Faturamento */}
+                      <td className="px-6 py-4 text-right font-black text-slate-900 text-sm whitespace-nowrap">
+                        {formatBRL(sales)}
+                      </td>
+
+                      {/* Pró-labore (12%) */}
+                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => handleToggleProvision(`prolabore-${c.date}`)}
+                          disabled={isUpdating}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
+                            isProlaborePaid
+                              ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                          title="Clique para alternar entre Pago e Pendente"
+                        >
+                          {isProlaborePaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-emerald-600" />}
+                          <span>{formatBRL(valProlabore)}</span>
+                          <span className="text-[10px] opacity-75 font-medium">({isProlaborePaid ? 'Pago' : 'Pendente'})</span>
+                        </button>
+                      </td>
+
+                      {/* Impostos (4%) */}
+                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => handleToggleProvision(`tax-${c.date}`)}
+                          disabled={isUpdating}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
+                            isTaxPaid
+                              ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                              : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
+                          }`}
+                          title="Clique para alternar entre Pago e Pendente"
+                        >
+                          {isTaxPaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-blue-600" />}
+                          <span>{formatBRL(valTax)}</span>
+                          <span className="text-[10px] opacity-75 font-medium">({isTaxPaid ? 'Pago' : 'Pendente'})</span>
+                        </button>
+                      </td>
+
+                      {/* Reserva (1%) */}
+                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => handleToggleProvision(`reserve-${c.date}`)}
+                          disabled={isUpdating}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
+                            isReservePaid
+                              ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
+                              : 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
+                          }`}
+                          title="Clique para alternar entre Pago e Pendente"
+                        >
+                          {isReservePaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-purple-600" />}
+                          <span>{formatBRL(valReserve)}</span>
+                          <span className="text-[10px] opacity-75 font-medium">({isReservePaid ? 'Pago' : 'Pendente'})</span>
+                        </button>
+                      </td>
+
+                      {/* Total Dia */}
+                      <td className="px-6 py-4 text-right font-black text-slate-900 text-sm whitespace-nowrap">
+                        {formatBRL(valDayTotal)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
-
-      {isEditingSettings && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-100 p-6 rounded-[2rem] border border-slate-200 animate-in fade-in">
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Meta Faturamento Mês</label>
-            <input type="number" value={tempSales} onChange={e => setTempSales(e.target.value)} className="mt-1 w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 font-bold" />
-          </div>
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Prolabore Mensal</label>
-            <input type="number" value={tempProlabore} onChange={e => setTempProlabore(e.target.value)} className="mt-1 w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 font-bold" />
-          </div>
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Férias e 13º Mensal</label>
-            <input type="number" value={tempVacation} onChange={e => setTempVacation(e.target.value)} className="mt-1 w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 font-bold" />
-          </div>
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Dívida Inicial Prolabores</label>
-            <input type="number" value={tempDebt} onChange={e => setTempDebt(e.target.value)} className="mt-1 w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 font-bold text-red-600" />
-          </div>
-        </div>
-      )}
-
-      {/* POTES */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Pote 1: Contas Fixas */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform">
-              <CalendarIcon className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Pote 1</span>
-          </div>
-          <p className="font-black text-slate-900 uppercase tracking-tighter text-lg">Contas Fixas</p>
-          
-          <div className="flex items-center justify-between mb-6">
-            <p className="text-xs text-slate-500 font-medium">Custos inegociáveis para o negócio girar.</p>
-            <button 
-              onClick={() => setShowFixedDetails(!showFixedDetails)}
-              className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap ml-2"
-            >
-              {showFixedDetails ? 'Ocultar' : 'Detalhar'}
-            </button>
-          </div>
-          
-          <div className="space-y-2 mt-auto">
-            <div className="flex justify-between text-sm font-bold">
-              <span className="text-blue-600">{formatBRL(fixedAccountsTotal * salesProgressPercent)}</span>
-              <span className="text-slate-400">/ {formatBRL(fixedAccountsTotal)}</span>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-2">
-              <div className={`h-full rounded-full transition-all duration-1000 ${getProgressColor(salesProgressPercent)}`} style={{ width: `${salesProgressPercent * 100}%` }}></div>
-            </div>
-          </div>
-
-          {showFixedDetails && (
-            <div className="mt-6 pt-6 border-t border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2">
-              {fixedAccounts.filter(fa => fa.isActive).map(fa => (
-                <div key={fa.id} className="space-y-1">
-                  <div className="flex justify-between text-[10px] font-bold">
-                    <span className="text-slate-600 truncate max-w-[140px]" title={fa.name}>{fa.name.toUpperCase()}</span>
-                    <span className="text-slate-400 text-right">{formatBRL(fa.value * salesProgressPercent)}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5">
-                    <div className={`h-full rounded-full transition-all duration-1000 ${getProgressColor(salesProgressPercent)}`} style={{ width: `${salesProgressPercent * 100}%` }}></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Pote 2: Prolabore */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:scale-110 transition-transform">
-              <Wallet className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Pote 2</span>
-          </div>
-          <p className="font-black text-slate-900 uppercase tracking-tighter text-lg">Prolabore do Mês</p>
-          <p className="text-xs text-slate-500 font-medium mb-6">Remuneração dos sócios garantida.</p>
-          
-          <div className="space-y-2 mt-auto">
-            <div className="flex justify-between text-sm font-bold">
-              <span className="text-indigo-600">{formatBRL(prolaboreGoal * salesProgressPercent)}</span>
-              <span className="text-slate-400">/ {formatBRL(prolaboreGoal)}</span>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-2">
-              <div className={`h-full rounded-full transition-all duration-1000 ${getProgressColor(salesProgressPercent)}`} style={{ width: `${salesProgressPercent * 100}%` }}></div>
-            </div>
-          </div>
-        </div>
-
-        {/* Pote 3: Férias e 13º */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:scale-110 transition-transform">
-              <DollarSign className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">Pote 3</span>
-          </div>
-          <p className="font-black text-slate-900 uppercase tracking-tighter text-lg">Férias e 13º</p>
-          <p className="text-xs text-slate-500 font-medium mb-6">Reserva de lucro para o futuro.</p>
-          
-          <div className="space-y-2 mt-auto">
-            <div className="flex justify-between text-sm font-bold">
-              <span className="text-emerald-600">{formatBRL(vacationGoal * salesProgressPercent)}</span>
-              <span className="text-slate-400">/ {formatBRL(vacationGoal)}</span>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-2">
-              <div className={`h-full rounded-full transition-all duration-1000 ${getProgressColor(salesProgressPercent)}`} style={{ width: `${salesProgressPercent * 100}%` }}></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* SEÇÃO CALCULADORA OPEN TO BUY (COMPRA SEGURA) */}
-      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div>
-          <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tighter flex items-center gap-2">
-            <Calculator className="w-5 h-5 text-indigo-600" />
-            Planejamento de Compras Seguro & Provisões (Open to Buy)
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Defina suas metas de provisão e simule o limite máximo que pode gastar em distribuidoras para sobrar dinheiro em caixa.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1 flex items-center gap-1">
-              Faturamento Base
-            </label>
-            <input 
-              type="number" 
-              value={calcSales} 
-              onChange={e => setCalcSales(e.target.value)} 
-              placeholder="Ex: 40000"
-              className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-            />
-            <span className="text-[9px] text-slate-400 block ml-1">Faturamento real do mês: {formatBRL(currentMonthSales)}</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1 flex items-center gap-1">
-              Margem Bruta %
-            </label>
-            <div className="relative">
-              <input 
-                type="number" 
-                step="0.1"
-                value={calcMargin} 
-                onChange={e => setCalcMargin(Number(e.target.value))} 
-                className="w-full p-3 pr-8 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-              <Percent className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            </div>
-            <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-bold block ml-1">Margem real do Digifarma: 36.6%</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">
-              Impostos + Taxas %
-            </label>
-            <div className="relative">
-              <input 
-                type="number" 
-                value={calcTaxes} 
-                onChange={e => setCalcTaxes(Number(e.target.value))} 
-                className="w-full p-3 pr-8 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-              <Percent className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            </div>
-            <span className="text-[9px] text-slate-400 block ml-1">Simples Nac. + Taxas maquininha</span>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">
-              Provisão Extra do Mês
-            </label>
-            <input 
-              type="number" 
-              value={calcExtraProvision} 
-              onChange={e => setCalcExtraProvision(Number(e.target.value))} 
-              className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-            />
-            <span className="text-[9px] text-slate-400 block ml-1">Fundo reserva que deseja guardar</span>
-          </div>
-        </div>
-
-        {/* RESULTADOS DA CALCULADORA */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="bg-slate-50/85 dark:bg-slate-800/30 p-5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Orçamento Mensal de Compras</p>
-            <p className="text-3xl font-black text-slate-800 dark:text-slate-100 tracking-tighter mt-1">{formatBRL(otbMensal)}</p>
-            <p className="text-[9px] text-slate-500 mt-2">Limite máximo de boletos para o mês fechar positivo.</p>
-          </div>
-
-          <div className="bg-emerald-50/50 dark:bg-emerald-950/10 p-5 rounded-2xl border border-emerald-100/50 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-emerald-500 dark:text-emerald-600 uppercase tracking-widest">Limite de Compras Semanal</p>
-            <p className="text-3xl font-black text-emerald-700 dark:text-emerald-400 tracking-tighter mt-1">{formatBRL(otbSemanal)}</p>
-            <p className="text-[9px] text-slate-500 mt-2">Limite ideal para dividir os pedidos semanais nas distribuidoras.</p>
-          </div>
-
-          <div className="bg-slate-50 dark:bg-slate-800/30 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col justify-center">
-            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Custo de Reposição Teórico (CMV)</p>
-            <p className="text-xl font-bold text-slate-600 dark:text-slate-400 mt-1">{formatBRL(simulatedCMVValue)}</p>
-            <p className="text-[9px] text-slate-500 mt-3">Soma das Contas Fixas + Pró-labore no período: <span className="font-bold text-slate-700 dark:text-slate-300">{formatBRL(totalFixedCosts)}</span></p>
-          </div>
-        </div>
-
-        {/* CARD DE AVISO TÁTICO */}
-        <div className={`p-5 rounded-2xl border flex items-start gap-3 text-xs font-bold transition-all ${advice.bg}`}>
-          {advice.icon}
-          <div>
-            <p className="uppercase tracking-widest text-[10px] font-black opacity-80 mb-0.5">Conselho Financeiro Tático</p>
-            <p className="leading-relaxed font-medium">{advice.message}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-slate-50 border-2 border-dashed border-slate-200 p-6 rounded-[2rem] flex items-center gap-4 text-slate-500 text-sm font-bold">
-        <Info className="w-8 h-8 text-indigo-400 shrink-0" />
-        <p>A matemática é simples: À medida que as vendas do mês aumentam e se aproximam da Meta de Faturamento, a porcentagem de conclusão é aplicada igualmente em todos os 3 Potes de Provisão.</p>
       </div>
     </div>
   );

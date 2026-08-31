@@ -56,6 +56,7 @@ import { NotesManager } from "./components/NotesManager";
 import { CardMachinesManager } from "./components/CardMachinesManager";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
+import { CentralCompras } from "./components/CentralCompras";
 import { useToast } from "./components/ToastContext";
 
 
@@ -77,7 +78,6 @@ import {
   Delivery,
 } from "./types";
 import { Loader2 } from "lucide-react";
-import { useToast } from "./components/ToastContext";
 import { trackViewUsage, calculateWeeklyBudgetsCascade } from "./utils";
 
 const LOGOUT_TIME = 15 * 60 * 1000;
@@ -295,20 +295,69 @@ const App: React.FC = () => {
 
             const currentHour = now.getHours();
             if (currentHour >= 10) {
-              const res = await fetch('/api/card-machine-receivables/pending-due');
-              if (!res.ok) return;
-              const pending = await res.json();
+              const [resPending, resClosings] = await Promise.all([
+                fetch('/api/card-machine-receivables/pending-due'),
+                fetch('/api/cash-closings')
+              ]);
+
+              if (!resPending.ok) return;
+              const pending = await resPending.json();
               if (Array.isArray(pending) && pending.length > 0) {
                 const sessionDismissed = sessionStorage.getItem("belafarma_card_reconcile_dismissed");
                 if (!sessionDismissed) {
                   setIsCardMachineModalOpen(true);
                   const isMonday = dayOfWeek === 1;
-                  addToast(
-                    isMonday 
-                      ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
-                      : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
-                    "info"
-                  );
+
+                  let closings: any[] = [];
+                  if (resClosings.ok) {
+                    try { closings = await resClosings.json(); } catch(e) {}
+                  }
+
+                  // Calcular datas de referência para o faturamento base
+                  const formatIsoDate = (d: Date) => {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${day}`;
+                  };
+
+                  let targetDates: string[] = [];
+                  if (isMonday) {
+                    // Sexta, Sábado e Domingo anteriores
+                    const dFri = new Date(now); dFri.setDate(dFri.getDate() - 3);
+                    const dSat = new Date(now); dSat.setDate(dSat.getDate() - 2);
+                    const dSun = new Date(now); dSun.setDate(dSun.getDate() - 1);
+                    targetDates = [formatIsoDate(dFri), formatIsoDate(dSat), formatIsoDate(dSun)];
+                  } else {
+                    // Dia útil anterior
+                    const dPrev = new Date(now); dPrev.setDate(dPrev.getDate() - 1);
+                    targetDates = [formatIsoDate(dPrev)];
+                  }
+
+                  const refSales = closings
+                    .filter((c: any) => targetDates.includes(c.date))
+                    .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
+
+                  const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+                  if (refSales > 0) {
+                    const valProlabore = refSales * 0.12;
+                    const valTax = refSales * 0.04;
+                    const valReserve = refSales * 0.01;
+                    const valTotal = valProlabore + valTax + valReserve;
+
+                    addToast(
+                      `💳 ${pending.length} repasse(s) ${isMonday ? 'do Fim de Semana' : 'de ontem'} a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões de hoje (Pró-labore: ${formatBRL(valProlabore)}, Impostos: ${formatBRL(valTax)}, Reserva: ${formatBRL(valReserve)})!`,
+                      "info"
+                    );
+                  } else {
+                    addToast(
+                      isMonday 
+                        ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
+                        : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
+                      "info"
+                    );
+                  }
                 }
               }
             }
@@ -977,6 +1026,13 @@ const App: React.FC = () => {
                   isMobile={isMobile}
                 />
               )}
+              {currentView === "central-compras" && user.role === UserRole.ADM && (
+                <CentralCompras
+                  user={user}
+                  theme={theme}
+                  onNavigate={handleNavigate}
+                />
+              )}
               {currentView === "orders" && (
                 <Orders
                   user={user}
@@ -1099,7 +1155,7 @@ const App: React.FC = () => {
                 <PurchaseCalendar user={user} />
               )}
               {currentView === 'stock' && user.role === UserRole.ADM && (
-                <StockManagement user={user} />
+                <StockManagement user={user} theme={theme} />
               )}
               {currentView === 'consignados' && user.role === UserRole.ADM && (
                 <ConsignadosManager 

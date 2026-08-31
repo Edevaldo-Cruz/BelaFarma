@@ -1,17 +1,14 @@
-## 2026-08-12T14:01:22Z
-You are reviewer_m2_1.
-Your working directory is f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_1.
-Your identity and role: teamwork_preview_reviewer.
+## 2026-08-29T17:16:39Z
+Você é o Reviewer 1 para o Milestone M2 (WhatsApp Compras & Mineração).
 
-Read ORIGINAL_REQUEST.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Read PROJECT.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_1\PROJECT.md
-Read Worker handoff: f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m2_1\handoff.md
+Diretório de trabalho exclusivo: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_1
+Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
+Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
+Worker Handoff: f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m2_whatsapp_mineracao\handoff.md
+Arquivo de despacho: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_1\DISPATCH.md
 
-Task:
-Review Milestone 2 (M2) implementation in `backend/services/whatsapp-delivery-service.js` and `backend/delivery-endpoints.js`.
-Check:
-- `whatsapp-delivery-service.js`: Is system prompt updated for `products_discussed`? Are `is_new_customer`, `chat_duration_seconds`, `chat_message_count`, and `review_status = 'pending_review'` properly calculated and saved into `deliveries`?
-- `delivery-endpoints.js`: Are all 4 REST endpoints (`GET pending-reviews`, `GET pending-reviews/:id`, `POST :id/submit-review`, `GET rejection-metrics`) correctly implemented?
-
-Write handoff report to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_1\handoff.md`. State your verdict clearly: APPROVE or REQUEST_CHANGES.
-Notify orchestrator when done via send_message.
+Sua missão:
+1. Inspecionar backend/baileys-compras-service.js e backend/services/compras-mineracao.service.js.
+2. Executar node backend/test_compras_m2.js.
+3. Verificar isolamento de sessão, resiliência do Baileys e extração de prazos/ofertas.
+4. Escrever f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_1\handoff.md com seu veredito (APPROVE ou REQUEST_CHANGES) e enviar mensagem de conclusão.

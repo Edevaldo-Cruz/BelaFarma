@@ -1,17 +1,17 @@
-## 2026-08-12T14:01:22Z
-You are challenger_m2_2.
-Your working directory is f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2.
-Your identity and role: teamwork_preview_challenger.
+# Tarefa: Challenger 2 - Milestone M2 (Session Isolation & Security Gate)
 
-Read ORIGINAL_REQUEST.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Read PROJECT.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_1\PROJECT.md
+## 2026-08-29T17:16:39Z
+- Archetype: empirical_challenger
+- Roles: critic, specialist
+- Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2
+- Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
+- Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
 
-Task:
-Empirically stress-test Milestone 2 (M2) questionnaire submission and metrics endpoint.
-Create and run a stress test script testing:
-1. Submitting audit responses with multiple rejected products and various rejection reasons ("Preço", "Falta de Estoque", "Apenas Dúvida").
-2. Querying `rejection-metrics` to confirm breakdown by reason and top rejected products.
-3. Submitting `gerou_entrega: true` to confirm item leaves pending status cleanly.
-
-Write handoff report to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2\handoff.md`. State your verdict clearly: APPROVE or REQUEST_CHANGES.
-Notify orchestrator when done via send_message.
+### Missão
+Realizar testes de estresse adversarial de segurança e concorrência na instância Baileys:
+1. Criar script em sua pasta (`.agents/challenger_m2_2/security_stress_m2.js`):
+   - Testar tentativa de bypass de envio de mensagem sem aprovação (verificar que `enviarMensagemAprovada` rejeita terminantemente status pendente ou rejeitado).
+   - Testar concorrência de ingestão de mensagens e gravação no SQLite WAL.
+   - Testar integridade de caminhos de arquivos de sessão em Windows e Linux.
+2. Executar o script de teste.
+3. Gravar `handoff.md` com seu veredito formal (`APPROVE` ou `REQUEST_CHANGES`) e notificar o Orquestrador.

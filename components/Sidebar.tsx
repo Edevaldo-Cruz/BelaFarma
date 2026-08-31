@@ -43,6 +43,7 @@ import {
   ShieldAlert, // Added for Alertas ANVISA
   NotebookPen, // Added for Bloco de Notas
   RefreshCw, // Added for Digifarma Sync
+  ShoppingBag, // Added for Central de Compras
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -205,10 +206,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(interval);
   }, [currentView]);
 
+  const [purchasingPendingCount, setPurchasingPendingCount] = React.useState(0);
+
+  // Monitora Fila de Aprovação da Central de Compras
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    const checkPurchasingApprovals = async () => {
+      try {
+        const res = await fetch('/api/central-compras/aprovacoes/contador');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.pendentes === 'number') {
+            setPurchasingPendingCount(data.pendentes);
+          }
+        }
+      } catch (error) {
+        // Fail silently
+      }
+    };
+    checkPurchasingApprovals();
+    const interval = setInterval(checkPurchasingApprovals, 20000); // Every 20s
+    return () => clearInterval(interval);
+  }, [isAdmin, currentView]);
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
+    { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
     { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
@@ -252,7 +277,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines']; 
+    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });
@@ -314,7 +339,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     overdueBoletos.length + 
     boletosDueSunday.length +
     ifoodNotifCount +
-    (isAdmin ? (muralPendingCount || 0) : 0);
+    (isAdmin ? (muralPendingCount || 0) : 0) +
+    (isAdmin ? (purchasingPendingCount || 0) : 0);
   const hasNotifications = totalNotifications > 0;
 
   // Handle click outside to close notifications
@@ -541,6 +567,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {item.id === 'anvisa-alerts' && anvisaAlertCount > 0 && (
                     <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${anvisaAlertCount} produtos em estoque proibidos pela ANVISA`}>
                       {anvisaAlertCount}
+                    </span>
+                  )}
+                  {item.id === 'central-compras' && purchasingPendingCount > 0 && (
+                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${purchasingPendingCount} aprovações pendentes`}>
+                      {purchasingPendingCount}
                     </span>
                   )}
                   {item.id === 'deliveries' && pendingReviewCount > 0 && (

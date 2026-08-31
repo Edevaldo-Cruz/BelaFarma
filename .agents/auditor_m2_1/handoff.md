@@ -1,63 +1,123 @@
-# Forensic Audit Report — Milestone 2 (M2)
+# Relatório de Auditoria Forense de Integridade — Milestone M2
 
-**Work Product**: `backend/services/whatsapp-delivery-service.js` & `backend/delivery-endpoints.js`  
-**Profile**: General Project  
-**Verdict**: CLEAN  
+## Forensic Audit Report
+
+**Work Product**: Milestone M2 — WhatsApp Compras Isolado & Mineração Histórica (`backend/baileys-compras-service.js`, `backend/services/compras-mineracao.service.js`, `backend/database.js`, `backend/test_compras_m2.js`)  
+**Profile**: General Project (Integrity Forensics)  
+**Integrity Mode**: Development / Demo / Benchmark Evaluated  
+**Verdict**: **CLEAN**
+
+---
+
+### Phase Results
+- **Hardcoded Output Detection**: PASS — Nenhum valor estático ou bypass encontrado nas rotinas do serviço ou nos testes.
+- **Facade Detection**: PASS — Implementações reais e completas com conexões SQLite, manipulação de sockets Baileys, parsers de texto e cálculo de bonificações.
+- **Fabricated Verification Outputs**: PASS — Ausência de logs falsificados ou resultados pré-populados.
+- **Self-Certifying Tests**: PASS — Testes validam saídas contra cálculos matemáticos independentes e schemas de dados.
+- **Security Gate & Human-in-the-Loop**: PASS — Função `enviarMensagemAprovada` bloqueia mensagens não aprovadas (`status !== 'aprovado'`).
+- **Dynamic Behavioral Verification**: PASS — 16/16 testes automatizados passaram com código de saída 0.
+- **Adversarial Stress Testing**: PASS — Tratamento resiliente de valores nulos/vazios e precisão no cálculo de bonificações.
 
 ---
 
 ## 1. Observation
 
-### Observation 1.1: AI Prompt & Metrics Calculation (`backend/services/whatsapp-delivery-service.js`)
-- Lines 34–77: `DELIVERY_AUDIT_SYSTEM_PROMPT` contains explicit instructions requiring the AI to extract `products_discussed` (array of product names) and `unclosed_reason` ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação", `null`).
-- Lines 272–309: Dynamic metric calculation logic:
-  - `chatDurationSeconds`: `Math.round((maxTimestamp - minTimestamp) / 1000)` calculated from message timestamps.
-  - `chatMessageCount`: `messages.length` extracted directly from message batch.
-  - `isNewCustomer`: Empirical SQL check querying `deliveries` (`phone = ? AND sale_closed = 1`), `customers` (`phone LIKE ? OR phone = ?`), and `sales` (`(c.phone LIKE ? OR c.phone = ?) AND s.status = 'Finalizada'`). Sets `isNewCustomer = 0` if prior records exist, `1` otherwise.
-- Lines 354–439: `reviewStatus` set to `'pending_review'` when `isClosed` is `false`. `discussedProductsJson` generated via `JSON.stringify(result.products_discussed)`. Results persisted to SQLite table `deliveries`.
+1. **Inspeção de Código Estática**:
+   - `backend/baileys-compras-service.js` (557 linhas):
+     - Linhas 17-19: `SESSION_DIR` isolado em `baileys-session-compras` (evita conflito com WhatsApp de atendimento e etiquetas).
+     - Linhas 60-201: `connect()` com inicialização real do Baileys, tratamento de eventos `creds.update`, `connection.update`, `messages.upsert`, `messaging-history.set`.
+     - Linhas 481-534: `enviarMensagemAprovada(approvalId, db)` valida estritamente se o status é `aprovado` ou `editado_enviado` antes de despachar via socket. Lança exceção explícita caso contrário.
+   - `backend/services/compras-mineracao.service.js` (1009 linhas):
+     - Linhas 35-63: Dicionários farmacêuticos reais para distribuidoras e laboratórios brasileiros.
+     - Linhas 99-124: `extrairPrazos()` com suporte a múltiplos formatos (`28/35/42`, `30/60/90`, `28 ddl`, `à vista`).
+     - Linhas 129-152: `extrairPedidoMinimo()` com extração de valor e condições de frete.
+     - Linhas 231-327: `extrairLinhasDeOferta()` com parser de preços brutos, bonificações (`compre 10 ganhe 2`, `10+2`, etc.), descontos percentuais e cálculo do preço líquido efetivo.
+     - Linhas 380-489: `validarOfertaComDigifarma()` com consulta ao Firebird (quando conectado) e fallback transacional seguro para `compras_estoque_cache` e `digifarma_products_cache` no SQLite.
+     - Linhas 498-618: `upsertFornecedorMeta()` persistindo metadados estruturados em JSON no SQLite.
+   - `backend/database.js` (linhas 1836-2045):
+     - Criação das 8 tabelas do módulo Compras: `compras_fornecedores_meta`, `compras_historico_mensagens`, `compras_oportunidades_mineradas`, `compras_cotacoes`, `compras_cotacoes_respostas`, `compras_fila_aprovacao`, `compras_pedidos`, `compras_configuracoes`.
+   - `backend/test_compras_m2.js` (481 linhas):
+     - 16 casos de teste divididos em 3 grupos cobrindo todas as rotinas críticas.
 
-### Observation 1.2: Express REST Endpoints (`backend/delivery-endpoints.js`)
-- `GET /api/deliveries/pending-reviews` (Lines 129–148): Executes SQL `SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name FROM deliveries d LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net' WHERE d.review_status = 'pending_review' ORDER BY d.created_at DESC` using `db.prepare(sql).all()`.
-- `GET /api/deliveries/pending-reviews/:id` (Lines 150–174): Executes SQL `SELECT d.*, COALESCE(wc.name, wc.pushName) as wa_name FROM deliveries d LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone || '@s.whatsapp.net' WHERE d.id = ?` using `db.prepare(sql).get(id)`.
-- `POST /api/deliveries/:id/submit-review` (Lines 177–271): Handles both `gerou_entrega = true` (updates `sale_closed = 1`, `status = 'Pendente'`, `review_status = 'reviewed'`) and `gerou_entrega = false` (updates `sale_closed = 0`, `status = 'Nao_Fechado'`, `review_status = 'reviewed'`, `unclosed_reason`, `rejection_details_json`, and performs transactional batch insertion into `chat_product_rejections` table).
-- `GET /api/deliveries/rejection-metrics` (Lines 274–336): Executes SQL aggregations (`COUNT`, `GROUP BY reason`, `GROUP BY product_name`) on `chat_product_rejections` table (with fallback to `deliveries.unclosed_reason`).
+2. **Execução Dinâmica dos Testes**:
+   - Comando executado: `node backend/test_compras_m2.js`
+   - Saída bruta:
+   ```
+   ═══════════════════════════════════════════════════════════════
+   🧪 INICIANDO TESTES DO WORKER M2 (WhatsApp Compras & Mineração)
+   ═══════════════════════════════════════════════════════════════
 
-### Observation 1.3: Prohibited Patterns & Facade Check
-- No hardcoded test responses or fake output shortcuts found in `backend/services/whatsapp-delivery-service.js` or `backend/delivery-endpoints.js`.
-- No empty stub/facade implementations.
-- Database operations directly read from and write to SQLite tables (`deliveries`, `chat_product_rejections`, `whatsapp_messages`, `customers`, `sales`).
+   📋 GRUPO 1: Parser Determinístico & Extração de Padrões Comerciais
+     ✅ [PASS] 1.1 - Extração de Prazos de Pagamento em múltiplos formatos
+     ✅ [PASS] 1.2 - Extração de Pedido Mínimo e Faturamento Mínimo
+     ✅ [PASS] 1.3 - Identificação de Distribuidoras e Laboratórios Farmacêuticos
+     ✅ [PASS] 1.4 - Identificação do Nome do Representante
+     ✅ [PASS] 1.5 - Parser de Linhas de Ofertas com Bonificação e Desconto
+
+   💾 GRUPO 2: Integração de Banco SQLite & Comparador de Preço
+     ✅ [PASS] 2.1 - Validador de Oferta contra última compra no Digifarma / Cache
+     ✅ [PASS] 2.2 - Ingestão de Mensagem de WhatsApp e Cadastro de Fornecedor / Ofertas
+   [Compras-Mineração] 🔍 Iniciando varredura histórica de 1 mensagens...
+     ✅ [PASS] 2.3 - Varredura e Mineração em Lote de Histórico
+     ✅ [PASS] 1.6 - Cálculo de Variações Complexas de Bonificação
+     ✅ [PASS] 1.7 - Mineração de Perfil Completo em Texto Livre
+     ✅ [PASS] 2.4 - Consultas Filtradas de Oportunidades Mineradas
+     ✅ [PASS] 2.5 - Consulta de Catálogo e Atualização Manual de Fornecedor
+     ✅ [PASS] 2.6 - Oferta Mais Cara que Última Compra (Preço não vantajoso)
+
+   📱 GRUPO 3: Instância Isolada Baileys Compras & Trava de Segurança
+     ✅ [PASS] 3.1 - Verificação de Isolamento de Diretório de Sessão
+     ✅ [PASS] 3.2 - Consulta de Status Inicial da Conexão
+     ✅ [PASS] 3.3 - Trava de Segurança de Envio (Apenas itens aprovados na fila)
+
+   ═══════════════════════════════════════════════════════════════
+   📊 RESULTADO FINAL: 16/16 TESTES PASSARAM COM SUCESSO!
+   ═══════════════════════════════════════════════════════════════
+   ```
+
+3. **Verificação de Sintaxe**:
+   - `node -c backend/database.js backend/baileys-compras-service.js backend/services/compras-mineracao.service.js backend/test_compras_m2.js` executou com código de saída 0 sem erros.
+
+4. **Testes Adversariais & Casos Limite**:
+   - Entradas `null`, strings vazias e textos com caracteres especiais foram processados sem quebra de execução.
+   - Precisão matemática em bonificações fracionárias (ex: 10+2 sobre R$ 20,00 resultando em R$ 16,67) verificada e aprovada.
 
 ---
 
 ## 2. Logic Chain
 
-1. **AI Prompt & Chat Metrics**: Observation 1.1 confirms that `DELIVERY_AUDIT_SYSTEM_PROMPT` demands structured product arrays and rejection reasons, while `whatsapp-delivery-service.js` dynamically computes duration, message counts, customer novelty via DB queries, and persists these values in SQLite. This demonstrates genuine, non-bypassed AI integration and metric calculations.
-2. **REST Endpoints & SQL Integration**: Observation 1.2 confirms that all 4 specified REST endpoints in `delivery-endpoints.js` execute real SQL queries (`SELECT`, `UPDATE`, `INSERT`) against SQLite tables `deliveries` and `chat_product_rejections` using `better-sqlite3`.
-3. **Absence of Fraudulent Shortcuts**: Observation 1.3 confirms the absence of hardcoded outputs, fake returns, or facade methods.
-4. **Conclusion Support**: The observed code matches all Milestone 2 (M2) acceptance criteria with 100% authentic database and AI interactions.
+1. **Autenticidade da Implementação**: A análise estática do código confirmou que os serviços `baileys-compras-service.js` e `compras-mineracao.service.js` não utilizam retornos fixos (facades) nem constantes pré-fabricadas. As funções processam e extraem dados dinamicamente a partir de expressões regulares, dicionários e operações de banco de dados SQLite/Firebird.
+2. **Conformidade com Requisitos R2/F4/F5/F6**:
+   - A pasta de sessão dedicada `baileys-session-compras` garante o isolamento físico exigido pelo requisito R2.
+   - O minerador extrai representantes, prazos, pedido mínimo e ofertas, calculando bonificações e descontos efetivos.
+   - O comparador cruza os preços com o histórico do ERP Digifarma / cache local e calcula o percentual de desconto real.
+3. **Imutabilidade da Trava Human-in-the-Loop**: A função de envio valida diretamente o banco de dados antes de qualquer disparo, impedindo envios automáticos sem aprovação humana expressa.
+4. **Validação Empírica**: Todos os 16 testes automatizados foram executados e passaram com sucesso, complementados por verificações adversariais adicionais de robustez.
 
 ---
 
 ## 3. Caveats
 
-- Live AI calls depend on external API keys (Gemini / OpenAI) configured in `process.env`. In isolated test mode, tests utilize SQLite in-memory databases with mock HTTP wrappers.
-- No other caveats.
+- A suíte de testes unitários roda em ambiente local utilizando SQLite em memória com a opção `skipFirebird: true` para garantir execução rápida e determinística. Em ambiente de produção, a conexão com o Firebird Digifarma (`192.168.1.10:3050`) é priorizada, tendo o SQLite como fallback.
 
 ---
 
 ## 4. Conclusion
 
-Milestone 2 (M2) work products (`backend/services/whatsapp-delivery-service.js` and `backend/delivery-endpoints.js`) pass all forensic integrity checks. The verdict is **CLEAN**.
+O Milestone M2 (WhatsApp Compras Isolado & Mineração Histórica) foi aprovado na auditoria forense com o veredito **CLEAN**. Não foram detectadas violações de integridade, hardcoding indevido, mocks fraudulentos ou desvios em relação aos requisitos do `ORIGINAL_REQUEST.md` e `PROJECT.md`.
 
 ---
 
 ## 5. Verification Method
 
-To independently verify this verdict:
-1. Inspect `backend/services/whatsapp-delivery-service.js` at lines 34–77 (prompt) and lines 272–439 (metrics & SQLite save).
-2. Inspect `backend/delivery-endpoints.js` at lines 129–336 (Express endpoint declarations and SQL prepare statements).
-3. Execute the standalone empirical test suite:
-   ```bash
-   node backend/test_m2_verification_extended.js
-   ```
-4. Invalidation condition: Any failing test step or any presence of fake hardcoded returns in endpoint logic.
+Para reproduzir os testes e verificar independentemente:
+```powershell
+# Execução da suíte completa de testes do Milestone M2
+node backend/test_compras_m2.js
+
+# Verificação de integridade de sintaxe
+node -c backend/database.js backend/baileys-compras-service.js backend/services/compras-mineracao.service.js backend/test_compras_m2.js
+
+# Teste adversarial via CLI
+node -e "const s = require('./backend/services/compras-mineracao.service'); console.log(s.minerarTextoLivre('Carlos da Santa Cruz prazo 28/35/42 min R$ 500 Dipirona R$ 1,45'));"
+```

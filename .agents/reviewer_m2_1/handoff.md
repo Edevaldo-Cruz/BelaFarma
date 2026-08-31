@@ -1,92 +1,86 @@
-# Handoff Report — Milestone 2 (M2) Review
+# Relatório de Handoff & Revisão — Reviewer M2 (WhatsApp Compras & Mineração)
 
 ## 1. Observation
-
-Direct code inspection was performed on:
-- `backend/services/whatsapp-delivery-service.js`
-- `backend/delivery-endpoints.js`
-- `backend/database.js`
-- `backend/test_m2_verification.js`
-
-### Key Observations:
-1. **System Prompt Update** (`whatsapp-delivery-service.js`, lines 34–77):
-   - `DELIVERY_AUDIT_SYSTEM_PROMPT` explicitly instructs AI to return `"products_discussed": ["Produto 1", "Produto 2"]`.
-   - Result extraction fallback is handled gracefully (lines 356–359): `const discussedProducts = Array.isArray(result.products_discussed) ? result.products_discussed : (itemsStr ? [itemsStr] : []);`.
-2. **Chat Metrics Calculation & DB Persistence** (`whatsapp-delivery-service.js`):
-   - `chat_duration_seconds` calculated at line 276: `Math.round((maxTimestamp - minTimestamp) / 1000)`.
-   - `chat_message_count` calculated at line 277: `messages.length`.
-   - `is_new_customer` calculated at lines 280–309: defaults to 1, checked against prior closed deliveries (`deliveries`), customer records (`customers`), and completed sales (`sales`). Set to 0 if match found.
-   - `review_status` set to `'pending_review'` for unclosed sales (`!isClosed`, line 354).
-   - Saved in SQL UPDATE (lines 386–409) and SQL INSERT (lines 418–437).
-3. **REST API Endpoints** (`delivery-endpoints.js`):
-   - `GET /api/deliveries/pending-reviews` (lines 129–148): Returns items with `review_status = 'pending_review'`.
-   - `GET /api/deliveries/pending-reviews/:id` (lines 150–174): Returns details of a pending review by ID (404 if not found).
-   - `POST /api/deliveries/:id/submit-review` (lines 176–271): Handles both `gerou_entrega = true` (updates delivery status to `Pendente`, `review_status = 'reviewed'`, and delivery details) and `gerou_entrega = false` (updates `sale_closed = 0`, status `Nao_Fechado`, `review_status = 'reviewed'`, and inserts rejected items into `chat_product_rejections` inside a DB transaction).
-   - `GET /api/deliveries/rejection-metrics` (lines 273–336): Aggregates total rejections, `by_reason`, `by_product`, and `top_rejected_products` from `chat_product_rejections`, with fallback to `deliveries.unclosed_reason` if no rejections exist.
-4. **Verification Script**:
-   - `backend/test_m2_verification.js` exercises all 4 REST endpoints on an in-memory SQLite database instance.
+- **Arquivos Auditados**:
+  - `backend/baileys-compras-service.js` (557 linhas)
+  - `backend/services/compras-mineracao.service.js` (1009 linhas)
+  - `backend/database.js` (linhas 1836-2045)
+  - `backend/test_compras_m2.js` (481 linhas)
+  - `test_compras_e2e.js` (160 casos de teste nos Tiers 1-4)
+- **Resultados de Teste Verificados**:
+  - Execução de `node backend/test_compras_m2.js`:
+    - Saída: `16/16 TESTES PASSARAM COM SUCESSO!`, código de saída `0`.
+  - Execução de verificação de sintaxe `node -c backend/database.js backend/baileys-compras-service.js backend/services/compras-mineracao.service.js backend/test_compras_m2.js`:
+    - Código de saída `0` sem erros.
+  - Execução de `node test_compras_e2e.js`:
+    - Saída: `160/160 TESTES PASSARAM COM SUCESSO!`, código de saída `0`.
+  - Verificação de tabelas no SQLite local:
+    - 9 tabelas da Central de Compras criadas e verificadas com sucesso (`compras_estoque_cache`, `compras_fornecedores_meta`, `compras_historico_mensagens`, `compras_oportunidades_mineradas`, `compras_cotacoes`, `compras_cotacoes_respostas`, `compras_fila_aprovacao`, `compras_pedidos`, `compras_configuracoes`).
+- **Verificação de Integridade**:
+  - Nenhuma violação de integridade detectada: sem valores esperados chumbados (hardcoded) nas funções de negócio, sem facades ou implementações vazias. Todas as rotinas de cálculo, extração de texto, parsing de regex e persistência em banco são genuínas e determinísticas.
 
 ---
 
 ## 2. Logic Chain
 
-1. **System Prompt & Metrics**:
-   - Including `products_discussed` in the prompt ensures Gemini/OpenAI extracts structured item lists.
-   - Computing duration, message count, and customer history directly from SQLite message logs ensures metric accuracy.
-   - Setting `review_status = 'pending_review'` ensures unclosed chats appear in the pending queue without manual intervention.
-2. **REST Endpoint Functionality**:
-   - `GET pending-reviews` allows frontend components to query cold/idle unclosed chats needing manual audit.
-   - `POST submit-review` transitions review status from `pending_review` to `reviewed`, effectively removing the item from the pending queue while logging product-level rejection reasons in `chat_product_rejections`.
-   - `GET rejection-metrics` provides real-time aggregation of rejection reasons and top rejected products.
-3. **Integrity & Code Quality**:
-   - No hardcoded test responses or facade implementations exist in the source code.
-   - All logic is functional, database-backed, and handles missing fields safely via null coalescing and fallbacks.
+1. **Isolamento Estrito de Sessão Baileys**:
+   - Observou-se em `backend/baileys-compras-service.js` (linhas 17-19) que `SESSION_DIR` aponta especificamente para `baileys-session-compras` (ou `data/baileys-session-compras` em Linux/Docker).
+   - Não há sobreposição com `baileys-session` (robô principal de atendimento a clientes) ou `baileys-session-secondary` (robô secundário).
+
+2. **Resiliência e Ciclo de Vida da Conexão**:
+   - `baileys-compras-service.js` gerencia eventos `creds.update`, `connection.update`, `messaging-history.set` e `messages.upsert`.
+   - Gera QR Code em Base64 através do pacote `qrcode.toDataURL`.
+   - Implementa reconexão automática após desconexões transitórias (5s) e expurgo/reset seguro de sessão quando status for `loggedOut` ou `badSession`.
+
+3. **Trava de Segurança Human-in-the-Loop**:
+   - Em `enviarMensagemAprovada(approvalId, db)`, a função consulta `compras_fila_aprovacao` e valida obrigatoriamente se `status === 'aprovado' || status === 'editado_enviado'`.
+   - Se o status for `pendente` ou `rejeitado`, uma exceção é disparada e o envio no socket é bloqueado antes de qualquer transmissão externa.
+
+4. **Robustez do Motor de Mineração e Parsing Farmacêutico**:
+   - Dicionários especializados em `backend/services/compras-mineracao.service.js` contêm 31 distribuidoras brasileiras e 35 laboratórios farmacêuticos, além de regex genérico de captura.
+   - Prazos múltiplos (`28/35/42`, `30/60/90`, `28 ddl`, `à vista`, etc.) são extraídos e normalizados.
+   - Pedido mínimo e faturamento mínimo são capturados com contexto da linha (ex: frete grátis).
+   - Linhas de oferta calculam bonificações reais (ex: "compre 10 ganhe 2" -> preço efetivo $\frac{10 \times P}{12}$; "10+2", descontos percentuais) com proteções contra divisão por zero.
+   - Validação contra última compra no Digifarma (Firebird `VIEW_ULT_COMPRAS` / `PRODUTOS`) com fallback automático e resiliente para o cache SQLite local (`compras_estoque_cache`).
 
 ---
 
-## 3. Review & Adversarial Findings
-
-### Review Summary
-- **Verdict**: **APPROVE**
-- **Integrity Status**: PASS (No hardcoded shortcuts, facades, or self-certifying bypasses detected).
-
-### Verified Claims
-- `products_discussed` system prompt addition → VERIFIED (`whatsapp-delivery-service.js`:48, 70).
-- `is_new_customer` DB history calculation → VERIFIED (`whatsapp-delivery-service.js`:280–309).
-- `chat_duration_seconds` & `chat_message_count` calculation → VERIFIED (`whatsapp-delivery-service.js`:273–277).
-- `review_status = 'pending_review'` setting for unclosed sales → VERIFIED (`whatsapp-delivery-service.js`:354).
-- REST Endpoints (`GET pending-reviews`, `GET pending-reviews/:id`, `POST :id/submit-review`, `GET rejection-metrics`) → VERIFIED (`delivery-endpoints.js`:129–336).
-
-### Minor Findings & Recommendations (Non-blocking)
-1. **Idempotency on Re-submission** (`delivery-endpoints.js`:239–256):
-   - *Observation*: If `POST /api/deliveries/:id/submit-review` is called multiple times for the same delivery ID, new rows are appended to `chat_product_rejections` without removing prior rejections for that ID.
-   - *Suggestion*: Execute `db.prepare('DELETE FROM chat_product_rejections WHERE delivery_id = ?').run(id)` inside the submission transaction prior to inserting `rejection_details`.
-2. **Schema Type Affinity Consistency** (`database.js`:1327):
-   - *Observation*: `chat_product_rejections.delivery_id` is defined as `INTEGER` in `database.js` table creation, whereas `deliveries.id` uses string IDs like `deliv_1723...`.
-   - *Suggestion*: SQLite handles string values in `INTEGER` columns due to flexible typing, but updating the column type in `database.js` to `TEXT` would align with standard schema conventions.
+## 3. Caveats
+- **Recomendação Menor**: No arquivo `backend/nodemon.json`, recomenda-se adicionar `"baileys-session-compras/*"` na lista de `ignore` para evitar recarregamentos acidentais do processo em ambiente de desenvolvimento local quando o Baileys salvar novas chaves de autenticação no disco.
+- **Ambiente sem Firebird**: Em ambientes de testes isolados/CI, o parâmetro `{ skipFirebird: true }` permite execução determinística contra o banco SQLite sem dependência do serviço de rede do Firebird na porta 3050.
 
 ---
 
-## 4. Caveats
+## 4. Conclusion
+**Veredito**: **APPROVE** ✅
 
-- Verification was conducted via static code inspection and automated logic tracing; automated script execution timed out waiting for OS command permissions, but direct code flow analysis confirms exact correctness.
-- Production environment uses local Raspberry Pi 4 SQLite DB; in-memory testing script mirrors schema completely.
-
----
-
-## 5. Conclusion
-
-Milestone 2 (M2) backend AI prompt extractions, chat metrics calculation, and all 4 REST API endpoints are correctly implemented, fully meet acceptance criteria, and conform to interface contracts defined in `PROJECT.md`.
-
-**Final Verdict**: **APPROVE**
+A implementação do Milestone M2 (Worker M2: Instância Isolada Baileys WhatsApp Comercial de Compras e Motor de Mineração Histórica) atende plenamente aos requisitos R2 (F4, F5, F6), aos contratos de interface do `PROJECT.md`, às restrições de isolamento de sessão, segurança human-in-the-loop e aos padrões de qualidade e integridade do projeto BelaFarma.
 
 ---
 
-## 6. Verification Method
+## 5. Verification Method
 
-- Run: `node backend/test_m2_verification.js`
-- Test endpoints against a running backend server:
-  - `GET http://localhost:3001/api/deliveries/pending-reviews`
-  - `GET http://localhost:3001/api/deliveries/pending-reviews/:id`
-  - `POST http://localhost:3001/api/deliveries/:id/submit-review`
-  - `GET http://localhost:3001/api/deliveries/rejection-metrics`
+Para reproduzir e auditar de forma independente os testes e o funcionamento do módulo:
+
+1. **Execução dos Testes Unitários de M2**:
+   ```powershell
+   node backend/test_compras_m2.js
+   ```
+   *Resultado Esperado*: 16/16 testes com status `[PASS]` e saída `Exit code: 0`.
+
+2. **Execução da Suíte E2E Completa**:
+   ```powershell
+   node test_compras_e2e.js
+   ```
+   *Resultado Esperado*: 160/160 testes aprovados com status `[PASS]` e saída `Exit code: 0`.
+
+3. **Verificação de Sintaxe JavaScript**:
+   ```powershell
+   node -c backend/database.js backend/baileys-compras-service.js backend/services/compras-mineracao.service.js backend/test_compras_m2.js
+   ```
+   *Resultado Esperado*: Retorno limpo com código 0.
+
+4. **Verificação das Tabelas SQLite no Banco Local**:
+   ```powershell
+   node -e "const db = require('./backend/database.js'); console.log(db.prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name LIKE \'compras_%\'').all());"
+   ```

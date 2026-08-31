@@ -9,7 +9,8 @@ import {
   Trash2, 
   Download, 
   Cloud, 
-  ShoppingBag, 
+  ShoppingBag,
+  ShoppingCart,
   Percent, 
   Save, 
   CheckCircle2,
@@ -40,12 +41,15 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const [ifoodFeeSaving, setIfoodFeeSaving] = React.useState(false);
 
 
-  // --- WhatsApp Baileys Status & Reconnect (Principal & Secundário) ---
+  // --- WhatsApp Baileys Status & Reconnect (Principal, Secundário e Comercial) ---
   const [baileysStatus, setBaileysStatus] = React.useState<any>(null);
   const [baileysReconnecting, setBaileysReconnecting] = React.useState(false);
 
   const [secondaryStatus, setSecondaryStatus] = React.useState<any>(null);
   const [secondaryReconnecting, setSecondaryReconnecting] = React.useState(false);
+
+  const [comprasStatus, setComprasStatus] = React.useState<any>(null);
+  const [comprasReconnecting, setComprasReconnecting] = React.useState(false);
 
   // --- System Health ---
   const [systemHealth, setSystemHealth] = React.useState<any>(null);
@@ -122,6 +126,19 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     }
   };
 
+  // --- WhatsApp Comercial (Compras & Cotações) ---
+  const fetchComprasStatus = async () => {
+    try {
+      const res = await fetch('/api/central-compras/whatsapp/status');
+      if (res.ok) {
+        const json = await res.json();
+        setComprasStatus(json.data || json);
+      }
+    } catch (err) {
+      console.error('Error fetching Compras WhatsApp status:', err);
+    }
+  };
+
   // Poll unificado: /status já retorna hasQR e qrCode.
   // Quando desconectado, pollar mais rápido (3s) para capturar o QR assim que gerado.
   // Quando conectado, pollar devagar (15s) só para manter o status atualizado.
@@ -130,28 +147,31 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
     
     fetchBaileysStatus();
     fetchSecondaryStatus();
+    fetchComprasStatus();
     fetchSystemHealth();
 
-    const pollFrequency = (baileysStatus?.connected && secondaryStatus?.connected) ? 15000 : 3000;
+    const allConnected = baileysStatus?.connected && secondaryStatus?.connected && comprasStatus?.connected;
+    const pollFrequency = allConnected ? 15000 : 3000;
 
     const interval = setInterval(() => {
       fetchBaileysStatus();
       fetchSecondaryStatus();
+      fetchComprasStatus();
       // Health check a cada 15s apenas
       if (pollFrequency >= 15000) fetchSystemHealth();
     }, pollFrequency);
 
     return () => clearInterval(interval);
-  }, [user.role, baileysStatus?.connected, secondaryStatus?.connected]);
+  }, [user.role, baileysStatus?.connected, secondaryStatus?.connected, comprasStatus?.connected]);
 
   // Health check separado a cada 30s quando em poll rápido
   React.useEffect(() => {
     if (user.role !== UserRole.ADM) return;
-    if (baileysStatus?.connected && secondaryStatus?.connected) return;
+    if (baileysStatus?.connected && secondaryStatus?.connected && comprasStatus?.connected) return;
     
     const healthInterval = setInterval(fetchSystemHealth, 30000);
     return () => clearInterval(healthInterval);
-  }, [user.role, baileysStatus?.connected, secondaryStatus?.connected]);
+  }, [user.role, baileysStatus?.connected, secondaryStatus?.connected, comprasStatus?.connected]);
 
   const handleBaileysReconnect = async () => {
     if (!confirm('Deseja realmente desconectar a sessão do WhatsApp Principal (PIX dos clientes) e gerar um novo QR Code?')) return;
@@ -192,6 +212,27 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
       addToast('Erro ao desconectar sessão secundária.', 'error');
     } finally {
       setSecondaryReconnecting(false);
+    }
+  };
+
+  const handleComprasReconnect = async () => {
+    if (!confirm('Deseja realmente desconectar a sessão do WhatsApp Comercial (Compras & Cotações) e gerar um novo QR Code?')) return;
+    setComprasReconnecting(true);
+    setComprasStatus({ connected: false, connecting: true, hasQR: false, qrCode: null });
+    try {
+      const res = await fetch('/api/central-compras/whatsapp/reconnect', { method: 'POST' });
+      if (res.ok) {
+        addToast('Sessão do WhatsApp Comercial reiniciada. Aguardando QR Code...', 'success');
+        setTimeout(() => {
+          fetchComprasStatus();
+        }, 2000);
+      } else {
+        throw new Error('Failed to reconnect');
+      }
+    } catch (err) {
+      addToast('Erro ao desconectar sessão do WhatsApp Comercial.', 'error');
+    } finally {
+      setComprasReconnecting(false);
     }
   };
 
@@ -335,7 +376,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
             }
           `}} />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             
             {/* 🟢 CARD WHATSAPP PRINCIPAL (AUDITORIA PIX) */}
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-6">
@@ -548,6 +589,108 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
                               <>
                                 <span className="text-red-500 text-[8px] font-black uppercase tracking-widest leading-tight">Erro</span>
                                 <span className="text-[7px] text-red-400 leading-tight break-all">{secondaryStatus.error}</span>
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-6 h-6 animate-spin text-slate-300" />
+                                <span className="text-[8px] font-black uppercase tracking-widest leading-tight">Carregando...</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 🟣 CARD WHATSAPP COMERCIAL (CENTRAL DE COMPRAS & COTAÇÕES) */}
+            <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-6">
+              <div>
+                <div className="flex items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-purple-50 text-purple-600 rounded-xl shadow-sm">
+                      <ShoppingCart className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-slate-900 text-base uppercase tracking-tight">WhatsApp Comercial</h3>
+                      <p className="text-[10px] text-slate-400 font-medium leading-tight">Central de Compras, Cotações & Representantes</p>
+                    </div>
+                  </div>
+                  <div>
+                    {comprasStatus?.connected ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 text-purple-700 text-[10px] font-black uppercase tracking-widest rounded-full">
+                        <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+                        Conectado
+                      </span>
+                    ) : comprasStatus?.connecting ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full">
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        Conectando
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-widest rounded-full">
+                        Desconectado
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-slate-50 space-y-4">
+                  {comprasStatus?.connected ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-purple-50/50 border border-purple-100 rounded-2xl text-purple-800 text-xs font-medium leading-relaxed">
+                        🎉 <strong>WhatsApp Comercial Ativo!</strong> A instância de compras está online e pronta para minerar ofertas dos representantes e redigir cotações com aprovação prévia.
+                      </div>
+                      <button
+                        onClick={handleComprasReconnect}
+                        disabled={comprasReconnecting}
+                        className="w-full justify-center px-4 py-3 bg-red-50 hover:bg-red-100 border border-red-100 text-red-600 rounded-xl font-bold text-xs uppercase tracking-wide transition-all disabled:opacity-40 flex items-center gap-2"
+                      >
+                        <Power className="w-4 h-4" />
+                        Desconectar WhatsApp Comercial
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                      <div className="md:col-span-7 space-y-2 text-slate-500 text-xs leading-relaxed">
+                        <p className="font-bold text-slate-800">Passos para conectar o WhatsApp Comercial:</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>Abra o WhatsApp no celular comercial de compras da drogaria.</li>
+                          <li>Toque em <strong>Aparelhos Conectados</strong>.</li>
+                          <li>Aponte a câmera para o QR Code ao lado.</li>
+                        </ol>
+                        <div className="pt-2 flex flex-wrap gap-2">
+                          <button
+                            onClick={handleComprasReconnect}
+                            disabled={comprasReconnecting}
+                            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-[10px] uppercase tracking-wide transition-all flex items-center gap-1.5"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${comprasReconnecting ? 'animate-spin' : ''}`} />
+                            Gerar QR
+                          </button>
+                          <button
+                            onClick={fetchComprasStatus}
+                            className="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-wide transition-all hover:bg-slate-50"
+                          >
+                            Atualizar
+                          </button>
+                        </div>
+                      </div>
+                      <div className="md:col-span-5 flex justify-center pt-2 md:pt-0">
+                        {comprasStatus?.hasQR && comprasStatus?.qrCode ? (
+                          <div className="relative p-2 bg-white border-2 border-slate-100 rounded-2xl shadow-md overflow-hidden flex flex-col items-center">
+                            <div className="absolute left-0 right-0 h-0.5 bg-purple-500 opacity-80 animate-scan z-10" />
+                            <img src={comprasStatus.qrCode} alt="QR Code Comercial" className="w-32 h-32 object-contain relative" />
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Aguardando Scanner</span>
+                          </div>
+                        ) : (
+                          <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-4 text-center text-slate-400 bg-slate-50 gap-1.5">
+                            {comprasStatus?.error ? (
+                              <>
+                                <span className="text-red-500 text-[8px] font-black uppercase tracking-widest leading-tight">Erro</span>
+                                <span className="text-[7px] text-red-400 leading-tight break-all">{comprasStatus.error}</span>
                               </>
                             ) : (
                               <>

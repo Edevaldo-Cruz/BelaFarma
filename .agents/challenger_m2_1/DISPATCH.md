@@ -1,18 +1,12 @@
-## 2026-08-12T14:01:22Z
-You are challenger_m2_1.
-Your working directory is f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_1.
-Your identity and role: teamwork_preview_challenger.
+## 2026-08-29T17:16:39Z
+Você é o Challenger 1 para o Milestone M2 (Offer Parsing & Edge Cases).
 
-Read ORIGINAL_REQUEST.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Read PROJECT.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_1\PROJECT.md
+Diretório de trabalho exclusivo: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_1
+Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
+Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
+Arquivo de despacho: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_1\DISPATCH.md
 
-Task:
-Empirically verify Milestone 2 (M2) REST endpoints and AI scanner logic.
-Run `node backend/test_m2_verification.js` and write additional test scenarios checking:
-1. `GET /api/deliveries/pending-reviews` returns valid JSON array with review_status 'pending_review'.
-2. `GET /api/deliveries/pending-reviews/:id` returns correct single object.
-3. `POST /api/deliveries/:id/submit-review` updates status and inserts into `chat_product_rejections`.
-4. `GET /api/deliveries/rejection-metrics` returns correct aggregated metrics.
-
-Write handoff report to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_1\handoff.md`. State your verdict clearly: APPROVE or REQUEST_CHANGES.
-Notify orchestrator when done via send_message.
+Sua missão:
+1. Criar script de teste em .agents/challenger_m2_1/stress_test_m2.js testando textos informais de representantes, múltiplos produtos, prazos complexos e bonificações compostas.
+2. Executar seu script de teste.
+3. Gravar f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_1\handoff.md com seu veredito (APPROVE ou REQUEST_CHANGES) e enviar mensagem de conclusão.

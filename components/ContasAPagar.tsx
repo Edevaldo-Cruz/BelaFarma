@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Boleto, BoletoStatus, Order, MonthlyLimit, User, FixedAccountPayment, CashClosingRecord } from '../types';
 import { BoletoForm } from './BoletoForm';
+import { useToast } from './ToastContext';
 
 interface ContasAPagarProps {
   user: User;
@@ -54,6 +55,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   monthlyLimits,
   cashClosings
 }) => {
+  const { addToast } = useToast();
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -97,21 +99,16 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   useEffect(() => {
     const currentLimit = monthlyLimits.find(l => l.month === selectedMonth + 1 && l.year === selectedYear);
     if (currentLimit) {
-      const monthName = new Date(selectedYear, selectedMonth, 1).toLocaleString('pt-BR', { month: 'long' });
-      const totalSpentThisMonth = orders.reduce((acc: number, curr: any) => {
-        if (curr.installments && curr.installments.length > 0) {
-          return acc + curr.installments
-            .filter((inst: any) => {
-              const d = new Date(inst.dueDate);
-              return d.toLocaleString('pt-BR', { month: 'long' }).toLowerCase() === monthName.toLowerCase();
-            })
-            .reduce((sum: number, inst: any) => sum + inst.value, 0);
-        } else {
-          return acc + (curr.paymentMonth.toLowerCase() === monthName.toLowerCase() ? curr.totalValue : 0);
-        }
-      }, 0);
+      // Checar se estourou
+      const totalPurchasesMonth = orders
+        .filter(o => {
+          if (!o.order_date) return false;
+          const [y, m] = o.order_date.split('-');
+          return parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth;
+        })
+        .reduce((sum, o) => sum + (o.total || 0), 0);
 
-      if (totalSpentThisMonth > currentLimit.limit) {
+      if (totalPurchasesMonth > currentLimit.limit_value) {
         setBudgetStatus('busted');
       } else {
         setBudgetStatus('ok');
@@ -119,19 +116,19 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
     } else {
       setBudgetStatus('ok');
     }
-  }, [orders, monthlyLimits, selectedMonth, selectedYear]);
+  }, [monthlyLimits, orders, selectedMonth, selectedYear]);
 
-  // Busca Contas Fixas
+  // Carrega os pagamentos de contas fixas salvos
   useEffect(() => {
     const fetchFixedPayments = async () => {
       try {
-        const month = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
-        const response = await fetch(`/api/fixed-account-payments?month=${month}`);
-        if (!response.ok) throw new Error('Failed to fetch fixed payments');
-        const data = await response.json();
-        setFixedPayments(data);
-      } catch (error) {
-        console.error('Error fetching fixed payments:', error);
+        const res = await fetch(`/api/fixed-account-payments?month=${selectedMonth + 1}&year=${selectedYear}`);
+        if (res.ok) {
+          const data = await res.json();
+          setFixedPayments(data);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar pagamentos de contas fixas:', err);
       }
     };
     fetchFixedPayments();
@@ -169,31 +166,32 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   const unifiedList = useMemo(() => {
     const list: UnifiedPayment[] = [];
 
-    // 1. Boletos
+    // 1. Boletos do Mês
     boletos.forEach(b => {
-      const d = new Date(b.due_date + 'T00:00:00');
-      if (d.getMonth() === selectedMonth && d.getFullYear() === selectedYear) {
-        const order = getOrderForBoleto(b);
+      if (!b.due_date) return;
+      const [y, m] = b.due_date.split('-');
+      if (parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth) {
         list.push({
           id: b.id,
           type: 'boleto',
-          supplierName: b.supplierName || order?.distributor || 'Boleto sem Fornecedor',
+          supplierName: b.supplier_name,
           dueDate: b.due_date,
-          value: b.value,
-          status: getEffectiveStatus(b),
+          value: b.amount,
+          status: b.status,
           originalBoleto: b,
-          invoice_number: b.invoice_number
+          invoice_number: b.invoice_number,
+          paidAt: b.paid_at
         });
       }
     });
 
-    // 2. Contas Fixas
+    // 2. Contas Fixas do Mês
     fixedPayments.forEach(fp => {
       list.push({
         id: fp.id,
         type: 'fixed',
-        supplierName: fp.fixedAccountName,
-        dueDate: fp.dueDate,
+        supplierName: `[Fixa] ${fp.account_name}`,
+        dueDate: fp.due_date,
         value: fp.value,
         status: fp.status,
         originalFixed: fp,
@@ -201,13 +199,10 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       });
     });
 
-    // 3. Provisões Diárias de Prolabore
+    // 3. Provisões Diárias (Pró-labore 12%, Impostos 4%, Reserva 1%)
     if (cashClosings && budgetStatus !== 'busted') {
-      const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-      const dailyGoal = monthlySalesGoal / daysInMonth;
-      
       cashClosings.forEach(c => {
-        if (!c.date) return;
+        if (!c.date || !c.totalSales || c.totalSales <= 0) return;
         
         const closingDate = new Date(c.date + 'T00:00:00');
         const minDate = new Date('2026-06-01T00:00:00');
@@ -221,41 +216,51 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
         const dueDateStr = `${yDue}-${String(mDue + 1).padStart(2, '0')}-${dDue}`;
 
         if (yDue === selectedYear && mDue === selectedMonth) {
-          if (c.totalSales >= dailyGoal) {
-            const surplus = c.totalSales - dailyGoal;
-            let bonusValue = 0;
-            if (surplus > 0) {
-              bonusValue = Math.floor(surplus / 100) * 10;
-            }
-            
-            // Salvamos a data original do caixa para identificar nos paidProvisionsDates
-            const isBasePaid = paidProvisionsDates.includes(`base-${c.date}`) || paidProvisionsDates.includes(c.date);
-            
-            // Lançamento da Base
-            list.push({
-              id: `provision-base-${c.date}`,
-              type: 'provision',
-              supplierName: `Provisão Prolabore - Base (Fechamento: ${c.date.split('-').reverse().join('/')})`,
-              dueDate: dueDateStr,
-              value: 50,
-              status: isBasePaid ? 'Pago' : 'Pendente',
-              provisionDetails: `Cálculo: R$ 50,00 (Meta)`
-            });
+          const dateBr = c.date.split('-').reverse().join('/');
+          const salesVal = Number(c.totalSales) || 0;
+          
+          const valProlabore = salesVal * 0.12;
+          const valTax = salesVal * 0.04;
+          const valReserve = salesVal * 0.01;
 
-            // Lançamento da Bonificação
-            if (bonusValue > 0) {
-              const isBonusPaid = paidProvisionsDates.includes(`bonus-${c.date}`) || paidProvisionsDates.includes(c.date);
-              list.push({
-                id: `provision-bonus-${c.date}`,
-                type: 'provision',
-                supplierName: `Provisão Prolabore - Bonificação (Fechamento: ${c.date.split('-').reverse().join('/')})`,
-                dueDate: dueDateStr,
-                value: bonusValue,
-                status: isBonusPaid ? 'Pago' : 'Pendente',
-                provisionDetails: `Cálculo: R$ ${bonusValue.toFixed(2)} (Excedente)`
-              });
-            }
-          }
+          const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${c.date}`);
+          const isTaxPaid = paidProvisionsDates.includes(`tax-${c.date}`);
+          const isReservePaid = paidProvisionsDates.includes(`reserve-${c.date}`);
+
+          const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+          // 1. Pró-labore (12%)
+          list.push({
+            id: `provision-prolabore-${c.date}`,
+            type: 'provision',
+            supplierName: `Provisão Pró-labore (12%) - Fechamento: ${dateBr}`,
+            dueDate: dueDateStr,
+            value: valProlabore,
+            status: isProlaborePaid ? 'Pago' : 'Pendente',
+            provisionDetails: `12% de ${formatBRL(salesVal)}`
+          });
+
+          // 2. Impostos (4%)
+          list.push({
+            id: `provision-tax-${c.date}`,
+            type: 'provision',
+            supplierName: `Provisão Impostos (4%) - Fechamento: ${dateBr}`,
+            dueDate: dueDateStr,
+            value: valTax,
+            status: isTaxPaid ? 'Pago' : 'Pendente',
+            provisionDetails: `4% de ${formatBRL(salesVal)}`
+          });
+
+          // 3. Reserva (1%)
+          list.push({
+            id: `provision-reserve-${c.date}`,
+            type: 'provision',
+            supplierName: `Provisão Reserva (1%) - Fechamento: ${dateBr}`,
+            dueDate: dueDateStr,
+            value: valReserve,
+            status: isReservePaid ? 'Pago' : 'Pendente',
+            provisionDetails: `1% de ${formatBRL(salesVal)}`
+          });
         }
       });
     }
@@ -372,7 +377,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
         );
       } catch (error) {
         console.error(error);
-        alert('Erro ao atualizar pagamento da conta fixa');
+        addToast('Erro ao atualizar pagamento da conta fixa', 'error');
       }
     }
     else if (item.type === 'provision') {

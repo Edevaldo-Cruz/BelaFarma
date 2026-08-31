@@ -1,48 +1,50 @@
-# BRIEFING — 2026-08-12T14:03:00Z
+# BRIEFING — 2026-08-29T17:16:39Z
 
 ## Mission
-Review Milestone 2 (M2) implementation of delivery review submissions and rejection metrics endpoints in BelaFarma codebase.
+Review and adversarially challenge Milestone M2 (WhatsApp Compras & Mineração) implementation and test suite.
 
 ## 🔒 My Identity
-- Archetype: reviewer & critic
-- Roles: teamwork_preview_reviewer
+- Archetype: reviewer_critic
+- Roles: reviewer, critic
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2
-- Original parent: c9705ed0-6411-45a1-82b7-3d61631ad1cb
-- Milestone: M2
-- Instance: 1 of 1
+- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Milestone: M2 (WhatsApp Compras & Mineração)
+- Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code directly
-- Focus on correctness, input validation, transaction safety, aggregation logic, edge cases, and integrity violations
+- Review-only — do NOT modify implementation code
+- Check for integrity violations (hardcoded test results, facade implementations, bypassed tasks)
+- Verify bonificações calculations, contract conformity, and approval gate for WhatsApp sending
+- Independent verification via test execution and code analysis
 
 ## Current Parent
-- Conversation ID: c9705ed0-6411-45a1-82b7-3d61631ad1cb
-- Updated: 2026-08-12T14:03:00Z
+- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Updated: 2026-08-29T17:16:39Z
 
 ## Review Scope
-- **Files to review**: `backend/services/whatsapp-delivery-service.js`, `backend/delivery-endpoints.js`
-- **Interface contracts**: ORIGINAL_REQUEST.md, PROJECT.md, worker_m2_1 handoff.md
-- **Review criteria**: correctness, validation, transaction/concurrency safety, query logic, integrity
+- **Files to review**: backend/baileys-compras-service.js, backend/services/compras-mineracao.service.js, backend/test_compras_m2.js
+- **Interface contracts**: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md, f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md, f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m2_whatsapp_mineracao\handoff.md
+- **Review criteria**: correctness, style, conformance, security/integrity, failure modes
 
 ## Review Checklist
-- **Items reviewed**: `backend/services/whatsapp-delivery-service.js`, `backend/delivery-endpoints.js`, `backend/database.js`, `backend/test_m2_verification.js`
-- **Verdict**: REQUEST_CHANGES
-- **Unverified claims**: N/A - Code inspected directly and logical flaws identified.
+- **Items reviewed**: backend/baileys-compras-service.js, backend/services/compras-mineracao.service.js, backend/test_compras_m2.js, backend/database.js
+- **Verdict**: APPROVE
+- **Unverified claims**: None
 
 ## Attack Surface
-- **Hypotheses tested**:
-  - Non-atomic updates in submit-review -> CONFIRMED (UPDATE deliveries outside transaction of rejections insert).
-  - Arbitrary `main_reason` selection in SQLite GROUP BY -> CONFIRMED (non-aggregated `reason` selected under GROUP BY `product_name`).
-  - Fallback count mismatch -> CONFIRMED (`total_rejections: 0` during fallback).
-  - Missing parameter checks -> CONFIRMED (`NaN` in `parseFloat` and non-boolean `gerou_entrega` cause 500 or silent misclassification).
-  - Re-submission duplicate accumulation -> CONFIRMED (no deletion of previous rejections on re-submission).
-- **Vulnerabilities found**: 2 Major findings (Transaction safety, SQL aggregation error), 3 Minor findings (Fallback count inconsistency, Input validation gaps, Re-submission duplicates).
-- **Untested angles**: None.
+- **Hypotheses tested**: 
+  - Bypass of approval queue with direct socket calls / invalid statuses -> Blocked (100% verified)
+  - Mathematical integrity of bonificações (compre X ganhe Y, compre X leve Y, X+Y, percentage discounts) -> Accurate (100% verified)
+  - Handling of null/empty/malformed messages -> Handled gracefully (100% verified)
+  - Session directory isolation (`baileys-session-compras`) -> Verified
+- **Vulnerabilities found**: No critical or integrity vulnerabilities. Minor recommendation on regex for "10% desc" without "de".
+- **Untested angles**: Physical live WhatsApp QR pairing (requires actual physical device).
 
 ## Key Decisions Made
-- Issued verdict: REQUEST_CHANGES. Detailed handoff report written to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\handoff.md`.
+- Confirmed zero integrity violations or facades.
+- Approved Milestone M2 with verdict APPROVE.
 
 ## Artifact Index
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\DISPATCH.md — Dispatch log
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\BRIEFING.md — Working briefing memory
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\handoff.md — Final handoff report
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\handoff.md — Final review & challenge handoff
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\progress.md — Liveness heartbeat and step logs
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\stress_test.cjs — Adversarial stress test script

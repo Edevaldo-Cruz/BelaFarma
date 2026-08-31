@@ -120,10 +120,9 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     const map = new Map<string, GroupedBrandItem>();
 
     pendingItems.forEach(item => {
-      const isDeb = (item.modality || '').toLowerCase().includes('deb') || (item.modality || '').toLowerCase().includes('déb');
-      const modality = isDeb ? 'Débito Geral' : 'Crédito Geral';
-      const brand = item.brand || 'Geral';
-      const key = modality;
+      const modality = item.modality || 'Débito';
+      const brand = item.brand || 'Outros';
+      const key = `${brand}_${modality}`;
 
       const gross = Number(item.gross_value) || 0;
       const isM2 = item.machine_name === 'M2';
@@ -149,6 +148,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     });
 
     return Array.from(map.values()).sort((a, b) => {
+      if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
       return a.modality.localeCompare(b.modality);
     });
   }, [pendingItems]);

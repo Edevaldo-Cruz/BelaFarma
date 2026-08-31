@@ -1,19 +1,14 @@
-## 2026-08-12T13:55:17Z
-You are reviewer_m1_1.
-Your working directory is f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_1.
-Your identity and role: teamwork_preview_reviewer.
+## 2026-08-29T17:14:25Z
+Você é o Reviewer 1 para o Milestone M1 (Estoque Mínimo & Digifarma Sync).
 
-Read ORIGINAL_REQUEST.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Read PROJECT.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_1\PROJECT.md
-Read Worker handoff: f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1_1\handoff.md
+Diretório de trabalho exclusivo: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_1
+Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
+Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
+Worker Handoff: f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1_estoque\handoff.md
+Arquivo de despacho: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_1\DISPATCH.md
 
-Task:
-Review Milestone 1 (M1) implementation in `backend/database.js` and `types.ts`.
-Check:
-- Are all 8 audit columns correctly added to `deliveries`?
-- Is `chat_product_rejections` table created cleanly?
-- Are TypeScript definitions in `types.ts` accurate and exported?
-- Does `node -e "require('./backend/database.js')"` execute without errors?
-
-Write handoff report to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_1\handoff.md`. State your verdict clearly: APPROVE or REQUEST_CHANGES.
-Notify orchestrator when done via send_message.
+Sua missão:
+1. Analisar backend/services/compras-estoque.service.js e backend/database.js.
+2. Executar node backend/test_compras_estoque.js.
+3. Verificar correção matemática, integridade transacional Firebird e performance SQLite.
+4. Escrever f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_1\handoff.md com seu veredito (APPROVE ou REQUEST_CHANGES) e enviar mensagem de conclusão.

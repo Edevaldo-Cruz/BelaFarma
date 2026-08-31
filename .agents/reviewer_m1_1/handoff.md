@@ -1,88 +1,128 @@
-# Handoff Report: Review of Milestone 1 (M1 - Database Schema & Data Models)
+# Relatório de Handoff — Reviewer 1 (Milestone M1: Estoque Mínimo & Digifarma Sync)
+
+**Data**: 2026-08-29T17:23:00Z  
+**Autor**: Reviewer 1 (`reviewer_m1_1`)  
+**Roles**: Reviewer, Critic  
+**Veredito Final**: **APPROVE**  
+**Destinatário**: Orquestrador Geral (`parent`)
+
+---
 
 ## 1. Observation
-- **Files Inspected**:
-  1. `backend/database.js` (`f:\Documentos\Desenvolvimento\BelaFarma\backend\database.js`)
-  2. `types.ts` (`f:\Documentos\Desenvolvimento\BelaFarma\types.ts`)
-  3. Worker handoff: `f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1_1\handoff.md`
 
-- **Verbatim Code Inspection Findings**:
-  - `backend/database.js` (lines 1311-1321):
-    ```javascript
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN review_status TEXT'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN is_new_customer INTEGER DEFAULT 0'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN chat_duration_seconds INTEGER DEFAULT 0'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN chat_message_count INTEGER DEFAULT 0'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN discussed_products_json TEXT'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN rejection_details_json TEXT'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN reviewed_by TEXT'); } catch(e) {}
-    try { db.exec('ALTER TABLE deliveries ADD COLUMN reviewed_at DATETIME'); } catch(e) {}
-    try {
-      db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_review_status ON deliveries(review_status)');
-    } catch(e) {}
-    ```
-    All 8 audit columns (`review_status`, `is_new_customer`, `chat_duration_seconds`, `chat_message_count`, `discussed_products_json`, `rejection_details_json`, `reviewed_by`, `reviewed_at`) are idempotently migrated with `try/catch` and indexed.
+Durante a auditoria e revisão crítica do código do Milestone M1, foram observados os seguintes fatos concretos e verificáveis:
 
-  - `backend/database.js` (lines 1324-1339):
-    ```javascript
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS chat_product_rejections (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        delivery_id INTEGER,
-        phone TEXT,
-        product_name TEXT,
-        reason TEXT,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    try {
-      db.exec('CREATE INDEX IF NOT EXISTS idx_cpr_delivery ON chat_product_rejections(delivery_id)');
-      db.exec('CREATE INDEX IF NOT EXISTS idx_cpr_phone ON chat_product_rejections(phone)');
-      db.exec('CREATE INDEX IF NOT EXISTS idx_cpr_reason ON chat_product_rejections(reason)');
-    } catch (e) {}
-    ```
-    The `chat_product_rejections` table is created cleanly with 3 secondary indexes.
+1. **Implementação do Serviço de Estoque**:
+   - Arquivo `backend/services/compras-estoque.service.js` (830 linhas).
+   - Implementa `calcularDemandaPonderada`, `determinarStatusRuptura`, `calcularEstoqueMinimo30Dias`, `sincronizarEstoqueMinimoDigifarma`, `sincronizarLoteEstoqueMinimoDigifarma`, `recalcularTodosEstoqueMinimo`, `listarProdutosAbaixoDoMinimo`, `obterResumoEstoqueMinimo`.
+   - Utiliza as fórmulas estritas de $P_1 = 0.65$, $P_2 = 0.35$, margem de segurança configurável (padrão 15%), proteção e piso para itens Curva A, e tratamento para itens inativos/sem giro.
 
-  - `types.ts` (lines 544-632):
-    - `Delivery` interface includes all 8 audit fields as optional fields.
-    - Exported interfaces:
-      - `export interface PendingReview`
-      - `export interface ProductRejection`
-      - `export interface RejectionMetrics`
+2. **Esquema de Dados SQLite**:
+   - Arquivo `backend/database.js` (linhas 1807-1835).
+   - Criação da tabela `compras_estoque_cache` com campos essenciais e 3 índices: `idx_cec_status`, `idx_cec_ean`, `idx_cec_curva`. Modo WAL ativo.
 
-- **Integrity Check**:
-  - No hardcoded test results found.
-  - No facade implementations or shortcuts detected.
-  - All migrations are real SQLite schema updates.
+3. **Integridade Transacional Firebird**:
+   - Arquivo `backend/services/digifarma.service.js`.
+   - Comandos de escrita (`UPDATE PRODUTOS SET PROD_ESTMINIMO = ? WHERE PRODUTO_ID = ?`) executados em transação explícita `ISOLATION_READ_COMMITTED` com commit automático ou `rollback()` + `detach()` em falha/timeout.
+
+4. **Resultados dos Testes Automatizados da Suíte**:
+   Comando executado: `node backend/test_compras_estoque.js`
+   Resultado verbatim:
+   ```
+   =================================================================
+   🧪 INICIANDO SUÍTE DE TESTES: ESTOQUE MÍNIMO & SYNC DIGIFARMA
+   =================================================================
+
+   📦 [GRUPO 1] Matemática e Ponderação de Vendas (30 e 60 dias)
+     ✅ PASS: 1.1 Cálculo padrão ponderado (100 un em 30d, 50 un em 31-60d, margem 15%)
+     ✅ PASS: 1.2 Cálculo ponderado com margem zero (0%)
+     ✅ PASS: 1.3 Cálculo ponderado com margem de 30%
+     ✅ PASS: 1.4 Histórico zerado nos 60 dias (vendas30d = 0, vendas31_60d = 0)
+     ✅ PASS: 1.5 Produto com mais de 90 dias sem vendas
+     ✅ PASS: 1.6 Produto inativo (ativo = false)
+     ✅ PASS: 1.7 Piso de segurança para produtos Curva A (cálculo < 2 unidades)
+     ✅ PASS: 1.8 Resiliência com entradas nulas, indefinidas ou NaN
+
+   🔍 [GRUPO 2] Matriz de Classificação de Ruptura e Saldo
+     ✅ PASS: 2.1 Status RUPTURA quando saldo é zero ou negativo
+     ✅ PASS: 2.2 Status ABAIXO_MINIMO quando saldo positivo é menor que o mínimo
+     ✅ PASS: 2.3 Status NORMAL quando saldo atende ao mínimo sem excesso
+     ✅ PASS: 2.4 Status EXCESSO quando saldo é >= 2.5x o estoque mínimo
+     ✅ PASS: 2.5 Status NORMAL quando mínimo é zero e saldo é positivo
+
+   💾 [GRUPO 3] Persistência no SQLite (compras_estoque_cache)
+     ✅ PASS: 3.1 Inserção e Leitura no compras_estoque_cache
+
+   📊 [GRUPO 4] Listagem de Faltas, Rupturas e Necessidade de Reposição
+
+   🔄 [GRUPO 5] Sincronização e Fallback Gracioso
+     ✅ PASS: 4.1 Listagem de produtos abaixo do mínimo com cálculo financeiro
+     ✅ PASS: 4.2 Filtro exclusivo de ruptura (apenasRuptura = true)
+     ✅ PASS: 4.3 Filtro por Curva ABC (curvaAbc = A)
+     ✅ PASS: 4.4 Busca textual por descrição e EAN
+     ✅ PASS: 4.5 Resumo consolidado de KPIs (obterResumoEstoqueMinimo)
+     ✅ PASS: 5.1 Cálculo unitário com fallback para cache local quando Firebird offline
+     ✅ PASS: 5.2 Sincronização unitária em cache local com tratamento de erro gracioso
+     ✅ PASS: 5.3 Sincronização em lote resiliente
+     ✅ PASS: 5.4 Formatação de datas para Firebird
+
+   =================================================================
+   🏁 SUÍTE DE TESTES FINALIZADA
+      Total Aprovados: 23
+      Total Falhas:    0
+   =================================================================
+   ```
+
+5. **Resultados dos Testes Adversariais**:
+   Comando executado: `node .agents/reviewer_m1_1/test_adversarial_reviewer_m1.cjs`
+   - Teste de entradas patológicas (números negativos, strings, Infinity, NaN): APROVADO.
+   - Teste de bordas de status de ruptura e excesso: APROVADO.
+   - Teste de blindagem contra SQL Injection: APROVADO.
+   - Teste de benchmark de inserção em lote SQLite WAL (500 itens inseridos em 5ms): APROVADO (< 300ms).
+   - Teste de latência de consulta indexada (1ms): APROVADO (< 50ms).
 
 ---
 
 ## 2. Logic Chain
-1. Verified all 8 requested audit columns are added to the existing `deliveries` table. Wrapping each `ALTER TABLE` in a try/catch block ensures idempotency across database restarts or existing schemas without data loss.
-2. Verified `chat_product_rejections` schema contains all required fields (`delivery_id`, `phone`, `product_name`, `reason`, `notes`, `created_at`) and performance indexes (`idx_cpr_delivery`, `idx_cpr_phone`, `idx_cpr_reason`).
-3. Verified `types.ts` exports `Delivery`, `PendingReview`, `ProductRejection`, and `RejectionMetrics` definitions, matching the contracts needed for M2 API and M3/M4 UI.
-4. Stress-tested schema compatibility: column types and JSON string fields align with SQLite dynamic typing and frontend TypeScript interface declarations.
+
+1. **Ausência de Violações de Integridade**:
+   - A inspeção linha a linha descartou qualquer presença de hardcoded return values, mocks estáticos ou facades disfarçadas. Os cálculos operam puramente com as entradas fornecidas.
+2. **Correção Matemática**:
+   - Para $V_{30d} = 100$ e $V_{31\_60d} = 50$, $D_{30} = (100 \times 0.65) + (50 \times 0.35) = 82.5$.
+   - Com margem de $15\%$, $82.5 \times 1.15 = 94.875 \rightarrow \lceil 94.875 \rceil = 95$. O código produz exatamente 95.
+3. **Resiliência e Fallback Firebird/SQLite**:
+   - A camada de dados não quebra se o Firebird estiver inacessível. O serviço recorre ao cache local SQLite de forma transparente, permitindo continuidade operacional da Central de Compras sem gerar 500 no frontend.
+4. **Performance do SQLite**:
+   - O uso de `db.transaction()` garante que recálculos globais e inserções em massa operem em tempo < 10ms para centenas de itens, respeitando a meta de resposta instantânea para a UI.
 
 ---
 
 ## 3. Caveats
-- No caveats. All changes are backward compatible, non-breaking, and fully idempotent.
+
+- Em ambiente local sem o banco Firebird real ativo no IP `192.168.1.10`, o fallback do driver `node-firebird` foi exercitado com mock/erro simulado e cache SQLite local. No Raspberry Pi de produção (`192.168.1.70`), a conexão real com a porta 3050 do Digifarma será acionada nativamente.
 
 ---
 
 ## 4. Conclusion
-**Verdict**: **APPROVE**
 
-Milestone 1 (M1) implementation satisfies all acceptance criteria and project specifications. The SQLite database initialization in `backend/database.js` and TypeScript types in `types.ts` are verified and complete.
+O módulo Milestone M1 (Estoque Mínimo para 30 dias e Sincronização Firebird) cumpre integralmente todos os requisitos funcionais, arquiteturais, matemáticos e de segurança previstos no `PROJECT.md` e `ORIGINAL_REQUEST.md`.
+
+**Veredito**: **APPROVE** (Aprovado sem ressalvas).
 
 ---
 
 ## 5. Verification Method
-To independently verify:
-1. Inspect `backend/database.js` lines 1310-1340 to confirm table and column definitions.
-2. Inspect `types.ts` lines 559-632 to confirm exported interfaces.
-3. Run in Node terminal:
-   ```bash
-   node -e "const db = require('./backend/database.js'); console.log(db.prepare('PRAGMA table_info(deliveries)').all().map(c => c.name)); console.log(db.prepare('PRAGMA table_info(chat_product_rejections)').all().map(c => c.name));"
-   ```
+
+Para reproduzir a verificação de forma independente:
+
+```powershell
+# Executar suíte padrão M1
+node backend/test_compras_estoque.js
+
+# Executar suíte de testes adversariais
+node .agents/reviewer_m1_1/test_adversarial_reviewer_m1.cjs
+```
+
+**Condições de Invalidação**:
+- Falha em qualquer um dos 23 testes da suíte principal.
+- Falha na inserção atômica no SQLite ou erro de sintaxe SQL no Firebird.

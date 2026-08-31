@@ -1,49 +1,57 @@
-# BRIEFING — 2026-08-12T14:05:00Z
+# BRIEFING — 2026-08-29T17:16:39Z
 
 ## Mission
-Empirically stress-test Milestone 2 (M2) questionnaire submission and rejection metrics endpoint for WhatsApp interactive audit system.
+Executar testes de estresse adversarial de segurança e concorrência na Central de Compras Milestone M2:
+1. Bypass de envio de mensagens não aprovadas (`enviarMensagemAprovada`).
+2. Concorrência massiva de ingestão e escrita SQLite WAL.
+3. Isolamento estrito de caminhos de arquivos de sessão Baileys (Windows e Linux).
 
 ## 🔒 My Identity
 - Archetype: empirical_challenger
 - Roles: critic, specialist
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2
-- Original parent: c9705ed0-6411-45a1-82b7-3d61631ad1cb
-- Milestone: M2
+- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Milestone: M2 (Session Isolation & Security Gate)
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code (only write test scripts in challenger folder or test files).
-- Empirical testing required — run real HTTP / DB tests.
-- Report findings with evidence.
+- Empirical testing required — run real adversarial scripts with stress harnesses.
+- Report findings with evidence and 5-component handoff format.
 
 ## Current Parent
-- Conversation ID: c9705ed0-6411-45a1-82b7-3d61631ad1cb
-- Updated: 2026-08-12T14:05:00Z
+- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Updated: 2026-08-29T17:16:39Z
 
 ## Review Scope
-- **Files to review**: `backend/delivery-endpoints.js`, `backend/database.js`, `backend/server.js`, `backend/services/whatsapp-delivery-service.js`
-- **Interface contracts**: `PROJECT.md` M2 contracts (`POST /api/deliveries/:id/submit-review`, `GET /api/deliveries/rejection-metrics`, `GET /api/deliveries/pending-reviews`)
-- **Review criteria**: Empirical correctness, breakdown logic, state management, edge cases, error handling.
+- **Files to review**: `backend/baileys-compras-service.js`, `backend/services/compras-mineracao.service.js`, `backend/database.js`, `test_compras_e2e.js`
+- **Interface contracts**: `PROJECT.md` M2 contracts (`enviarMensagemAprovada`, `getComprasConnectionStatus`, `SESSION_DIR`, `processarMensagemRecebida`)
+- **Review criteria**: Trava de segurança contra bypass de envio sem aprovação humana, integridade e isolamento de caminhos de sessão, concorrência e integridade referencial SQLite WAL.
 
 ## Attack Surface
 - **Hypotheses tested**: 
-  1. Multiple rejected products with various reasons ("Preço", "Falta de Estoque", "Apenas Dúvida"): PASSED
-  2. `rejection-metrics` total, breakdown by reason, top rejected products: PASSED
-  3. `gerou_entrega: true` transitions delivery review status to 'reviewed' and removes item from pending queue: PASSED
-  4. Invalid payloads, edge cases, malformed JSON, unicode, SQL injection strings: PASSED
-- **Vulnerabilities found**: None. System handled all payloads and state transitions cleanly.
-- **Untested angles**: Frontend visual component mounting (covered in M3/M4/M5 UI testing).
+  1. Bypass de envio não autorizado (mensagens pendentes, rejeitadas, canceladas, nulas ou IDs inexistentes devem falhar): CONFIRMADO (PASS).
+  2. Prevenção de Replay Attack (itens já enviados não podem ser reenviados): CONFIRMADO (PASS).
+  3. Proteção contra injeção SQL no ID de aprovação: CONFIRMADO (PASS).
+  4. Concorrência massiva de 100 mensagens simultâneas em SQLite WAL: CONFIRMADO (PASS, 0 falhas, 0 deadlocks).
+  5. Condição de corrida com 50 mensagens concorrentes do mesmo fornecedor: CONFIRMADO (PASS, ON CONFLICT idempotente).
+  6. Leitura concorrente de dashboard sob escrita pesada contínua: CONFIRMADO (PASS).
+  7. Isolamento de pastas de sessão Baileys (Principal, Secundário e Compras) em Windows e Linux: CONFIRMADO (PASS).
+  8. Proteção contra ReDoS em textos >50.000 chars e resiliência a Unicode/Emojis: CONFIRMADO (PASS, <200ms).
+- **Vulnerabilities found**: Nenhuma vulnerabilidade encontrada. Trava de segurança, isolamento de caminhos e concorrência WAL 100% íntegros.
+- **Untested angles**: Hardware físico da VPS Raspberry Pi com Firebird real (validado via mocks/transações simuladas de Firebird e cache local SQLite WAL).
 
 ## Loaded Skills
 - None.
 
 ## Key Decisions Made
-- Verdict: APPROVE M2 questionnaire submission & rejection metrics backend implementation.
-- Empirical test suite `.agents/challenger_m2_2/stress_test_m2.cjs` created and executed with 37/37 passing assertions.
+- Veredito: APPROVE M2 (Session Isolation & Security Gate).
+- Suíte empírica `.agents/challenger_m2_2/security_stress_m2.js` executada com 28/28 asserções adversariais bem-sucedidas.
 
 ## Artifact Index
-- `.agents/challenger_m2_2/DISPATCH.md` — Initial dispatch message
-- `.agents/challenger_m2_2/BRIEFING.md` — Active working memory
-- `.agents/challenger_m2_2/progress.md` — Heartbeat and progress log
-- `.agents/challenger_m2_2/stress_test_m2.cjs` — Automated empirical stress test script
-- `.agents/challenger_m2_2/handoff.md` — Final handoff report
+- `.agents/challenger_m2_2/DISPATCH.md` — Mensagem de despacho
+- `.agents/challenger_m2_2/BRIEFING.md` — Memória de trabalho ativa
+- `.agents/challenger_m2_2/progress.md` — Heartbeat e progresso
+- `.agents/challenger_m2_2/security_stress_m2.js` — Script de teste de estresse de segurança (28 testes)
+- `.agents/challenger_m2_2/handoff.md` — Relatório formal de handoff (APPROVE)
+

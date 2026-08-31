@@ -170,8 +170,6 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const dailyGoal = monthlySalesGoal / daysInMonth;
 
     const monthClosings = (cashClosings || []).filter(c => {
         if (!c.date) return false;
@@ -179,20 +177,8 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
         return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
     });
 
-    let totalProvisioned = 0;
-    monthClosings.forEach(c => {
-      if (c.totalSales >= dailyGoal) {
-        let provision = 50; // Bateu a meta
-        const surplus = c.totalSales - dailyGoal;
-        if (surplus > 0) {
-          provision += Math.floor(surplus / 100) * 10; // +10 para cada 100 acima da meta
-        }
-        totalProvisioned += provision;
-      }
-    });
-
-    return totalProvisioned;
-  }, [cashClosings, budgetStatus, monthlySalesGoal]);
+    return monthClosings.reduce((sum, c) => sum + ((Number(c.totalSales) || 0) * 0.17), 0);
+  }, [cashClosings, budgetStatus]);
 
   const currentDebt = initialDebt - provisionedThisMonth;
   // --- Fim da Gestão de Saldo Devedor ---
@@ -602,19 +588,8 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
 
   // 1. Calcular a dedução total de provisão considerando a transição de meses e Férias/13º
   const totalProvisionDiscount = useMemo(() => {
-    return selectedDateStrings.reduce((total, dateStr) => {
-      const date = new Date(dateStr + 'T00:00:00');
-      const juneStart = new Date('2026-06-01T00:00:00');
-      const julyStart = new Date('2026-07-01T00:00:00');
-      
-      if (date >= julyStart) {
-        return total + 749.77; 
-      } else if (date >= juneStart) {
-        return total + 554.05; 
-      }
-      return total;
-    }, 0);
-  }, [selectedDateStrings]);
+    return (averageDailySales * 0.17) * selectedDateStrings.length;
+  }, [averageDailySales, selectedDateStrings]);
 
   const salesForecast = averageDailySales * selectedDateStrings.length;
   const forecastBalance = currentCash + salesForecast - selectedTotal - totalProvisionDiscount;

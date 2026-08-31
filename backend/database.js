@@ -1804,6 +1804,314 @@ try {
     try { db.exec("ALTER TABLE cash_closings ADD COLUMN card_grid_json TEXT"); } catch(e) {}
     console.log('✅ Maquininhas: Migrações de bandeira, máquina M1/M2, parcelado e acumulado de fim de semana verificadas!');
 
+    // Criar tabela compras_estoque_cache para Central de Compras (Estoque Mínimo, Rupturas e Histórico Ponderado)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_estoque_cache (
+        produto_id INTEGER PRIMARY KEY,
+        descricao TEXT NOT NULL,
+        ean TEXT,
+        categoria_id INTEGER DEFAULT 0,
+        curva_abc TEXT DEFAULT 'C',
+        saldo REAL DEFAULT 0,
+        est_minimo_calculado REAL DEFAULT 0,
+        est_minimo_digifarma REAL DEFAULT 0,
+        vmd_ponderado REAL DEFAULT 0,
+        vendas_30d REAL DEFAULT 0,
+        vendas_31_60d REAL DEFAULT 0,
+        custo_unitario REAL DEFAULT 0,
+        ultima_compra_valor REAL DEFAULT 0,
+        status_ruptura TEXT DEFAULT 'NORMAL',
+        margem_seguranca_aplicada REAL DEFAULT 15.0,
+        dias_sem_venda INTEGER DEFAULT 0,
+        sincronizado_em TEXT,
+        atualizado_em TEXT NOT NULL
+      );
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_status ON compras_estoque_cache(status_ruptura)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ean ON compras_estoque_cache(ean)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
+    } catch(e) {}
+    console.log('✅ Central de Compras: Tabela compras_estoque_cache criada/verificada!');
+
+    // ──────────────────────────────────────────────────────────
+    // Central de Compras: Tabelas de Representantes, Mineração, Cotações e Pedidos
+    // ──────────────────────────────────────────────────────────
+    
+    // 1. Representantes e Fornecedores Comerciais
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_fornecedores_meta (
+        id TEXT PRIMARY KEY,
+        digifarma_id INTEGER UNIQUE,
+        distribuidora TEXT NOT NULL,
+        representante TEXT,
+        telefone TEXT NOT NULL,
+        prazos_pagamento TEXT,
+        pedido_minimo_valor REAL DEFAULT 0,
+        pedido_minimo_condicoes TEXT,
+        taxa_quebra_percent REAL DEFAULT 0,
+        pontualidade_score REAL DEFAULT 100,
+        categorias_fornecidas TEXT,
+        catalogo_produtos TEXT,
+        ultima_varredura_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cfm_telefone ON compras_fornecedores_meta(telefone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cfm_distribuidora ON compras_fornecedores_meta(distribuidora)');
+    } catch(e) {}
+
+    // 2. Histórico de Mensagens de Compras
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_historico_mensagens (
+        id TEXT PRIMARY KEY,
+        message_id TEXT UNIQUE,
+        remote_jid TEXT NOT NULL,
+        telefone TEXT NOT NULL,
+        nome_contato TEXT,
+        from_me INTEGER DEFAULT 0,
+        timestamp INTEGER NOT NULL,
+        data_hora TEXT NOT NULL,
+        tipo_mensagem TEXT DEFAULT 'texto',
+        texto_mensagem TEXT,
+        midia_path TEXT,
+        processado_mineracao INTEGER DEFAULT 0,
+        resultado_mineracao_json TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_chm_telefone ON compras_historico_mensagens(telefone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_chm_timestamp ON compras_historico_mensagens(timestamp)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_chm_proc ON compras_historico_mensagens(processado_mineracao)');
+    } catch(e) {}
+
+    // 3. Oportunidades & Ofertas Mineradas
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_oportunidades_mineradas (
+        id TEXT PRIMARY KEY,
+        fornecedor_id TEXT,
+        distribuidora TEXT,
+        representante TEXT,
+        telefone TEXT,
+        mensagem_id TEXT,
+        mensagem_raw TEXT,
+        produto_nome TEXT NOT NULL,
+        ean TEXT,
+        preco_ofertado REAL NOT NULL,
+        preco_ult_compra_digifarma REAL,
+        percentual_desconto REAL,
+        condicoes_pagamento TEXT,
+        validade_oferta TEXT,
+        status TEXT DEFAULT 'Disponivel',
+        data_oferta TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (fornecedor_id) REFERENCES compras_fornecedores_meta(id)
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_com_status ON compras_oportunidades_mineradas(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_com_produto ON compras_oportunidades_mineradas(produto_nome)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_com_ean ON compras_oportunidades_mineradas(ean)');
+    } catch(e) {}
+
+    // 4. Sessões de Cotações Inteligentes
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_cotacoes (
+        id TEXT PRIMARY KEY,
+        numero_cotacao TEXT NOT NULL UNIQUE,
+        titulo TEXT NOT NULL,
+        status TEXT DEFAULT 'Aberta',
+        itens_solicitados TEXT NOT NULL,
+        criterios_score TEXT,
+        created_at TEXT NOT NULL,
+        finalizada_at TEXT
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cc_status ON compras_cotacoes(status)');
+    } catch(e) {}
+
+    // 5. Respostas de Cotações
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_cotacoes_respostas (
+        id TEXT PRIMARY KEY,
+        cotacao_id TEXT NOT NULL,
+        fornecedor_id TEXT,
+        distribuidora TEXT NOT NULL,
+        telefone TEXT NOT NULL,
+        status TEXT DEFAULT 'Pendente',
+        solicitada_em TEXT NOT NULL,
+        respondida_em TEXT,
+        resposta_raw TEXT,
+        itens_cotados_json TEXT,
+        score_preco REAL DEFAULT 0,
+        score_prazo REAL DEFAULT 0,
+        score_historico REAL DEFAULT 0,
+        score_total REAL DEFAULT 0,
+        vencedora INTEGER DEFAULT 0,
+        posicao_ranking INTEGER DEFAULT 0,
+        prazo_dias INTEGER DEFAULT 0,
+        condicao_pagamento TEXT,
+        motivo_quebra TEXT,
+        pedido_minimo_atingido INTEGER DEFAULT 1,
+        valor_total_cotado REAL DEFAULT 0,
+        FOREIGN KEY (cotacao_id) REFERENCES compras_cotacoes(id) ON DELETE CASCADE
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ccr_cotacao ON compras_cotacoes_respostas(cotacao_id)');
+    } catch(e) {}
+    try { db.exec('ALTER TABLE compras_cotacoes_respostas ADD COLUMN posicao_ranking INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_cotacoes_respostas ADD COLUMN prazo_dias INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_cotacoes_respostas ADD COLUMN condicao_pagamento TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_cotacoes_respostas ADD COLUMN motivo_quebra TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_cotacoes_respostas ADD COLUMN pedido_minimo_atingido INTEGER DEFAULT 1'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_cotacoes_respostas ADD COLUMN valor_total_cotado REAL DEFAULT 0'); } catch(e) {}
+
+    // 5.1. Itens Individuais das Cotações
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_cotacoes_itens (
+        id TEXT PRIMARY KEY,
+        cotacao_id TEXT NOT NULL,
+        produto_id INTEGER,
+        descricao TEXT NOT NULL,
+        ean TEXT,
+        quantidade_sugerida REAL DEFAULT 1,
+        unidade TEXT DEFAULT 'UN',
+        preco_referencia REAL DEFAULT 0,
+        melhor_preco_ofertado REAL,
+        fornecedor_vencedor_id TEXT,
+        status TEXT DEFAULT 'Pendente',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (cotacao_id) REFERENCES compras_cotacoes(id) ON DELETE CASCADE
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cci_cotacao ON compras_cotacoes_itens(cotacao_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cci_produto ON compras_cotacoes_itens(produto_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cci_ean ON compras_cotacoes_itens(ean)');
+    } catch(e) {}
+
+    // 6. Fila de Aprovação Obrigatória (Human-in-the-Loop)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_fila_aprovacao (
+        id TEXT PRIMARY KEY,
+        tipo TEXT NOT NULL,
+        destinatario_telefone TEXT NOT NULL,
+        destinatario_nome TEXT NOT NULL,
+        fornecedor_id TEXT,
+        fornecedor_nome TEXT NOT NULL,
+        distribuidora TEXT,
+        mensagem_texto TEXT NOT NULL,
+        dados_contexto TEXT,
+        status TEXT DEFAULT 'pendente',
+        notificado_admin INTEGER DEFAULT 0,
+        admin_notificado_em TEXT,
+        aprovado_por TEXT,
+        aprovado_em TEXT,
+        rejeitado_motivo TEXT,
+        message_id_enviada TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cfa_status ON compras_fila_aprovacao(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cfa_dest ON compras_fila_aprovacao(destinatario_telefone)');
+    } catch(e) {}
+
+    // 7. Pedidos de Compra Formais & Espelhos
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_pedidos (
+        id TEXT PRIMARY KEY,
+        numero_pedido TEXT NOT NULL UNIQUE,
+        cotacao_id TEXT,
+        fornecedor_id TEXT,
+        distribuidora TEXT NOT NULL,
+        representante TEXT,
+        telefone TEXT,
+        itens_json TEXT NOT NULL,
+        valor_total REAL NOT NULL,
+        condicao_pagamento TEXT NOT NULL,
+        previsao_entrega TEXT,
+        mes_referencia INTEGER,
+        ano_referencia INTEGER,
+        boletos_json TEXT,
+        texto_formatado TEXT,
+        status TEXT DEFAULT 'Pendente_Aprovacao',
+        integrado_contas_pagar INTEGER DEFAULT 0,
+        order_legado_id TEXT,
+        motivo_cancelamento TEXT,
+        created_at TEXT NOT NULL,
+        enviado_at TEXT
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cp_status ON compras_pedidos(status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cp_cotacao ON compras_pedidos(cotacao_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cp_distribuidora ON compras_pedidos(distribuidora)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cp_mes_ano ON compras_pedidos(mes_referencia, ano_referencia)');
+    } catch(e) {}
+
+    try { db.exec('ALTER TABLE compras_pedidos ADD COLUMN mes_referencia INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_pedidos ADD COLUMN ano_referencia INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_pedidos ADD COLUMN boletos_json TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_pedidos ADD COLUMN texto_formatado TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_pedidos ADD COLUMN motivo_cancelamento TEXT'); } catch(e) {}
+
+    // 7.1. Itens Individuais dos Pedidos de Compra
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_pedidos_itens (
+        id TEXT PRIMARY KEY,
+        pedido_id TEXT NOT NULL,
+        codigo_digifarma INTEGER,
+        ean TEXT,
+        descricao TEXT NOT NULL,
+        quantidade REAL NOT NULL,
+        preco_unitario REAL NOT NULL,
+        bonificacao TEXT,
+        desconto_percentual REAL DEFAULT 0,
+        subtotal REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (pedido_id) REFERENCES compras_pedidos(id) ON DELETE CASCADE
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpi_pedido ON compras_pedidos_itens(pedido_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpi_ean ON compras_pedidos_itens(ean)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpi_codigo ON compras_pedidos_itens(codigo_digifarma)');
+    } catch(e) {}
+
+    // 8. Configurações da Central de Compras
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_configuracoes (
+        chave TEXT PRIMARY KEY,
+        valor TEXT NOT NULL,
+        descricao TEXT,
+        updated_at TEXT
+      )
+    `);
+    
+    // Inserir configurações padrão se não existirem
+    const defaultConfigs = [
+      ['margem_seguranca_estoque', '15', 'Margem de segurança percentual para o cálculo do estoque mínimo (padrão: 15%)'],
+      ['dias_cobertura_estoque', '30', 'Dias de cobertura para o estoque mínimo (padrão: 30 dias)'],
+      ['peso_score_preco', '0.60', 'Peso do critério de Menor Preço Líquido no ranking (padrão: 60%)'],
+      ['peso_score_prazo', '0.25', 'Peso do critério de Prazo de Pagamento no ranking (padrão: 25%)'],
+      ['peso_score_historico', '0.15', 'Peso do critério de Histórico e Confiabilidade no ranking (padrão: 15%)'],
+      ['alerta_duplo_whatsapp_adm', 'true', 'Ativar disparo de alerta no WhatsApp dos Administradores para itens da fila']
+    ];
+    
+    const insertConfig = db.prepare('INSERT OR IGNORE INTO compras_configuracoes (chave, valor, descricao, updated_at) VALUES (?, ?, ?, ?)');
+    const nowIso = new Date().toISOString();
+    for (const [k, v, desc] of defaultConfigs) {
+      insertConfig.run(k, v, desc, nowIso);
+    }
+    console.log('✅ Central de Compras: Todas as tabelas e configurações criadas/verificadas com sucesso!');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

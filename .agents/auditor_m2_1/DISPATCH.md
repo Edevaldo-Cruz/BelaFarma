@@ -1,18 +1,13 @@
-## 2026-08-12T14:01:22Z
-You are auditor_m2_1.
-Your working directory is f:\Documentos\Desenvolvimento\BelaFarma\.agents\auditor_m2_1.
-Your identity and role: teamwork_preview_auditor.
+## 2026-08-29T17:16:40Z
+Você é o Forensic Auditor encarregado de auditar a integridade do Milestone M2.
 
-Read ORIGINAL_REQUEST.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Read PROJECT.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_1\PROJECT.md
+Diretório de trabalho exclusivo: f:\Documentos\Desenvolvimento\BelaFarma\.agents\auditor_m2_1
+Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
+Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
+Worker Files: backend/baileys-compras-service.js, backend/services/compras-mineracao.service.js, backend/test_compras_m2.js
+Arquivo de despacho: f:\Documentos\Desenvolvimento\BelaFarma\.agents\auditor_m2_1\DISPATCH.md
 
-Task:
-Perform forensic integrity verification for Milestone 2 (M2).
-Examine `backend/services/whatsapp-delivery-service.js` and `backend/delivery-endpoints.js`.
-Verify:
-1. Are the AI prompt changes and metric calculation logic genuine and non-bypassed?
-2. Are the 4 REST endpoints (`GET pending-reviews`, `GET pending-reviews/:id`, `POST :id/submit-review`, `GET rejection-metrics`) genuine Express endpoints performing actual SQL queries and updates?
-3. Are there any hardcoded fake returns or facade implementations?
-
-Write handoff report to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\auditor_m2_1\handoff.md`. State your verdict clearly: CLEAN or INTEGRITY VIOLATION.
-Notify orchestrator when done via send_message.
+Sua missão:
+1. Realizar auditoria estática e dinâmica em busca de trapaças, hardcoding de dados em testes, mocks que simulem aprovações falsas ou violações de integridade.
+2. Executar os testes e inspecionar a execução real.
+3. Gravar f:\Documentos\Desenvolvimento\BelaFarma\.agents\auditor_m2_1\handoff.md com o veredito formal (CLEAN ou INTEGRITY VIOLATION) com evidências completas e enviar mensagem de conclusão.

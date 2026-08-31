@@ -1,47 +1,51 @@
-# BRIEFING — 2026-08-12T13:57:00Z
+# BRIEFING — 2026-08-29T17:16:00Z
 
 ## Mission
-Review Milestone 1 (M1) database migrations and types implementation for correctness, idempotency, SQLite indexes, backwards compatibility, and adversarial robustness.
+Review and adversarial stress-test the implementation of Milestone M1 (Estoque Mínimo Dinâmico & Digifarma Sync).
 
 ## 🔒 My Identity
-- Archetype: reviewer & critic
-- Roles: teamwork_preview_reviewer
+- Archetype: reviewer_critic
+- Roles: reviewer, critic
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2
-- Original parent: c9705ed0-6411-45a1-82b7-3d61631ad1cb
-- Milestone: M1
-- Instance: 1 of 1
+- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Milestone: M1 (Estoque Mínimo & Digifarma Sync)
+- Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code directly
-- Focus on backend/database.js and types.ts changes made in M1
-- Verify idempotency, indexes, backward compatibility
+- Review-only — do NOT modify implementation code
+- Integrity review & adversarial challenge: verify against hardcoded outputs, dummy implementations, failure modes, Curve A protection, zero history behavior
 
 ## Current Parent
-- Conversation ID: c9705ed0-6411-45a1-82b7-3d61631ad1cb
-- Updated: 2026-08-12T13:57:00Z
+- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Updated: 2026-08-29T17:16:00Z
 
 ## Review Scope
-- **Files to review**: backend/database.js, types.ts
-- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, worker_m1_1/handoff.md
-- **Review criteria**: Idempotency, SQLite indexes, Backwards compatibility, Code quality, Adversarial checks
-
-## Key Decisions Made
-- Reviewed `backend/database.js` schema migrations and index definitions.
-- Reviewed `types.ts` type exports and interface extensions.
-- Evaluated idempotency, index coverage, and backwards compatibility.
-- Issued Verdict: **APPROVE**.
+- **Files to review**: `backend/services/compras-estoque.service.js`, `backend/database.js`, `backend/test_compras_estoque.js`, `backend/services/digifarma.service.js`
+- **Interface contracts**: `f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md`, `f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md`
+- **Worker report**: `f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1_estoque\handoff.md`
+- **Review criteria**: correctness, conformance, integrity, failure resilience, Curve A protection, zero history fallback
 
 ## Review Checklist
-- **Items reviewed**: `backend/database.js`, `types.ts`
+- **Items reviewed**: `backend/services/compras-estoque.service.js`, `backend/database.js`, `backend/test_compras_estoque.js`
 - **Verdict**: APPROVE
-- **Unverified claims**: None
+- **Unverified claims**: None (all 23 test suites and 7 adversarial scenarios independently executed and passed)
 
 ## Attack Surface
-- **Hypotheses tested**: Checked for non-idempotent DDL, missing indexes, breaking column changes, type mismatches.
-- **Vulnerabilities found**: None critical. Minor observation on `chat_product_rejections.delivery_id` INTEGER type affinity in SQLite when storing string delivery IDs, handled seamlessly by SQLite flexible typing.
-- **Untested angles**: None.
+- **Hypotheses tested**: 
+  - Negative sales quantities, fractional sales, extreme margin percentages, negative margins
+  - Offline Firebird fallback to SQLite cache
+  - Zero history and >90 days inactive products
+  - Curve A minimum floor (>= 2 units)
+  - Atomic transactions on Firebird and bulk transactions in SQLite WAL mode
+- **Vulnerabilities found**: 0 critical, 0 major vulnerabilities
+- **Untested angles**: Firebird live latency under 100+ concurrent network requests (handled gracefully by pool and timeout mechanism)
+
+## Key Decisions Made
+- Confirmed full compliance with Milestone M1 requirements and integrity standards.
+- Issued APPROVE verdict.
 
 ## Artifact Index
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2\DISPATCH.md — Dispatch record
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2\BRIEFING.md — Context memory
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2\handoff.md — Final review report
+- `DISPATCH.md` — dispatch instructions
+- `BRIEFING.md` — persistent working memory
+- `progress.md` — heartbeat
+- `handoff.md` — final review and challenge report

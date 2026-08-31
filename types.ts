@@ -488,7 +488,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines';
+export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines';
 
 export interface CardMachineReceivable {
   id: string;
@@ -845,4 +845,180 @@ export interface Note {
   updated_at: string;
   last_edited_by?: string;
 }
+
+// ============================================================================
+// CENTRAL DE COMPRAS - INTERFACES & TIPOS (M1 - M6)
+// ============================================================================
+
+export type CentralComprasTab = 
+  | 'dashboard'
+  | 'mineracao'
+  | 'cotacoes'
+  | 'aprovacao'
+  | 'pedidos'
+  | 'representantes'
+  | 'whatsapp';
+
+export interface EstoqueMinimoProduto {
+  produtoId: number;
+  descricao: string;
+  ean: string;
+  apresentacao?: string;
+  saldo: number;
+  estMinimoCalculado: number;
+  demanda30d: number;
+  vmdPonderado: number;
+  statusRuptura: 'RUPTURA' | 'ABAIXO_MINIMO' | 'NORMAL' | 'EXCESSO';
+  curvaAbc: string;
+  custoUnitario: number;
+  ultimaCompraValor?: number;
+  ultimaCompraData?: string;
+  sincronizadoDigifarma: number;
+  sugeridoReposicao: number;
+  atualizadoEm?: string;
+}
+
+export interface OportunidadeMinerada {
+  id: string;
+  fornecedorId?: string;
+  fornecedorNome: string;
+  representanteNome?: string;
+  telefone?: string;
+  produtoNome: string;
+  ean?: string;
+  precoOfertado: number;
+  bonificacaoTexto?: string;
+  precoLiquidoEfetivo: number;
+  precoUltCompraDigifarma?: number | null;
+  economiaPercentual?: number | null;
+  status: 'Aprovado_Radar' | 'Descartado_Preco_Maior' | 'Oportunidade_Sem_Historico' | string;
+  dataMensagem?: string;
+  textoOriginal?: string;
+  createdAt: string;
+}
+
+export interface CotacaoItem {
+  id?: string;
+  cotacaoId?: string;
+  produtoId: number;
+  descricao: string;
+  ean?: string;
+  quantidade: number;
+  precoUnitarioEstimado?: number;
+}
+
+export interface CotacaoResposta {
+  id: string;
+  cotacaoId: string;
+  fornecedorId?: string;
+  fornecedorNome: string;
+  precoLiquido: number;
+  prazoDias: number;
+  condicaoPagamento: string;
+  bonificacaoTexto?: string;
+  pontualidadeScore: number;
+  taxaQuebraPercent: number;
+  scorePreco: number;
+  scorePrazo: number;
+  scoreHistorico: number;
+  scoreTotal: number;
+  posicaoRanking: number;
+  vencedor: boolean;
+  pedidoMinimoAtingido: boolean;
+  valorTotalCotado?: number;
+  motivoQuebra?: string;
+  createdAt: string;
+}
+
+export interface Cotacao {
+  id: string;
+  titulo: string;
+  status: 'aberta' | 'em_analise' | 'finalizada' | 'cancelada';
+  dataAbertura: string;
+  criadoPor: string;
+  observacoes?: string;
+  itens?: CotacaoItem[];
+  respostas?: CotacaoResposta[];
+}
+
+export interface FilaAprovacaoItem {
+  id: string;
+  tipo: 'cotacao' | 'pedido' | 'notificacao' | string;
+  destinatarioTelefone: string;
+  destinatarioNome: string;
+  fornecedorId?: string;
+  fornecedorNome: string;
+  mensagemTexto: string;
+  dadosContexto?: any;
+  status: 'pendente' | 'aprovado' | 'rejeitado' | 'enviado' | 'editado_enviado';
+  notificadoAdmin: number;
+  adminNotificadoEm?: string;
+  aprovadoPor?: string;
+  aprovadoEm?: string;
+  rejeitadoMotivo?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PedidoItemDetalhe {
+  id?: string;
+  codigoDigifarma?: number;
+  ean?: string;
+  descricao: string;
+  quantidade: number;
+  precoUnitario: number;
+  bonificacao?: string;
+  descontoPercentual?: number;
+  subtotal: number;
+}
+
+export interface PedidoCompraFormal {
+  id: string;
+  numeroPedido: string;
+  cotacaoId?: string;
+  fornecedorId?: string;
+  distribuidora: string;
+  representante?: string;
+  telefone?: string;
+  itens: PedidoItemDetalhe[];
+  valorTotal: number;
+  condicaoPagamento: string;
+  previsaoEntrega?: string;
+  mesReferencia: number;
+  anoReferencia: number;
+  boletosJson?: Array<{ parcela: number; valor: number; vencimento: string; dias: number }>;
+  textoFormatado?: string;
+  status: 'Pendente_Aprovacao' | 'Aprovado' | 'Enviado' | 'Cancelado' | string;
+  integradoContasPagar?: number;
+  motivoCancelamento?: string;
+  createdAt: string;
+  enviadoAt?: string;
+}
+
+export interface FornecedorMeta {
+  id: string;
+  distribuidora: string;
+  representante: string;
+  telefone: string;
+  prazosHabituais?: string[];
+  pedidoMinimo?: number;
+  categoriasAtendidas?: string[];
+  scorePontualidade: number;
+  taxaQuebraPercent: number;
+  totalPedidosRealizados: number;
+  ultimaInteracao?: string;
+  observacoes?: string;
+}
+
+export interface OrcamentoResumo {
+  mes: number;
+  ano: number;
+  limiteMensal: number;
+  comprometido: number;
+  disponivel: number;
+  percentualUtilizado: number;
+  pedidosMes?: any[];
+  boletosProjetados?: Array<{ vencimento: string; valor: number; fornecedor?: string }>;
+}
+
 

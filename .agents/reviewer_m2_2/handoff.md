@@ -1,108 +1,105 @@
-# Handoff Report — Milestone 2 (M2) Review
+# Relatório de Revisão e Auditoria Adversarial (Reviewer 2) — Milestone M2
+
+## Review Summary
+
+**Verdict**: **APPROVE**
+**Milestone**: M2 (WhatsApp Compras Isolado & Mineração Histórica)
+**Agent**: reviewer_m2_2 (Roles: Reviewer & Critic)
+
+---
 
 ## 1. Observation
-- **Reviewed Target Files**:
-  - `backend/delivery-endpoints.js` (lines 128–336)
-  - `backend/services/whatsapp-delivery-service.js` (lines 34–77, 269–440)
-  - `backend/database.js` (lines 1310–1340)
-  - `backend/test_m2_verification.js` (lines 1–218)
-- **Specific Code Observations**:
-  1. `POST /api/deliveries/:id/submit-review` (`backend/delivery-endpoints.js`, lines 220–256):
-     ```javascript
-     // Step 1: UPDATE deliveries committed OUTSIDE transaction
-     db.prepare(`UPDATE deliveries SET sale_closed = 0, status = 'Nao_Fechado', review_status = 'reviewed', ... WHERE id = ?`).run(...);
 
-     // Step 2: Separate transaction for chat_product_rejections
-     if (rejectionsArr.length > 0) {
-       db.transaction(() => {
-         for (const rej of rejectionsArr) {
-           insertRejection.run(id, existing.phone, rej.product_name, rej.reason, rej.notes);
-         }
-       })();
-     }
+- **Arquivos Auditados**:
+  1. `backend/baileys-compras-service.js` (557 linhas)
+  2. `backend/services/compras-mineracao.service.js` (1009 linhas)
+  3. `backend/database.js` (linhas 1836-2045)
+  4. `backend/test_compras_m2.js` (481 linhas)
+  5. `f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_2\stress_test.cjs` (teste adversarial autônomo)
+
+- **Comandos Executados e Resultados**:
+  1. Suíte de Testes do Worker:
+     ```powershell
+     node backend/test_compras_m2.js
      ```
-  2. `GET /api/deliveries/rejection-metrics` (`backend/delivery-endpoints.js`, lines 305–316):
-     ```sql
-     SELECT product_name, COUNT(*) as count, reason as main_reason
-     FROM chat_product_rejections
-     WHERE product_name IS NOT NULL AND product_name != ''
-     GROUP BY product_name
-     ORDER BY count DESC
-     LIMIT 50
+     *Resultado*: `16/16 TESTES PASSARAM COM SUCESSO! Exit code: 0`.
+  2. Validação de Sintaxe:
+     ```powershell
+     node -c backend/database.js backend/baileys-compras-service.js backend/services/compras-mineracao.service.js backend/test_compras_m2.js
      ```
-     `reason as main_reason` is selected without an aggregate function in `GROUP BY product_name`.
-  3. `GET /api/deliveries/rejection-metrics` Fallback Count (`backend/delivery-endpoints.js`, lines 276–303):
-     `total_rejections` is calculated via `SELECT COUNT(*) FROM chat_product_rejections`. If 0, fallback calculates `by_reason` from `deliveries.unclosed_reason`, but leaves `total_rejections` at `0`.
-  4. Input Validation Gaps (`backend/delivery-endpoints.js`, lines 180–215):
-     - `gerou_entrega` is not type-checked (`typeof gerou_entrega !== 'boolean'`); missing or non-boolean values silently default to false (`sale_closed = 0`).
-     - `parseFloat(details.total_amount)` with non-numeric string returns `NaN`, causing better-sqlite3 to throw a 500 error instead of returning 400 Bad Request.
-     - `rejection_details` array elements are not checked for `null` or non-object values, throwing `TypeError` during iteration.
+     *Resultado*: `Exit code: 0`.
+  3. Verificação de Schema SQLite:
+     ```powershell
+     node -e "const db = require('./backend/database.js'); console.log(db.prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name LIKE \'compras_%\'').all());"
+     ```
+     *Resultado*: 9 tabelas verificadas (`compras_estoque_cache`, `compras_fornecedores_meta`, `compras_historico_mensagens`, `compras_oportunidades_mineradas`, `compras_cotacoes`, `compras_cotacoes_respostas`, `compras_fila_aprovacao`, `compras_pedidos`, `compras_configuracoes`).
+  4. Teste Adversarial Independente (`stress_test.cjs`):
+     *Resultado*: Todos os cenários de bloqueio de status não autorizados (`pendente`, `rejeitado`, `enviado`, `cancelado`, `rascunho`, `id_inexistente`) e cálculos matemáticos de bonificações passaram com 100% de sucesso.
+
+- **Verificação de Integridade**:
+  - Zero hardcoded test traps ou facades identificados no código de produção.
+  - O motor de mineração e a instância Baileys implementam lógica real e dinâmica de parsing, manipulação de banco de dados e eventos do socket.
+
+---
 
 ## 2. Logic Chain
-1. **Transaction & Atomicity Risk**:
-   - In `POST /api/deliveries/:id/submit-review`, updating `deliveries` before opening the transaction for `chat_product_rejections` breaks database atomicity. If insertion fails (e.g. malformed item in `rejection_details`), `deliveries` remains updated with `review_status = 'reviewed'`, removing it from the pending review queue while 0 rejection records are saved.
-2. **SQL Aggregation Error**:
-   - In SQLite, selecting an unaggregated column (`reason as main_reason`) under `GROUP BY product_name` yields an arbitrary row's value rather than the true statistical mode (most frequent reason) for that product.
-3. **Metric Output Inconsistency**:
-   - When no `chat_product_rejections` exist, `by_reason` is populated from `deliveries`, but `total_rejections` remains `0`, returning `{ total_rejections: 0, by_reason: { "Preço Alto": 5 } }`.
-4. **Input Validation & Resilience**:
-   - Lack of parameter type checks (`typeof gerou_entrega === 'boolean'`, `isNaN(total_amount)`, `rej && typeof rej === 'object'`) exposes the API to HTTP 500 exceptions on bad client inputs instead of standard HTTP 400 Bad Request responses.
+
+1. **Conformidade dos Contratos de Interface (PROJECT.md R2)**:
+   - `initComprasBaileys(db)` (linhas 405-407 do `baileys-compras-service.js`): Inicializa o socket Baileys com fallback de versão e autenticação multi-arquivo.
+   - `getComprasConnectionStatus()` (linhas 398-400): Retorna status normalizado (`connected`, `connecting`, `disconnected`, `qr_ready`) e `qrCode` em DataURL base64.
+   - `minerarHistoricoConversas(db, options)` (linhas 778-828 de `compras-mineracao.service.js`): Realiza varredura em lote das mensagens brutas em `compras_historico_mensagens`, cadastra fornecedores em `compras_fornecedores_meta` e indexa oportunidades em `compras_oportunidades_mineradas`.
+   - `enviarMensagemAprovada(approvalId, db)` (linhas 481-534 de `baileys-compras-service.js`): Garante human-in-the-loop estrito.
+
+2. **Trava de Segurança de Disparo (Human-in-the-Loop)**:
+   - Em `baileys-compras-service.js` (linhas 490-492), a função `enviarMensagemAprovada` valida:
+     ```javascript
+     if (item.status !== 'aprovado' && item.status !== 'editado_enviado') {
+       throw new Error(`Não é permitido enviar mensagem com status "${item.status}". Apenas itens com status "aprovado" podem ser despachados.`);
+     }
+     ```
+   - O teste adversarial confirmou que qualquer status diferente de `aprovado`/`editado_enviado` lança exceção e impede a chamada `sock.sendMessage`.
+
+3. **Cálculo Matemático de Preço Efetivo & Bonificações**:
+   - Para bonificações do tipo "compre 10 ganhe 2", "compre 20 leve 25" e "10+2" (linhas 272-291 de `compras-mineracao.service.js`):
+     $\text{Preço Efetivo} = \frac{\text{Quantidade Comprada} \times \text{Preço Bruto}}{\text{Quantidade Total Recebida}}$
+   - Para descontos percentuais diretos (linhas 293-301):
+     $\text{Preço Efetivo} = \text{Preço Bruto} \times \left(1 - \frac{\text{Percentual}}{100}\right)$
+   - A comparação contra última compra no Digifarma calcula precisamente:
+     $\text{Percentual de Economia} = \frac{\text{Preço Última Compra} - \text{Preço Ofertado}}{\text{Preço Última Compra}} \times 100$
+
+4. **Isolamento de Sessão**:
+   - `SESSION_DIR` em `baileys-compras-service.js` (linhas 17-19) aponta para `baileys-session-compras` (local) ou `data/baileys-session-compras` (Docker/Linux), garantindo 100% de isolamento das instâncias do WhatsApp Principal e Secundário.
+
+---
 
 ## 3. Caveats
-- No code cheating or hardcoded test facades were found; implementations query real SQLite tables.
-- Gemini/OpenAI prompt extraction in `whatsapp-delivery-service.js` correctly includes `products_discussed` JSON array.
-- Database schema in `database.js` correctly defines `chat_product_rejections` table and delivery audit columns.
+
+- **Pareamento Físico de QR Code**: Foi auditada e validada a emissão de QR Code em formato Base64 DataURL via `qrcode.toDataURL`. O pareamento real depende da leitura com um aparelho físico em tempo de execução.
+- **Variações de Texto de Desconto (Sugestão de Melhoria Não-Bloqueante)**: Na linha 294 do `compras-mineracao.service.js`, o regex de desconto `(\d{1,2}(?:[\.,]\d+)?)\s*%\s*(?:de\s*desc(?:onto)?|off)` exige a preposição "de" para a palavra "desc". Recomenda-se para marcos futuros tornar o "de" opcional `(?:(?:de\s*)?desc(?:onto)?|off)` para abranger expressões como `10% desc`.
+
+---
 
 ## 4. Conclusion
-**Verdict: REQUEST_CHANGES**
 
-### Required Modifications:
-1. **Transaction Safety**: Wrap both `UPDATE deliveries` and `chat_product_rejections` insertions (plus `DELETE FROM chat_product_rejections WHERE delivery_id = ?` to handle re-submissions safely) inside a single `db.transaction(...)` block.
-2. **SQL Aggregation Correctness**: Update `GET /api/deliveries/rejection-metrics` top product query to determine the true `main_reason` per product.
-3. **Fallback Metrics Alignment**: When `chat_product_rejections` is empty and fallback is used, calculate `total_rejections` as the sum of fallback counts or total unclosed deliveries.
-4. **Input Validation**: Add HTTP 400 validation in `POST /api/deliveries/:id/submit-review` for `gerou_entrega` (must be boolean), `total_amount` (numeric check), and `rejection_details` array element objects.
+O código do Milestone M2 (**WhatsApp Compras Isolado & Mineração Histórica**) cumpre integralmente os requisitos funcionais F4, F5 e F6, os contratos de interface do `PROJECT.md`, as regras de isolamento de sessão e a trava de segurança human-in-the-loop. Não há falhas de integridade ou implementações dummy.
+
+**Veredito**: **APPROVE**
+
+---
 
 ## 5. Verification Method
-- Run `node backend/test_m2_verification.js`.
-- Add test assertions to `test_m2_verification.js` for:
-  - Atomic rollback when rejection insert fails.
-  - Correct `main_reason` returned when a product has multiple rejection reasons.
-  - HTTP 400 Bad Request on invalid input parameters.
-  - Re-submitting a review replaces previous rejection items instead of duplicating them.
 
----
+Para replicar a verificação de forma independente:
 
-# Detailed Review Findings
-
-### [Major] Finding 1: Transaction Safety & Atomicity Violation in Review Submission
-- **Where**: `backend/delivery-endpoints.js`, lines 220–256
-- **Why**: `UPDATE deliveries` executes before `db.transaction(...)` for inserting into `chat_product_rejections`. A failure during insertion leaves `deliveries` updated with `review_status = 'reviewed'`, but no rejection rows created.
-- **Suggestion**: Combine `UPDATE deliveries` and `INSERT INTO chat_product_rejections` into a single transaction block.
-
-### [Major] Finding 2: Non-deterministic `main_reason` in Rejection Metrics Query
-- **Where**: `backend/delivery-endpoints.js`, lines 305–316
-- **Why**: `SELECT product_name, COUNT(*) as count, reason as main_reason ... GROUP BY product_name` returns an arbitrary `reason` value in SQLite rather than the mode/most common reason.
-- **Suggestion**: Use a subquery or window function/grouping to select the most frequent `reason` for each product.
-
-### [Minor] Finding 3: `total_rejections` Inconsistency in Fallback Mode
-- **Where**: `backend/delivery-endpoints.js`, lines 276–303
-- **Why**: `total_rejections` remains 0 when `by_reason` fallback is triggered.
-- **Suggestion**: Update `total_rejections` to equal `sum(by_reason values)` during fallback execution.
-
-### [Minor] Finding 4: Insufficient Input Validation in `submit-review` Endpoint
-- **Where**: `backend/delivery-endpoints.js`, lines 180–215
-- **Why**: Missing boolean check for `gerou_entrega`, `NaN` handling for `total_amount`, and null element checks in `rejection_details` array cause HTTP 500 errors on invalid client payloads.
-- **Suggestion**: Add strict parameter validation and return HTTP 400 with a descriptive error message on validation failure.
-
-### [Minor] Finding 5: Accumulation of Duplicate Rejections on Review Re-submission
-- **Where**: `backend/delivery-endpoints.js`, lines 240–256
-- **Why**: Re-submitting a review inserts new rows into `chat_product_rejections` without removing existing records for the `delivery_id`.
-- **Suggestion**: Execute `DELETE FROM chat_product_rejections WHERE delivery_id = ?` within the transaction before inserting new rejection entries.
-
----
-
-# Verified Claims & Integrity Check
-
-- [x] Integrity Violation Check → PASSED (No hardcoded responses, fake outputs, or facade functions found).
-- [x] AI Prompt & Metrics Extraction → PASSED (Prompts in `whatsapp-delivery-service.js` extract `products_discussed` array properly).
-- [x] Table Schema Verification → PASSED (`chat_product_rejections` and `deliveries` audit columns exist in `database.js`).
+1. Executar os testes automatizados da suíte M2:
+   ```powershell
+   node backend/test_compras_m2.js
+   ```
+2. Executar a suíte de estresse adversarial:
+   ```powershell
+   node .agents/reviewer_m2_2/stress_test.cjs
+   ```
+3. Verificar a presença das tabelas no SQLite:
+   ```powershell
+   node -e "const db = require('./backend/database.js'); console.log(db.prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name LIKE \'compras_%\'').all());"
+   ```

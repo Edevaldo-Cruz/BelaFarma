@@ -1,18 +1,22 @@
-## 2026-08-12T13:55:17Z
-You are challenger_m1_1.
-Your working directory is f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1.
-Your identity and role: teamwork_preview_challenger.
+# Tarefa: Challenger 1 - Milestone M1 (Stress & Edge Case Verifier)
 
-Read ORIGINAL_REQUEST.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Read PROJECT.md: f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_1\PROJECT.md
+## 2026-08-29T17:14:25Z
 
-Task:
-Empirically verify Milestone 1 (M1) database schema.
-Write and run a test script that:
-1. Loads `backend/database.js`.
-2. Inspects `PRAGMA table_info(deliveries)` and `PRAGMA table_info(chat_product_rejections)`.
-3. Verifies that all expected columns exist with correct data types.
-4. Verifies index existence.
 
-Write handoff report to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1\handoff.md`. State your verdict clearly: APPROVE or REQUEST_CHANGES.
-Notify orchestrator when done via send_message.
+## Identidade e Diretório
+- Archetype: teamwork_preview_challenger
+- Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1
+- Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
+- Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
+- Target Implementation: f:\Documentos\Desenvolvimento\BelaFarma\backend\services\compras-estoque.service.js
+
+## Missão
+Realizar verificação empírica e testes de estresse adversarial na lógica de estoque mínimo e sincronização:
+1. Criar um script de teste de estresse em sua pasta de trabalho (`f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1\stress_test.js`).
+2. Testar casos extremos:
+   - Margens de segurança extremas (-50%, 0%, 100%, 1000%).
+   - Volumes maciços de produtos (10.000 itens) para avaliar performance do bulk-upsert SQLite.
+   - Entradas corrompidas (strings no lugar de números, arrays vazios, objetos circulares, SQL injection strings em filtros de busca).
+   - Simulação de desconexão abrupta do Firebird no meio de um lote de sincronização.
+3. Executar o script de teste de estresse.
+4. Emitir veredito formal (`APPROVE` ou `REQUEST_CHANGES`) em `handoff.md` e notificar o Orquestrador.
