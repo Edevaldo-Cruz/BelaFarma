@@ -177,6 +177,47 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     };
   }, [pendingItems]);
 
+  // Resumo por Bandeira pura (Visa, Master, Elo, Outros) — sem separar por modalidade
+  const brandSummary = useMemo(() => {
+    const map: Record<string, { brand: string; gross: number; debit: number; credit: number; m1: number; m2: number; count: number }> = {};
+
+    pendingItems.forEach(item => {
+      const brand = item.brand || 'Outros';
+      const gross = Number(item.gross_value) || 0;
+      const mod = (item.modality || '').toLowerCase();
+      const isDebit = mod.includes('deb') || mod.includes('déb');
+      const isM2 = item.machine_name === 'M2';
+
+      if (!map[brand]) {
+        map[brand] = { brand, gross: 0, debit: 0, credit: 0, m1: 0, m2: 0, count: 0 };
+      }
+
+      map[brand].gross += gross;
+      map[brand].count += 1;
+      if (isDebit) map[brand].debit += gross; else map[brand].credit += gross;
+      if (isM2) map[brand].m2 += gross; else map[brand].m1 += gross;
+    });
+
+    return ['Visa', 'Master', 'Elo', 'Outros']
+      .filter(b => map[b] && map[b].gross > 0)
+      .map(b => map[b]);
+  }, [pendingItems]);
+
+  // Provisões calculadas sobre o total bruto dos recebíveis
+  const provisions = useMemo(() => {
+    const gross = totalsSummary.totalGross;
+    const prolabore = gross * 0.12;
+    const impostos = gross * 0.04;
+    const reserva = gross * 0.01;
+    return {
+      prolabore: Number(prolabore.toFixed(2)),
+      impostos: Number(impostos.toFixed(2)),
+      reserva: Number(reserva.toFixed(2)),
+      total: Number((prolabore + impostos + reserva).toFixed(2)),
+      liquidoAposProvisoes: Number((gross - prolabore - impostos - reserva).toFixed(2))
+    };
+  }, [totalsSummary.totalGross]);
+
   // Conciliação de um grupo de Bandeira + Modalidade (somando M1 e M2)
   const handleReconcileGroup = async (group: GroupedBrandItem) => {
     const rawVal = groupTypedValues[group.key] || '';
@@ -339,53 +380,145 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
             </div>
           ) : (
             <>
-              {/* TOP TOTALIZADORES GERAIS (DÉBITO E CRÉDITO SOMADOS DE M1 + M2) */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-emerald-50 dark:bg-emerald-950/40 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between">
+              {/* RESUMO POR BANDEIRA DE CARTÃO */}
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Recebíveis por Bandeira (M1 + M2 consolidados)
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {brandSummary.map(b => (
+                    <div key={b.brand} className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-black text-[10px] shadow-sm ${
+                            b.brand === 'Visa' ? 'bg-blue-600' :
+                            b.brand === 'Master' ? 'bg-red-600' :
+                            b.brand === 'Elo' ? 'bg-amber-600' :
+                            'bg-slate-500'
+                          }`}>
+                            {b.brand.slice(0, 3).toUpperCase()}
+                          </div>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-100">{b.brand}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-400">{b.count} lçtos</span>
+                      </div>
+                      <div className="text-lg font-black text-slate-900 dark:text-white">
+                        {formatCurrency(b.gross)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <div className="flex flex-col">
+                          <span className="text-slate-400 font-bold">Débito</span>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(b.debit)}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-slate-400 font-bold">Crédito</span>
+                          <span className="font-black text-indigo-600 dark:text-indigo-400">{formatCurrency(b.credit)}</span>
+                        </div>
+                      </div>
+                      {(b.m1 > 0 && b.m2 > 0) && (
+                        <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300">
+                            M1: {formatCurrency(b.m1)}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-300">
+                            M2: {formatCurrency(b.m2)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* TOTALIZADORES GERAIS */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3.5 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
-                      Total Débito (M1+M2)
+                      Total Débito
                     </span>
-                    <h3 className="text-xl font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                    <h3 className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
                       {formatCurrency(totalsSummary.totalDebit)}
                     </h3>
-                    <span className="text-[10px] text-emerald-600/80 font-medium">Soma de todas as bandeiras</span>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-xs shadow-sm">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black text-[10px] shadow-sm">
                     DÉB
                   </div>
                 </div>
 
-                <div className="bg-indigo-50 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-between">
+                <div className="bg-indigo-50 dark:bg-indigo-950/40 p-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">
-                      Total Crédito (M1+M2)
+                      Total Crédito
                     </span>
-                    <h3 className="text-xl font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
+                    <h3 className="text-lg font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
                       {formatCurrency(totalsSummary.totalCredit)}
                     </h3>
-                    <span className="text-[10px] text-indigo-600/80 font-medium">À vista + Parcelado somados</span>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-sm">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-[10px] shadow-sm">
                     CRÉD
                   </div>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                      Total Geral Bruto
+                      Total Bruto Geral
                     </span>
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
                       {formatCurrency(totalsSummary.totalGross)}
                     </h3>
-                    <span className="text-[10px] text-slate-400 font-medium">{pendingItems.length} lançamentos a conferir</span>
+                    <span className="text-[10px] text-slate-400 font-medium">{pendingItems.length} lançamentos</span>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-sm">
-                    <DollarSign className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-sm">
+                    <DollarSign className="w-4 h-4" />
                   </div>
                 </div>
               </div>
+
+              {/* PROVISÕES (Caixinhas: 12% Prolabore, 4% Impostos, 1% Reserva) */}
+              {totalsSummary.totalGross > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <Percent className="w-3.5 h-3.5" />
+                    Provisões sobre o Bruto (Separar nas Caixinhas)
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/60">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Pró-Labore (12%)</span>
+                      <h4 className="text-base font-black text-purple-800 dark:text-purple-200 mt-1">
+                        {formatCurrency(provisions.prolabore)}
+                      </h4>
+                      <span className="text-[10px] text-purple-500/70 font-medium">12% de {formatCurrency(totalsSummary.totalGross)}</span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400">Impostos (4%)</span>
+                      <h4 className="text-base font-black text-rose-800 dark:text-rose-200 mt-1">
+                        {formatCurrency(provisions.impostos)}
+                      </h4>
+                      <span className="text-[10px] text-rose-500/70 font-medium">4% de {formatCurrency(totalsSummary.totalGross)}</span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/60">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-sky-600 dark:text-sky-400">Reserva (1%)</span>
+                      <h4 className="text-base font-black text-sky-800 dark:text-sky-200 mt-1">
+                        {formatCurrency(provisions.reserva)}
+                      </h4>
+                      <span className="text-[10px] text-sky-500/70 font-medium">1% de {formatCurrency(totalsSummary.totalGross)}</span>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">Total Provisões (17%)</span>
+                      <h4 className="text-base font-black text-amber-800 dark:text-amber-200 mt-1">
+                        {formatCurrency(provisions.total)}
+                      </h4>
+                      <span className="text-[10px] text-amber-500/70 font-medium">Líquido após caixinhas: <strong className="text-emerald-600">{formatCurrency(provisions.liquidoAposProvisoes)}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* OPÇÃO DE CONFERÊNCIA GLOBAL DO FDS (SE FOR SEGUNDA-FEIRA) */}
               {isMonday && weekendItems.length > 0 && (
