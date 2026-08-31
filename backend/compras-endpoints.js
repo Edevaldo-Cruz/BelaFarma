@@ -556,6 +556,21 @@ module.exports = (db) => {
     }
   });
 
+  router.get('/pedidos/extrato', (req, res) => {
+    try {
+      const { mes, ano, distribuidora, busca } = req.query;
+      const extrato = comprasPedidosService.obterExtratoMovimentacoes({
+        mes: mes ? parseInt(mes, 10) : null,
+        ano: ano ? parseInt(ano, 10) : null,
+        distribuidora: distribuidora || null,
+        busca: busca || null
+      }, db);
+      res.json({ success: true, data: extrato });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/pedidos/:id', (req, res) => {
     try {
       const { id } = req.params;

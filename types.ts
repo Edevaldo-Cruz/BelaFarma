@@ -1035,4 +1035,56 @@ export interface OrcamentoResumo {
   boletosProjetados?: Array<{ vencimento: string; valor: number; fornecedor?: string }>;
 }
 
+export interface MovimentacaoExtrato {
+  id: string;
+  data: string;
+  tipo: 'CREDITO_INICIAL' | 'DEBITO_PEDIDO' | 'ESTORNO_CANCELAMENTO';
+  tipoFormatado: string;
+  numeroPedido: string;
+  distribuidora: string;
+  representante?: string;
+  telefone?: string;
+  descricao: string;
+  condicaoPagamento?: string;
+  previsaoEntrega?: string;
+  valor: number;
+  valorMovimento: number;
+  saldoApos: number;
+  status: string;
+  isDebito: boolean;
+  isCredito: boolean;
+  isEstorno: boolean;
+  itens?: PedidoItemDetalhe[];
+  boletos?: Array<{ parcela: number; valor: number; vencimento: string; dias: number }>;
+  textoFormatado?: string;
+  motivoCancelamento?: string;
+}
+
+export interface BoletoExtratoMes {
+  id: string;
+  orderId?: string;
+  numeroPedido: string;
+  distribuidora: string;
+  vencimento: string;
+  valor: number;
+  status: string;
+}
+
+export interface ExtratoOrcamentarioResponse {
+  mes: number;
+  ano: number;
+  limiteMensal: number;
+  totalComprometido: number;
+  totalEstornado: number;
+  saldoDisponivel: number;
+  percentualUtilizado: number;
+  totalPedidosAtivos: number;
+  totalPedidosCancelados: number;
+  movimentacoes: MovimentacaoExtrato[];
+  boletosMes: BoletoExtratoMes[];
+  totalBoletosMes: number;
+  distribuidoras: string[];
+}
+
+
 

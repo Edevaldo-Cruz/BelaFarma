@@ -674,8 +674,8 @@ function salvarPedidoNoBanco(espelho, contexto = {}, dbInstance = null) {
   const nowIso = new Date().toISOString();
   const now = new Date();
 
-  const mesRef = contexto.mesReferencia || (now.getMonth() + 1);
-  const anoRef = contexto.anoReferencia || now.getFullYear();
+  const mesRef = contexto.mesReferencia || contexto.mes || (now.getMonth() + 1);
+  const anoRef = contexto.anoReferencia || contexto.ano || now.getFullYear();
 
   const insertPedido = db.prepare(`
     INSERT INTO compras_pedidos (
@@ -1021,16 +1021,220 @@ function exportarEspelhoTexto(pedidoId, dbInstance = null) {
   return espelho.textoFormatado;
 }
 
+/**
+ * Obtém o Extrato Contábil e Orçamentário de Movimentações de Pedidos e Boletos no mês.
+ * 
+ * @param {object} [filtros={}]
+ * @param {object} [dbInstance=null]
+ * @returns {object}
+ */
+function obterExtratoMovimentacoes(filtros = {}, dbInstance = null) {
+  const db = getDb(dbInstance);
+  const now = new Date();
+  const mes = filtros.mes ? parseInt(filtros.mes, 10) : (now.getMonth() + 1);
+  const ano = filtros.ano ? parseInt(filtros.ano, 10) : now.getFullYear();
+  const distribuidora = filtros.distribuidora || null;
+  const busca = filtros.busca ? filtros.busca.trim().toLowerCase() : null;
+
+  // 1. Resumo do orçamento do mês
+  const resumoOrcamento = obterResumoOrcamentoMensal(mes, ano, db);
+  const limiteMensal = resumoOrcamento.limiteMensal || 0;
+
+  // 2. Busca todos os pedidos do mês (ordenados por created_at ASC para cálculo do saldo progressivo)
+  let query = `
+    SELECT * FROM compras_pedidos
+    WHERE (
+      (mes_referencia = ? AND ano_referencia = ?)
+      OR (strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?)
+    )
+  `;
+  const params = [
+    mes, ano,
+    String(mes).padStart(2, '0'), String(ano)
+  ];
+
+  if (distribuidora) {
+    query += ` AND distribuidora LIKE ?`;
+    params.push(`%${distribuidora}%`);
+  }
+
+  query += ` ORDER BY created_at ASC`;
+
+  const rows = db.prepare(query).all(...params);
+
+  // 3. Monta a lista de movimentações com saldo progressivo
+  let saldoAtual = limiteMensal;
+  let totalDebitado = 0;
+  let totalEstornado = 0;
+
+  const movimentacoes = [];
+
+  // Linha 0: Abertura / Teto Inicial (sempre presente)
+  movimentacoes.push({
+    id: `abertura-${mes}-${ano}`,
+    data: `${ano}-${String(mes).padStart(2, '0')}-01T00:00:00.000Z`,
+    tipo: 'CREDITO_INICIAL',
+    tipoFormatado: 'Crédito Mensal',
+    numeroPedido: '---',
+    distribuidora: 'Teto Orçamentário BelaFarma',
+    representante: 'Orçamento Programado',
+    descricao: `Crédito / Teto Orçamentário Mensal (${String(mes).padStart(2, '0')}/${ano})`,
+    condicaoPagamento: 'Disponível no Mês',
+    previsaoEntrega: '---',
+    valor: limiteMensal,
+    valorMovimento: limiteMensal,
+    saldoApos: saldoAtual,
+    status: 'Confirmado',
+    isDebito: false,
+    isCredito: true,
+    isEstorno: false,
+    itens: [],
+    boletos: []
+  });
+
+  const distribuidorasSet = new Set();
+
+  for (const r of rows) {
+    let itens = [];
+    try { if (r.itens_json) itens = JSON.parse(r.itens_json); } catch (e) {}
+
+    let boletos = [];
+    try { if (r.boletos_json) boletos = JSON.parse(r.boletos_json); } catch (e) {}
+
+    if (r.distribuidora) distribuidorasSet.add(r.distribuidora);
+
+    // Filtro de busca se informado
+    if (busca) {
+      const matchBusca = (
+        (r.numero_pedido && r.numero_pedido.toLowerCase().includes(busca)) ||
+        (r.distribuidora && r.distribuidora.toLowerCase().includes(busca)) ||
+        (r.representante && r.representante.toLowerCase().includes(busca)) ||
+        itens.some(it => (it.descricao && it.descricao.toLowerCase().includes(busca)) || (it.ean && String(it.ean).includes(busca)))
+      );
+      if (!matchBusca) continue;
+    }
+
+    const valorTotal = Number(r.valor_total || 0);
+    const isCancelado = String(r.status || '').toLowerCase() === 'cancelado' || String(r.status || '').toLowerCase() === 'rejeitado';
+
+    if (!isCancelado) {
+      // Débito ativo
+      saldoAtual = Number((saldoAtual - valorTotal).toFixed(2));
+      totalDebitado += valorTotal;
+
+      movimentacoes.push({
+        id: r.id,
+        data: r.created_at,
+        tipo: 'DEBITO_PEDIDO',
+        tipoFormatado: 'Pedido de Compra',
+        numeroPedido: r.numero_pedido,
+        distribuidora: r.distribuidora,
+        representante: r.representante || '---',
+        telefone: r.telefone || '',
+        descricao: `Pedido #${r.numero_pedido} - ${r.distribuidora}`,
+        condicaoPagamento: r.condicao_pagamento || '28 dias',
+        previsaoEntrega: r.previsao_entrega || '2 dias úteis',
+        valor: valorTotal,
+        valorMovimento: -valorTotal,
+        saldoApos: saldoAtual,
+        status: r.status || 'Pendente_Aprovacao',
+        isDebito: true,
+        isCredito: false,
+        isEstorno: false,
+        itens,
+        boletos,
+        textoFormatado: r.texto_formatado,
+        motivoCancelamento: r.motivo_cancelamento
+      });
+    } else {
+      // Pedido foi cancelado - mostra como estorno
+      totalEstornado += valorTotal;
+
+      movimentacoes.push({
+        id: r.id,
+        data: r.created_at,
+        tipo: 'ESTORNO_CANCELAMENTO',
+        tipoFormatado: 'Pedido Cancelado (Estorno)',
+        numeroPedido: r.numero_pedido,
+        distribuidora: r.distribuidora,
+        representante: r.representante || '---',
+        telefone: r.telefone || '',
+        descricao: `[CANCELADO] Pedido #${r.numero_pedido} - ${r.distribuidora}`,
+        condicaoPagamento: r.condicao_pagamento || '28 dias',
+        previsaoEntrega: r.previsao_entrega || '---',
+        valor: valorTotal,
+        valorMovimento: 0,
+        saldoApos: saldoAtual,
+        status: 'Cancelado',
+        isDebito: false,
+        isCredito: false,
+        isEstorno: true,
+        itens,
+        boletos,
+        textoFormatado: r.texto_formatado,
+        motivoCancelamento: r.motivo_cancelamento
+      });
+    }
+  }
+
+  // 4. Busca todos os boletos vencendo no mês
+  let boletosMes = [];
+  try {
+    const mesFormat = String(mes).padStart(2, '0');
+    const anoFormat = String(ano);
+    const boletosRows = db.prepare(`
+      SELECT b.*, cp.numero_pedido, cp.distribuidora as cp_distribuidora
+      FROM boletos b
+      LEFT JOIN compras_pedidos cp ON cp.id = b.order_id
+      WHERE (
+        strftime('%m', b.due_date) = ? AND strftime('%Y', b.due_date) = ?
+        OR b.due_date LIKE ?
+      )
+      AND LOWER(b.status) != 'cancelado'
+      ORDER BY b.due_date ASC
+    `).all(mesFormat, anoFormat, `${anoFormat}-${mesFormat}%`);
+
+    boletosMes = boletosRows.map(b => ({
+      id: b.id,
+      orderId: b.order_id,
+      numeroPedido: b.numero_pedido || 'N/A',
+      distribuidora: b.supplierName || b.cp_distribuidora || 'Distribuidora',
+      vencimento: b.due_date,
+      valor: b.value,
+      status: b.status
+    }));
+  } catch (e) {}
+
+  const totalBoletosMes = boletosMes.reduce((acc, b) => acc + Number(b.valor || 0), 0);
+
+  return {
+    mes,
+    ano,
+    limiteMensal,
+    totalComprometido: Number(totalDebitado.toFixed(2)),
+    totalEstornado: Number(totalEstornado.toFixed(2)),
+    saldoDisponivel: Number(saldoAtual.toFixed(2)),
+    percentualUtilizado: limiteMensal > 0 ? Number(((totalDebitado / limiteMensal) * 100).toFixed(2)) : 0,
+    totalPedidosAtivos: movimentacoes.filter(m => m.isDebito).length,
+    totalPedidosCancelados: movimentacoes.filter(m => m.isEstorno).length,
+    movimentacoes: movimentacoes.reverse(), // Para exibir os mais recentes no topo
+    boletosMes,
+    totalBoletosMes: Number(totalBoletosMes.toFixed(2)),
+    distribuidoras: Array.from(distribuidorasSet).sort()
+  };
+}
+
 module.exports = {
   // F13: Espelhos de Pedidos
   gerarEspelhoPedidoCompra,
   gerarEspelhoPedido,
   exportarEspelhoTexto,
 
-  // F14: Controle Orçamentário
+  // F14: Controle Orçamentário & Extrato
   validarOrcamento,
   validarTetoOrcamentario,
   obterResumoOrcamentoMensal,
+  obterExtratoMovimentacoes,
   definirLimiteMensal,
 
   // Integração Financeira e Boletos
