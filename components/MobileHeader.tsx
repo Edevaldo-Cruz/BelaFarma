@@ -13,8 +13,8 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({ onOpenSidebar, onSea
       {/* Top row: Centered Logo */}
       <div className={`flex justify-center items-center py-3 border-b ${isBudgetBusted ? 'border-red-900/50' : 'border-slate-100 dark:border-slate-800/50'}`}>
         <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-red-600 rounded-md shadow-sm">
-            <PlusSquare className="w-5 h-5 text-white" />
+          <div className="p-1 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+            <img src="/images/logo-icon.png" alt="Bela Farma" className="w-6 h-6 object-contain" />
           </div>
           <div className="flex flex-col leading-none">
             <span className={`text-xl font-black tracking-tighter ${isBudgetBusted ? 'text-red-400' : 'text-red-700 dark:text-red-500'}`}>belinha</span>

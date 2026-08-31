@@ -32,6 +32,10 @@ interface StockProduct {
   presentation: string;
   barcode: string;
   saldo: number;
+  estMinimoCalculado?: number;
+  estMaximoCalculado?: number;
+  pedidoMinimo?: number;
+  curvaAbc?: string;
   priceVenda: number;
   priceCompra: number;
   categoryName: string;
@@ -543,25 +547,45 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user, theme = 
           {/* Exibição em Tabela */}
           {viewMode === 'table' ? (
             <>
-            {/* Indicador de scroll - mobile */}
-            <div className="scroll-hint md:hidden py-2 text-slate-400 text-center text-[10px] font-bold">
-              ← Role para ver mais colunas →
+            {/* Indicador de scroll - mobile & Legenda de Cores */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-1 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Status Estoque:</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                  <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                  Abaixo do Mínimo (Repor)
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  Acima do Máximo (Excesso)
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  Ideal
+                </span>
+              </div>
+              <div className="scroll-hint md:hidden text-slate-400 text-[10px] font-bold">
+                ← Role para ver mais colunas →
+              </div>
             </div>
+
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto mobile-table-container overflow-y-auto max-h-[60vh]">
                 <table className="w-full text-left border-collapse responsive-table">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                      <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">ID</th>
-                      <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Produto</th>
-                      <th className="py-4 px-6 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Categoria</th>
-                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Saldo</th>
-                      <th className="py-4 px-6 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Preço Compra</th>
-                      <th className="py-4 px-6 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Preço Venda</th>
-                      <th className="py-4 px-6 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Total Parado</th>
-                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Saídas (30d)</th>
-                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Última Venda</th>
-                      <th className="py-4 px-6 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Inatividade</th>
+                      <th className="py-4 px-5 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">ID</th>
+                      <th className="py-4 px-5 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Produto</th>
+                      <th className="py-4 px-4 sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Categoria</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Saldo</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Est. Mínimo</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)] text-blue-600 dark:text-blue-400">Pedido Mínimo</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)] text-purple-600 dark:text-purple-400">Est. Máximo (+20%)</th>
+                      <th className="py-4 px-4 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Preço Venda</th>
+                      <th className="py-4 px-4 text-right sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Total Parado</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Saídas (30d)</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Última Venda</th>
+                      <th className="py-4 px-4 text-center sticky top-0 bg-slate-50 dark:bg-slate-850 z-10 shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">Inatividade</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -576,37 +600,83 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user, theme = 
                       const diffDays = lastSale ? getDaysWithoutSales(lastSale) : 'N/D';
                       const isStagnant = lastSale ? (new Date().getTime() - new Date(lastSale).getTime()) / (1000 * 3600 * 24) >= 90 : true;
 
+                      const estMin = p.estMinimoCalculado !== undefined ? p.estMinimoCalculado : 0;
+                      const estMax = p.estMaximoCalculado !== undefined ? p.estMaximoCalculado : Math.ceil(estMin * 1.2);
+                      const pedidoMin = p.pedidoMinimo !== undefined ? p.pedidoMinimo : Math.max(0, estMin - p.saldo);
+
+                      const isAbaixoMinimo = estMin > 0 && p.saldo < estMin;
+                      const isAcimaMaximo = estMax > 0 && p.saldo > estMax;
+
+                      // Cores personalizadas: Azul claro para abaixo do mínimo, Vermelho para acima do máximo
+                      let saldoBadgeStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300';
+                      if (isAbaixoMinimo) {
+                        saldoBadgeStyle = 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 ring-2 ring-sky-400/20';
+                      } else if (isAcimaMaximo) {
+                        saldoBadgeStyle = 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 ring-2 ring-red-400/20';
+                      } else if (estMin > 0) {
+                        saldoBadgeStyle = 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800';
+                      }
+
                       return (
-                        <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/10 transition-colors">
-                          <td className="py-3 px-6 text-slate-400">{p.id}</td>
-                          <td className="py-3 px-6 min-w-[200px]">
+                        <tr 
+                          key={p.id} 
+                          className={`hover:bg-slate-50/50 dark:hover:bg-slate-850/10 transition-colors ${
+                            isAbaixoMinimo ? 'bg-sky-50/30 dark:bg-sky-950/10' : isAcimaMaximo ? 'bg-red-50/30 dark:bg-red-950/10' : ''
+                          }`}
+                        >
+                          <td className="py-3 px-5 text-slate-400 font-mono text-[11px]">{p.id}</td>
+                          <td className="py-3 px-5 min-w-[200px]">
                             <span className="block font-bold text-slate-850 dark:text-slate-100 uppercase tracking-tight">{p.name}</span>
                             <span className="block text-[10px] text-slate-400 font-bold mt-0.5">
                               {p.presentation ? p.presentation : 'S/ APRESENTACAO'} {p.barcode ? `• EAN: ${p.barcode}` : ''}
                             </span>
                           </td>
-                          <td className="py-3 px-6 text-slate-500 font-bold truncate max-w-[120px]" title={p.categoryName}>
+                          <td className="py-3 px-4 text-slate-500 font-bold truncate max-w-[120px]" title={p.categoryName}>
                             {p.categoryName}
                           </td>
-                          <td className="py-3 px-6 text-center">
-                            <span className={`px-2.5 py-1 rounded-full font-bold ${
-                              p.saldo <= 0 
-                                ? 'bg-red-50 dark:bg-red-950/20 text-red-650' 
-                                : 'bg-blue-50 dark:bg-blue-950/20 text-blue-650'
-                            }`}>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-3 py-1 rounded-full font-black text-xs inline-block min-w-[36px] ${saldoBadgeStyle}`}>
                               {p.saldo}
                             </span>
                           </td>
-                          <td className="py-3 px-6 text-right font-medium">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.priceCompra)}
+                          <td className="py-3 px-4 text-center font-bold text-slate-600 dark:text-slate-400">
+                            {estMin > 0 ? (
+                              <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 font-black">
+                                {estMin}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                            )}
                           </td>
-                          <td className="py-3 px-6 text-right font-medium text-slate-850 dark:text-slate-100">
+                          <td className="py-3 px-4 text-center">
+                            {pedidoMin > 0 ? (
+                              <span className="px-2.5 py-1 rounded-full font-black text-xs bg-sky-100 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-700 animate-pulse">
+                                +{pedidoMin}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600 text-xs">0</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center font-bold">
+                            {estMax > 0 ? (
+                              <span className={`px-2.5 py-0.5 rounded-lg font-black ${
+                                isAcimaMaximo 
+                                  ? 'bg-red-100 dark:bg-red-900/60 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-700' 
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                              }`}>
+                                {estMax}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-slate-850 dark:text-slate-100">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.priceVenda)}
                           </td>
-                          <td className="py-3 px-6 text-right font-bold text-red-650 bg-red-50/10 dark:bg-red-950/5">
+                          <td className="py-3 px-4 text-right font-bold text-red-650 bg-red-50/10 dark:bg-red-950/5">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalParado)}
                           </td>
-                          <td className="py-3 px-6 text-center">
+                          <td className="py-3 px-4 text-center">
                             {!hasSales && loadingSales ? (
                               <div className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-10 mx-auto" />
                             ) : (
@@ -619,14 +689,14 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user, theme = 
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-6 text-center text-slate-500 font-bold">
+                          <td className="py-3 px-4 text-center text-slate-500 font-bold">
                             {!hasSales && loadingSales ? (
                               <div className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-20 mx-auto" />
                             ) : (
                               formatDate(lastSale)
                             )}
                           </td>
-                          <td className="py-3 px-6 text-center">
+                          <td className="py-3 px-4 text-center">
                             {!hasSales && loadingSales ? (
                               <div className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-16 mx-auto" />
                             ) : (
@@ -659,25 +729,50 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user, theme = 
                 const diffDays = lastSale ? getDaysWithoutSales(lastSale) : 'N/D';
                 const isStagnant = lastSale ? (new Date().getTime() - new Date(lastSale).getTime()) / (1000 * 3600 * 24) >= 90 : true;
 
+                const estMin = p.estMinimoCalculado !== undefined ? p.estMinimoCalculado : 0;
+                const estMax = p.estMaximoCalculado !== undefined ? p.estMaximoCalculado : Math.ceil(estMin * 1.2);
+                const pedidoMin = p.pedidoMinimo !== undefined ? p.pedidoMinimo : Math.max(0, estMin - p.saldo);
+
+                const isAbaixoMinimo = estMin > 0 && p.saldo < estMin;
+                const isAcimaMaximo = estMax > 0 && p.saldo > estMax;
+
                 return (
                   <div 
                     key={p.id}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4 hover:shadow transition-shadow flex flex-col justify-between"
+                    className={`bg-white dark:bg-slate-900 border rounded-3xl p-5 shadow-sm space-y-4 hover:shadow transition-shadow flex flex-col justify-between ${
+                      isAbaixoMinimo 
+                        ? 'border-sky-300 dark:border-sky-700 ring-2 ring-sky-400/20' 
+                        : isAcimaMaximo 
+                        ? 'border-red-300 dark:border-red-700 ring-2 ring-red-400/20' 
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
                   >
                     <div className="space-y-2">
                       <div className="flex justify-between items-start gap-2">
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID {p.id}</span>
-                        {!hasSales && loadingSales ? (
-                          <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-24" />
-                        ) : (
-                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black ${
-                            isStagnant 
-                              ? 'bg-red-50 dark:bg-red-950/20 text-red-600' 
-                              : 'bg-green-50 dark:bg-green-950/20 text-green-600'
-                          }`}>
-                            ⏳ {diffDays} sem giro
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {isAbaixoMinimo && (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200">
+                              🟦 Abaixo do Mínimo
+                            </span>
+                          )}
+                          {isAcimaMaximo && (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200">
+                              🟥 Acima do Máximo
+                            </span>
+                          )}
+                          {!hasSales && loadingSales ? (
+                            <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-20" />
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
+                              isStagnant 
+                                ? 'bg-red-50 dark:bg-red-950/20 text-red-600' 
+                                : 'bg-green-50 dark:bg-green-950/20 text-green-600'
+                            }`}>
+                              ⏳ {diffDays}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       
                       <div>
@@ -688,7 +783,25 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user, theme = 
                         </p>
                       </div>
 
-                      <div className="pt-2 flex flex-wrap gap-2">
+                      {/* Métricas de Estoque Ideal */}
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2 text-center text-[10px]">
+                        <div>
+                          <p className="font-bold text-slate-400 uppercase">Est. Mín.</p>
+                          <p className="font-black text-slate-700 dark:text-slate-200 text-xs mt-0.5">{estMin}</p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-sky-600 dark:text-sky-400 uppercase">Ped. Mín.</p>
+                          <p className="font-black text-sky-700 dark:text-sky-300 text-xs mt-0.5">
+                            {pedidoMin > 0 ? `+${pedidoMin}` : '0'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-purple-600 dark:text-purple-400 uppercase">Est. Máx.</p>
+                          <p className="font-black text-purple-700 dark:text-purple-300 text-xs mt-0.5">{estMax}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-1 flex flex-wrap gap-2">
                         <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest rounded-lg">
                           🏷️ {p.categoryName}
                         </span>
@@ -707,8 +820,10 @@ export const StockManagement: React.FC<StockManagementProps> = ({ user, theme = 
 
                     <div className="pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2 text-center">
                       <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Estoque</p>
-                        <p className={`text-sm font-black mt-0.5 ${p.saldo <= 0 ? 'text-red-600' : 'text-blue-600'}`}>{p.saldo} un</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Saldo</p>
+                        <p className={`text-sm font-black mt-0.5 ${
+                          isAbaixoMinimo ? 'text-sky-600' : isAcimaMaximo ? 'text-red-600' : 'text-emerald-600'
+                        }`}>{p.saldo} un</p>
                       </div>
                       <div>
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Preço</p>

@@ -466,21 +466,22 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 <th className="py-3 px-3 text-right">Demanda 30d</th>
                 <th className="py-3 px-3 text-right">Saldo Atual</th>
                 <th className="py-3 px-3 text-right">Est. Mínimo</th>
-                <th className="py-3 px-3 text-right">Sugerido</th>
+                <th className="py-3 px-3 text-right text-sky-600 dark:text-sky-400">Pedido Mínimo</th>
+                <th className="py-3 px-3 text-right text-purple-600 dark:text-purple-400">Est. Máximo (+20%)</th>
                 <th className="py-3 px-4 text-center">Status Risco</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={11} className="py-12 text-center text-slate-400 font-bold">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
                     Carregando inteligência de estoque para 30 dias...
                   </td>
                 </tr>
               ) : produtosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     <Info className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                     Nenhum medicamento encontrado com os filtros selecionados.
                   </td>
@@ -488,29 +489,39 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
               ) : (
                 produtosPaginados.map(item => {
                   const isSelected = selectedIds.has(item.produtoId);
+                  const estMin = item.estMinimoCalculado || 0;
+                  const estMax = item.estMaximoCalculado || Math.ceil(estMin * 1.2);
+                  const pedidoMin = item.pedidoMinimo !== undefined ? item.pedidoMinimo : (item.sugeridoReposicao || Math.max(0, estMin - item.saldo));
+
+                  const isAbaixoMinimo = estMin > 0 && item.saldo < estMin;
+                  const isAcimaMaximo = estMax > 0 && item.saldo > estMax;
                   
                   let badgeColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
-                  let statusTexto = 'Normal';
+                  let statusTexto = 'Ideal';
 
-                  if (item.statusRuptura === 'RUPTURA') {
-                    badgeColor = 'bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300 border border-red-200 dark:border-red-800 font-black animate-pulse';
-                    statusTexto = 'Ruptura';
-                  } else if (item.statusRuptura === 'ABAIXO_MINIMO') {
-                    badgeColor = 'bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-black';
+                  if (item.statusRuptura === 'RUPTURA' || item.saldo <= 0) {
+                    badgeColor = 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-800 font-black animate-pulse';
+                    statusTexto = 'Ruptura (0)';
+                  } else if (isAbaixoMinimo) {
+                    badgeColor = 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 font-black';
                     statusTexto = 'Abaixo Mínimo';
-                  } else if (item.statusRuptura === 'EXCESSO') {
-                    badgeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 font-bold';
-                    statusTexto = 'Excesso';
+                  } else if (isAcimaMaximo) {
+                    badgeColor = 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800 font-black';
+                    statusTexto = 'Acima Máximo';
                   } else {
-                    badgeColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold';
-                    statusTexto = 'Confortável';
+                    badgeColor = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold';
+                    statusTexto = 'Ideal';
                   }
+
+                  let saldoStyle = 'text-slate-900 dark:text-slate-100';
+                  if (isAbaixoMinimo) saldoStyle = 'text-sky-600 dark:text-sky-400 font-black';
+                  if (isAcimaMaximo) saldoStyle = 'text-red-600 dark:text-red-400 font-black';
 
                   return (
                     <tr 
                       key={item.produtoId}
                       className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
-                        isSelected ? 'bg-red-50/50 dark:bg-red-950/20' : ''
+                        isSelected ? 'bg-red-50/50 dark:bg-red-950/20' : isAbaixoMinimo ? 'bg-sky-50/20 dark:bg-sky-950/10' : isAcimaMaximo ? 'bg-red-50/20 dark:bg-red-950/10' : ''
                       }`}
                     >
                       <td className="py-3 px-4">
@@ -549,14 +560,23 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                       <td className="py-3 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-200">
                         {item.demanda30d || 0} un
                       </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-slate-900 dark:text-slate-100">
+                      <td className={`py-3 px-3 text-right font-mono font-black ${saldoStyle}`}>
                         {item.saldo}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-blue-600 dark:text-blue-400">
-                        {item.estMinimoCalculado} un
+                      <td className="py-3 px-3 text-right font-mono font-black text-slate-700 dark:text-slate-300">
+                        {estMin} un
                       </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
-                        {item.sugeridoReposicao > 0 ? `+${item.sugeridoReposicao}` : '0'}
+                      <td className="py-3 px-3 text-right font-mono font-black">
+                        {pedidoMin > 0 ? (
+                          <span className="px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200 font-black">
+                            +{pedidoMin}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-600">0</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-black text-purple-700 dark:text-purple-300">
+                        {estMax} un
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] ${badgeColor}`}>

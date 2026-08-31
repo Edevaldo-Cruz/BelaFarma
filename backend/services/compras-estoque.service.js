@@ -118,7 +118,8 @@ function determinarStatusRuptura(saldo, estoqueMinimo) {
   if (s < m) {
     return 'ABAIXO_MINIMO';
   }
-  if (m > 0 && s >= m * 2.5) {
+  const estMax = Math.ceil(m * 1.2);
+  if (m > 0 && s > estMax) {
     return 'EXCESSO';
   }
   return 'NORMAL';
@@ -788,8 +789,21 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset);
 
+  const mappedRows = rows.map(r => {
+    const estMin = Number(r.estMinimoCalculado) || 0;
+    const estMax = Math.ceil(estMin * 1.2);
+    const saldo = Number(r.saldo) || 0;
+    const pedidoMinimo = Math.max(0, estMin - saldo);
+    return {
+      ...r,
+      estMaximoCalculado: estMax,
+      pedidoMinimo: pedidoMinimo,
+      sugeridoReposicao: pedidoMinimo
+    };
+  });
+
   return {
-    produtos: rows,
+    produtos: mappedRows,
     total,
     limit,
     offset,

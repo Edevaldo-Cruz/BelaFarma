@@ -395,9 +395,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-6 py-8">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-red-600 rounded-lg shadow-lg">
-                <PlusSquare className="w-6 h-6 text-white" />
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-white dark:bg-slate-800 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                <img src="/images/logo-icon.png" alt="Bela Farma" className="w-7 h-7 object-contain" />
               </div>
               <div className="flex flex-col leading-none">
                 <span className="text-2xl font-black text-red-700 dark:text-red-500 tracking-tighter">belinha</span>

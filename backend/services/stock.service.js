@@ -220,6 +220,7 @@ async function listarProdutosEstoque(params = {}) {
         ELSE p.PROD_PRVENDA
       END as PROD_PRVENDA,
       COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
+      COALESCE(p.PROD_ESTMINIMO, 0) as PROD_ESTMINIMO,
       c.CATEGORIA as CATEGORIA_NOME
       ${needsUltimaVenda ? `, (
         SELECT FIRST 1 v.VENDA_DATA_HORA 
@@ -242,19 +243,50 @@ async function listarProdutosEstoque(params = {}) {
 
   const total = countResult[0].TOTAL_COUNT || 0;
 
-  const items = dataResult.map(r => ({
-    id: r.PRODUTO_ID,
-    name: r.PRODUTO ? r.PRODUTO.trim() : 'Sem Nome',
-    presentation: r.APRESENTACAO ? r.APRESENTACAO.trim() : '',
-    barcode: r.COD_BARRAS ? r.COD_BARRAS.trim() : '',
-    saldo: r.PROD_SALDO || 0,
-    priceVenda: r.PROD_PRVENDA || 0,
-    priceCompra: r.PROD_PRCOMPRA || 0,
-    categoryName: r.CATEGORIA_NOME ? r.CATEGORIA_NOME.trim() : 'Sem Categoria',
-    // Retorna lastSale apenas se veio no select, caso contrário nulo para o frontend preencher via lazy load
-    lastSale: needsUltimaVenda ? r.ULTIMA_VENDA : null,
-    saidasMes: null // Preenchido inteiramente via lazy load no frontend
-  }));
+  // Busca dados de estoque mínimo e curva do cache SQLite
+  const productIds = dataResult.map(r => r.PRODUTO_ID);
+  const cacheMap = {};
+  if (productIds.length > 0) {
+    try {
+      const placeholders = productIds.map(() => '?').join(',');
+      const cachedRows = db.prepare(`
+        SELECT produto_id, est_minimo_calculado, est_minimo_digifarma, curva_abc 
+        FROM compras_estoque_cache 
+        WHERE produto_id IN (${placeholders})
+      `).all(productIds);
+      cachedRows.forEach(c => {
+        cacheMap[c.produto_id] = c;
+      });
+    } catch (e) {}
+  }
+
+  const items = dataResult.map(r => {
+    const cached = cacheMap[r.PRODUTO_ID];
+    const estMin = cached?.est_minimo_calculado !== undefined 
+      ? cached.est_minimo_calculado 
+      : (r.PROD_ESTMINIMO || 0);
+    const estMax = Math.ceil(estMin * 1.2);
+    const saldo = r.PROD_SALDO || 0;
+    const pedidoMinimo = Math.max(0, estMin - saldo);
+
+    return {
+      id: r.PRODUTO_ID,
+      name: r.PRODUTO ? r.PRODUTO.trim() : 'Sem Nome',
+      presentation: r.APRESENTACAO ? r.APRESENTACAO.trim() : '',
+      barcode: r.COD_BARRAS ? r.COD_BARRAS.trim() : '',
+      saldo: saldo,
+      estMinimoCalculado: estMin,
+      estMaximoCalculado: estMax,
+      pedidoMinimo: pedidoMinimo,
+      curvaAbc: cached?.curva_abc || 'C',
+      priceVenda: r.PROD_PRVENDA || 0,
+      priceCompra: r.PROD_PRCOMPRA || 0,
+      categoryName: r.CATEGORIA_NOME ? r.CATEGORIA_NOME.trim() : 'Sem Categoria',
+      // Retorna lastSale apenas se veio no select, caso contrário nulo para o frontend preencher via lazy load
+      lastSale: needsUltimaVenda ? r.ULTIMA_VENDA : null,
+      saidasMes: null // Preenchido inteiramente via lazy load no frontend
+    };
+  });
 
   const response = { total, items };
 

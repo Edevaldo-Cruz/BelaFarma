@@ -135,10 +135,22 @@ export interface CrediarioRecord {
 
 }
 
+export enum UserJobRole {
+  COMPRADOR = 'Comprador(a)',
+  CAIXA = 'Operador(a) de Caixa',
+  FARMACEUTICO = 'Farmacêutico(a)',
+  FINANCEIRO = 'Financeiro',
+  BALCONISTA = 'Balconista / Vendedor(a)',
+  GERENTE = 'Gerente',
+  OUTRO = 'Outro'
+}
+
 export interface User {
   id: string;
   name: string;
   role: UserRole;
+  jobRole?: UserJobRole | string;
+  phone?: string;
   accessKey: string;
 }
 
@@ -866,6 +878,8 @@ export interface EstoqueMinimoProduto {
   apresentacao?: string;
   saldo: number;
   estMinimoCalculado: number;
+  estMaximoCalculado?: number;
+  pedidoMinimo?: number;
   demanda30d: number;
   vmdPonderado: number;
   statusRuptura: 'RUPTURA' | 'ABAIXO_MINIMO' | 'NORMAL' | 'EXCESSO';

@@ -1051,17 +1051,54 @@ app.post('/api/users', (req, res) => {
   try {
     const user = req.body;
     const stmt = db.prepare(`
-      INSERT INTO users (id, name, role, accessKey)
-      VALUES (@id, @name, @role, @accessKey)
+      INSERT INTO users (id, name, role, jobRole, phone, accessKey)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(user);
-    res.status(201).json({ id: result.lastInsertRowid });
+    const result = stmt.run(
+      user.id,
+      user.name,
+      user.role,
+      user.jobRole || 'Outro',
+      user.phone || '',
+      user.accessKey
+    );
+    res.status(201).json({ id: user.id });
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      return res.status(409).json({ error: 'Access key already in use.' });
+      return res.status(409).json({ error: 'Chave de acesso já está em uso.' });
     }
     console.error('Error creating user:', err);
     res.status(500).json({ error: 'Failed to create user.' });
+  }
+});
+
+// UPDATE User
+app.put('/api/users/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, role, jobRole, phone, accessKey } = req.body;
+    const stmt = db.prepare(`
+      UPDATE users 
+      SET name = COALESCE(?, name),
+          role = COALESCE(?, role),
+          jobRole = COALESCE(?, jobRole),
+          phone = COALESCE(?, phone),
+          accessKey = COALESCE(?, accessKey)
+      WHERE id = ?
+    `);
+    const result = stmt.run(name, role, jobRole, phone, accessKey, id);
+    if (result.changes > 0) {
+      const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      res.status(200).json({ success: true, user: updatedUser });
+    } else {
+      res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return res.status(409).json({ error: 'Chave de acesso já está em uso por outro usuário.' });
+    }
+    console.error('Error updating user:', err);
+    res.status(500).json({ error: 'Failed to update user.' });
   }
 });
 

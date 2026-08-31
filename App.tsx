@@ -57,6 +57,7 @@ import { CardMachinesManager } from "./components/CardMachinesManager";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
+import { EstoqueIdealModal } from "./components/compras/EstoqueIdealModal";
 import { useToast } from "./components/ToastContext";
 
 
@@ -125,6 +126,7 @@ const App: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const [isCardMachineModalOpen, setIsCardMachineModalOpen] = useState(false);
+  const [isEstoqueIdealModalOpen, setIsEstoqueIdealModalOpen] = useState(false);
   const [isMuralOpen, setIsMuralOpen] = useState(false);
   const [muralPendingCount, setMuralPendingCount] = useState(0);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
@@ -281,6 +283,16 @@ const App: React.FC = () => {
         if (ultimaDataExibida !== hoje) {
           setIsTeraModalOpen(true);
           localStorage.setItem("tera_popup_last_date", hoje);
+        }
+      }
+
+      // --- Lógica de Auto-exibição Diária do Estoque Ideal para Comprador(a) / Nayane ---
+      const isBuyer = (user.jobRole && String(user.jobRole).toLowerCase().includes("comprador")) || user.name.toLowerCase().includes("nayane");
+      if (isBuyer) {
+        const hoje = new Date().toISOString().slice(0, 10);
+        const ultimaDataEstoqueIdeal = localStorage.getItem("estoque_ideal_last_date");
+        if (ultimaDataEstoqueIdeal !== hoje) {
+          setIsEstoqueIdealModalOpen(true);
         }
       }
 
@@ -853,6 +865,30 @@ const App: React.FC = () => {
     }
   };
 
+  const updateUser = async (userToUpdate: User) => {
+    const updated = users.map((u) => (u.id === userToUpdate.id ? userToUpdate : u));
+    setUsers(updated);
+    createLog(
+      "Usuários",
+      "Editou Usuário",
+      `Nome: ${userToUpdate.name}, Cargo: ${userToUpdate.jobRole || 'N/D'}, Nível: ${userToUpdate.role}`
+    );
+
+    try {
+      const res = await fetch(`/api/users/${userToUpdate.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(userToUpdate),
+      });
+      if (!res.ok) {
+        throw new Error("Erro ao atualizar usuário no servidor.");
+      }
+    } catch (e) {
+      console.error("Failed to update user:", e);
+      fetchData();
+    }
+  };
+
   const addBoleto = async (boleto: Partial<Boleto> & { boletoFile?: File }) => {
     const newBoleto = {
       ...boleto,
@@ -1100,6 +1136,7 @@ const App: React.FC = () => {
                   currentUser={user}
                   users={users}
                   onAdd={addUser}
+                  onUpdate={updateUser}
                   onDelete={deleteUser}
                 />
               )}
@@ -1241,6 +1278,25 @@ const App: React.FC = () => {
 
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
       {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
+
+      {/* Modal de Alerta de Estoque Ideal para Comprador(a) / Nayane */}
+      {user && (
+        <EstoqueIdealModal
+          isOpen={isEstoqueIdealModalOpen}
+          user={user}
+          onClose={() => {
+            setIsEstoqueIdealModalOpen(false);
+            const hoje = new Date().toISOString().slice(0, 10);
+            localStorage.setItem("estoque_ideal_last_date", hoje);
+          }}
+          onNavigateToCompras={() => {
+            setIsEstoqueIdealModalOpen(false);
+            const hoje = new Date().toISOString().slice(0, 10);
+            localStorage.setItem("estoque_ideal_last_date", hoje);
+            handleNavigate('central-compras');
+          }}
+        />
+      )}
 
       {/* Modal de Conferência Diária 10h de Maquininha para Edevaldo */}
       <CardMachineReconcileModal

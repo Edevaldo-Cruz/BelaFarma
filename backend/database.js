@@ -831,14 +831,33 @@ try {
     }
 
     try {
+      db.prepare('SELECT jobRole FROM users LIMIT 1').get();
+    } catch (e) {
+      try {
+        db.exec('ALTER TABLE users ADD COLUMN jobRole TEXT DEFAULT "Outro"');
+        console.log('Added jobRole column to users table.');
+      } catch (err) {}
+    }
+
+    try {
+      db.prepare('SELECT phone FROM users LIMIT 1').get();
+    } catch (e) {
+      try {
+        db.exec('ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ""');
+        console.log('Added phone column to users table.');
+      } catch (err) {}
+    }
+
+    try {
       const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
       if (!userCount || userCount.count === 0) {
         console.log('[Database] Populando banco com usuários padrão...');
-        const insertUser = db.prepare('INSERT INTO users (id, name, role, accessKey) VALUES (?, ?, ?, ?)');
-        insertUser.run('usr-master', 'Administrador Bela', 'Administrador', 'belafarma2024');
-        insertUser.run('usr-admin', 'Administrador', 'Administrador', 'admin');
-        insertUser.run('usr-edevaldo', 'Edevaldo', 'Administrador', '2494');
-        insertUser.run('usr-balcao', 'Balcão', 'Operador', '1234');
+        const insertUser = db.prepare('INSERT INTO users (id, name, role, jobRole, accessKey) VALUES (?, ?, ?, ?, ?)');
+        insertUser.run('usr-master', 'Administrador Bela', 'Administrador', 'Gerente', 'belafarma2024');
+        insertUser.run('usr-admin', 'Administrador', 'Administrador', 'Gerente', 'admin');
+        insertUser.run('usr-edevaldo', 'Edevaldo', 'Administrador', 'Gerente', '2494');
+        insertUser.run('usr-nayane', 'Nayane', 'Operador', 'Comprador(a)', '1234');
+        insertUser.run('usr-balcao', 'Balcão', 'Operador', 'Operador(a) de Caixa', '5678');
       }
     } catch (e) {
       console.error('Erro ao popular usuários iniciais:', e.message);
