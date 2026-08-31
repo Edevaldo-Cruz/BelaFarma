@@ -58,6 +58,8 @@ import { CardMachineReconcileModal } from "./components/CardMachineReconcileModa
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
 import { EstoqueIdealModal } from "./components/compras/EstoqueIdealModal";
+import { VersionNotifier } from "./components/VersionNotifier";
+import { VersionModal } from "./components/VersionModal";
 import { useToast } from "./components/ToastContext";
 
 
@@ -137,6 +139,7 @@ const App: React.FC = () => {
   const [selectedPendingReview, setSelectedPendingReview] = useState<Delivery | null>(null);
   const [pendingReviewMode, setPendingReviewMode] = useState<'pedido' | 'cotacao'>('pedido');
   const [lastReviewedDeliveryId, setLastReviewedDeliveryId] = useState<string | null>(null);
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
 
   const handleReviewSubmitted = (deliveryId?: string) => {
     if (deliveryId) {
@@ -1015,6 +1018,7 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
       <PwaUpdater />
+      <VersionNotifier />
       <Sidebar
         user={user}
         currentView={currentView}
@@ -1033,6 +1037,7 @@ const App: React.FC = () => {
         isBudgetBusted={isBudgetBusted}
         onOpenMural={() => setIsMuralOpen(true)}
         muralPendingCount={muralPendingCount}
+        onOpenVersionModal={() => setIsVersionModalOpen(true)}
       />
       <MobileHeader 
         onOpenSidebar={() => setIsSidebarOpen(true)} 
@@ -1419,6 +1424,12 @@ const App: React.FC = () => {
           onSubmitSuccess={handleReviewSubmitted}
         />
       )}
+
+      {/* Modal de Detalhes da Versão do Sistema */}
+      <VersionModal
+        isOpen={isVersionModalOpen}
+        onClose={() => setIsVersionModalOpen(false)}
+      />
     </div>
   );
 };

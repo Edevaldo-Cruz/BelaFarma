@@ -63,6 +63,7 @@ interface SidebarProps {
   isBudgetBusted?: boolean;
   onOpenMural?: () => void;
   muralPendingCount?: number;
+  onOpenVersionModal?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -79,7 +80,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenTeraModal,
   isBudgetBusted = false,
   onOpenMural,
-  muralPendingCount = 0
+  muralPendingCount = 0,
+  onOpenVersionModal
 }) => {
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
@@ -605,6 +607,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDigifarma ? 'animate-spin text-blue-500' : ''}`} />
               </button>
+            </div>
+
+            {/* Badge de Versão do Sistema */}
+            <div 
+              onClick={onOpenVersionModal}
+              title="Clique para ver detalhes da versão e commit"
+              className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-200/40 dark:bg-slate-800/40 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-300/40 dark:border-slate-700/40 text-[10px] cursor-pointer transition-all group"
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <Sparkles className="w-3 h-3 text-orange-500 group-hover:scale-110 transition-transform" />
+                <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">
+                  v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0'}
+                </span>
+              </div>
+              <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500">
+                #{typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev'}
+              </span>
             </div>
 
             <button

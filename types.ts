@@ -1086,5 +1086,14 @@ export interface ExtratoOrcamentarioResponse {
   distribuidoras: string[];
 }
 
+// Declarações globais de compilação injetadas pelo Vite
+declare global {
+  const __APP_VERSION__: string;
+  const __COMMIT_HASH__: string;
+  const __COMMIT_MESSAGE__: string;
+  const __BUILD_TIME__: string;
+}
+
+
 
 

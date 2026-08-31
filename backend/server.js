@@ -54,6 +54,39 @@ const safelyParseJSON = (jsonString, fallback = []) => {
   }
 };
 
+app.get('/api/version', (req, res) => {
+  let pkgVersion = '1.1.0';
+  let commitHash = 'unknown';
+  let commitMessage = 'Atualização do sistema';
+  let buildTime = '';
+
+  try {
+    const versionJsonPath = path.join(__dirname, '../public/version.json');
+    if (fs.existsSync(versionJsonPath)) {
+      const vJson = JSON.parse(fs.readFileSync(versionJsonPath, 'utf-8'));
+      return res.json(vJson);
+    }
+  } catch (e) {}
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'));
+    pkgVersion = pkg.version || '1.1.0';
+  } catch (e) {}
+
+  try {
+    const { execSync } = require('child_process');
+    commitHash = execSync('git rev-parse --short HEAD').toString().trim();
+    commitMessage = execSync('git log -1 --pretty=%s').toString().trim();
+  } catch (e) {}
+
+  return res.json({
+    version: pkgVersion,
+    commitHash,
+    commitMessage,
+    buildTime: new Date().toISOString()
+  });
+});
+
 app.get('/api/backups', (req, res) => {
   const backupDir = config.backupDir;
 

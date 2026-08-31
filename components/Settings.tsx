@@ -21,7 +21,11 @@ import {
   Activity,
   Server,
   HardDrive,
-  Cpu
+  Cpu,
+  Sparkles,
+  GitCommit,
+  Clock,
+  Layers
 } from 'lucide-react';
 import { User, UserRole, MonthlyLimit } from '../types';
 import { isAtlasConfigured } from '../lib/mongodb';
@@ -804,18 +808,18 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-red-50 text-red-600 rounded-xl shadow-sm">
-              <UserIcon className="w-6 h-6" />
+              <UserIcon className="w-5 h-5" />
             </div>
-            <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Perfil de Acesso</h3>
+            <h3 className="font-black text-slate-900 text-base uppercase tracking-tight">Perfil de Acesso</h3>
           </div>
-          <div className="space-y-4 pt-4 border-t border-slate-50">
+          <div className="space-y-3 pt-3 border-t border-slate-50">
             <div>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Identificação</p>
-              <p className="text-slate-900 font-bold text-lg capitalize">{user.name}</p>
+              <p className="text-slate-900 font-bold text-base capitalize">{user.name}</p>
             </div>
             <div>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nível de Permissão</p>
@@ -827,28 +831,28 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
                 </span>
               </div>
             </div>
-            <div className="pt-2">
+            <div className="pt-1">
                <div className="flex items-center gap-2 text-slate-400">
-                 <MapPin className="w-4 h-4" />
-                 <span className="text-xs font-bold">Localidade: belinha (Principal)</span>
+                 <MapPin className="w-3.5 h-3.5" />
+                 <span className="text-xs font-bold">Localidade: BelaFarma</span>
                </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl shadow-sm">
-              <Database className="w-6 h-6" />
+              <Database className="w-5 h-5" />
             </div>
-            <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Banco de Dados Cloud</h3>
+            <h3 className="font-black text-slate-900 text-base uppercase tracking-tight">Banco de Dados Cloud</h3>
           </div>
-          <div className="space-y-4 pt-4 border-t border-slate-50">
-            <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <Cloud className={`w-5 h-5 ${isAtlasConfigured() ? 'text-emerald-500' : 'text-slate-300'}`} />
-              <div>
-                <p className="text-[10px] font-black uppercase text-slate-400">Cluster Ativo</p>
-                <p className="text-sm font-black text-slate-700">BancoBela (MongoDB Atlas)</p>
+          <div className="space-y-3 pt-3 border-t border-slate-50">
+            <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+              <Cloud className={`w-4 h-4 ${isAtlasConfigured() ? 'text-emerald-500' : 'text-slate-300'}`} />
+              <div className="truncate">
+                <p className="text-[9px] font-black uppercase text-slate-400">Cluster Ativo</p>
+                <p className="text-xs font-black text-slate-700 truncate">BancoBela (MongoDB Atlas)</p>
               </div>
               <div className="ml-auto">
                 <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${isAtlasConfigured() ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
@@ -857,23 +861,58 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 pt-2">
+            <div className="flex flex-wrap gap-2 pt-1">
               <button 
                 onClick={handleExport}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-md"
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-sm"
               >
-                <Download className="w-4 h-4" /> Exportar JSON
+                <Download className="w-3.5 h-3.5" /> Exportar JSON
               </button>
               <button 
                 onClick={handleReset}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-red-100 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all"
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 border-2 border-red-100 text-red-600 rounded-xl text-xs font-bold hover:bg-red-50 transition-all"
               >
-                <Trash2 className="w-4 h-4" /> Reset Local
+                <Trash2 className="w-3.5 h-3.5" /> Reset Local
               </button>
             </div>
-            <p className="text-[9px] text-slate-400 font-bold italic uppercase leading-tight">
-              Nota: O usuário "{user.name}" está operando no cluster BancoBela. Certifique-se de que a Data API esteja ativa no painel Atlas.
-            </p>
+          </div>
+        </div>
+
+        {/* Card de Versão do Sistema */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-gradient-to-br from-orange-500 to-amber-500 text-white rounded-xl shadow-sm">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-base uppercase tracking-tight">Versão do Sistema</h3>
+              <p className="text-[10px] font-bold text-slate-400">Release & Build Automático</p>
+            </div>
+          </div>
+          <div className="space-y-2.5 pt-3 border-t border-slate-50">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase text-slate-400">Versão Semântica</span>
+              <span className="px-2 py-0.5 rounded-lg bg-orange-100 text-orange-800 text-xs font-mono font-black">
+                v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0'}
+              </span>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Último Commit Git</span>
+              <div className="p-2 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                <span className="font-mono text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">
+                  #{typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev'}
+                </span>
+                <p className="text-xs font-bold text-slate-800 line-clamp-2">
+                  "{typeof __COMMIT_MESSAGE__ !== 'undefined' ? __COMMIT_MESSAGE__ : 'Atualização do sistema'}"
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 font-mono">
+              <span>Compilado em:</span>
+              <span className="font-bold text-slate-700">{typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'Recente'}</span>
+            </div>
           </div>
         </div>
       </div>
