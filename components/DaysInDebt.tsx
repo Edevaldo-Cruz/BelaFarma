@@ -173,6 +173,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
 
     const monthClosings = (cashClosings || []).filter(c => {
         if (!c.date) return false;
+        if (c.date < '2026-08-31') return false; // Ignora antes de 31/08/2026
         const [yearStr, monthStr] = c.date.split('-'); 
         return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
     });

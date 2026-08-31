@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   PiggyBank, 
   Landmark, 
@@ -46,11 +46,15 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     fetchPaidDates();
   }, []);
 
-  // Fechamentos filtrados para o mês/ano selecionado
+  // Data de início oficial das provisões das caixinhas (ignora fechamentos anteriores a 31/08/2026)
+  const PROVISION_START_DATE = '2026-08-31';
+
+  // Fechamentos filtrados para o mês/ano selecionado a partir de 31/08/2026
   const monthClosings = useMemo(() => {
     return cashClosings
       .filter(c => {
         if (!c.date) return false;
+        if (c.date < PROVISION_START_DATE) return false;
         const [y, m] = c.date.split('-');
         return parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth;
       })
@@ -270,8 +274,8 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <Layers className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-lg font-black text-slate-900 tracking-tight">Total Geral de Provisões do Mês (17%)</h3>
-            <p className="text-xs text-slate-500 font-medium">Soma de todas as reservas destinadas a pró-labore, impostos e fundo de emergência.</p>
+            <h3 className="text-lg font-black text-slate-900 tracking-tight">Total Geral de Provisões do Mês</h3>
+            <p className="text-xs text-slate-500 font-medium">Soma das reservas destinadas a pró-labore (12%), impostos (4%) e fundo de emergência (1%).</p>
           </div>
         </div>
 

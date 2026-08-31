@@ -205,7 +205,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
         if (!c.date || !c.totalSales || c.totalSales <= 0) return;
         
         const closingDate = new Date(c.date + 'T00:00:00');
-        const minDate = new Date('2026-06-01T00:00:00');
+        const minDate = new Date('2026-08-31T00:00:00');
         if (closingDate < minDate) return;
 
         const dueD = new Date(closingDate);
