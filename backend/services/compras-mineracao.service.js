@@ -543,7 +543,9 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     precoUltCompra: precoUltCompra ? Number(precoUltCompra.toFixed(2)) : null,
     precoOfertado: Number(precoOfertado.toFixed(2)),
     percentualDesconto: Number(percentualDesconto.toFixed(2)),
+    percentualEconomia: Number(percentualDesconto.toFixed(2)),
     precoInferior,
+    vantajosa: precoInferior,
     estoqueAtual,
     estMinimo,
     emRuptura
@@ -712,7 +714,12 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
     const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, options);
 
     const ofertaId = crypto.randomUUID();
-    const statusOferta = validacao.vantajosa ? 'Aprovado_Radar' : 'Descartado_Preco';
+    let statusOferta = 'Aprovado_Radar';
+    if (validacao.precoUltCompra && validacao.precoUltCompra > 0) {
+      statusOferta = validacao.precoInferior ? 'Aprovado_Radar' : 'Descartado_Preco';
+    } else {
+      statusOferta = 'Oportunidade_Sem_Historico';
+    }
 
     try {
       dbInst.prepare(`

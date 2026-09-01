@@ -231,13 +231,8 @@ module.exports = (db) => {
 
   router.post('/whatsapp/minerar', async (req, res) => {
     try {
-      const { dias = 30, forcarReleitura = false } = req.body;
-      let resultado;
-      if (baileysComprasService && typeof baileysComprasService.minerarHistoricoConversas === 'function') {
-        resultado = await baileysComprasService.minerarHistoricoConversas({ dias, forcarReleitura });
-      } else {
-        resultado = await comprasMineracaoService.minerarHistoricoConversas(db, { dias, forcarReleitura });
-      }
+      const { dias = 14, forcarReleitura = false } = req.body;
+      const resultado = await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias, forcarReleitura });
       res.json({ success: true, data: resultado, message: 'Varredura e mineração concluídas com sucesso!' });
     } catch (err) {
       console.error('[Compras-Endpoints] Erro no POST /whatsapp/minerar:', err);

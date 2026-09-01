@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c8afa1b",
-  "commitMessage": "feat(compras): adicionar botao e modal para colar ofertas de representantes e aprimorar feedback da mineracao",
-  "buildTime": "01/09/2026, 17:14:28"
+  "commitHash": "8eb7811",
+  "commitMessage": "feat(compras): mineracao automatica em background a cada 10min e varredura inicial de 2 semanas",
+  "buildTime": "01/09/2026, 17:27:00"
 }
