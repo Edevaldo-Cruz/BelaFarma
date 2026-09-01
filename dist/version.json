@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "dfd08a4",
-  "commitMessage": "fix(compras, whatsapp, ai): auto inicializacao do Baileys Comercial, QR Code em configuracoes e atualizacao dos modelos Gemini/OpenAI",
-  "buildTime": "01/09/2026, 11:07:54"
+  "commitHash": "1e41d4e",
+  "commitMessage": "fix(baileys): preservar credenciais da sessao contra desconexoes falsas e reinicializacao",
+  "buildTime": "01/09/2026, 11:22:54"
 }

@@ -21,6 +21,7 @@ let isConnected   = false;  // true quando autenticado e pronto
 let isConnecting  = false;  // true durante inicialização
 let lastQR        = null;   // Último QR Code em base64 (para exibir na interface)
 let lastError     = null;   // Último erro registrado
+let connectedPhone = null;  // Telefone conectado
 let reconnectTimer = null;  // Timer de reconexão
 let savedDb       = null;   // Referência salva do banco de dados
 
@@ -131,13 +132,16 @@ async function connect(db) {
         isConnecting = false;
         lastQR       = null;
         lastError    = null;
-        console.log('[Baileys] ✅ Conectado ao WhatsApp com sucesso!');
+        if (sock?.user?.id) {
+          connectedPhone = sock.user.id.split(':')[0].split('@')[0];
+        }
+        console.log(`[Baileys] ✅ Conectado ao WhatsApp Principal com sucesso! Número: ${connectedPhone || 'Desconhecido'}`);
         try { incidentTracker.notifyWhatsappConnect('principal'); } catch(e) {}
 
         // --- Verificação de nova conexão para importação de histórico ---
         if (db && sock && sock.user && sock.user.id) {
           try {
-            const myPhone = sock.user.id.split(':')[0].split('@')[0];
+            const myPhone = connectedPhone || sock.user.id.split(':')[0].split('@')[0];
             let lastPhone = null;
             const row = db.prepare("SELECT value FROM system_settings WHERE key = ?").get("baileys_last_phone");
             if (row) {
@@ -167,8 +171,9 @@ async function connect(db) {
       }
 
       if (connection === 'close') {
-        isConnected  = false;
-        isConnecting = false;
+        isConnected    = false;
+        isConnecting   = false;
+        connectedPhone = null;
 
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const reason = lastDisconnect?.error?.message || String(lastDisconnect?.error || 'desconhecido');
@@ -436,6 +441,7 @@ function getStatus() {
     connecting:  isConnecting,
     hasQR:       !!lastQR,
     qrCode:      lastQR,       // base64 data URL da imagem do QR
+    phone:       connectedPhone,
     error:       lastError,
     sessionDir:  SESSION_DIR
   };
