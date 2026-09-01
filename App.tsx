@@ -159,83 +159,85 @@ const App: React.FC = () => {
     setIsBudgetSummaryOpen(false);
   };
 
-  // Cálculos do Orçamento Semanal Atual para o Botão Flutuante e Tema
-  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus, currentWeekAvailable, currentDailyAvailable } = useMemo(() => {
+  // Cálculos do Orçamento dos 2 Próximos Meses (M+1 e M+2) para o Botão Flutuante e Tema
+  const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus, nextMonthsInfo } = useMemo(() => {
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonthIndex = today.getMonth(); // 0-11
 
-    // Calcula a cascata de orçamentos semanais a partir do primeiro mês com limite cadastrado
-    // Usamos o mínimo entre o primeiro ano com limite e o ano atual como ponto de partida
-    const earliestYear = monthlyLimits.length > 0
-      ? Math.min(...monthlyLimits.map(l => l.year))
-      : currentYear;
+    // Mês 1 seguinte (M+1)
+    const m1Index = (currentMonthIndex + 1) % 12;
+    const y1 = currentMonthIndex + 1 > 11 ? currentYear + 1 : currentYear;
+    const m1Number = m1Index + 1; // 1-12
 
-    const weeklyStats = calculateWeeklyBudgetsCascade(
-      boletos,
-      monthlyLimits,
-      earliestYear,
-      currentYear,
-      currentMonthIndex
-    );
+    // Mês 2 seguinte (M+2)
+    const m2Index = (currentMonthIndex + 2) % 12;
+    const y2 = currentMonthIndex + 2 > 11 ? currentYear + 1 : currentYear;
+    const m2Number = m2Index + 1; // 1-12
 
-    const currentMonthKey = `${currentYear}-${currentMonthIndex + 1}`;
-    const currentMonthStats = weeklyStats[currentMonthKey];
+    const limit1Obj = monthlyLimits.find(l => l.month === m1Number && l.year === y1);
+    const limit2Obj = monthlyLimits.find(l => l.month === m2Number && l.year === y2);
 
-    let overallStatus: 'safe' | 'warning' | 'danger' | 'no-budget' = 'no-budget';
-    let emoji = '🤍';
-    let isBusted = false;
-    let weekAvailable = 0;
-    let dailyAvailable = 0;
+    const limit1 = limit1Obj && limit1Obj.limit > 0 ? limit1Obj.limit : 0;
+    const limit2 = limit2Obj && limit2Obj.limit > 0 ? limit2Obj.limit : 0;
 
-    if (currentMonthStats) {
-      // 1. Calcular Diário
-      const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
-      const dailyLimit = currentMonthStats.limit / daysInMonth;
-      
-      const todayBoletos = boletos.filter(b => {
-        if (!b.due_date) return false;
-        const [by, bm, bd] = b.due_date.split('-').map(Number);
-        return by === today.getFullYear() && bm === (today.getMonth() + 1) && bd === today.getDate();
-      });
-      const spentToday = todayBoletos.reduce((sum, b) => sum + b.value, 0);
-      dailyAvailable = dailyLimit - spentToday;
-      
-      let percentDaily = 0;
-      if (dailyLimit > 0) percentDaily = (spentToday / dailyLimit) * 100;
-      else if (spentToday > 0) percentDaily = 100;
-      
-      let dailyStatusValue: 'safe' | 'warning' | 'danger' = 'safe';
-      if (percentDaily >= 100) dailyStatusValue = 'danger';
-      else if (percentDaily >= 80) dailyStatusValue = 'warning';
-
-      // 2. Calcular Semanal
-      const currentWeek = currentMonthStats.weeks.find(w =>
-        today >= w.startDate && today <= w.endDate
-      ) || currentMonthStats.weeks[currentMonthStats.weeks.length - 1];
-
-      if (currentWeek) {
-        weekAvailable = currentWeek.available;
-        const weekStatus = currentWeek.status;
-        isBusted = currentWeek.available < 0 || dailyAvailable < 0;
-        
-        // Pior status entre diário e semanal dita a cor do balão
-        overallStatus = weekStatus;
-        if (weekStatus === 'danger' || dailyStatusValue === 'danger') overallStatus = 'danger';
-        else if (weekStatus === 'warning' || dailyStatusValue === 'warning') overallStatus = 'warning';
-
-        if (overallStatus === 'safe') emoji = '💚';
-        else if (overallStatus === 'warning') emoji = '💛';
-        else if (overallStatus === 'danger') emoji = '💔';
-      }
+    // Se qualquer um dos dois meses futuros não tiver limite cadastrado (>0), status é neutro ('no-budget')
+    if (limit1 <= 0 || limit2 <= 0) {
+      return {
+        isBudgetBusted: false,
+        budgetEmoji: '🤍',
+        currentMonthBudgetStatus: 'no-budget' as const,
+        nextMonthsInfo: {
+          m1: { month: m1Number, year: y1, limit: limit1, spent: 0, available: 0, status: 'no-budget' as const },
+          m2: { month: m2Number, year: y2, limit: limit2, spent: 0, available: 0, status: 'no-budget' as const },
+        }
+      };
     }
 
+    // Calcula gastos totais já lançados do Mês 1
+    const spent1 = boletos.filter(b => {
+      if (!b.due_date) return false;
+      const [by, bm] = b.due_date.split('-').map(Number);
+      return by === y1 && bm === m1Number;
+    }).reduce((sum, b) => sum + b.value, 0);
+
+    // Calcula gastos totais já lançados do Mês 2
+    const spent2 = boletos.filter(b => {
+      if (!b.due_date) return false;
+      const [by, bm] = b.due_date.split('-').map(Number);
+      return by === y2 && bm === m2Number;
+    }).reduce((sum, b) => sum + b.value, 0);
+
+    const calcStatus = (spent: number, limit: number): 'safe' | 'warning' | 'danger' => {
+      const pct = (spent / limit) * 100;
+      if (pct >= 100) return 'danger';
+      if (pct >= 80) return 'warning';
+      return 'safe';
+    };
+
+    const status1 = calcStatus(spent1, limit1);
+    const status2 = calcStatus(spent2, limit2);
+
+    // Pior cenário entre os dois meses
+    let overallStatus: 'safe' | 'warning' | 'danger' = 'safe';
+    if (status1 === 'danger' || status2 === 'danger') {
+      overallStatus = 'danger';
+    } else if (status1 === 'warning' || status2 === 'warning') {
+      overallStatus = 'warning';
+    }
+
+    let emoji = '💚';
+    if (overallStatus === 'danger') emoji = '💔';
+    else if (overallStatus === 'warning') emoji = '💛';
+
     return {
-      isBudgetBusted: isBusted,
+      isBudgetBusted: overallStatus === 'danger',
       budgetEmoji: emoji,
       currentMonthBudgetStatus: overallStatus,
-      currentWeekAvailable: weekAvailable,
-      currentDailyAvailable: dailyAvailable,
+      nextMonthsInfo: {
+        m1: { month: m1Number, year: y1, limit: limit1, spent: spent1, available: limit1 - spent1, status: status1 },
+        m2: { month: m2Number, year: y2, limit: limit2, spent: spent2, available: limit2 - spent2, status: status2 },
+      }
     };
   }, [boletos, monthlyLimits]);
 
@@ -1365,58 +1367,61 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Botão Flutuante do Status de Orçamento (Canto Inferior Direito) */}
-      <div className={`fixed bottom-10 md:bottom-8 right-4 md:right-8 z-[90] flex-col items-center gap-2 pb-safe ${showMobileFloatingButton ? 'flex' : 'hidden md:flex'}`}>
-        {/* Balão de Saldo Diário e Semanal */}
-        {currentMonthBudgetStatus !== 'no-budget' && (
+      {/* Botão Flutuante Discreto do Status de Orçamento (Apenas Desktop) */}
+      <div className="hidden md:flex fixed bottom-6 right-6 z-[90] flex-col items-end gap-2 group">
+        {/* Balão de Status dos 2 Próximos Meses (Exibido no Hover ou se em Alerta) */}
+        {currentMonthBudgetStatus !== 'no-budget' && nextMonthsInfo && (
           <div className={`
-            relative flex flex-col px-4 py-3 rounded-2xl shadow-xl text-xs font-bold
-            transition-all duration-500 animate-in fade-in slide-in-from-bottom-2 gap-2
+            hidden group-hover:flex flex-col px-3 py-2 rounded-xl shadow-lg text-[11px] font-bold
+            transition-all duration-300 gap-1.5 border pointer-events-none
             ${currentMonthBudgetStatus === 'danger'
-              ? 'bg-red-600 text-white'
+              ? 'bg-red-950/95 text-red-100 border-red-800 backdrop-blur'
               : currentMonthBudgetStatus === 'warning'
-                ? 'bg-amber-500 text-white'
-                : 'bg-emerald-600 text-white'
+                ? 'bg-amber-950/95 text-amber-100 border-amber-800 backdrop-blur'
+                : 'bg-emerald-950/95 text-emerald-100 border-emerald-800 backdrop-blur'
             }
           `}>
-            {/* Diário */}
-            <div className="flex flex-col items-end border-b border-white/20 pb-2">
-              <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider whitespace-nowrap">Disponível Hoje</span>
-              <span className="text-sm font-black whitespace-nowrap">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentDailyAvailable)}
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-black border-b border-white/10 pb-1 flex items-center justify-between gap-3">
+              <span>Previsão 2 Meses</span>
+              <span>{budgetEmoji}</span>
+            </div>
+            {/* Mês 1 */}
+            <div className="flex items-center justify-between gap-4">
+              <span className="opacity-80">
+                {new Date(nextMonthsInfo.m1.year, nextMonthsInfo.m1.month - 1).toLocaleString('pt-BR', { month: 'short' }).toUpperCase()}/{nextMonthsInfo.m1.year}:
+              </span>
+              <span className={nextMonthsInfo.m1.status === 'danger' ? 'text-red-400 font-black' : nextMonthsInfo.m1.status === 'warning' ? 'text-amber-400' : 'text-emerald-400'}>
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(nextMonthsInfo.m1.spent)} / {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(nextMonthsInfo.m1.limit)}
               </span>
             </div>
-            {/* Semanal */}
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] font-semibold opacity-80 uppercase tracking-wider whitespace-nowrap">Disponível na Semana</span>
-              <span className="text-sm font-black whitespace-nowrap">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentWeekAvailable)}
+            {/* Mês 2 */}
+            <div className="flex items-center justify-between gap-4">
+              <span className="opacity-80">
+                {new Date(nextMonthsInfo.m2.year, nextMonthsInfo.m2.month - 1).toLocaleString('pt-BR', { month: 'short' }).toUpperCase()}/{nextMonthsInfo.m2.year}:
+              </span>
+              <span className={nextMonthsInfo.m2.status === 'danger' ? 'text-red-400 font-black' : nextMonthsInfo.m2.status === 'warning' ? 'text-amber-400' : 'text-emerald-400'}>
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(nextMonthsInfo.m2.spent)} / {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(nextMonthsInfo.m2.limit)}
               </span>
             </div>
-            {/* Ponteiro do balão */}
-            <span className={`
-              absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45
-              ${currentMonthBudgetStatus === 'danger'
-                ? 'bg-red-600'
-                : currentMonthBudgetStatus === 'warning'
-                  ? 'bg-amber-500'
-                  : 'bg-emerald-600'
-              }
-            `} />
           </div>
         )}
 
-        {/* Botão circular */}
+        {/* Botão circular compacto */}
         <button
           onClick={() => setIsBudgetSummaryOpen(true)}
-          className={`flex items-center justify-center w-14 h-14 md:w-20 md:h-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95`}
-          title="Ver Painel de Orçamentos"
+          className={`flex items-center justify-center w-11 h-11 bg-white/90 dark:bg-slate-900/90 backdrop-blur border rounded-full shadow-md transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer ${
+            currentMonthBudgetStatus === 'danger'
+              ? 'border-red-500/50 text-red-500 hover:border-red-500'
+              : currentMonthBudgetStatus === 'warning'
+                ? 'border-amber-500/50 text-amber-500 hover:border-amber-500'
+                : currentMonthBudgetStatus === 'safe'
+                  ? 'border-emerald-500/50 text-emerald-500 hover:border-emerald-500'
+                  : 'border-slate-300 dark:border-slate-700 text-slate-400'
+          }`}
+          title="Ver Resumo de Orçamentos Futuros"
         >
-          <span className="text-2xl md:text-4xl relative select-none flex items-center justify-center">
+          <span className="text-lg select-none">
             {budgetEmoji}
-            {(currentMonthBudgetStatus === 'warning' || currentMonthBudgetStatus === 'danger') && (
-              <span className={`absolute -inset-1 rounded-full animate-ping border-2 ${currentMonthBudgetStatus === 'danger' ? 'border-red-500' : 'border-amber-500'} opacity-75`} />
-            )}
           </span>
         </button>
       </div>
