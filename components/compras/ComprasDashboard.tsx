@@ -65,6 +65,7 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS');
   const [filtroCurva, setFiltroCurva] = useState<string>('TODAS');
+  const [filtroCiclo, setFiltroCiclo] = useState<string>('TODOS');
   
   // Seleção
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -117,10 +118,11 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
 
       const matchStatus = filtroStatus === 'TODOS' || p.statusRuptura === filtroStatus;
       const matchCurva = filtroCurva === 'TODAS' || p.curvaAbc === filtroCurva;
+      const matchCiclo = filtroCiclo === 'TODOS' || (p.cicloVida || 'ESTAVEL') === filtroCiclo;
 
-      return matchBusca && matchStatus && matchCurva;
+      return matchBusca && matchStatus && matchCurva && matchCiclo;
     });
-  }, [produtos, busca, filtroStatus, filtroCurva]);
+  }, [produtos, busca, filtroStatus, filtroCurva, filtroCiclo]);
 
   // Paginação
   const totalPaginas = Math.max(1, Math.ceil(produtosFiltrados.length / itensPorPagina));
@@ -422,7 +424,7 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
               <Layers className="w-3.5 h-3.5" />
               Curva:
@@ -438,6 +440,33 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 }`}
               >
                 {c === 'TODAS' ? '*' : c}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              Ciclo:
+            </span>
+            {[
+              { id: 'TODOS', label: 'Todos' },
+              { id: 'CRESCIMENTO', label: '🚀 Alta' },
+              { id: 'ESTAVEL', label: '✨ Estável' },
+              { id: 'DECLINIO', label: '⚠️ Queda' },
+              { id: 'LANCAMENTO', label: '🆕 Novo' },
+              { id: 'SEM_GIRO', label: '💤 Parado' }
+            ].map(c => (
+              <button
+                key={c.id}
+                onClick={() => { setFiltroCiclo(c.id); setPagina(1); }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all ${
+                  filtroCiclo === c.id
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {c.label}
               </button>
             ))}
           </div>
@@ -462,25 +491,26 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 <th className="py-3 px-4">Código / EAN</th>
                 <th className="py-3 px-4">Medicamento / Apresentação</th>
                 <th className="py-3 px-3 text-center">Curva</th>
-                <th className="py-3 px-3 text-right">Demanda 30d</th>
+                <th className="py-3 px-3 text-center">Ciclo de Vida</th>
+                <th className="py-3 px-3 text-right">VMD (90d)</th>
                 <th className="py-3 px-3 text-right">Saldo Atual</th>
-                <th className="py-3 px-3 text-right text-sky-600 dark:text-sky-400">Est. Mínimo (30d)</th>
-                <th className="py-3 px-3 text-right text-purple-600 dark:text-purple-400">Est. Máximo (45d)</th>
-                <th className="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400">Sugestão Reposição</th>
+                <th className="py-3 px-3 text-right text-sky-600 dark:text-sky-400 font-black">Est. Mínimo (15d)</th>
+                <th className="py-3 px-3 text-right text-purple-600 dark:text-purple-400 font-black">Est. Máximo (30d)</th>
+                <th className="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black">Sugestão Reposição</th>
                 <th className="py-3 px-4 text-center">Status Estoque</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={11} className="py-12 text-center text-slate-400 font-bold">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-                    Carregando gestão de estoque e demanda para 30 dias...
+                    Carregando gestão de estoque por ciclo de vida (90 dias)...
                   </td>
                 </tr>
               ) : produtosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     <Info className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                     Nenhum medicamento encontrado com os filtros selecionados.
                   </td>
@@ -489,8 +519,10 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 produtosPaginados.map(item => {
                   const isSelected = selectedIds.has(item.produtoId);
                   const estMin = item.estMinimoCalculado || 0;
-                  const estMax = item.estMaximoCalculado || Math.ceil(estMin * 1.5);
-                  const sugerido = item.sugeridoReposicao !== undefined ? item.sugeridoReposicao : Math.max(0, estMin - item.saldo);
+                  const estMax = item.estMaximoCalculado || (estMin > 0 ? estMin * 2 : 0);
+                  const sugerido = item.sugeridoReposicao !== undefined 
+                    ? item.sugeridoReposicao 
+                    : (item.saldo < estMin || item.saldo <= 0 ? Math.max(0, estMax - item.saldo) : 0);
 
                   const isRuptura = item.saldo <= 0;
                   const isAbaixoMinimo = !isRuptura && estMin > 0 && item.saldo < estMin;
@@ -552,29 +584,49 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                           {item.curvaAbc || 'C'}
                         </span>
                       </td>
-                      <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
-                        {item.vmdPonderado?.toFixed(2) || '0.00'}
+                      <td className="py-3 px-3 text-center">
+                        {item.cicloVida === 'CRESCIMENTO' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+                            🚀 Alta
+                          </span>
+                        ) : item.cicloVida === 'DECLINIO' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/30">
+                            ⚠️ Queda
+                          </span>
+                        ) : item.cicloVida === 'LANCAMENTO' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/10 text-purple-600 border border-purple-500/30">
+                            🆕 Novo
+                          </span>
+                        ) : item.cicloVida === 'SEM_GIRO' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-400">
+                            💤 Parado
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-600 border border-sky-500/30">
+                            ✨ Estável
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-200">
-                        {item.demanda30d || 0} un
+                      <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-300 font-bold">
+                        {item.vmdPonderado?.toFixed(2) || '0.00'}
                       </td>
                       <td className={`py-3 px-3 text-right font-mono font-black ${saldoStyle}`}>
                         {item.saldo}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-slate-700 dark:text-slate-300">
+                      <td className="py-3 px-3 text-right font-mono font-black text-sky-700 dark:text-sky-300">
                         {estMin} un
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-black text-purple-700 dark:text-purple-300">
+                        {estMax} un
                       </td>
                       <td className="py-3 px-3 text-right font-mono font-black">
                         {sugerido > 0 ? (
-                          <span className="px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200 font-black">
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-black">
                             +{sugerido}
                           </span>
                         ) : (
                           <span className="text-slate-400 dark:text-slate-600">0</span>
                         )}
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-purple-700 dark:text-purple-300">
-                        {estMax} un
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] ${badgeColor}`}>

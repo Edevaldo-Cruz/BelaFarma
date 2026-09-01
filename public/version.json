@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "92a7fc7",
-  "commitMessage": "build: atualiza bundle dist com volume baileys compras no docker-compose",
-  "buildTime": "01/09/2026, 16:17:27"
+  "commitHash": "a8420e7",
+  "commitMessage": "fix(compras): substitui referencia incorreta pedidoMin por sugerido em ComprasDashboard e atualiza dist",
+  "buildTime": "01/09/2026, 16:28:21"
 }

@@ -24,76 +24,156 @@ function formatarDataFirebird(date) {
 }
 
 /**
- * Calcula a demanda ponderada de 30 dias com base nas vendas dos últimos 30 e 31-60 dias.
+ * Determina o Ciclo de Vida do produto com base no histórico de 90 dias
+ * @param {number} v30 Vendas 0-30d (P1)
+ * @param {number} v60 Vendas 31-60d (P2)
+ * @param {number} v90 Vendas 61-90d (P3)
+ * @param {boolean} ativo
+ * @returns {'CRESCIMENTO' | 'ESTAVEL' | 'DECLINIO' | 'LANCAMENTO' | 'SEM_GIRO'}
+ */
+function determinarCicloDeVida(v30 = 0, v60 = 0, v90 = 0, ativo = true) {
+  const v1 = Math.max(0, Number(v30) || 0);
+  const v2 = Math.max(0, Number(v60) || 0);
+  const v3 = Math.max(0, Number(v90) || 0);
+
+  if (!ativo || (v1 === 0 && v2 === 0 && v3 === 0)) {
+    return 'SEM_GIRO';
+  }
+  // Lançamento: Vendas recentes sem histórico nos períodos anteriores (P2=0 e P3=0)
+  if (v1 > 0 && v2 === 0 && v3 === 0) {
+    return 'LANCAMENTO';
+  }
+  // Crescimento: Vendas recentes com forte tendência de alta
+  if (v1 >= 2 && (v1 >= v2 * 1.15 || (v2 > 0 && v1 > ((v2 + v3) / 2) * 1.20))) {
+    return 'CRESCIMENTO';
+  }
+  // Declínio: Vendas recentes em queda significativa em relação aos períodos anteriores
+  if ((v2 > 0 || v3 > 0) && (v1 <= v2 * 0.70 || (v1 === 0 && (v2 > 0 || v3 > 0)))) {
+    return 'DECLINIO';
+  }
+  return 'ESTAVEL';
+}
+
+/**
+ * Calcula a demanda ponderada de 90 dias (3 períodos de 30 dias) e determina
+ * o Estoque Mínimo (15 dias de cobertura) e Estoque Máximo (30 dias de cobertura)
+ * de acordo com o Ciclo de Vida do produto.
  * 
  * Fórmula:
- * VMD_P = ((vendas30d * pesoP1) + (vendas31_60d * pesoP2)) / 30
- * Demanda_30d = VMD_P * 30 = (vendas30d * pesoP1) + (vendas31_60d * pesoP2)
- * Estoque_Minimo = Math.ceil(Demanda_30d * (1 + margemPercent / 100))
+ * VMD_P = ((vendas30d * 0.50) + (vendas31_60d * 0.30) + (vendas61_90d * 0.20)) / 30
+ * Demanda_15d = VMD_P * 15
+ * Demanda_30d = VMD_P * 30
  * 
- * Regras Especiais:
- * 1. Produto sem histórico (vendas30d = 0 e vendas31_60d = 0) ou > 90 dias sem venda -> EstoqueMinimo = 0
- * 2. Produto Curva A ativo com vendas e cálculo < 2 -> Piso de segurança = 2 unidades
- * 3. Produto Inativo -> EstoqueMinimo = 0
- * 
- * @param {number} vendas30d Quantidade vendida nos últimos 30 dias (P1)
- * @param {number} vendas31_60d Quantidade vendida entre 31 e 60 dias atrás (P2)
- * @param {number} margemPercent Margem de segurança percentual (padrão 15)
- * @param {Object} options Configurações adicionais (curvaAbc, diasSemVenda, ativo, pesoP1, pesoP2)
+ * @param {number} vendas30d Quantidade vendida nos últimos 30 dias (P1 - Peso 50%)
+ * @param {number} vendas31_60d Quantidade vendida entre 31 e 60 dias atrás (P2 - Peso 30%)
+ * @param {number|object} vendas61_90dOuMargem Quantidade 61 a 90 dias atrás (P3 - Peso 20%) ou margem
+ * @param {number|object} margemPercentOuOpts Margem de segurança percentual (padrão 15)
+ * @param {Object} options Configurações adicionais (curvaAbc, diasSemVenda, ativo, pesoP1, pesoP2, pesoP3, cicloVida)
  * @returns {Object}
  */
-function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, margemPercent = 15, options = {}) {
+function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, vendas61_90dOuMargem = 0, margemPercentOuOpts = 15, options = {}) {
   const v1 = Math.max(0, Number(vendas30d) || 0);
   const v2 = Math.max(0, Number(vendas31_60d) || 0);
-  const margem = isNaN(Number(margemPercent)) ? 15 : Number(margemPercent);
-  const pesoP1 = options.pesoP1 !== undefined ? Number(options.pesoP1) : 0.65;
-  const pesoP2 = options.pesoP2 !== undefined ? Number(options.pesoP2) : 0.35;
-  const curvaAbc = (options.curvaAbc || 'C').toUpperCase();
-  const diasSemVenda = Number(options.diasSemVenda) || 0;
-  const ativo = options.ativo !== undefined ? Boolean(options.ativo) : true;
+  
+  let v3 = 0;
+  let margem = 15;
+  let opts = {};
 
-  // Produto inativo: demanda zero
-  if (!ativo) {
+  if (typeof vendas61_90dOuMargem === 'object' && vendas61_90dOuMargem !== null) {
+    opts = vendas61_90dOuMargem;
+    margem = opts.margemPercent !== undefined ? Number(opts.margemPercent) : 15;
+    v3 = opts.vendas61_90d !== undefined ? Math.max(0, Number(opts.vendas61_90d) || 0) : 0;
+  } else if (typeof margemPercentOuOpts === 'object' && margemPercentOuOpts !== null) {
+    opts = margemPercentOuOpts;
+    margem = opts.margemPercent !== undefined ? Number(opts.margemPercent) : 15;
+    v3 = Math.max(0, Number(vendas61_90dOuMargem) || 0);
+  } else {
+    v3 = Math.max(0, Number(vendas61_90dOuMargem) || 0);
+    margem = isNaN(Number(margemPercentOuOpts)) ? 15 : Number(margemPercentOuOpts);
+    opts = typeof options === 'object' && options !== null ? options : {};
+  }
+
+  const pesoP1 = opts.pesoP1 !== undefined ? Number(opts.pesoP1) : 0.50;
+  const pesoP2 = opts.pesoP2 !== undefined ? Number(opts.pesoP2) : 0.30;
+  const pesoP3 = opts.pesoP3 !== undefined ? Number(opts.pesoP3) : 0.20;
+  const curvaAbc = (opts.curvaAbc || 'C').toUpperCase();
+  const diasSemVenda = Number(opts.diasSemVenda) || 0;
+  const ativo = opts.ativo !== undefined ? Boolean(opts.ativo) : true;
+
+  const cicloVida = opts.cicloVida || determinarCicloDeVida(v1, v2, v3, ativo);
+
+  // Produto inativo ou sem vendas em 90 dias: demanda e estoque zerados
+  if (!ativo || (v1 === 0 && v2 === 0 && v3 === 0) || diasSemVenda > 90 || cicloVida === 'SEM_GIRO') {
     return {
       vendas30d: v1,
       vendas31_60d: v2,
+      vendas61_90d: v3,
       vmdPonderado: 0,
+      demanda15d: 0,
       demanda30d: 0,
+      cicloVida: 'SEM_GIRO',
       margemSegurancaPercent: margem,
-      estoqueMinimoSugerido: 0
+      estoqueMinimoSugerido: 0,
+      estoqueMaximoSugerido: 0
     };
   }
 
-  // Produto sem venda nos 60 dias ou > 90 dias sem venda
-  if ((v1 === 0 && v2 === 0) || diasSemVenda > 90) {
+  // Produto Lançamento / Novo: estoque mínimo de segurança controlado
+  if (cicloVida === 'LANCAMENTO') {
+    const minLanc = 1;
+    const maxLanc = (curvaAbc === 'A' || curvaAbc === 'B') ? 3 : 2;
     return {
       vendas30d: v1,
       vendas31_60d: v2,
-      vmdPonderado: 0,
-      demanda30d: 0,
+      vendas61_90d: v3,
+      vmdPonderado: Number((v1 / 30).toFixed(4)),
+      demanda15d: Number(((v1 / 30) * 15).toFixed(2)),
+      demanda30d: v1,
+      cicloVida: 'LANCAMENTO',
       margemSegurancaPercent: margem,
-      estoqueMinimoSugerido: 0
+      estoqueMinimoSugerido: minLanc,
+      estoqueMaximoSugerido: maxLanc
     };
   }
 
-  // Cálculo ponderado
-  const demanda30dPonderada = (v1 * pesoP1) + (v2 * pesoP2);
-  const vmdPonderado = demanda30dPonderada / 30;
-  const fatorMargem = 1 + (margem / 100);
-  let estoqueMinimo = Math.ceil(demanda30dPonderada * fatorMargem);
+  // Cálculo ponderado dos 3 períodos
+  const demanda90dPonderada = (v1 * pesoP1) + (v2 * pesoP2) + (v3 * pesoP3);
+  const vmdPonderado = demanda90dPonderada / 30;
+  const demanda15d = vmdPonderado * 15;
+  const demanda30d = vmdPonderado * 30;
 
-  // Piso de segurança para produtos Curva A
-  if (curvaAbc === 'A' && (v1 > 0 || v2 > 0) && estoqueMinimo < 2) {
-    estoqueMinimo = 2;
+  // Fator multiplicador de margem ajustado pelo Ciclo de Vida
+  let multiplicadorCiclo = 1.0;
+  if (cicloVida === 'CRESCIMENTO') multiplicadorCiclo = 1.20; // +20% na margem para suportar aceleração
+  else if (cicloVida === 'DECLINIO') multiplicadorCiclo = 0.50; // -50% na margem para enxugar estoque
+
+  const fatorMargem = 1 + ((margem * multiplicadorCiclo) / 100);
+
+  let estoqueMinimo = Math.ceil(demanda15d * fatorMargem);
+  let estoqueMaximo = Math.ceil(demanda30d * fatorMargem);
+
+  // Garante que o Máximo seja sempre estritamente maior ou igual ao Mínimo
+  if (estoqueMaximo < estoqueMinimo) {
+    estoqueMaximo = estoqueMinimo * 2;
+  }
+
+  // Piso de segurança para produtos Curva A com saída
+  if (curvaAbc === 'A' && (v1 > 0 || v2 > 0 || v3 > 0)) {
+    if (estoqueMinimo < 2) estoqueMinimo = 2;
+    if (estoqueMaximo < 4) estoqueMaximo = 4;
   }
 
   return {
     vendas30d: v1,
     vendas31_60d: v2,
+    vendas61_90d: v3,
     vmdPonderado: Number(vmdPonderado.toFixed(4)),
-    demanda30d: Number(demanda30dPonderada.toFixed(2)),
+    demanda15d: Number(demanda15d.toFixed(2)),
+    demanda30d: Number(demanda30d.toFixed(2)),
+    cicloVida,
     margemSegurancaPercent: margem,
-    estoqueMinimoSugerido: Math.max(0, estoqueMinimo)
+    estoqueMinimoSugerido: Math.max(0, estoqueMinimo),
+    estoqueMaximoSugerido: Math.max(0, estoqueMaximo)
   };
 }
 
@@ -101,25 +181,26 @@ function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, margemPercent
  * Determina a classificação de status de estoque do produto.
  * - RUPTURA: saldo <= 0
  * - ABAIXO_MINIMO: 0 < saldo < estoqueMinimo
- * - EXCESSO: saldo >= estoqueMinimo * 2.5 (quando estoqueMinimo > 0)
- * - NORMAL: saldo >= estoqueMinimo
+ * - EXCESSO: saldo > estoqueMaximo (quando estoqueMaximo > 0)
+ * - NORMAL: estoqueMinimo <= saldo <= estoqueMaximo
  * 
  * @param {number} saldo Saldo atual em estoque
- * @param {number} estoqueMinimo Estoque mínimo calculado
+ * @param {number} estoqueMinimo Estoque mínimo calculado (15 dias)
+ * @param {number} [estoqueMaximo] Estoque máximo calculado (30 dias)
  * @returns {'RUPTURA' | 'ABAIXO_MINIMO' | 'EXCESSO' | 'NORMAL'}
  */
-function determinarStatusRuptura(saldo, estoqueMinimo) {
+function determinarStatusRuptura(saldo, estoqueMinimo, estoqueMaximo = null) {
   const s = Number(saldo) || 0;
-  const m = Number(estoqueMinimo) || 0;
+  const min = Number(estoqueMinimo) || 0;
+  const max = estoqueMaximo !== null && estoqueMaximo !== undefined ? Number(estoqueMaximo) : Math.max(min * 2, min + 1);
 
   if (s <= 0) {
     return 'RUPTURA';
   }
-  if (s < m) {
+  if (min > 0 && s < min) {
     return 'ABAIXO_MINIMO';
   }
-  const estMax = Math.ceil(m * 1.2);
-  if (m > 0 && s > estMax) {
+  if (max > 0 && s > max) {
     return 'EXCESSO';
   }
   return 'NORMAL';
@@ -166,7 +247,8 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
         COALESCE(p.VALOR_ULT_COMPRA, 0) as ULTIMA_COMPRA_VALOR,
         p.PROD_ATIVO,
         COALESCE(v30.QTD_30D, 0) as VENDAS_30D,
-        COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D
+        COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D,
+        COALESCE(v90.QTD_61_90D, 0) as VENDAS_61_90D
       FROM PRODUTOS p
       LEFT JOIN (
         SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_30D
@@ -185,6 +267,15 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
           AND v.VENDA_DATA_HORA < CAST('NOW' AS TIMESTAMP) - 30
         GROUP BY iv.PRODUTO_ID
       ) v60 ON p.PRODUTO_ID = v60.PRODUTO_ID
+      LEFT JOIN (
+        SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_61_90D
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 90
+          AND v.VENDA_DATA_HORA < CAST('NOW' AS TIMESTAMP) - 60
+        GROUP BY iv.PRODUTO_ID
+      ) v90 ON p.PRODUTO_ID = v90.PRODUTO_ID
       WHERE p.PRODUTO_ID = ?
     `;
 
@@ -214,7 +305,8 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
           ULTIMA_COMPRA_VALOR: cached.ultima_compra_valor,
           PROD_ATIVO: 'S',
           VENDAS_30D: cached.vendas_30d,
-          VENDAS_31_60D: cached.vendas_31_60d
+          VENDAS_31_60D: cached.vendas_31_60d,
+          VENDAS_61_90D: cached.vendas_61_90d || 0
         };
         curvaAbc = cached.curva_abc || curvaAbc;
       }
@@ -229,6 +321,7 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
 
   const vendas30d = Number(prodData.VENDAS_30D || 0);
   const vendas31_60d = Number(prodData.VENDAS_31_60D || 0);
+  const vendas61_90d = Number(prodData.VENDAS_61_90D || 0);
   const ativo = String(prodData.PROD_ATIVO || 'S').toUpperCase() === 'S';
   const saldo = Number(prodData.SALDO || 0);
   const estMinimoDigifarma = Number(prodData.EST_MINIMO_DIGIFARMA || 0);
@@ -236,28 +329,29 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
   const ultimaCompraValor = Number(prodData.ULTIMA_COMPRA_VALOR || 0);
   const descricaoCompleta = `${(prodData.DESCRICAO || '').trim()} ${(prodData.APRESENTACAO || '').trim()}`.trim();
 
-  const calculo = calcularDemandaPonderada(vendas30d, vendas31_60d, margemSegurancaPercent, {
+  const calculo = calcularDemandaPonderada(vendas30d, vendas31_60d, vendas61_90d, margemSegurancaPercent, {
     curvaAbc,
     ativo,
     pesoP1: options.pesoP1,
-    pesoP2: options.pesoP2
+    pesoP2: options.pesoP2,
+    pesoP3: options.pesoP3
   });
 
-  const statusRuptura = determinarStatusRuptura(saldo, calculo.estoqueMinimoSugerido);
+  const statusRuptura = determinarStatusRuptura(saldo, calculo.estoqueMinimoSugerido, calculo.estoqueMaximoSugerido);
 
   // Atualiza cache SQLite local
   try {
     db.prepare(`
       INSERT OR REPLACE INTO compras_estoque_cache (
         produto_id, descricao, ean, categoria_id, curva_abc, saldo,
-        est_minimo_calculado, est_minimo_digifarma, vmd_ponderado,
-        vendas_30d, vendas_31_60d, custo_unitario, ultima_compra_valor,
+        est_minimo_calculado, est_maximo_calculado, est_minimo_digifarma, vmd_ponderado,
+        vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
         status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
         sincronizado_em, atualizado_em
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?,
         ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
         ?, ?, ?,
         (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
         datetime('now', 'localtime')
@@ -270,34 +364,39 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
       curvaAbc,
       saldo,
       calculo.estoqueMinimoSugerido,
+      calculo.estoqueMaximoSugerido,
       estMinimoDigifarma,
       calculo.vmdPonderado,
       vendas30d,
       vendas31_60d,
+      vendas61_90d,
+      calculo.cicloVida,
       custoUnitario,
       ultimaCompraValor,
       statusRuptura,
       calculo.margemSegurancaPercent,
-      0,
+      options.diasSemVenda || 0,
       pId
     );
-  } catch (eUpsert) {
-    console.error('[Compras Estoque] Erro ao atualizar compras_estoque_cache:', eUpsert.message);
+  } catch (eSqlite) {
+    console.error('[Compras Estoque] Erro ao salvar cache SQLite para produto ' + pId + ':', eSqlite.message);
   }
 
   return {
     produtoId: pId,
     descricao: descricaoCompleta,
     ean: prodData.EAN || '',
-    categoriaId: Number(prodData.CATEGORIA_ID || 0),
     curvaAbc,
+    cicloVida: calculo.cicloVida,
     saldo,
-    estMinimoAtual: estMinimoDigifarma,
     estMinimoCalculado: calculo.estoqueMinimoSugerido,
-    estoqueMinimoSugerido: calculo.estoqueMinimoSugerido,
+    estMaximoCalculado: calculo.estoqueMaximoSugerido,
+    estMinimoDigifarma,
     vendas30d,
     vendas31_60d,
+    vendas61_90d,
     vmdPonderado: calculo.vmdPonderado,
+    demanda15d: calculo.demanda15d,
     demanda30d: calculo.demanda30d,
     margemSegurancaPercent: calculo.margemSegurancaPercent,
     statusRuptura,
@@ -456,7 +555,8 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       COALESCE(p.VALOR_ULT_COMPRA, 0) as ULTIMA_COMPRA_VALOR,
       p.PROD_ATIVO,
       COALESCE(v30.QTD_30D, 0) as VENDAS_30D,
-      COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D
+      COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D,
+      COALESCE(v90.QTD_61_90D, 0) as VENDAS_61_90D
     FROM PRODUTOS p
     LEFT JOIN (
       SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_30D
@@ -475,6 +575,15 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         AND v.VENDA_DATA_HORA < CAST('NOW' AS TIMESTAMP) - 30
       GROUP BY iv.PRODUTO_ID
     ) v60 ON p.PRODUTO_ID = v60.PRODUTO_ID
+    LEFT JOIN (
+      SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_61_90D
+      FROM ITEM_VENDAS iv
+      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+      WHERE v.CANCELADO <> 'S'
+        AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 90
+        AND v.VENDA_DATA_HORA < CAST('NOW' AS TIMESTAMP) - 60
+      GROUP BY iv.PRODUTO_ID
+    ) v90 ON p.PRODUTO_ID = v90.PRODUTO_ID
     WHERE p.PROD_ATIVO = 'S'
   `;
 
@@ -505,7 +614,8 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
           ULTIMA_COMPRA_VALOR: cp.ultima_compra_valor,
           PROD_ATIVO: 'S',
           VENDAS_30D: cp.vendas_30d,
-          VENDAS_31_60D: cp.vendas_31_60d
+          VENDAS_31_60D: cp.vendas_31_60d,
+          VENDAS_61_90D: cp.vendas_61_90d || 0
         }));
       }
     } catch (eCache) {
@@ -527,13 +637,14 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     };
   }
 
-  // 1. Calcula dinamicamente a Curva ABC (A: 80%, B: 15%, C: 5% / sem vendas)
+  // 1. Calcula dinamicamente a Curva ABC ponderada nos 90 dias (A: 80%, B: 15%, C: 5%)
   const productRevenues = produtos.map(p => {
     const pId = parseInt(p.PRODUTO_ID, 10);
     const v30 = Number(p.VENDAS_30D || 0);
     const v60 = Number(p.VENDAS_31_60D || 0);
+    const v90 = Number(p.VENDAS_61_90D || 0);
     const custo = Number(p.CUSTO_UNITARIO || 0);
-    const revenue = ((v30 * 0.65) + (v60 * 0.35)) * Math.max(1, custo);
+    const revenue = ((v30 * 0.50) + (v60 * 0.30) + (v90 * 0.20)) * Math.max(1, custo);
     return { pId, revenue };
   });
 
@@ -569,6 +680,7 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     const pId = parseInt(p.PRODUTO_ID, 10);
     const v30 = Number(p.VENDAS_30D || 0);
     const v60 = Number(p.VENDAS_31_60D || 0);
+    const v90 = Number(p.VENDAS_61_90D || 0);
     const saldo = Number(p.SALDO || 0);
     const estMinimoDigifarma = Number(p.EST_MINIMO_DIGIFARMA || 0);
     const custo = Number(p.CUSTO_UNITARIO || 0);
@@ -576,12 +688,12 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     const curva = curvaMap.get(String(pId)) || 'C';
     const descricaoCompleta = `${(p.DESCRICAO || '').trim()} ${(p.APRESENTACAO || '').trim()}`.trim();
 
-    const calculo = calcularDemandaPonderada(v30, v60, margemSegurancaPercent, {
+    const calculo = calcularDemandaPonderada(v30, v60, v90, margemSegurancaPercent, {
       curvaAbc: curva,
       ativo: true
     });
 
-    const statusRuptura = determinarStatusRuptura(saldo, calculo.estoqueMinimoSugerido);
+    const statusRuptura = determinarStatusRuptura(saldo, calculo.estoqueMinimoSugerido, calculo.estoqueMaximoSugerido);
 
     if (statusRuptura === 'RUPTURA') totalRupturas++;
     else if (statusRuptura === 'ABAIXO_MINIMO') totalAbaixoMinimo++;
@@ -600,10 +712,13 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       curva_abc: curva,
       saldo,
       est_minimo_calculado: calculo.estoqueMinimoSugerido,
+      est_maximo_calculado: calculo.estoqueMaximoSugerido,
       est_minimo_digifarma: estMinimoDigifarma,
       vmd_ponderado: calculo.vmdPonderado,
       vendas_30d: v30,
       vendas_31_60d: v60,
+      vendas_61_90d: v90,
+      ciclo_vida: calculo.cicloVida,
       custo_unitario: custo,
       ultima_compra_valor: ultCompra,
       status_ruptura: statusRuptura,
@@ -615,14 +730,14 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
   const upsertStmt = db.prepare(`
     INSERT OR REPLACE INTO compras_estoque_cache (
       produto_id, descricao, ean, categoria_id, curva_abc, saldo,
-      est_minimo_calculado, est_minimo_digifarma, vmd_ponderado,
-      vendas_30d, vendas_31_60d, custo_unitario, ultima_compra_valor,
+      est_minimo_calculado, est_maximo_calculado, est_minimo_digifarma, vmd_ponderado,
+      vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
       status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
       sincronizado_em, atualizado_em
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
-      ?, ?, ?,
       ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
       ?, ?, 0,
       (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
       datetime('now', 'localtime')
@@ -639,10 +754,13 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         item.curva_abc,
         item.saldo,
         item.est_minimo_calculado,
+        item.est_maximo_calculado,
         item.est_minimo_digifarma,
         item.vmd_ponderado,
         item.vendas_30d,
         item.vendas_31_60d,
+        item.vendas_61_90d,
+        item.ciclo_vida,
         item.custo_unitario,
         item.ultima_compra_valor,
         item.status_ruptura,
@@ -696,18 +814,24 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
     whereClauses.push(`status_ruptura = 'RUPTURA'`);
   } else if (filtros.apenasAbaixoMinimo) {
     whereClauses.push(`status_ruptura IN ('RUPTURA', 'ABAIXO_MINIMO')`);
-  } else if (filtros.status) {
+  } else if (filtros.status && filtros.status !== 'TODOS') {
     whereClauses.push(`status_ruptura = ?`);
     params.push(filtros.status.toUpperCase());
-  } else {
+  } else if (!filtros.status) {
     // Por padrão na Central de Compras, traz os que precisam de atenção
     whereClauses.push(`status_ruptura IN ('RUPTURA', 'ABAIXO_MINIMO')`);
   }
 
   // Filtro Curva ABC
-  if (filtros.curvaAbc) {
+  if (filtros.curvaAbc && filtros.curvaAbc !== 'TODAS') {
     whereClauses.push(`curva_abc = ?`);
     params.push(filtros.curvaAbc.toUpperCase());
+  }
+
+  // Filtro Ciclo de Vida
+  if (filtros.cicloVida && filtros.cicloVida !== 'TODOS') {
+    whereClauses.push(`ciclo_vida = ?`);
+    params.push(filtros.cicloVida.toUpperCase());
   }
 
   // Filtro Categoria
@@ -730,9 +854,9 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
   if (filtros.orderBy === 'descricao_asc') {
     orderBy = 'descricao ASC';
   } else if (filtros.orderBy === 'diferenca_desc') {
-    orderBy = '(est_minimo_calculado - saldo) DESC';
+    orderBy = '(est_maximo_calculado - saldo) DESC';
   } else if (filtros.orderBy === 'valor_reposicao_desc') {
-    orderBy = '((est_minimo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)) DESC';
+    orderBy = '((est_maximo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)) DESC';
   } else if (filtros.orderBy === 'vmd_desc') {
     orderBy = 'vmd_ponderado DESC';
   }
@@ -754,7 +878,7 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       SUM(
         CASE 
           WHEN status_ruptura IN ('RUPTURA', 'ABAIXO_MINIMO') 
-          THEN MAX(0, est_minimo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)
+          THEN MAX(0, COALESCE(NULLIF(est_maximo_calculado, 0), est_minimo_calculado * 2, 0) - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)
           ELSE 0 
         END
       ) as valorTotalReposicao
@@ -771,18 +895,21 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       curva_abc as curvaAbc,
       saldo,
       est_minimo_calculado as estMinimoCalculado,
+      est_maximo_calculado as estMaximoCalculado,
       est_minimo_digifarma as estMinimoDigifarma,
       vmd_ponderado as vmdPonderado,
       vendas_30d as vendas30d,
       vendas_31_60d as vendas31_60d,
+      vendas_61_90d as vendas61_90d,
+      ciclo_vida as cicloVida,
       custo_unitario as custoUnitario,
       ultima_compra_valor as ultimaCompraValor,
       status_ruptura as statusRuptura,
       margem_seguranca_aplicada as margemSegurancaAplicada,
       sincronizado_em as sincronizadoEm,
       atualizado_em as atualizadoEm,
-      MAX(0, est_minimo_calculado - saldo) as diferencaEstoque,
-      ROUND(MAX(0, est_minimo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0), 2) as valorNecessarioReposicao
+      MAX(0, COALESCE(NULLIF(est_maximo_calculado, 0), est_minimo_calculado * 2, 0) - saldo) as diferencaEstoque,
+      ROUND(MAX(0, COALESCE(NULLIF(est_maximo_calculado, 0), est_minimo_calculado * 2, 0) - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0), 2) as valorNecessarioReposicao
     FROM compras_estoque_cache
     ${whereSql}
     ORDER BY ${orderBy}
@@ -791,14 +918,23 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
 
   const mappedRows = rows.map(r => {
     const estMin = Number(r.estMinimoCalculado) || 0;
-    const estMax = Math.ceil(estMin * 1.2);
+    const estMax = Number(r.estMaximoCalculado) || (estMin > 0 ? estMin * 2 : 0);
     const saldo = Number(r.saldo) || 0;
-    const pedidoMinimo = Math.max(0, estMin - saldo);
+    
+    // Sugestão de Reposição: se o saldo estiver abaixo do mínimo, compra para atingir o máximo (30 dias)
+    let sugerido = 0;
+    if (saldo < estMin || saldo <= 0) {
+      sugerido = Math.max(0, estMax - saldo);
+    }
+
     return {
       ...r,
+      estMinimoCalculado: estMin,
       estMaximoCalculado: estMax,
-      pedidoMinimo: pedidoMinimo,
-      sugeridoReposicao: pedidoMinimo
+      cicloVida: r.cicloVida || 'ESTAVEL',
+      vendas61_90d: Number(r.vendas61_90d) || 0,
+      pedidoMinimo: sugerido,
+      sugeridoReposicao: sugerido
     };
   });
 

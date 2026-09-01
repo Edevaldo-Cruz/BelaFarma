@@ -1833,10 +1833,13 @@ try {
         curva_abc TEXT DEFAULT 'C',
         saldo REAL DEFAULT 0,
         est_minimo_calculado REAL DEFAULT 0,
+        est_maximo_calculado REAL DEFAULT 0,
         est_minimo_digifarma REAL DEFAULT 0,
         vmd_ponderado REAL DEFAULT 0,
         vendas_30d REAL DEFAULT 0,
         vendas_31_60d REAL DEFAULT 0,
+        vendas_61_90d REAL DEFAULT 0,
+        ciclo_vida TEXT DEFAULT 'ESTAVEL',
         custo_unitario REAL DEFAULT 0,
         ultima_compra_valor REAL DEFAULT 0,
         status_ruptura TEXT DEFAULT 'NORMAL',
@@ -1847,9 +1850,19 @@ try {
       );
     `);
     try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN vendas_61_90d REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec("ALTER TABLE compras_estoque_cache ADD COLUMN ciclo_vida TEXT DEFAULT 'ESTAVEL'");
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN est_maximo_calculado REAL DEFAULT 0');
+    } catch (e) {}
+    try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_status ON compras_estoque_cache(status_ruptura)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ean ON compras_estoque_cache(ean)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ciclo ON compras_estoque_cache(ciclo_vida)');
     } catch(e) {}
     console.log('✅ Central de Compras: Tabela compras_estoque_cache criada/verificada!');
 

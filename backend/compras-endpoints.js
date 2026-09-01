@@ -95,10 +95,11 @@ module.exports = (db) => {
 
   router.get('/estoque/minimo', async (req, res) => {
     try {
-      const { status, curva, busca, apenas_com_vendas, limite, offset } = req.query;
+      const { status, curva, ciclo, ciclo_vida, cicloVida, busca, apenas_com_vendas, limite, offset } = req.query;
       const result = await comprasEstoqueService.listarProdutosAbaixoDoMinimo({
         status: status || null,
         curva: curva || null,
+        cicloVida: ciclo || ciclo_vida || cicloVida || null,
         busca: busca || null,
         apenasComVendas: apenas_com_vendas === 'true' || apenas_com_vendas === '1',
         limite: limite ? parseInt(limite, 10) : 100,

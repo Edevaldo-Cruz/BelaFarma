@@ -880,14 +880,19 @@ export interface EstoqueMinimoProduto {
   estMinimoCalculado: number;
   estMaximoCalculado?: number;
   pedidoMinimo?: number;
+  demanda15d?: number;
   demanda30d: number;
   vmdPonderado: number;
+  vendas30d?: number;
+  vendas31_60d?: number;
+  vendas61_90d?: number;
+  cicloVida?: 'CRESCIMENTO' | 'ESTAVEL' | 'DECLINIO' | 'LANCAMENTO' | 'SEM_GIRO';
   statusRuptura: 'RUPTURA' | 'ABAIXO_MINIMO' | 'NORMAL' | 'EXCESSO';
   curvaAbc: string;
   custoUnitario: number;
   ultimaCompraValor?: number;
   ultimaCompraData?: string;
-  sincronizadoDigifarma: number;
+  sincronizadoDigifarma?: number;
   sugeridoReposicao: number;
   atualizadoEm?: string;
 }
