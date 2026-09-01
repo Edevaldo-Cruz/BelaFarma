@@ -173,30 +173,30 @@ async function connect(db) {
 
         console.warn(`[Baileys-Compras] ⚠️ Conexão de compras fechada. Código: ${statusCode}, Motivo: ${reason}`);
 
-        const needsFullReset = statusCode === DisconnectReason?.loggedOut ||
-                               statusCode === DisconnectReason?.badSession ||
-                               reason.includes('QR refs attempts ended');
+        // APENAS loggedOut (401) significa que o usuário desvinculou o aparelho no WhatsApp
+        const isLoggedOut = statusCode === DisconnectReason?.loggedOut;
 
         try {
           if (incidentTracker?.notifyWhatsappDisconnect) {
-            incidentTracker.notifyWhatsappDisconnect('compras', statusCode, reason, needsFullReset);
+            incidentTracker.notifyWhatsappDisconnect('compras', statusCode, reason, isLoggedOut);
           }
         } catch (e) {}
 
-        if (needsFullReset) {
-          console.warn('[Baileys-Compras] 🧹 Sessão de compras inválida ou expirada. Limpando pasta de sessão...');
+        if (isLoggedOut) {
+          console.warn('[Baileys-Compras] 🧹 Sessão de compras desvinculada pelo usuário (loggedOut). Limpando pasta de sessão...');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
-          lastError = `Reset: código ${statusCode} — ${reason}`;
+          lastError = `Desconectado (loggedOut)`;
           lastQR = null;
           if (reconnectTimer) clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(() => connect(savedDb), 4000);
+          reconnectTimer = setTimeout(() => connect(savedDb), 3000);
           return;
         }
 
-        console.warn(`[Baileys-Compras] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 5s...`);
-        lastError = `Desconectado: ${reason}`;
+        // Reconexão transparente para restartRequired (515), timeout (408), connectionLost, etc.
+        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 3000;
+        console.log(`[Baileys-Compras] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
         if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => connect(savedDb), 5000);
+        reconnectTimer = setTimeout(() => connect(savedDb), delay);
       }
     });
 

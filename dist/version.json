@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f1dffa6",
-  "commitMessage": "feat: ajustar regra do tema para monitorar os 2 meses futuros (M+1 e M+2) e tornar botao flutuante discreto/oculto no mobile",
-  "buildTime": "01/09/2026, 10:41:33"
+  "commitHash": "dfd08a4",
+  "commitMessage": "fix(compras, whatsapp, ai): auto inicializacao do Baileys Comercial, QR Code em configuracoes e atualizacao dos modelos Gemini/OpenAI",
+  "buildTime": "01/09/2026, 11:07:54"
 }

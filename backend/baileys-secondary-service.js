@@ -169,31 +169,28 @@ async function connect(db) {
 
         console.warn(`[Baileys-Secondary] ⚠️ Conexão fechada. Código: ${statusCode}, Motivo: ${reason}`);
 
-        // Casos onde a sessão deve ser APAGADA e recriada do zero
-        const needsFullReset = statusCode === DisconnectReason?.loggedOut ||
-                               statusCode === DisconnectReason?.badSession ||
-                               reason.includes('QR refs attempts ended');
+        // APENAS loggedOut (401) significa que o usuário desvinculou o aparelho no WhatsApp
+        const isLoggedOut = statusCode === DisconnectReason?.loggedOut;
 
-        // Notifica o Rastreador de Incidentes
         try {
-          incidentTracker.notifyWhatsappDisconnect('secundario', statusCode, reason, needsFullReset);
+          incidentTracker.notifyWhatsappDisconnect('secundario', statusCode, reason, isLoggedOut);
         } catch (e) {}
 
-        if (needsFullReset) {
-          console.warn('[Baileys-Secondary] 🧹 Sessão secundária inválida ou QR expirado completamente. Apagando pasta de sessão...');
+        if (isLoggedOut) {
+          console.warn('[Baileys-Secondary] 🧹 Sessão desvinculada pelo usuário (loggedOut). Apagando pasta de sessão...');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
-          lastError = `Reset: código ${statusCode} — ${reason}`;
+          lastError = `Desconectado (loggedOut)`;
           lastQR = null;
           if (reconnectTimer) clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(() => connect(savedDb), 4000);
+          reconnectTimer = setTimeout(() => connect(savedDb), 3000);
           return;
         }
 
-        // Desconexão temporária — NÃO apaga o QR nem a sessão
-        console.warn(`[Baileys-Secondary] 🔄 Desconectado temporariamente (${statusCode} - ${reason}). Reconectando em 5s...`);
-        lastError = `Desconectado: ${reason}`;
+        // Reconexão transparente para restartRequired (515), timeout (408), connectionLost, etc.
+        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 3000;
+        console.log(`[Baileys-Secondary] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
         if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => connect(savedDb), 5000);
+        reconnectTimer = setTimeout(() => connect(savedDb), delay);
       }
     });
 
