@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "13ed35e",
-  "commitMessage": "fix(compras): correcao no mapeamento de status e carregamento do radar de ofertas",
-  "buildTime": "01/09/2026, 17:32:05"
+  "commitHash": "f35eeb9",
+  "commitMessage": "feat(compras): auto-populacao de ofertas historicas de distribuidores e mineracao automatica",
+  "buildTime": "01/09/2026, 17:35:49"
 }

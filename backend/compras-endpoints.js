@@ -270,10 +270,10 @@ module.exports = (db) => {
     }
   });
 
-  router.get('/oportunidades', (req, res) => {
+  router.get('/oportunidades', async (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
-      const oportunidades = comprasMineracaoService.listarOportunidades(db, {
+      let oportunidades = comprasMineracaoService.listarOportunidades(db, {
         status: status || null,
         fornecedorId: fornecedor_id || null,
         busca: busca || null,
@@ -281,16 +281,30 @@ module.exports = (db) => {
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
+
+      // Se ainda não houver oportunidades geradas, executa a varredura automática inicial
+      if (oportunidades.length === 0 && !busca && !fornecedor_id) {
+        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 14 });
+        oportunidades = comprasMineracaoService.listarOportunidades(db, {
+          status: status || null,
+          fornecedorId: fornecedor_id || null,
+          busca: busca || null,
+          apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+          limite: limite ? parseInt(limite, 10) : 50,
+          offset: offset ? parseInt(offset, 10) : 0
+        });
+      }
+
       res.json({ success: true, data: oportunidades });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  router.get('/radar/oportunidades', (req, res) => {
+  router.get('/radar/oportunidades', async (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
-      const oportunidades = comprasMineracaoService.listarOportunidades(db, {
+      let oportunidades = comprasMineracaoService.listarOportunidades(db, {
         status: status || null,
         fornecedorId: fornecedor_id || null,
         busca: busca || null,
@@ -298,6 +312,19 @@ module.exports = (db) => {
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
+
+      if (oportunidades.length === 0 && !busca && !fornecedor_id) {
+        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 14 });
+        oportunidades = comprasMineracaoService.listarOportunidades(db, {
+          status: status || null,
+          fornecedorId: fornecedor_id || null,
+          busca: busca || null,
+          apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+          limite: limite ? parseInt(limite, 10) : 50,
+          offset: offset ? parseInt(offset, 10) : 0
+        });
+      }
+
       res.json({ success: true, data: oportunidades });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
