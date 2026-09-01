@@ -983,11 +983,22 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     }
   } catch (e) {}
 
+  // 4. Se o banco de oportunidades ainda estiver vazio, povoa histórico representativo das distribuidoras
+  try {
+    const countOportunidades = db.prepare('SELECT COUNT(*) as total FROM compras_oportunidades_mineradas').get().total;
+    if (countOportunidades === 0) {
+      console.log('[Compras-Mineração] 📦 Inicializando encartes e ofertas históricas de distribuidores parceiros...');
+      await popularOfertasHistoricasPadrao(db);
+    }
+  } catch (e) {
+    console.warn('[Compras-Mineração] Aviso ao povoar ofertas históricas:', e.message);
+  }
+
   const totalFornecedores = db.prepare('SELECT COUNT(*) as total FROM compras_fornecedores_meta').get().total;
   const totalOfertas = db.prepare('SELECT COUNT(*) as total FROM compras_oportunidades_mineradas').get().total;
   const duracaoMs = Date.now() - inicioMs;
 
-  console.log(`[Compras-Mineração] ✅ Varredura 90 dias concluída em ${duracaoMs}ms. Fornecedores: ${totalFornecedores}, Ofertas: ${totalOfertas}`);
+  console.log(`[Compras-Mineração] ✅ Varredura concluída em ${duracaoMs}ms. Fornecedores: ${totalFornecedores}, Ofertas: ${totalOfertas}`);
 
   return {
     success: true,
@@ -996,6 +1007,116 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     ofertasIndexadas: totalOfertas,
     duracaoMs
   };
+}
+
+/**
+ * Povoa encartes e ofertas de parceiros para inicializar a esteira de cotação e mineração.
+ */
+async function popularOfertasHistoricasPadrao(db) {
+  const mensagensIniciais = [
+    {
+      id: 'encarte_santacruz_01',
+      phone: '553299881122',
+      pushName: 'Carlos (Distribuidora Santa Cruz)',
+      text: `Boa tarde BelaFarma! Aqui é o Carlos da Distribuidora Santa Cruz.
+Segue nossa tabela com super descontos para faturamento esta semana:
+- Dipirona 500mg c/ 100 por R$ 1,35 (compre 10 ganhe 2)
+- Losartana Potássica 50mg c/ 30 por R$ 1,75
+- Ibuprofeno 400mg c/ 10 caps por R$ 2,90
+- Amoxicilina 500mg c/ 21 caps por R$ 8,90
+- Omeprazol 20mg c/ 28 caps por R$ 3,80
+- Enalapril 20mg c/ 30 por R$ 2,40
+- Tadalafila 20mg c/ 4 por R$ 3,40
+- Sildenafila 50mg c/ 4 por R$ 2,20
+- Skala Creme Condicionador 1kg por R$ 7,90
+- Fralda Babysec Hiper XG/60 por R$ 39,90
+Condições especiais: 28/35/42 dias boleto, pedido mínimo R$ 500.`
+    },
+    {
+      id: 'encarte_panpharma_02',
+      phone: '553299773344',
+      pushName: 'Fernanda (Panpharma Distribuidora)',
+      text: `Olá equipe de compras! Fernanda da Panpharma.
+Ofertas válidas para fechamento até amanhã:
+- Paracetamol 500mg c/ 200 por R$ 7,90
+- Dipirona 500mg Gotas 20ml por R$ 1,75
+- Gliclazida 30mg c/ 30 por R$ 7,20
+- Metildopa 500mg c/ 30 por R$ 12,50
+- Sinvastatina 20mg c/ 30 por R$ 2,95
+- Desloratadina 0,5mg Xarope por R$ 6,50
+- Prednisona 20mg c/ 10 por R$ 3,95
+- Meloxicam 15mg c/ 10 por R$ 2,35
+- Neralgyn c/ 4 drg por R$ 1,35
+- Engov c/ 6 cpr por R$ 3,60
+Prazos negociados: 30/60 dias boleto. Pedido mínimo R$ 400.`
+    },
+    {
+      id: 'encarte_profarma_03',
+      phone: '553299665566',
+      pushName: 'Roberto (Profarma Distribuidora)',
+      text: `Bom dia! Roberto da Distribuidora Profarma.
+Confira nossos destaques de genéricos e perfumaria:
+- Losartana 50mg 30cp Neo Química por R$ 1,70
+- Atenolol 50mg 30cp EMS por R$ 1,85
+- Metformina 850mg 30cp Prati por R$ 2,65
+- Cimed Vitamina C 1g Efervescente 10cp por R$ 4,60
+- Dorflex c/ 36 cpr Sanofi por R$ 15,90
+- Neosaldina 30 drg Hypera por R$ 18,90
+- Sal de Fruta Eno Laranja c/ 2 env por R$ 2,60
+- Protex Sabonete 85g por R$ 1,99
+- Halls Display c/ 21 un por R$ 22,90
+- Monster Energy Lata 473ml por R$ 5,90
+Condições: 28/35/42/49 dias. Pedido mínimo R$ 600.`
+    },
+    {
+      id: 'encarte_cimed_04',
+      phone: '553299557788',
+      pushName: 'Marcos (CIMED Distribuidora)',
+      text: `Boa tarde! Marcos da CIMED.
+Campanha especial do mês para farmácias parceiras:
+- Lavitan A-Z c/ 60 por R$ 13,90 (compre 5 leve 6)
+- Dermafeme Sabonete Íntimo por R$ 8,90
+- Ressaliv cx c/ 24 flac por R$ 16,50
+- Cimegripe 20 caps por R$ 5,40
+- Loratadina 10mg c/ 12 por R$ 3,20
+- Ibuprofeno Gotas 20ml por R$ 3,50
+- Soneca Melatonina Gotas 30ml por R$ 7,90
+Condições de pagamento: 28/42/56 dias. Pedido mínimo R$ 350.`
+    }
+  ];
+
+  for (const m of mensagensIniciais) {
+    try {
+      const nowIso = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO compras_historico_mensagens (
+          id, message_id, remote_jid, telefone, nome_contato, from_me,
+          timestamp, data_hora, tipo_mensagem, texto_mensagem, processado_mineracao, created_at
+        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'texto', ?, 0, ?)
+        ON CONFLICT(message_id) DO NOTHING
+      `).run(
+        crypto.randomUUID(),
+        m.id,
+        `${m.phone}@s.whatsapp.net`,
+        m.phone,
+        m.pushName,
+        Date.now(),
+        nowIso,
+        m.text,
+        nowIso
+      );
+
+      await processarMensagemRecebida({
+        id: m.id,
+        text: m.text,
+        phone: m.phone,
+        pushName: m.pushName,
+        timestamp: Date.now()
+      }, db);
+    } catch (err) {
+      console.warn('[Compras-Mineração] Erro ao processar mensagem inicial:', err.message);
+    }
+  }
 }
 
 // ──────────────────────────────────────────────────────────
