@@ -4959,10 +4959,10 @@ app.get('/api/appointments', (req, res) => {
     // Role-based visibility check: non-admins only see public or their own appointments
     if (userRole !== 'Administrador') {
       if (userId || userName) {
-        query += ' AND (visibility = "Public" OR createdById = ? OR createdByName = ? OR assignedToId = ? OR assignedToName = ?)';
+        query += ' AND (visibility = \'Public\' OR createdById = ? OR createdByName = ? OR assignedToId = ? OR assignedToName = ?)';
         params.push(userId || '', userName || '', userId || '', userName || '');
       } else {
-        query += ' AND visibility = "Public"';
+        query += ' AND visibility = \'Public\'';
       }
     }
 
