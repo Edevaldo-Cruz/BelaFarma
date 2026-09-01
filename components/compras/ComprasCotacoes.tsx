@@ -280,17 +280,43 @@ export const ComprasCotacoes: React.FC<ComprasCotacoesProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setItensNovaCotacao([]);
-            setNovoTitulo(`Cotação ${new Date().toLocaleDateString('pt-BR')}`);
-            setIsNovaCotacaoModalOpen(true);
-          }}
-          className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer active:scale-95"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Nova Cotação
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                setLoading(true);
+                const res = await fetch('/api/central-compras/cotacoes/gerar-criticos', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                  addToast('✅ Cotação com produtos críticos gerada com sucesso!', 'success');
+                  carregarCotacoes(data.data?.id);
+                } else {
+                  addToast('Aviso: ' + (data.message || data.error || 'Falha ao gerar'), 'warning');
+                }
+              } catch (e: any) {
+                addToast('Erro: ' + e.message, 'error');
+              } finally {
+                setLoading(false);
+              }
+            }}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-900 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer active:scale-95"
+          >
+            <Sparkles className="w-4 h-4" />
+            Cotar Faltas Críticas (Auto)
+          </button>
+
+          <button
+            onClick={() => {
+              setItensNovaCotacao([]);
+              setNovoTitulo(`Cotação ${new Date().toLocaleDateString('pt-BR')}`);
+              setIsNovaCotacaoModalOpen(true);
+            }}
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer active:scale-95"
+          >
+            <PlusCircle className="w-4 h-4" />
+            Nova Cotação
+          </button>
+        </div>
       </div>
 
       {/* Grid de Cotações (Lista Lateral + Detalhes Central) */}
@@ -311,8 +337,25 @@ export const ComprasCotacoes: React.FC<ComprasCotacoesProps> = ({
           </div>
 
           {cotacoes.length === 0 ? (
-            <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-400 text-xs font-bold">
-              Nenhuma cotação criada ainda.
+            <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-400 text-xs font-bold space-y-3">
+              <p>Nenhuma cotação criada ainda.</p>
+              <button
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const res = await fetch('/api/central-compras/cotacoes/gerar-criticos', { method: 'POST' });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                      addToast('✅ Cotação gerada com sucesso!', 'success');
+                      carregarCotacoes(data.data?.id);
+                    }
+                  } catch (e) {} finally { setLoading(false); }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-black uppercase"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Gerar com Faltas do Estoque
+              </button>
             </div>
           ) : (
             <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">

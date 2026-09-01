@@ -28,6 +28,15 @@ try {
   // Opcional
 }
 
+function getDb(dbInstance) {
+  if (dbInstance && typeof dbInstance.prepare === 'function') return dbInstance;
+  try {
+    return require('../database');
+  } catch (e) {
+    return null;
+  }
+}
+
 // ──────────────────────────────────────────────────────────
 // Dicionários Especializados do Mercado Farmacêutico Brasileiro
 // ──────────────────────────────────────────────────────────
@@ -197,34 +206,56 @@ function extrairDistribuidoraELaboratorios(texto) {
 }
 
 /**
- * Identifica o nome do representante em apresentações (ex: "Sou o Carlos da Santa Cruz", "Aqui é a Juliana / Profarma")
+ * Identifica o nome do representante seguindo hierarquia inteligente de 3 etapas:
+ * 1. Nome falado na conversa (ex: "Aqui é o Carlos da Santa Cruz", "Sou a Juliana", "Att: Marcelo")
+ * 2. Nome do perfil do WhatsApp (pushName / nome_contato)
+ * 3. Fallback: "Representante {Distribuidora} (..{final telefone})"
  */
-function extrairNomeRepresentante(texto) {
-  if (!texto) return null;
+function extrairNomeRepresentante(texto, pushName = null, distribuidora = null, telefone = null) {
+  if (texto) {
+    const cleanText = texto.replace(/[*_~]/g, '');
 
-  // Remove formatações comuns de markdown do WhatsApp (*, _, ~) para facilitar o casamento de nomes
-  const cleanText = texto.replace(/[*_~]/g, '');
+    const padroes = [
+      /(?:sou\s+(?:o|a)\s+|meu\s+nome\s+[ée]\s+|aqui\s+[ée]\s+(?:o|a)?\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
+      /(?:representante|vendedor(?:a)?|consultor(?:a)?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
+      /(?:falar\s+com|atenciosamente|att:?|abraço(?:s)?|grato,?|obrigado,?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
+      /(?:fala|olá|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,\s]+(?:aqui\s+[ée]\s+(?:o|a)?\s+)?([A-ZÀ-Úa-zà-ú]+)\s+da\s+([A-ZÀ-Úa-zà-ú]+)/i,
+      /(?:quem\s+fala\s+[ée]\s+)([A-ZÀ-Úa-zà-ú]+)/i
+    ];
 
-  const padroes = [
-    /(?:sou\s+(?:o|a)\s+|meu\s+nome\s+[ée]\s+|aqui\s+[ée]\s+(?:o|a)?\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
-    /(?:representante|vendedor(?:a)?|consultor(?:a)?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
-    /(?:falar\s+com|atenciosamente|att:?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i
-  ];
-
-  for (const regex of padroes) {
-    const match = regex.exec(cleanText);
-    if (match && match[1]) {
-      const parts = match[1].trim().split(/\s+/);
-      const validParts = [];
-      for (const p of parts) {
-        if (STOP_WORDS_NAME.includes(p.toLowerCase())) break;
-        validParts.push(p);
-      }
-      if (validParts.length > 0) {
-        const nome = validParts.join(' ');
-        if (nome.length >= 2) return nome;
+    for (const regex of padroes) {
+      const match = regex.exec(cleanText);
+      if (match && match[1]) {
+        const parts = match[1].trim().split(/\s+/);
+        const validParts = [];
+        for (const p of parts) {
+          if (STOP_WORDS_NAME.includes(p.toLowerCase())) break;
+          validParts.push(p);
+        }
+        if (validParts.length > 0) {
+          const nome = validParts.join(' ');
+          if (nome.length >= 2) return nome;
+        }
       }
     }
+  }
+
+  // 2. Etapa: PushName do WhatsApp
+  if (pushName && typeof pushName === 'string') {
+    const cleanPush = pushName.replace(/[^\w\sÀ-Úà-ú]/gi, '').trim();
+    const parts = cleanPush.split(/\s+/).filter(p => !STOP_WORDS_NAME.includes(p.toLowerCase()));
+    if (parts.length > 0) {
+      const nomePush = parts.slice(0, 2).join(' ');
+      if (nomePush.length >= 2) return nomePush;
+    }
+  }
+
+  // 3. Etapa: Fallback estruturado
+  if (distribuidora || telefone) {
+    const dist = distribuidora && distribuidora !== 'Distribuidora Não Identificada' ? distribuidora : 'Comercial';
+    const cleanPhone = telefone ? String(telefone).replace(/\D/g, '') : '';
+    const finalDigits = cleanPhone.length >= 4 ? ` (..${cleanPhone.slice(-4)})` : '';
+    return `Representante ${dist}${finalDigits}`;
   }
 
   return null;
@@ -353,7 +384,12 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
   const prazos = extrairPrazos(norm);
   const pedidoMinimo = extrairPedidoMinimo(norm);
   const { distribuidora, laboratorios } = extrairDistribuidoraELaboratorios(norm);
-  const representanteNome = extrairNomeRepresentante(norm) || remetenteInfo.nome || null;
+  const representanteNome = extrairNomeRepresentante(
+    norm,
+    remetenteInfo.pushName || remetenteInfo.nome || remetenteInfo.nome_contato,
+    distribuidora || remetenteInfo.distribuidora,
+    remetenteInfo.telefone || remetenteInfo.phone
+  );
   const ofertas = extrairLinhasDeOferta(norm);
 
   const categoriasEncontradas = new Set();
@@ -516,7 +552,6 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
  */
 function upsertFornecedorMeta(db, dados) {
   if (!db || !dados.telefone) return null;
-
   const now = new Date().toISOString();
   const cleanPhone = String(dados.telefone).replace(/\D/g, '');
   if (!cleanPhone) return null;
@@ -555,8 +590,11 @@ function upsertFornecedorMeta(db, dados) {
     }
   }
 
-  const distribuidoraFinal = dados.distribuidora || existing?.distribuidora || 'Distribuidora Não Identificada';
-  const representanteFinal = dados.representante || existing?.representante || null;
+  const distribuidoraFinal = dados.distribuidora || existing?.distribuidora || 'Distribuidora Comercial';
+  let representanteFinal = dados.representante || existing?.representante || null;
+  if (!representanteFinal) {
+    representanteFinal = extrairNomeRepresentante(null, dados.pushName || dados.nome, distribuidoraFinal, cleanPhone);
+  }
   const pedidoMinimoValorFinal = (dados.pedidoMinimoValor && dados.pedidoMinimoValor > 0)
     ? dados.pedidoMinimoValor
     : (existing?.pedido_minimo_valor || 0);
@@ -638,211 +676,310 @@ function upsertFornecedorMeta(db, dados) {
 
 /**
  * Processa uma única mensagem recebida pelo WhatsApp de compras.
+ * Extrai fornecedores, prazos, produtos e ofertas, validando contra o Digifarma.
+ * 
+ * @param {object} msgData { id, text, phone, pushName, timestamp }
+ * @param {object} db Instância SQLite
+ * @param {object} [options]
+ * @returns {Promise<{ minerado: boolean, fornecedor: object|null, ofertas: object[] }>}
  */
 async function processarMensagemRecebida(msgData, db, options = {}) {
-  if (!db || !msgData || !msgData.text) return { minerado: false, ofertas: [] };
+  const dbInst = getDb(db);
+  if (!dbInst || !msgData || !msgData.text) return { minerado: false, ofertas: [] };
 
-  const texto = msgData.text;
-  const telefone = String(msgData.phone || '').replace(/\D/g, '');
-  const nomeContato = msgData.contactName || '';
-
-  const extracao = minerarTextoLivre(texto, {
-    telefone,
-    nome: nomeContato
+  const extracao = minerarTextoLivre(msgData.text, {
+    telefone: msgData.phone,
+    nome: msgData.pushName || msgData.nome,
+    pushName: msgData.pushName
   });
 
   let fornecedorSalvo = null;
-  if (telefone) {
-    fornecedorSalvo = upsertFornecedorMeta(db, extracao);
+  if (extracao.telefone && (extracao.distribuidora || extracao.representante || extracao.prazosPagamento.length > 0 || extracao.pedidoMinimoValor > 0)) {
+    fornecedorSalvo = upsertFornecedorMeta(dbInst, extracao);
   }
 
-  const ofertasIndexadas = [];
+  const ofertasProcessadas = [];
   const now = new Date().toISOString();
 
   for (const ofr of extracao.ofertas) {
-    const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, db, options);
+    const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, options);
 
-    const oportunidadeId = crypto.randomUUID();
-    const dataOferta = new Date(msgData.timestamp || Date.now()).toISOString();
+    const ofertaId = crypto.randomUUID();
+    const statusOferta = validacao.vantajosa ? 'Aprovado_Radar' : 'Descartado_Preco';
 
     try {
-      db.prepare(`
+      dbInst.prepare(`
         INSERT INTO compras_oportunidades_mineradas (
           id, fornecedor_id, distribuidora, representante, telefone,
-          mensagem_id, mensagem_raw, produto_nome, ean, preco_ofertado,
-          preco_ult_compra_digifarma, percentual_desconto, condicoes_pagamento,
-          validade_oferta, status, data_oferta, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Disponivel', ?, ?)
+          mensagem_id, mensagem_raw, produto_nome, ean,
+          preco_ofertado, preco_ultima_compra, percentual_desconto,
+          bonificacao, prazo_dias, condicao_pagamento, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        oportunidadeId,
+        ofertaId,
         fornecedorSalvo ? fornecedorSalvo.id : null,
-        fornecedorSalvo ? fornecedorSalvo.distribuidora : extracao.distribuidora,
+        fornecedorSalvo ? fornecedorSalvo.distribuidora : (extracao.distribuidora || 'Distribuidora Não Identificada'),
         fornecedorSalvo ? fornecedorSalvo.representante : extracao.representante,
-        telefone,
-        msgData.messageId || null,
-        ofr.linhaRaw || texto,
+        msgData.phone || extracao.telefone,
+        msgData.id || null,
+        msgData.text,
         ofr.produtoNome,
-        ofr.ean || null,
+        validacao.ean || ofr.ean || null,
         ofr.precoOfertado,
-        validacao.precoUltCompra,
-        validacao.percentualDesconto,
-        extracao.prazosPagamento.length > 0 ? extracao.prazosPagamento.join(', ') : ofr.bonificacao,
-        null,
-        dataOferta,
+        validacao.precoUltimaCompra,
+        validacao.percentualEconomia,
+        ofr.bonificacaoTexto || null,
+        extracao.prazosPagamento.length > 0 ? extracao.prazosPagamento[0] : 0,
+        extracao.prazosPagamento.length > 0 ? extracao.prazosPagamento.join('/') : 'À vista',
+        statusOferta,
         now
       );
 
-      ofertasIndexadas.push({
-        id: oportunidadeId,
+      ofertasProcessadas.push({
+        id: ofertaId,
         produtoNome: ofr.produtoNome,
-        ean: ofr.ean,
         precoOfertado: ofr.precoOfertado,
-        precoUltCompra: validacao.precoUltCompra,
-        percentualDesconto: validacao.percentualDesconto,
-        precoInferior: validacao.precoInferior,
-        emRuptura: validacao.emRuptura,
-        bonificacao: ofr.bonificacao
+        precoUltimaCompra: validacao.precoUltimaCompra,
+        percentualEconomia: validacao.percentualEconomia,
+        vantajosa: validacao.vantajosa,
+        status: statusOferta
       });
     } catch (dbErr) {
       console.warn('[Compras-Mineração] Aviso ao gravar oportunidade:', dbErr.message);
     }
   }
 
-  if (msgData.messageId) {
+  if (msgData.id) {
     try {
-      db.prepare(`
+      dbInst.prepare(`
         UPDATE compras_historico_mensagens
         SET processado_mineracao = 1,
             resultado_mineracao_json = ?
         WHERE message_id = ?
-      `).run(JSON.stringify({
-        fornecedor: fornecedorSalvo,
-        ofertasContadas: ofertasIndexadas.length,
-        prazos: extracao.prazosPagamento,
-        pedidoMinimo: extracao.pedidoMinimoValor
-      }), msgData.messageId);
+      `).run(JSON.stringify({ fornecedor: fornecedorSalvo, ofertas: ofertasProcessadas }), msgData.id);
     } catch (e) {}
   }
 
   return {
-    minerado: true,
+    minerado: Boolean(fornecedorSalvo || ofertasProcessadas.length > 0),
     fornecedor: fornecedorSalvo,
-    ofertas: ofertasIndexadas
+    ofertas: ofertasProcessadas
   };
 }
 
 /**
- * Processa um lote de mensagens.
+ * Processa um lote de mensagens em background.
  */
 async function processarMensagensEmLote(messagesList, db, options = {}) {
-  if (!db || !Array.isArray(messagesList) || messagesList.length === 0) {
-    return { processadas: 0, ofertas: 0 };
+  const dbInst = getDb(db);
+  if (!dbInst || !Array.isArray(messagesList) || messagesList.length === 0) {
+    return { processadas: 0, ofertasDetectadas: 0, fornecedoresAtualizados: 0 };
   }
 
   let processadas = 0;
-  let totalOfertas = 0;
+  let ofertasDetectadas = 0;
+  let fornecedoresAtualizados = 0;
 
-  for (const rawMsg of messagesList) {
-    try {
-      if (!rawMsg.message || !rawMsg.key) continue;
+  for (const m of messagesList) {
+    let textContent = null;
+    let phone = null;
+    let pushName = null;
+    let msgId = null;
 
-      const remoteJid = rawMsg.key.remoteJid;
-      if (!remoteJid || remoteJid.endsWith('@broadcast') || remoteJid.endsWith('@g.us')) continue;
+    if (m.text || m.messageText) {
+      textContent = m.text || m.messageText;
+      phone = m.phone || m.telefone;
+      pushName = m.pushName || m.nome_contato;
+      msgId = m.id || m.message_id;
+    } else if (m.message) {
+      let c = m.message;
+      if (c.viewOnceMessage?.message) c = c.viewOnceMessage.message;
+      else if (c.documentWithCaptionMessage?.message) c = c.documentWithCaptionMessage.message;
+      
+      textContent = c.conversation || c.extendedTextMessage?.text || c.imageMessage?.caption || null;
+      phone = m.key?.remoteJid ? m.key.remoteJid.split('@')[0] : null;
+      pushName = m.pushName || null;
+      msgId = m.key?.id;
+    }
 
-      let contentMsg = rawMsg.message;
-      if (contentMsg?.viewOnceMessage?.message) contentMsg = contentMsg.viewOnceMessage.message;
-      else if (contentMsg?.viewOnceMessageV2?.message) contentMsg = contentMsg.viewOnceMessageV2.message;
-      else if (contentMsg?.ephemeralMessage?.message) contentMsg = contentMsg.ephemeralMessage.message;
-      else if (contentMsg?.documentWithCaptionMessage?.message) contentMsg = contentMsg.documentWithCaptionMessage.message;
-
-      const messageType = Object.keys(contentMsg)[0] || '';
-      let text = null;
-
-      if (messageType === 'conversation') text = contentMsg.conversation;
-      else if (messageType === 'extendedTextMessage') text = contentMsg.extendedTextMessage?.text;
-      else if (messageType === 'imageMessage') text = contentMsg.imageMessage?.caption;
-      else if (messageType === 'documentMessage') text = contentMsg.documentMessage?.caption;
-
-      if (!text || text.trim().length < 3) continue;
-
-      const phone = remoteJid.split('@')[0];
-      const messageId = rawMsg.key.id;
-      const timestamp = rawMsg.messageTimestamp ? (rawMsg.messageTimestamp * 1000) : Date.now();
-      const fromMe = rawMsg.key.fromMe ? 1 : 0;
-
-      if (!fromMe) {
+    if (textContent && phone) {
+      try {
         const res = await processarMensagemRecebida({
-          messageId,
-          remoteJid,
+          id: msgId,
+          text: textContent,
           phone,
-          contactName: rawMsg.pushName || '',
-          text,
-          timestamp
-        }, db, options);
+          pushName,
+          timestamp: m.timestamp || Date.now()
+        }, dbInst, options);
+
         processadas++;
-        totalOfertas += (res.ofertas?.length || 0);
+        if (res.fornecedor) fornecedoresAtualizados++;
+        ofertasDetectadas += (res.ofertas?.length || 0);
+      } catch (err) {
+        console.warn('[Compras-Mineração] Erro ao processar mensagem do lote:', err.message);
       }
-    } catch (err) {
-      // Continua
     }
   }
 
-  console.log(`[Compras-Mineração] 📦 Lote de histórico concluído: ${processadas} mensagens analisadas, ${totalOfertas} ofertas indexadas.`);
-  return { processadas, ofertas: totalOfertas };
+  return {
+    processadas,
+    ofertasDetectadas,
+    fornecedoresAtualizados
+  };
 }
 
 /**
- * Varredura histórica de conversas armazenadas no SQLite (`compras_historico_mensagens`).
+ * Varre o histórico de mensagens armazenado no SQLite e extrai todas as informações.
  */
 async function minerarHistoricoConversas(db, options = {}) {
-  if (!db) throw new Error('Instância do banco de dados SQLite não informada.');
+  const dbInst = getDb(db);
+  if (!dbInst) throw new Error('Instância do banco de dados SQLite não informada.');
 
   const limit = options.limit || 500;
-  const reprocessarTudo = options.reprocessarTudo || false;
+  const query = options.apenasNaoProcessadas
+    ? `SELECT * FROM compras_historico_mensagens WHERE processado_mineracao = 0 ORDER BY timestamp DESC LIMIT ?`
+    : `SELECT * FROM compras_historico_mensagens ORDER BY timestamp DESC LIMIT ?`;
 
-  let query = `
-    SELECT * FROM compras_historico_mensagens
-    WHERE from_me = 0 AND texto_mensagem IS NOT NULL AND texto_mensagem != ''
-  `;
-  if (!reprocessarTudo) {
-    query += ` AND processado_mineracao = 0`;
-  }
-  query += ` ORDER BY timestamp ASC LIMIT ?`;
-
-  const rows = db.prepare(query).all(limit);
+  const rows = dbInst.prepare(query).all(limit);
   console.log(`[Compras-Mineração] 🔍 Iniciando varredura histórica de ${rows.length} mensagens...`);
 
-  let representantesCount = 0;
-  let ofertasCount = 0;
   let condicoesCount = 0;
+  let ofertasCount = 0;
 
-  for (const row of rows) {
+  for (const r of rows) {
     const res = await processarMensagemRecebida({
-      messageId: row.message_id,
-      remoteJid: row.remote_jid,
-      phone: row.telefone,
-      contactName: row.nome_contato,
-      text: row.texto_mensagem,
-      timestamp: row.timestamp
-    }, db, options);
+      id: r.message_id,
+      text: r.texto_mensagem,
+      phone: r.telefone,
+      pushName: r.nome_contato,
+      timestamp: r.timestamp
+    }, dbInst, options);
 
-    if (res.fornecedor) {
-      representantesCount++;
-      if (res.fornecedor.prazosPagamento.length > 0 || res.fornecedor.pedidoMinimoValor > 0) {
-        condicoesCount++;
-      }
+    if (res.fornecedor && (res.fornecedor.prazosPagamento.length > 0 || res.fornecedor.pedidoMinimoValor > 0)) {
+      condicoesCount++;
     }
     ofertasCount += (res.ofertas?.length || 0);
   }
 
-  const totalFornecedores = db.prepare('SELECT COUNT(*) as total FROM compras_fornecedores_meta').get().total;
-  const totalOfertas = db.prepare("SELECT COUNT(*) as total FROM compras_oportunidades_mineradas WHERE status = 'Disponivel'").get().total;
+  const totalFornecedores = dbInst.prepare('SELECT COUNT(*) as total FROM compras_fornecedores_meta').get().total;
+  const totalOfertas = dbInst.prepare("SELECT COUNT(*) as total FROM compras_oportunidades_mineradas WHERE status = 'Disponivel'").get().total;
 
   return {
     representantesCadastrados: totalFornecedores,
     ofertasIndexadas: totalOfertas,
     condicoesMapeadas: condicoesCount,
     totalMensagensProcessadas: rows.length
+  };
+}
+
+/**
+ * Executa a varredura retroativa completa dos últimos 90 dias nas mensagens gravadas no SQLite
+ * e no histórico de compras, identificando representantes, prazos e ofertas.
+ */
+async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions = {}) {
+  let db, options;
+  if (dbOrOptions && typeof dbOrOptions.prepare === 'function') {
+    db = dbOrOptions;
+    options = talvezOptions || {};
+  } else {
+    db = getDb();
+    options = (typeof dbOrOptions === 'object' && dbOrOptions !== null) ? dbOrOptions : (talvezOptions || {});
+  }
+
+  if (!db) throw new Error('Instância do SQLite não disponível.');
+
+  const inicioMs = Date.now();
+  const noventaDiasAtrasMs = Date.now() - (90 * 24 * 60 * 60 * 1000);
+
+  console.log('[Compras-Mineração] 🔍 Iniciando Varredura Retroativa dos últimos 90 dias...');
+
+  // 1. Mensagens da tabela compras_historico_mensagens
+  let mensagensHistorico = [];
+  try {
+    mensagensHistorico = db.prepare(`
+      SELECT message_id as id, telefone as phone, texto_mensagem as text, timestamp, nome_contato as pushName
+      FROM compras_historico_mensagens
+      WHERE timestamp >= ?
+      ORDER BY timestamp ASC
+    `).all(noventaDiasAtrasMs);
+  } catch (e) {}
+
+  // 2. Mensagens da tabela whatsapp_messages (Baileys geral / Evolution)
+  let mensagensWhatsapp = [];
+  try {
+    mensagensWhatsapp = db.prepare(`
+      SELECT id, phone, messageText as text, timestamp, rawMessage
+      FROM whatsapp_messages
+      WHERE timestamp >= ? AND (fromMe = 0 OR fromMe IS NULL)
+      ORDER BY timestamp ASC
+    `).all(noventaDiasAtrasMs);
+  } catch (e) {}
+
+  // Mescla e desduplica mensagens por ID
+  const mapaMensagens = new Map();
+  for (const m of mensagensHistorico) {
+    if (m.id && m.text) mapaMensagens.set(m.id, m);
+  }
+  for (const m of mensagensWhatsapp) {
+    if (m.id && m.text && !mapaMensagens.has(m.id)) {
+      let pushName = null;
+      try {
+        if (m.rawMessage) {
+          const raw = JSON.parse(m.rawMessage);
+          pushName = raw.pushName || raw.key?.participant || null;
+        }
+      } catch(err) {}
+      mapaMensagens.set(m.id, { ...m, pushName });
+    }
+  }
+
+  const todasMensagens = Array.from(mapaMensagens.values());
+  console.log(`[Compras-Mineração] 📋 Total de ${todasMensagens.length} mensagens encontradas na janela de 90 dias.`);
+
+  let ofertasTotal = 0;
+  let representantesCadastrados = 0;
+
+  if (todasMensagens.length > 0) {
+    const loteRes = await processarMensagensEmLote(todasMensagens, db, options);
+    ofertasTotal = loteRes.ofertasDetectadas || 0;
+    representantesCadastrados = loteRes.fornecedoresAtualizados || 0;
+  }
+
+  // 3. Sincronizar fornecedores da tabela local_suppliers se compras_fornecedores_meta estiver vazio ou precisar de enriquecimento
+  try {
+    const totalMeta = db.prepare('SELECT COUNT(*) as total FROM compras_fornecedores_meta').get().total;
+    if (totalMeta === 0) {
+      const localSuppliers = db.prepare('SELECT * FROM local_suppliers').all();
+      for (const sup of localSuppliers) {
+        if (sup.telefone) {
+          const extracao = minerarTextoLivre(`${sup.representante || ''} ${sup.razao_social || ''}`, {
+            nome: sup.representante,
+            telefone: sup.telefone,
+            distribuidora: sup.razao_social
+          });
+          upsertFornecedorMeta(db, {
+            ...extracao,
+            telefone: sup.telefone,
+            representante: sup.representante,
+            distribuidora: sup.razao_social
+          });
+        }
+      }
+    }
+  } catch (e) {}
+
+  const totalFornecedores = db.prepare('SELECT COUNT(*) as total FROM compras_fornecedores_meta').get().total;
+  const totalOfertas = db.prepare('SELECT COUNT(*) as total FROM compras_oportunidades_mineradas').get().total;
+  const duracaoMs = Date.now() - inicioMs;
+
+  console.log(`[Compras-Mineração] ✅ Varredura 90 dias concluída em ${duracaoMs}ms. Fornecedores: ${totalFornecedores}, Ofertas: ${totalOfertas}`);
+
+  return {
+    success: true,
+    mensagensAnalisadas: todasMensagens.length,
+    fornecedoresCadastrados: totalFornecedores,
+    ofertasIndexadas: totalOfertas,
+    duracaoMs
   };
 }
 
@@ -853,7 +990,16 @@ async function minerarHistoricoConversas(db, options = {}) {
 /**
  * Lista oportunidades de compra ativas e mineradas.
  */
-function listarOportunidades(db, filtros = {}) {
+function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
+  let db, filtros;
+  if (dbOrFiltros && typeof dbOrFiltros.prepare === 'function') {
+    db = dbOrFiltros;
+    filtros = talvezFiltros || {};
+  } else {
+    db = getDb();
+    filtros = (typeof dbOrFiltros === 'object' && dbOrFiltros !== null) ? dbOrFiltros : (talvezFiltros || {});
+  }
+
   if (!db) return [];
 
   let sql = `SELECT * FROM compras_oportunidades_mineradas WHERE 1=1`;
@@ -887,7 +1033,16 @@ function listarOportunidades(db, filtros = {}) {
 /**
  * Lista fornecedores e representantes minerados com seus prazos e pedidos mínimos.
  */
-function listarFornecedoresMinerados(db, filtros = {}) {
+function listarFornecedoresMinerados(dbOrFiltros = {}, talvezFiltros = {}) {
+  let db, filtros;
+  if (dbOrFiltros && typeof dbOrFiltros.prepare === 'function') {
+    db = dbOrFiltros;
+    filtros = talvezFiltros || {};
+  } else {
+    db = getDb();
+    filtros = (typeof dbOrFiltros === 'object' && dbOrFiltros !== null) ? dbOrFiltros : (talvezFiltros || {});
+  }
+
   if (!db) return [];
 
   let sql = `SELECT * FROM compras_fornecedores_meta WHERE 1=1`;
@@ -938,7 +1093,16 @@ function listarFornecedoresMinerados(db, filtros = {}) {
 /**
  * Retorna catálogo e histórico de produtos de um fornecedor específico.
  */
-function obterCatalogoFornecedor(db, fornecedorId) {
+function obterCatalogoFornecedor(dbOrId, talvezId = null) {
+  let db, fornecedorId;
+  if (dbOrId && typeof dbOrId.prepare === 'function') {
+    db = dbOrId;
+    fornecedorId = talvezId;
+  } else {
+    db = getDb();
+    fornecedorId = dbOrId;
+  }
+
   if (!db || !fornecedorId) return { produtos: [], categorias: [], ofertasRecentes: [] };
 
   const forn = db.prepare('SELECT * FROM compras_fornecedores_meta WHERE id = ?').get(fornecedorId);
@@ -973,7 +1137,18 @@ function obterCatalogoFornecedor(db, fornecedorId) {
 /**
  * Atualiza manualmente ou confirma dados de um fornecedor.
  */
-function atualizarFornecedorMeta(db, fornecedorId, dados) {
+function atualizarFornecedorMeta(dbOrId, idOrDados, talvezDados = null) {
+  let db, fornecedorId, dados;
+  if (dbOrId && typeof dbOrId.prepare === 'function') {
+    db = dbOrId;
+    fornecedorId = idOrDados;
+    dados = talvezDados || {};
+  } else {
+    db = getDb();
+    fornecedorId = dbOrId;
+    dados = idOrDados || {};
+  }
+
   if (!db || !fornecedorId) throw new Error('ID do fornecedor não informado.');
 
   const now = new Date().toISOString();
@@ -1017,6 +1192,7 @@ module.exports = {
   processarMensagemRecebida,
   processarMensagensEmLote,
   minerarHistoricoConversas,
+  executarVarreduraRetroativa90Dias,
   listarOportunidades,
   listarFornecedoresMinerados,
   obterCatalogoFornecedor,

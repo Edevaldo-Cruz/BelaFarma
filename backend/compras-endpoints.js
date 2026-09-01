@@ -244,13 +244,41 @@ module.exports = (db) => {
     }
   });
 
+  router.post('/minerar-90-dias', async (req, res) => {
+    try {
+      const resultado = await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, req.body || {});
+      res.json({ success: true, data: resultado, message: 'Varredura retroativa de 90 dias concluída com sucesso!' });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /minerar-90-dias:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades', (req, res) => {
     try {
-      const { status, fornecedor_id, busca, limite, offset } = req.query;
-      const oportunidades = comprasMineracaoService.listarOportunidades({
+      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
+      const oportunidades = comprasMineracaoService.listarOportunidades(db, {
         status: status || null,
         fornecedorId: fornecedor_id || null,
         busca: busca || null,
+        apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+        limite: limite ? parseInt(limite, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0
+      });
+      res.json({ success: true, data: oportunidades });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/radar/oportunidades', (req, res) => {
+    try {
+      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
+      const oportunidades = comprasMineracaoService.listarOportunidades(db, {
+        status: status || null,
+        fornecedorId: fornecedor_id || null,
+        busca: busca || null,
+        apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
@@ -267,14 +295,37 @@ module.exports = (db) => {
   router.get('/cotacoes', (req, res) => {
     try {
       const { status, busca, limite, offset } = req.query;
-      const cotacoes = comprasCotacoesService.listarCotacoes({
+      let cotacoes = comprasCotacoesService.listarCotacoes(db, {
         status: status || null,
         busca: busca || null,
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
+
+      // Se não houver cotações criadas, gera automaticamente uma para produtos críticos em estoque
+      if (cotacoes.length === 0) {
+        try {
+          const auto = comprasCotacoesService.gerarSessaoCotacaoAutomaticaParaEstoqueCritico(db);
+          if (auto && auto.id) {
+            cotacoes = comprasCotacoesService.listarCotacoes(db, { limite: 10 });
+          }
+        } catch (autoErr) {
+          console.warn('[Compras-Endpoints] Auto-cotação:', autoErr.message);
+        }
+      }
+
       res.json({ success: true, data: cotacoes });
     } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/cotacoes/gerar-criticos', (req, res) => {
+    try {
+      const cotacao = comprasCotacoesService.gerarSessaoCotacaoAutomaticaParaEstoqueCritico(db);
+      res.json({ success: true, data: cotacao, message: 'Sessão de cotação gerada com sucesso!' });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /cotacoes/gerar-criticos:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -720,6 +771,16 @@ module.exports = (db) => {
   // ──────────────────────────────────────────────────────────
 
   router.get('/fornecedores', (req, res) => {
+    try {
+      const { busca } = req.query;
+      const fornecedores = comprasMineracaoService.listarFornecedoresMinerados(db, { busca });
+      res.json({ success: true, data: fornecedores });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/representantes', (req, res) => {
     try {
       const { busca } = req.query;
       const fornecedores = comprasMineracaoService.listarFornecedoresMinerados(db, { busca });

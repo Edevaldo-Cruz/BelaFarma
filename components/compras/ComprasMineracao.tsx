@@ -66,17 +66,19 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
     carregarOportunidades();
   }, []);
 
-  const dispararVarredura = async () => {
+  const dispararVarredura = async (diasParam?: number) => {
+    const dias = diasParam !== undefined ? diasParam : diasVarredura;
     try {
       setScanning(true);
-      const res = await fetch('/api/central-compras/whatsapp/minerar', {
+      const url = dias >= 90 ? '/api/central-compras/minerar-90-dias' : '/api/central-compras/whatsapp/minerar';
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dias: diasVarredura, forcarReleitura: false })
+        body: JSON.stringify({ dias, forcarReleitura: true })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast(`✅ Mineração concluída! ${data.data?.representantesCadastrados || 0} fornecedores e ${data.data?.ofertasIndexadas || 0} oportunidades mapeadas.`, 'success');
+        addToast(`✅ Varredura concluída! ${data.data?.fornecedoresCadastrados || data.data?.representantesCadastrados || 0} fornecedores e ${data.data?.ofertasIndexadas || 0} ofertas mapeadas.`, 'success');
         carregarOportunidades();
       } else {
         addToast('Erro na mineração: ' + (data.error || 'Falha ao processar conversas'), 'error');
@@ -90,16 +92,22 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
   const oportunidadesFiltradas = useMemo(() => {
     return oportunidades.filter(op => {
-      const matchBusca = !busca || 
-        op.produtoNome.toLowerCase().includes(busca.toLowerCase()) ||
-        op.fornecedorNome.toLowerCase().includes(busca.toLowerCase()) ||
-        (op.representanteNome && op.representanteNome.toLowerCase().includes(busca.toLowerCase())) ||
-        (op.ean && op.ean.includes(busca));
+      const prodNome = (op as any).produto_nome || op.produtoNome || '';
+      const distNome = (op as any).distribuidora || (op as any).fornecedorNome || '';
+      const repNome = (op as any).representante || (op as any).representanteNome || '';
+      const eanStr = (op as any).ean || '';
 
+      const matchBusca = !busca || 
+        prodNome.toLowerCase().includes(busca.toLowerCase()) ||
+        distNome.toLowerCase().includes(busca.toLowerCase()) ||
+        repNome.toLowerCase().includes(busca.toLowerCase()) ||
+        eanStr.includes(busca);
+
+      const statusOp = (op as any).status || '';
       const matchStatus = filtroStatus === 'TODOS' || 
-        (filtroStatus === 'VANTAGOSAS' && op.status === 'Aprovado_Radar') ||
-        (filtroStatus === 'DESCARTADAS' && op.status === 'Descartado_Preco_Maior') ||
-        (filtroStatus === 'SEM_HISTORICO' && op.status === 'Oportunidade_Sem_Historico');
+        (filtroStatus === 'VANTAGOSAS' && (statusOp === 'Aprovado_Radar' || statusOp === 'Disponivel')) ||
+        (filtroStatus === 'DESCARTADAS' && (statusOp === 'Descartado_Preco' || statusOp === 'Descartado_Preco_Maior')) ||
+        (filtroStatus === 'SEM_HISTORICO' && statusOp === 'Oportunidade_Sem_Historico');
 
       return matchBusca && matchStatus;
     });
@@ -109,10 +117,10 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
     if (onNavigateToTab) {
       onNavigateToTab('cotacoes', [{
         produtoId: 0,
-        descricao: op.produtoNome,
+        descricao: (op as any).produto_nome || op.produtoNome,
         ean: op.ean || '',
         quantidade: 10,
-        precoUnitarioEstimado: op.precoLiquidoEfetivo || op.precoOfertado
+        precoUnitarioEstimado: (op as any).preco_ofertado || op.precoLiquidoEfetivo || op.precoOfertado
       }]);
     }
   };
@@ -149,16 +157,17 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                 <option value={15} className="bg-slate-800 text-white">Últimos 15 dias</option>
                 <option value={30} className="bg-slate-800 text-white">Últimos 30 dias</option>
                 <option value={60} className="bg-slate-800 text-white">Últimos 60 dias</option>
+                <option value={90} className="bg-slate-800 text-white">Últimos 90 dias (Retroativo)</option>
               </select>
             </div>
 
             <button
-              onClick={dispararVarredura}
+              onClick={() => dispararVarredura()}
               disabled={scanning}
               className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white text-xs font-black uppercase tracking-wider shadow-lg hover:shadow-red-500/25 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
             >
               <Scan className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-              {scanning ? 'Minerando Conversas...' : 'Varrer WhatsApp Agora'}
+              {scanning ? 'Minerando 90 Dias...' : 'Varrer WhatsApp Agora'}
             </button>
           </div>
         </div>

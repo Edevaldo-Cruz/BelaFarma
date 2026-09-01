@@ -273,21 +273,23 @@ export const ComprasRepresentantes: React.FC<ComprasRepresentantesProps> = ({
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 block">Prazos Habituais:</span>
                     <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {Array.isArray(f.prazosHabituais) ? f.prazosHabituais.join('/') : (f.prazosHabituais || '28d')}
+                      {Array.isArray(f.prazosHabituais || f.prazosPagamento)
+                        ? (f.prazosHabituais || f.prazosPagamento).join('/')
+                        : (f.prazosHabituais || f.prazosPagamento || '28d')}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 block">Pedido Mínimo:</span>
                     <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {f.pedidoMinimo ? `R$ ${f.pedidoMinimo.toFixed(2)}` : 'Sem mínimo'}
+                      {(f.pedidoMinimo || f.pedidoMinimoValor) ? `R$ ${((f.pedidoMinimo ?? f.pedidoMinimoValor) as number).toFixed(2)}` : 'Sem mínimo'}
                     </span>
                   </div>
                 </div>
 
                 {/* Categorias Atendidas */}
-                {f.categoriasAtendidas && f.categoriasAtendidas.length > 0 && (
+                {(f.categoriasAtendidas || f.categorias) && (f.categoriasAtendidas || f.categorias).length > 0 && (
                   <div className="flex flex-wrap gap-1">
-                    {f.categoriasAtendidas.map((cat, idx) => (
+                    {(f.categoriasAtendidas || f.categorias).map((cat: string, idx: number) => (
                       <span key={idx} className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-bold">
                         {cat}
                       </span>
