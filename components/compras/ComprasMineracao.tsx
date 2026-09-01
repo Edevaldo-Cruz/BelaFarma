@@ -38,7 +38,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   const [oportunidades, setOportunidades] = useState<OportunidadeMinerada[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [diasVarredura, setDiasVarredura] = useState<number>(30);
+  const [diasVarredura, setDiasVarredura] = useState<number>(14);
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS');
 
@@ -54,7 +54,6 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
   const carregarOportunidades = async () => {
     try {
-      setLoading(true);
       const res = await fetch('/api/central-compras/oportunidades?limite=100');
       if (res.ok) {
         const data = await res.json();
@@ -63,7 +62,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
         }
       }
     } catch (err: any) {
-      addToast('Erro ao carregar radar de oportunidades: ' + err.message, 'error');
+      console.warn('Erro ao carregar oportunidades:', err.message);
     } finally {
       setLoading(false);
     }
@@ -71,6 +70,11 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
   useEffect(() => {
     carregarOportunidades();
+    // Atualiza automaticamente a cada 15 segundos para exibir novas ofertas mineradas
+    const interval = setInterval(() => {
+      carregarOportunidades();
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const dispararVarredura = async (diasParam?: number) => {
@@ -202,7 +206,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                 className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
               >
                 <option value={7} className="bg-slate-800 text-white">Últimos 7 dias</option>
-                <option value={15} className="bg-slate-800 text-white">Últimos 15 dias</option>
+                <option value={14} className="bg-slate-800 text-white">Últimas 2 semanas (14 dias)</option>
                 <option value={30} className="bg-slate-800 text-white">Últimos 30 dias</option>
                 <option value={60} className="bg-slate-800 text-white">Últimos 60 dias</option>
                 <option value={90} className="bg-slate-800 text-white">Últimos 90 dias (Retroativo)</option>

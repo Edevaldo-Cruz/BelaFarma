@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "dedd3d9",
-  "commitMessage": "fix(compras): aprimora filtro de ofertas e termos comerciais na mineracao",
-  "buildTime": "01/09/2026, 16:57:36"
+  "commitHash": "c8afa1b",
+  "commitMessage": "feat(compras): adicionar botao e modal para colar ofertas de representantes e aprimorar feedback da mineracao",
+  "buildTime": "01/09/2026, 17:14:28"
 }

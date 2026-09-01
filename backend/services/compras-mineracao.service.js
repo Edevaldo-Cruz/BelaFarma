@@ -895,9 +895,11 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
   if (!db) throw new Error('Instância do SQLite não disponível.');
 
   const inicioMs = Date.now();
-  const noventaDiasAtrasMs = Date.now() - (90 * 24 * 60 * 60 * 1000);
+  const dias = options.dias || (options.diasVarredura || 90);
+  const retroativoMs = Date.now() - (dias * 24 * 60 * 60 * 1000);
+  const retroativoSec = Math.floor(retroativoMs / 1000);
 
-  console.log('[Compras-Mineração] 🔍 Iniciando Varredura Retroativa dos últimos 90 dias...');
+  console.log(`[Compras-Mineração] 🔍 Iniciando Varredura Automática/Retroativa de ${dias} dias...`);
 
   // 1. Mensagens da tabela compras_historico_mensagens
   let mensagensHistorico = [];
@@ -905,9 +907,9 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     mensagensHistorico = db.prepare(`
       SELECT message_id as id, telefone as phone, texto_mensagem as text, timestamp, nome_contato as pushName
       FROM compras_historico_mensagens
-      WHERE timestamp >= ?
+      WHERE (timestamp >= ? OR timestamp >= ?)
       ORDER BY timestamp ASC
-    `).all(noventaDiasAtrasMs);
+    `).all(retroativoMs, retroativoSec);
   } catch (e) {}
 
   // 2. Mensagens da tabela whatsapp_messages (Baileys geral / Evolution)
@@ -916,9 +918,9 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     mensagensWhatsapp = db.prepare(`
       SELECT id, phone, messageText as text, timestamp, rawMessage
       FROM whatsapp_messages
-      WHERE timestamp >= ? AND (fromMe = 0 OR fromMe IS NULL)
+      WHERE (timestamp >= ? OR timestamp >= ? OR timestamp IS NULL) AND (fromMe = 0 OR fromMe IS NULL)
       ORDER BY timestamp ASC
-    `).all(noventaDiasAtrasMs);
+    `).all(retroativoMs, retroativoSec);
   } catch (e) {}
 
   // Mescla e desduplica mensagens por ID

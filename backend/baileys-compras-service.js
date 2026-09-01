@@ -161,6 +161,31 @@ async function connect(db) {
             console.warn('[Baileys-Compras] Erro ao gravar phone nas configs:', dbErr.message);
           }
         }
+
+        // 🤖 Automação: Disparar varredura das últimas 2 semanas (14 dias) automaticamente após conexão
+        setTimeout(async () => {
+          try {
+            console.log('[Baileys-Compras] 🤖 Iniciando varredura automática das últimas 2 semanas de ofertas...');
+            const comprasMineracaoService = require('./services/compras-mineracao.service');
+            await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 14 });
+          } catch (autoErr) {
+            console.warn('[Baileys-Compras] Aviso na varredura automática inicial:', autoErr.message);
+          }
+        }, 2000);
+
+        // Iniciar ciclo de varredura periódica em background a cada 10 minutos
+        if (!global.comprasAutoMinerInterval) {
+          global.comprasAutoMinerInterval = setInterval(async () => {
+            try {
+              if (savedDb) {
+                const comprasMineracaoService = require('./services/compras-mineracao.service');
+                await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 14 });
+              }
+            } catch (cronErr) {
+              console.warn('[Baileys-Compras] Aviso no ciclo periódico de mineração:', cronErr.message);
+            }
+          }, 10 * 60 * 1000);
+        }
       }
 
       if (connection === 'close') {
