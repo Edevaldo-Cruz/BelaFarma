@@ -565,9 +565,9 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                         {estMin} un
                       </td>
                       <td className="py-3 px-3 text-right font-mono font-black">
-                        {pedidoMin > 0 ? (
+                        {sugerido > 0 ? (
                           <span className="px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200 font-black">
-                            +{pedidoMin}
+                            +{sugerido}
                           </span>
                         ) : (
                           <span className="text-slate-400 dark:text-slate-600">0</span>

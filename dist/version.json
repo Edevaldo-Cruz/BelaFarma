@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "fd91bff",
-  "commitMessage": "feat(compras): tabela moderna de representantes com prazos compactos, gestao de estoque e demanda com maximo e correcoes completas",
-  "buildTime": "01/09/2026, 16:08:35"
+  "commitHash": "92a7fc7",
+  "commitMessage": "build: atualiza bundle dist com volume baileys compras no docker-compose",
+  "buildTime": "01/09/2026, 16:17:27"
 }
