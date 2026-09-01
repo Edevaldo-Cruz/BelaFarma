@@ -21,6 +21,33 @@
   
   --radius-xl: 1.5rem;
   --radius-2xl: 2.5rem;
+
+  /* =====================================================
+     BUDGET THEME SYSTEM — Neutro (default / sem limite)
+     ===================================================== */
+  --bf-sidebar-bg: #f8fafc;
+  --bf-sidebar-border: #e2e8f0;
+  --bf-sidebar-text: #334155;
+  --bf-sidebar-accent: #64748b;
+  --bf-sidebar-hover-bg: #f1f5f9;
+  --bf-main-bg: #f1f5f9;
+  --bf-main-text: #1e293b;
+  --bf-card-bg: #ffffff;
+  --bf-card-border: #e2e8f0;
+  --bf-header-bg: #ffffff;
+  --bf-header-border: #e2e8f0;
+  --bf-header-text: #334155;
+  --bf-logo-text: #b91c1c;
+  --bf-logo-sub: #1d4ed8;
+  --bf-nav-active-bg: #fef2f2;
+  --bf-nav-active-text: #b91c1c;
+  --bf-nav-hover-bg: #f1f5f9;
+  --bf-nav-inactive-text: #64748b;
+  --bf-nav-inactive-icon: #94a3b8;
+  --bf-user-badge-bg: #fef2f2;
+  --bf-user-badge-text: #b91c1c;
+  --bf-footer-border: #f1f5f9;
+  --bf-footer-bg: rgba(248, 250, 252, 0.5);
 }
 
 .dark {
@@ -38,6 +65,193 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+
+  /* Budget Theme — Neutro Dark */
+  --bf-sidebar-bg: #0f172a;
+  --bf-sidebar-border: #1e293b;
+  --bf-sidebar-text: #e2e8f0;
+  --bf-sidebar-accent: #94a3b8;
+  --bf-sidebar-hover-bg: #1e293b;
+  --bf-main-bg: #020617;
+  --bf-main-text: #f1f5f9;
+  --bf-card-bg: #0f172a;
+  --bf-card-border: #1e293b;
+  --bf-header-bg: #0f172a;
+  --bf-header-border: #1e293b;
+  --bf-header-text: #e2e8f0;
+  --bf-logo-text: #ef4444;
+  --bf-logo-sub: #60a5fa;
+  --bf-nav-active-bg: rgba(220, 38, 38, 0.15);
+  --bf-nav-active-text: #f87171;
+  --bf-nav-hover-bg: #1e293b;
+  --bf-nav-inactive-text: #94a3b8;
+  --bf-nav-inactive-icon: #475569;
+  --bf-user-badge-bg: rgba(220, 38, 38, 0.15);
+  --bf-user-badge-text: #f87171;
+  --bf-footer-border: #1e293b;
+  --bf-footer-bg: rgba(15, 23, 42, 0.5);
+}
+
+/* =====================================================
+   BUDGET THEME — Safe / Verde (dentro do limite) 💚
+   ===================================================== */
+.budget-safe {
+  --bf-sidebar-bg: #022c22;
+  --bf-sidebar-border: #064e3b;
+  --bf-sidebar-text: #d1fae5;
+  --bf-sidebar-accent: #6ee7b7;
+  --bf-sidebar-hover-bg: rgba(6, 78, 59, 0.6);
+  --bf-main-bg: #ecfdf5;
+  --bf-main-text: #064e3b;
+  --bf-card-bg: #ffffff;
+  --bf-card-border: #a7f3d0;
+  --bf-header-bg: #022c22;
+  --bf-header-border: #064e3b;
+  --bf-header-text: #d1fae5;
+  --bf-logo-text: #6ee7b7;
+  --bf-logo-sub: #34d399;
+  --bf-nav-active-bg: #064e3b;
+  --bf-nav-active-text: #ecfdf5;
+  --bf-nav-hover-bg: rgba(6, 78, 59, 0.5);
+  --bf-nav-inactive-text: #a7f3d0;
+  --bf-nav-inactive-icon: #6ee7b7;
+  --bf-user-badge-bg: #064e3b;
+  --bf-user-badge-text: #d1fae5;
+  --bf-footer-border: rgba(6, 78, 59, 0.5);
+  --bf-footer-bg: rgba(2, 44, 34, 0.85);
+}
+.budget-safe.dark {
+  --bf-sidebar-bg: #022c22;
+  --bf-sidebar-border: #064e3b;
+  --bf-sidebar-text: #d1fae5;
+  --bf-sidebar-accent: #6ee7b7;
+  --bf-sidebar-hover-bg: rgba(6, 78, 59, 0.6);
+  --bf-main-bg: #021a13;
+  --bf-main-text: #d1fae5;
+  --bf-card-bg: #022c22;
+  --bf-card-border: #064e3b;
+  --bf-header-bg: #022c22;
+  --bf-header-border: #064e3b;
+  --bf-header-text: #d1fae5;
+  --bf-logo-text: #6ee7b7;
+  --bf-logo-sub: #34d399;
+  --bf-nav-active-bg: #064e3b;
+  --bf-nav-active-text: #ecfdf5;
+  --bf-nav-hover-bg: rgba(6, 78, 59, 0.5);
+  --bf-nav-inactive-text: #a7f3d0;
+  --bf-nav-inactive-icon: #6ee7b7;
+  --bf-user-badge-bg: #064e3b;
+  --bf-user-badge-text: #d1fae5;
+  --bf-footer-border: rgba(6, 78, 59, 0.5);
+  --bf-footer-bg: rgba(2, 44, 34, 0.85);
+}
+
+/* =====================================================
+   BUDGET THEME — Warning / Amarelo (80%+ do limite) 💛
+   ===================================================== */
+.budget-warning {
+  --bf-sidebar-bg: #451a03;
+  --bf-sidebar-border: #78350f;
+  --bf-sidebar-text: #fef3c7;
+  --bf-sidebar-accent: #fbbf24;
+  --bf-sidebar-hover-bg: rgba(120, 53, 15, 0.6);
+  --bf-main-bg: #fffbeb;
+  --bf-main-text: #78350f;
+  --bf-card-bg: #ffffff;
+  --bf-card-border: #fde68a;
+  --bf-header-bg: #451a03;
+  --bf-header-border: #78350f;
+  --bf-header-text: #fef3c7;
+  --bf-logo-text: #fbbf24;
+  --bf-logo-sub: #f59e0b;
+  --bf-nav-active-bg: #78350f;
+  --bf-nav-active-text: #fffbeb;
+  --bf-nav-hover-bg: rgba(120, 53, 15, 0.5);
+  --bf-nav-inactive-text: #fde68a;
+  --bf-nav-inactive-icon: #fbbf24;
+  --bf-user-badge-bg: #78350f;
+  --bf-user-badge-text: #fef3c7;
+  --bf-footer-border: rgba(120, 53, 15, 0.5);
+  --bf-footer-bg: rgba(69, 26, 3, 0.85);
+}
+.budget-warning.dark {
+  --bf-sidebar-bg: #451a03;
+  --bf-sidebar-border: #78350f;
+  --bf-sidebar-text: #fef3c7;
+  --bf-sidebar-accent: #fbbf24;
+  --bf-sidebar-hover-bg: rgba(120, 53, 15, 0.6);
+  --bf-main-bg: #1c0a00;
+  --bf-main-text: #fef3c7;
+  --bf-card-bg: #451a03;
+  --bf-card-border: #78350f;
+  --bf-header-bg: #451a03;
+  --bf-header-border: #78350f;
+  --bf-header-text: #fef3c7;
+  --bf-logo-text: #fbbf24;
+  --bf-logo-sub: #f59e0b;
+  --bf-nav-active-bg: #78350f;
+  --bf-nav-active-text: #fffbeb;
+  --bf-nav-hover-bg: rgba(120, 53, 15, 0.5);
+  --bf-nav-inactive-text: #fde68a;
+  --bf-nav-inactive-icon: #fbbf24;
+  --bf-user-badge-bg: #78350f;
+  --bf-user-badge-text: #fef3c7;
+  --bf-footer-border: rgba(120, 53, 15, 0.5);
+  --bf-footer-bg: rgba(69, 26, 3, 0.85);
+}
+
+/* =====================================================
+   BUDGET THEME — Danger / Vermelho (limite estourado) 💔
+   ===================================================== */
+.budget-danger {
+  --bf-sidebar-bg: #450a0a;
+  --bf-sidebar-border: #7f1d1d;
+  --bf-sidebar-text: #fecaca;
+  --bf-sidebar-accent: #f87171;
+  --bf-sidebar-hover-bg: rgba(127, 29, 29, 0.6);
+  --bf-main-bg: #fef2f2;
+  --bf-main-text: #7f1d1d;
+  --bf-card-bg: #ffffff;
+  --bf-card-border: #fca5a5;
+  --bf-header-bg: #450a0a;
+  --bf-header-border: #7f1d1d;
+  --bf-header-text: #fecaca;
+  --bf-logo-text: #f87171;
+  --bf-logo-sub: #ef4444;
+  --bf-nav-active-bg: #7f1d1d;
+  --bf-nav-active-text: #fef2f2;
+  --bf-nav-hover-bg: rgba(127, 29, 29, 0.5);
+  --bf-nav-inactive-text: #fca5a5;
+  --bf-nav-inactive-icon: #f87171;
+  --bf-user-badge-bg: #7f1d1d;
+  --bf-user-badge-text: #fecaca;
+  --bf-footer-border: rgba(127, 29, 29, 0.5);
+  --bf-footer-bg: rgba(69, 10, 10, 0.85);
+}
+.budget-danger.dark {
+  --bf-sidebar-bg: #450a0a;
+  --bf-sidebar-border: #7f1d1d;
+  --bf-sidebar-text: #fecaca;
+  --bf-sidebar-accent: #f87171;
+  --bf-sidebar-hover-bg: rgba(127, 29, 29, 0.6);
+  --bf-main-bg: #1a0505;
+  --bf-main-text: #fecaca;
+  --bf-card-bg: #450a0a;
+  --bf-card-border: #7f1d1d;
+  --bf-header-bg: #450a0a;
+  --bf-header-border: #7f1d1d;
+  --bf-header-text: #fecaca;
+  --bf-logo-text: #f87171;
+  --bf-logo-sub: #ef4444;
+  --bf-nav-active-bg: #7f1d1d;
+  --bf-nav-active-text: #fef2f2;
+  --bf-nav-hover-bg: rgba(127, 29, 29, 0.5);
+  --bf-nav-inactive-text: #fca5a5;
+  --bf-nav-inactive-icon: #f87171;
+  --bf-user-badge-bg: #7f1d1d;
+  --bf-user-badge-text: #fecaca;
+  --bf-footer-border: rgba(127, 29, 29, 0.5);
+  --bf-footer-bg: rgba(69, 10, 10, 0.85);
 }
 
 body {

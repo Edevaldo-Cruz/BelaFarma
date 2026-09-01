@@ -463,7 +463,22 @@ const App: React.FC = () => {
     }
   }, [theme]);
 
-  // --- 🔔 NOTIFICAÇÕES INTELIGENTES (SSE) ---
+  // --- 🎨 BUDGET THEME — Aplica classe de tema no <html> conforme status do orçamento ---
+  useEffect(() => {
+    const el = document.documentElement;
+    // Remove qualquer tema de orçamento anterior
+    el.classList.remove('budget-safe', 'budget-warning', 'budget-danger');
+    // Aplica o novo tema (no-budget fica sem classe = neutro)
+    if (currentMonthBudgetStatus === 'safe') {
+      el.classList.add('budget-safe');
+    } else if (currentMonthBudgetStatus === 'warning') {
+      el.classList.add('budget-warning');
+    } else if (currentMonthBudgetStatus === 'danger') {
+      el.classList.add('budget-danger');
+    }
+  }, [currentMonthBudgetStatus]);
+
+
   useEffect(() => {
     if (!user) return;
 
@@ -1016,7 +1031,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen transition-colors duration-500 overflow-hidden" style={{ backgroundColor: 'var(--bf-main-bg)', color: 'var(--bf-main-text)' }}>
       <PwaUpdater />
       <VersionNotifier />
       <Sidebar
@@ -1034,7 +1049,7 @@ const App: React.FC = () => {
         tasks={tasks}
         boletos={boletos}
         onOpenTeraModal={() => setIsTeraModalOpen(true)}
-        isBudgetBusted={isBudgetBusted}
+        budgetStatus={currentMonthBudgetStatus}
         onOpenMural={() => setIsMuralOpen(true)}
         muralPendingCount={muralPendingCount}
         onOpenVersionModal={() => setIsVersionModalOpen(true)}
@@ -1042,7 +1057,7 @@ const App: React.FC = () => {
       <MobileHeader 
         onOpenSidebar={() => setIsSidebarOpen(true)} 
         onSearch={() => handleNavigate("medication-search")} 
-        isBudgetBusted={isBudgetBusted}
+        budgetStatus={currentMonthBudgetStatus}
       />
       <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
         <div className="max-w-7xl mx-auto pb-10">

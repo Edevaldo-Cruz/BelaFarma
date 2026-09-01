@@ -60,7 +60,7 @@ interface SidebarProps {
   tasks?: Task[];
   boletos?: Boleto[]; // ADDED
   onOpenTeraModal?: () => void; // ADDED
-  isBudgetBusted?: boolean;
+  budgetStatus?: 'safe' | 'warning' | 'danger' | 'no-budget';
   onOpenMural?: () => void;
   muralPendingCount?: number;
   onOpenVersionModal?: () => void;
@@ -78,11 +78,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tasks = [],
   boletos = [], // ADDED
   onOpenTeraModal,
-  isBudgetBusted = false,
+  budgetStatus = 'no-budget',
   onOpenMural,
   muralPendingCount = 0,
   onOpenVersionModal
 }) => {
+  // Derivar isBudgetBusted para compatibilidade com lógica existente
+  const isBudgetBusted = budgetStatus === 'danger';
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
   const isAdmin = user.role === UserRole.ADM;
@@ -356,9 +358,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const hasTheme = budgetStatus !== 'no-budget';
+
   const getNotificationBtnClass = () => {
-    if (isBudgetBusted) {
-      return hasNotifications ? 'bg-amber-500/20 text-amber-300' : 'bg-red-900/40 text-red-300 hover:text-white';
+    if (hasTheme) {
+      return hasNotifications ? 'bg-amber-500/20 text-amber-300' : 'rounded-xl transition-all';
     }
     const bgClass = hasNotifications ? 'bg-amber-100' : 'bg-slate-50';
     const textClass = hasNotifications ? 'text-amber-800' : 'text-slate-500';
@@ -367,8 +371,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const getLogoutBtnClass = () => {
-    if (isBudgetBusted) {
-      return 'text-red-300 hover:bg-red-900/40 hover:text-white';
+    if (hasTheme) {
+      return 'hover:opacity-70';
     }
     const textClass = 'text-slate-500';
     const hoverClass = 'hover:bg-red-50 hover:text-red-650';
@@ -387,13 +391,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside 
-        className={`fixed inset-y-0 left-0 z-40 w-64 border-r transform transition-transform duration-300 ease-in-out transition-colors duration-500 md:relative md:translate-x-0 shadow-2xl md:shadow-none ${
-          isBudgetBusted 
-            ? 'bg-red-950 border-red-900 text-red-100' 
-            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-        } ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 border-r transform transition-all duration-500 ease-in-out md:relative md:translate-x-0 shadow-2xl md:shadow-none ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={{
+          backgroundColor: 'var(--bf-sidebar-bg)',
+          borderColor: 'var(--bf-sidebar-border)',
+          color: 'var(--bf-sidebar-text)',
+        }}
       >
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-6 py-8">
@@ -402,8 +407,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <img src="/images/logo-icon.png" alt="Bela Farma" className="w-7 h-7 object-contain" />
               </div>
               <div className="flex flex-col leading-none">
-                <span className="text-2xl font-black text-red-700 dark:text-red-500 tracking-tighter">belinha</span>
-                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 ml-auto tracking-widest uppercase italic">sistema</span>
+                <span className="text-2xl font-black tracking-tighter" style={{ color: 'var(--bf-logo-text)' }}>belinha</span>
+                <span className="text-[10px] font-bold ml-auto tracking-widest uppercase italic" style={{ color: 'var(--bf-logo-sub)' }}>sistema</span>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -446,36 +451,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="px-6 mb-8 flex flex-col gap-4">
-            <div className={`flex items-center gap-3 p-3 rounded-2xl border ${
-              isBudgetBusted
-                ? 'bg-red-900/40 border-red-800/60 text-red-100'
-                : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'
-            }`}>
-              <div className={`p-2 rounded-xl ${
-                isBudgetBusted
-                  ? 'bg-red-900 text-red-200'
-                  : isAdmin ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              }`}>
+            <div
+              className="flex items-center gap-3 p-3 rounded-2xl border"
+              style={{
+                backgroundColor: 'var(--bf-sidebar-hover-bg)',
+                borderColor: 'var(--bf-sidebar-border)',
+              }}
+            >
+              <div
+                className="p-2 rounded-xl"
+                style={{
+                  backgroundColor: 'var(--bf-user-badge-bg)',
+                  color: 'var(--bf-user-badge-text)',
+                }}
+              >
                 {isAdmin ? <ShieldCheck className="w-4 h-4" /> : <UserIcon className="w-4 h-4" />}
               </div>
               <div className="flex flex-col overflow-hidden">
-                <span className={`text-xs font-black truncate uppercase tracking-tighter ${isBudgetBusted ? 'text-red-200' : 'text-slate-900 dark:text-slate-100'}`}>{user.name}</span>
-                <span className={`text-[9px] font-bold uppercase tracking-widest ${isBudgetBusted ? 'text-red-400/80' : 'text-slate-400 dark:text-slate-500'}`}>{user.role}</span>
+                <span className="text-xs font-black truncate uppercase tracking-tighter" style={{ color: 'var(--bf-sidebar-text)' }}>{user.name}</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--bf-sidebar-accent)' }}>{user.role}</span>
               </div>
             </div>
 
             <button 
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className={`flex items-center justify-between p-3 rounded-2xl border group transition-all ${
-                isBudgetBusted
-                  ? 'bg-red-900/40 border-red-800/60 hover:bg-red-900/60 text-red-200'
-                  : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
+              className="flex items-center justify-between p-3 rounded-2xl border group transition-all hover:opacity-80"
+              style={{
+                backgroundColor: 'var(--bf-sidebar-hover-bg)',
+                borderColor: 'var(--bf-sidebar-border)',
+              }}
             >
-              <span className={`text-[10px] font-black uppercase tracking-widest ml-1 ${isBudgetBusted ? 'text-red-300' : 'text-slate-400 dark:text-slate-500'}`}>Modo {theme === 'light' ? 'Escuro' : 'Claro'}</span>
-              <div className={`p-1.5 rounded-lg shadow-sm border text-slate-500 dark:text-slate-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-400 transition-colors ${
-                isBudgetBusted ? 'bg-red-900 border-red-800' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-700'
-              }`}>
+              <span className="text-[10px] font-black uppercase tracking-widest ml-1" style={{ color: 'var(--bf-sidebar-accent)' }}>Modo {theme === 'light' ? 'Escuro' : 'Claro'}</span>
+              <div
+                className="p-1.5 rounded-lg shadow-sm border group-hover:text-yellow-500 dark:group-hover:text-yellow-400 transition-colors"
+                style={{
+                  backgroundColor: 'var(--bf-sidebar-bg)',
+                  borderColor: 'var(--bf-sidebar-border)',
+                  color: 'var(--bf-sidebar-accent)',
+                }}
+              >
                 {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </div>
             </button>
@@ -524,6 +538,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               let buttonClass = '';
               let iconClass = '';
+              let buttonStyle: React.CSSProperties = {};
+              let iconStyle: React.CSSProperties = {};
 
               if (isVendas) {
                 if (isActive) {
@@ -534,15 +550,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   iconClass = 'text-amber-600 dark:text-amber-400';
                 }
               } else if (isActive) {
-                buttonClass = isBudgetBusted 
-                  ? 'bg-red-900 text-white shadow-sm'
-                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 shadow-sm';
-                iconClass = isBudgetBusted ? 'text-white' : 'text-red-600 dark:text-red-500';
+                buttonClass = 'shadow-sm';
+                buttonStyle = { backgroundColor: 'var(--bf-nav-active-bg)', color: 'var(--bf-nav-active-text)' };
+                iconStyle = { color: 'var(--bf-nav-active-text)' };
               } else {
-                buttonClass = isBudgetBusted
-                  ? 'text-red-300 hover:bg-red-900/40 hover:text-white'
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100';
-                iconClass = isBudgetBusted ? 'text-red-400' : 'text-slate-400 dark:text-slate-600';
+                buttonClass = 'hover:opacity-80';
+                buttonStyle = { color: 'var(--bf-nav-inactive-text)' };
+                iconStyle = { color: 'var(--bf-nav-inactive-icon)' };
               }
 
               return (
@@ -553,8 +567,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     if (window.innerWidth < 768) setIsOpen(false);
                   }}
                   className={`flex items-center w-full gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${buttonClass}`}
+                  style={buttonStyle}
                 >
-                  <Icon className={`w-5 h-5 ${iconClass}`} />
+                  <Icon className={`w-5 h-5 ${iconClass}`} style={iconStyle} />
                   <span className="truncate">{item.label}</span>
                   {isVendas && (
                     <span className={`ml-auto px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ${
@@ -586,11 +601,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </nav>
 
-          <div className={`p-4 border-t transition-colors space-y-2 ${
-            isBudgetBusted 
-              ? 'border-red-900/50 bg-red-950/85' 
-              : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50'
-          }`}>
+          <div
+            className="p-4 border-t transition-colors space-y-2"
+            style={{
+              borderColor: 'var(--bf-footer-border)',
+              backgroundColor: 'var(--bf-footer-bg)',
+            }}
+          >
             {/* Status do Cache Digifarma */}
             <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-200/60 dark:bg-slate-800/60 border border-slate-300/40 dark:border-slate-700/40 text-[11px]">
               <div className="flex items-center gap-2 truncate">
