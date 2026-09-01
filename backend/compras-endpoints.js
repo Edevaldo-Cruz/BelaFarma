@@ -255,6 +255,26 @@ module.exports = (db) => {
     }
   });
 
+  router.post('/mineracao/processar-texto', async (req, res) => {
+    try {
+      const { text, phone = '5532999990000', pushName = 'Representante Comercial' } = req.body;
+      if (!text || !text.trim()) {
+        return res.status(400).json({ success: false, error: 'Texto da mensagem é obrigatório.' });
+      }
+      const resultado = await comprasMineracaoService.processarMensagemRecebida({
+        id: `manual_${Date.now()}`,
+        text,
+        phone,
+        pushName,
+        timestamp: Date.now()
+      }, db);
+      res.json({ success: true, data: resultado, message: 'Texto processado e minerado com sucesso!' });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /mineracao/processar-texto:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades', (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "a8420e7",
-  "commitMessage": "fix(compras): substitui referencia incorreta pedidoMin por sugerido em ComprasDashboard e atualiza dist",
-  "buildTime": "01/09/2026, 16:28:21"
+  "commitHash": "dedd3d9",
+  "commitMessage": "fix(compras): aprimora filtro de ofertas e termos comerciais na mineracao",
+  "buildTime": "01/09/2026, 16:57:36"
 }

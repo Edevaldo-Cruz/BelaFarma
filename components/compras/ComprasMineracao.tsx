@@ -44,6 +44,13 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
   // Modal de Detalhes da Oferta
   const [selectedOferta, setSelectedOferta] = useState<OportunidadeMinerada | null>(null);
+  
+  // Modal de Mineração Manual / Colar Texto
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [manualTexto, setManualTexto] = useState('');
+  const [manualTelefone, setManualTelefone] = useState('');
+  const [manualRepresentante, setManualRepresentante] = useState('');
+  const [processandoManual, setProcessandoManual] = useState(false);
 
   const carregarOportunidades = async () => {
     try {
@@ -78,7 +85,13 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast(`✅ Varredura concluída! ${data.data?.fornecedoresCadastrados || data.data?.representantesCadastrados || 0} fornecedores e ${data.data?.ofertasIndexadas || 0} ofertas mapeadas.`, 'success');
+        const ofertasCount = data.data?.ofertasIndexadas || 0;
+        const fornecedoresCount = data.data?.fornecedoresCadastrados || data.data?.representantesCadastrados || 0;
+        if (ofertasCount > 0) {
+          addToast(`✅ Varredura concluída! ${fornecedoresCount} fornecedores e ${ofertasCount} ofertas mapeadas.`, 'success');
+        } else {
+          addToast(`ℹ️ Varredura concluída! Nenhuma nova tabela de preços identificada no WhatsApp ainda. Você pode colar mensagens de representantes no botão "Colar Oferta".`, 'info');
+        }
         carregarOportunidades();
       } else {
         addToast('Erro na mineração: ' + (data.error || 'Falha ao processar conversas'), 'error');
@@ -87,6 +100,41 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
       addToast('Falha na comunicação: ' + err.message, 'error');
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleProcessarTextoManual = async () => {
+    if (!manualTexto.trim()) {
+      addToast('Cole o texto da oferta antes de processar.', 'warning');
+      return;
+    }
+    try {
+      setProcessandoManual(true);
+      const res = await fetch('/api/central-compras/mineracao/processar-texto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: manualTexto,
+          phone: manualTelefone || '5532999990000',
+          pushName: manualRepresentante || 'Representante Comercial'
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const qtdOfertas = data.data?.ofertas?.length || 0;
+        addToast(`✅ Mineração concluída! ${qtdOfertas} oferta(s) extraída(s) com sucesso.`, 'success');
+        setIsManualModalOpen(false);
+        setManualTexto('');
+        setManualTelefone('');
+        setManualRepresentante('');
+        carregarOportunidades();
+      } else {
+        addToast('Erro ao minerar texto: ' + (data.error || 'Falha ao processar'), 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro de comunicação: ' + err.message, 'error');
+    } finally {
+      setProcessandoManual(false);
     }
   };
 
@@ -168,6 +216,15 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             >
               <Scan className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
               {scanning ? 'Minerando 90 Dias...' : 'Varrer WhatsApp Agora'}
+            </button>
+
+            <button
+              onClick={() => setIsManualModalOpen(true)}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-black uppercase tracking-wider border border-slate-600 transition-all cursor-pointer active:scale-95"
+              title="Colar texto de mensagem ou encarte de representante"
+            >
+              <FileText className="w-4 h-4 text-orange-400" />
+              Colar Oferta
             </button>
           </div>
         </div>
@@ -356,6 +413,86 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                 className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider cursor-pointer"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Colar/Importar Texto de Mensagem de Representante */}
+      {isManualModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-xl p-6 rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 rounded-2xl">
+                <FileText className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                  Colar Oferta / Mensagem do WhatsApp
+                </h3>
+                <p className="text-xs font-bold text-slate-400">
+                  Cole tabelas, encartes ou conversas de representantes para minerar preços e prazos imediatamente.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                  Nome / Distribuidora (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={manualRepresentante}
+                  onChange={(e) => setManualRepresentante(e.target.value)}
+                  placeholder="Ex: Carlos (Santa Cruz)"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                  Telefone (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={manualTelefone}
+                  onChange={(e) => setManualTelefone(e.target.value)}
+                  placeholder="Ex: (32) 99999-8888"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                Texto da Mensagem com Preços / Prazos
+              </label>
+              <textarea
+                value={manualTexto}
+                onChange={(e) => setManualTexto(e.target.value)}
+                placeholder="Exemplo:&#10;Boa tarde! Ofertas especiais de hoje:&#10;Dipirona 500mg c/ 100 por R$ 1,45&#10;Losartana 50mg 30cp R$ 2,10&#10;Amoxicilina 500mg R$ 18,90&#10;Condições: 28/35/42 dias no boleto, pedido mínimo R$ 500"
+                rows={6}
+                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500 leading-relaxed resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsManualModalOpen(false)}
+                disabled={processandoManual}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleProcessarTextoManual}
+                disabled={processandoManual || !manualTexto.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white text-xs font-black uppercase tracking-wider shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+              >
+                <Sparkles className={`w-4 h-4 ${processandoManual ? 'animate-spin' : ''}`} />
+                {processandoManual ? 'Minerando IA...' : 'Processar e Minerar'}
               </button>
             </div>
           </div>
