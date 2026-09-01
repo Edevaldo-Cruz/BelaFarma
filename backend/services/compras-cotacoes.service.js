@@ -905,7 +905,7 @@ function tratarQuebraFornecedor(cotacaoId, fornecedorId, options = {}) {
  * Cria uma nova cotação no banco de dados.
  */
 function criarCotacao(dados = {}, dbInstance = null) {
-  const db = dbInstance || dbInstance;
+  const db = getDb(dbInstance);
   if (!db) throw new Error('Instância do banco de dados SQLite não fornecida.');
 
   const id = dados.id || crypto.randomUUID();
@@ -945,7 +945,7 @@ function criarCotacao(dados = {}, dbInstance = null) {
  * Obtém detalhes completos de uma cotação com suas respostas e ranking.
  */
 function obterCotacao(cotacaoId, dbInstance = null) {
-  const db = dbInstance || dbInstance;
+  const db = getDb(dbInstance);
   if (!db) throw new Error('Instância do banco de dados SQLite não fornecida.');
 
   const cotacao = db.prepare('SELECT * FROM compras_cotacoes WHERE id = ? OR numero_cotacao = ?').get(cotacaoId, cotacaoId);
@@ -983,6 +983,7 @@ function obterCotacao(cotacaoId, dbInstance = null) {
 
   return {
     ...cotacao,
+    numeroCotacao: cotacao.numero_cotacao,
     itensSolicitados,
     criteriosScore,
     itens: itensSolicitados,
@@ -1000,7 +1001,7 @@ function listarCotacoes(dbOrFiltros = {}, talvezFiltros = {}) {
     db = dbOrFiltros;
     filtros = talvezFiltros || {};
   } else {
-    db = dbInstance;
+    db = getDb();
     filtros = (typeof dbOrFiltros === 'object' && dbOrFiltros !== null) ? dbOrFiltros : (talvezFiltros || {});
   }
 
@@ -1045,7 +1046,7 @@ function listarCotacoes(dbOrFiltros = {}, talvezFiltros = {}) {
  * Registra a resposta de cotação enviada por um fornecedor.
  */
 function registrarRespostaCotacao(cotacaoId, dadosResposta = {}, dbInstance = null) {
-  const db = dbInstance || dbInstance;
+  const db = getDb(dbInstance);
   if (!db) throw new Error('Instância do banco de dados SQLite não fornecida.');
 
   const cotacao = db.prepare('SELECT id FROM compras_cotacoes WHERE id = ? OR numero_cotacao = ?').get(cotacaoId, cotacaoId);
