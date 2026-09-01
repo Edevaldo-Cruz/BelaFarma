@@ -462,26 +462,25 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 <th className="py-3 px-4">Código / EAN</th>
                 <th className="py-3 px-4">Medicamento / Apresentação</th>
                 <th className="py-3 px-3 text-center">Curva</th>
-                <th className="py-3 px-3 text-right">VMD (60d)</th>
                 <th className="py-3 px-3 text-right">Demanda 30d</th>
                 <th className="py-3 px-3 text-right">Saldo Atual</th>
-                <th className="py-3 px-3 text-right">Est. Mínimo</th>
-                <th className="py-3 px-3 text-right text-sky-600 dark:text-sky-400">Pedido Mínimo</th>
-                <th className="py-3 px-3 text-right text-purple-600 dark:text-purple-400">Est. Máximo (+20%)</th>
-                <th className="py-3 px-4 text-center">Status Risco</th>
+                <th className="py-3 px-3 text-right text-sky-600 dark:text-sky-400">Est. Mínimo (30d)</th>
+                <th className="py-3 px-3 text-right text-purple-600 dark:text-purple-400">Est. Máximo (45d)</th>
+                <th className="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400">Sugestão Reposição</th>
+                <th className="py-3 px-4 text-center">Status Estoque</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-                    Carregando inteligência de estoque para 30 dias...
+                    Carregando gestão de estoque e demanda para 30 dias...
                   </td>
                 </tr>
               ) : produtosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Info className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                     Nenhum medicamento encontrado com os filtros selecionados.
                   </td>
@@ -490,32 +489,31 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 produtosPaginados.map(item => {
                   const isSelected = selectedIds.has(item.produtoId);
                   const estMin = item.estMinimoCalculado || 0;
-                  const estMax = item.estMaximoCalculado || Math.ceil(estMin * 1.2);
-                  const pedidoMin = item.pedidoMinimo !== undefined ? item.pedidoMinimo : (item.sugeridoReposicao || Math.max(0, estMin - item.saldo));
+                  const estMax = item.estMaximoCalculado || Math.ceil(estMin * 1.5);
+                  const sugerido = item.sugeridoReposicao !== undefined ? item.sugeridoReposicao : Math.max(0, estMin - item.saldo);
 
-                  const isAbaixoMinimo = estMin > 0 && item.saldo < estMin;
+                  const isRuptura = item.saldo <= 0;
+                  const isAbaixoMinimo = !isRuptura && estMin > 0 && item.saldo < estMin;
                   const isAcimaMaximo = estMax > 0 && item.saldo > estMax;
                   
-                  let badgeColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
-                  let statusTexto = 'Ideal';
+                  let badgeColor = 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30';
+                  let statusTexto = 'Normal / Ideal';
 
-                  if (item.statusRuptura === 'RUPTURA' || item.saldo <= 0) {
-                    badgeColor = 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-800 font-black animate-pulse';
+                  if (isRuptura) {
+                    badgeColor = 'bg-red-500/10 text-red-600 border border-red-500/30 font-black animate-pulse';
                     statusTexto = 'Ruptura (0)';
                   } else if (isAbaixoMinimo) {
-                    badgeColor = 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 font-black';
-                    statusTexto = 'Abaixo Mínimo';
+                    badgeColor = 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-black';
+                    statusTexto = 'Abaixo do Mínimo';
                   } else if (isAcimaMaximo) {
-                    badgeColor = 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800 font-black';
-                    statusTexto = 'Acima Máximo';
-                  } else {
-                    badgeColor = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold';
-                    statusTexto = 'Ideal';
+                    badgeColor = 'bg-purple-500/10 text-purple-600 border border-purple-500/30 font-black';
+                    statusTexto = 'Excesso';
                   }
 
-                  let saldoStyle = 'text-slate-900 dark:text-slate-100';
-                  if (isAbaixoMinimo) saldoStyle = 'text-sky-600 dark:text-sky-400 font-black';
-                  if (isAcimaMaximo) saldoStyle = 'text-red-600 dark:text-red-400 font-black';
+                  let saldoStyle = 'text-slate-900 dark:text-slate-100 font-bold';
+                  if (isRuptura) saldoStyle = 'text-red-600 dark:text-red-400 font-black';
+                  else if (isAbaixoMinimo) saldoStyle = 'text-amber-600 dark:text-amber-400 font-black';
+                  else if (isAcimaMaximo) saldoStyle = 'text-purple-600 dark:text-purple-400 font-black';
 
                   return (
                     <tr 

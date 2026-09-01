@@ -712,9 +712,9 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         INSERT INTO compras_oportunidades_mineradas (
           id, fornecedor_id, distribuidora, representante, telefone,
           mensagem_id, mensagem_raw, produto_nome, ean,
-          preco_ofertado, preco_ultima_compra, percentual_desconto,
-          bonificacao, prazo_dias, condicao_pagamento, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
+          condicoes_pagamento, status, data_oferta, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         ofertaId,
         fornecedorSalvo ? fornecedorSalvo.id : null,
@@ -726,12 +726,11 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         ofr.produtoNome,
         validacao.ean || ofr.ean || null,
         ofr.precoOfertado,
-        validacao.precoUltimaCompra,
-        validacao.percentualEconomia,
-        ofr.bonificacaoTexto || null,
-        extracao.prazosPagamento.length > 0 ? extracao.prazosPagamento[0] : 0,
+        validacao.precoUltCompra || null,
+        validacao.percentualDesconto || 0,
         extracao.prazosPagamento.length > 0 ? extracao.prazosPagamento.join('/') : 'À vista',
         statusOferta,
+        now,
         now
       );
 
@@ -1027,7 +1026,33 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     params.push(filtros.limite);
   }
 
-  return db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params);
+  return rows.map(r => ({
+    id: r.id,
+    fornecedorId: r.fornecedor_id,
+    fornecedorNome: r.distribuidora || 'Distribuidora',
+    distribuidora: r.distribuidora || 'Distribuidora',
+    representanteNome: r.representante,
+    representante: r.representante,
+    telefone: r.telefone,
+    mensagemId: r.mensagem_id,
+    mensagemRaw: r.mensagem_raw,
+    produtoNome: r.produto_nome,
+    produto_nome: r.produto_nome,
+    ean: r.ean,
+    precoOfertado: r.preco_ofertado,
+    preco_ofertado: r.preco_ofertado,
+    precoUltCompraDigifarma: r.preco_ult_compra_digifarma,
+    preco_ult_compra_digifarma: r.preco_ult_compra_digifarma,
+    precoLiquidoEfetivo: r.preco_ofertado,
+    descontoPercentual: r.percentual_desconto,
+    economiaPercentual: r.percentual_desconto,
+    condicoesPagamento: r.condicoes_pagamento,
+    validadeOferta: r.validade_oferta,
+    status: r.status,
+    dataOferta: r.data_oferta,
+    createdAt: r.created_at
+  }));
 }
 
 /**

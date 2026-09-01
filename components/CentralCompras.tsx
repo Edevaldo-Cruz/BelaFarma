@@ -94,8 +94,8 @@ export const CentralCompras: React.FC<CentralComprasProps> = ({
   const tabsConfig = [
     {
       id: 'dashboard',
-      label: '1. Estoque Mínimo & Faltas',
-      shortLabel: 'Estoque Mínimo',
+      label: '1. Gestão de Estoque & Demanda',
+      shortLabel: 'Estoque & Demanda',
       icon: LayoutDashboard,
       badge: null
     },

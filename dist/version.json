@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c80e69d",
-  "commitMessage": "feat(compras): mineracao retroativa 90 dias, extracao de nomes de representantes e ativacao de cotacoes",
-  "buildTime": "01/09/2026, 12:11:17"
+  "commitHash": "31636c1",
+  "commitMessage": "fix(compras): correcao total de queries, endpoints e integracao de cotacoes e mineracao retroativa 90d",
+  "buildTime": "01/09/2026, 16:03:35"
 }
