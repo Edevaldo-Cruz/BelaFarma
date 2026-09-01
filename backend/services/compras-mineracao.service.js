@@ -273,6 +273,11 @@ function extrairLinhasDeOferta(texto) {
     const trimmed = linha.trim();
     if (!trimmed || trimmed.length < 5) continue;
 
+    // Ignora linhas que são de condições de pagamento ou pedido mínimo
+    if (/pedido\s+m[íi]nimo|faturamento\s+m[íi]nimo|condi[çc][õo]es|prazos?|boletos?|frete/i.test(trimmed)) {
+      continue;
+    }
+
     // Prioridade 1: Preço explícito com R$ (ex: R$ 2,00)
     let priceMatch = /R\$\s*([\d\.,]+)/i.exec(trimmed);
     let matchedRegex = /R\$\s*[\d\.,]+/i;
@@ -353,11 +358,13 @@ function extrairLinhasDeOferta(texto) {
       // Extrai o nome do produto removendo preços, ean e bonificações da linha
       let nomeProduto = trimmed
         .replace(matchedRegex, '')
+        .replace(/(?:(?:por\s+)|(?:cada\s+)|(?:un\s*:\s*)|(?:un\s+))/gi, ' ')
         .replace(/\b(789\d{10}|\d{13})\b/g, '')
         .replace(/(?:compre\s*\d+\s*(?:ganhe|leve)\s*\d+|\d+\s*\+\s*\d+|leve\s*\d+\s*pague\s*\d+|pague\s*\d+\s*leve\s*\d+)/gi, '')
         .replace(/\d{1,2}(?:[\.,]\d+)?\s*%\s*(?:de\s*desc(?:onto)?|off)/gi, '')
         .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
         .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
+        .replace(/\s+/g, ' ')
         .trim();
 
       if (nomeProduto.length >= 3 && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|ol[áa]|aten[çc][ãa]o)/i.test(nomeProduto)) {
