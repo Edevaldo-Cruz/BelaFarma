@@ -52,12 +52,12 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
     } 
     
     if (provider === 'gemini') {
-      const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      console.log(`[AI] Tentando Fallback Gemini: ${model} ${imageData ? '(com imagem)' : ''}`);
+      console.log(`[AI] Tentando Gemini: ${model} ${imageData ? '(com imagem)' : ''}`);
       
       const contents = [];
       const parts = [{ text: fullPrompt }];
@@ -123,6 +123,14 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
         return await runAI('gemini');
       } catch (fallbackError) {
         console.error('[AI] Erro também no fallback Gemini:', fallbackError.message);
+        throw fallbackError;
+      }
+    } else if (primaryProvider === 'gemini' && process.env.OPENAI_API_KEY) {
+      console.log('[AI] Acionando motor de backup (OpenAI)...');
+      try {
+        return await runAI('openai');
+      } catch (fallbackError) {
+        console.error('[AI] Erro também no fallback OpenAI:', fallbackError.message);
         throw fallbackError;
       }
     }

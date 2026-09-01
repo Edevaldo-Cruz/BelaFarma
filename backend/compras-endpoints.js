@@ -31,6 +31,11 @@ try {
 }
 
 module.exports = (db) => {
+  if (baileysComprasService && typeof baileysComprasService.connect === 'function') {
+    baileysComprasService.connect(db).catch(err => {
+      console.warn('[Compras-Endpoints] ⚠️ Falha na inicialização do Baileys Compras:', err.message);
+    });
+  }
 
   // ──────────────────────────────────────────────────────────
   // 1. DASHBOARD & MÉTRICAS CONSOLIDADAS

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "8c4acc2",
-  "commitMessage": "feat(system): esquema de versao semantica com commit git e notificacao via toast",
-  "buildTime": "31/08/2026, 17:36:55"
+  "commitHash": "f1dffa6",
+  "commitMessage": "feat: ajustar regra do tema para monitorar os 2 meses futuros (M+1 e M+2) e tornar botao flutuante discreto/oculto no mobile",
+  "buildTime": "01/09/2026, 10:41:33"
 }

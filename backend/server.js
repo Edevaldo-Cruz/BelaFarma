@@ -4698,6 +4698,20 @@ app.post('/api/whatsapp/secondary/send-media', async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// 🤖 BAILEYS WHATSAPP COMPRAS SERVICE — Inicialização e Endpoints
+// ══════════════════════════════════════════════════════════════════════
+let baileysCompras = null;
+try {
+  baileysCompras = require('./baileys-compras-service.js');
+  console.log('[Baileys-Compras] 🚀 Iniciando conexão WhatsApp Comercial em background...');
+  baileysCompras.connect(db).catch(err => {
+    console.error('[Baileys-Compras] ⚠️ Falha na inicialização do comercial:', err.message);
+  });
+} catch (e) {
+  console.warn('[Baileys-Compras] ⚠️ Serviço comercial indisponível:', e.message);
+}
+
 // GET /api/whatsapp/secondary/groups — Lista grupos do WhatsApp Secundário
 app.get('/api/whatsapp/secondary/groups', async (req, res) => {
   if (!baileysSecondary) return res.status(503).json({ error: 'Serviço Baileys Secundário não disponível.' });
