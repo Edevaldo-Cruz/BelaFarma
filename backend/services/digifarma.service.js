@@ -16,6 +16,8 @@ const options = {
  */
 const pool = firebird.pool(5, options);
 
+let firebirdOfflineUntil = 0;
+
 /**
  * Execute a query on Digifarma Firebird DB.
  * Para comandos de escrita (UPDATE/INSERT/DELETE), abre transação explícita
@@ -26,12 +28,17 @@ const pool = firebird.pool(5, options);
  * @returns {Promise<Array>}
  */
 async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
+    if (Date.now() < firebirdOfflineUntil) {
+        return Promise.reject(new Error('Circuit Breaker: Servidor do Digifarma Offline.'));
+    }
+
     return new Promise((resolve, reject) => {
         let finished = false;
 
         const timer = setTimeout(() => {
             if (!finished) {
                 finished = true;
+                firebirdOfflineUntil = Date.now() + 60000; // Circuit breaker 1 min
                 console.error(`[Digifarma DB] Query Timeout (${timeoutMs}ms exceeded) for SQL:`, sql);
                 reject(new Error(`Timeout de ${timeoutMs}ms excedido na consulta ao Digifarma.`));
             }
@@ -52,6 +59,7 @@ async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
             }
 
             if (err) {
+                firebirdOfflineUntil = Date.now() + 60000; // Circuit breaker 1 min
                 console.error('[Digifarma DB] Connection Error:', err.message);
                 return done(new Error('Servidor do Digifarma Offline ou Inacessível.'));
             }

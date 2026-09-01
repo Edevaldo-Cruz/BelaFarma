@@ -1020,6 +1020,33 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
  * Povoa encartes e ofertas de parceiros para inicializar a esteira de cotação e mineração.
  */
 async function popularOfertasHistoricasPadrao(db) {
+  // Seed the SQLite cache if it's empty so it works on Render without Firebird
+  try {
+    const cacheCount = db.prepare('SELECT COUNT(*) as total FROM compras_estoque_cache').get().total;
+    if (cacheCount === 0) {
+      const mockProducts = [
+        { desc: 'DIPIRONA 500MG C/ 100', val: 1.98 },
+        { desc: 'LOSARTANA POTASSICA 50MG C/ 30', val: 1.46 },
+        { desc: 'IBUPROFENO 400MG C/ 10 CAPS', val: 4.99 },
+        { desc: 'AMOXICILINA 500MG C/ 21 CAPS', val: 27.00 },
+        { desc: 'ENALAPRIL 20MG C/ 30', val: 3.50 },
+        { desc: 'TADALAFILA 20MG C/ 4', val: 2.46 },
+        { desc: 'SILDENAFILA 50MG C/ 4', val: 1.67 },
+        { desc: 'FRALDA BABYSEC MEGA M', val: 29.90 },
+        { desc: 'PARACETAMOL 500MG C/ 200', val: 3.18 },
+        { desc: 'GLICLAZIDA 30MG C/ 30', val: 14.37 },
+        { desc: 'METILDOPA 500MG C/ 30', val: 37.22 },
+        { desc: 'ENGOV ENV C/ 6 CPR', val: 7.36 },
+        { desc: 'DORFLEX C/ 36 CPR', val: 11.31 },
+        { desc: 'NEOSALDINA 30 DRG', val: 16.99 }
+      ];
+      const stmt = db.prepare('INSERT INTO compras_estoque_cache (produto_id, ean, descricao, estoque_atual, estoque_minimo, ultima_compra_valor, atualizado_em) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (let i = 0; i < mockProducts.length; i++) {
+        stmt.run(1000 + i, null, mockProducts[i].desc, 5, 10, mockProducts[i].val, new Date().toISOString());
+      }
+    }
+  } catch (e) {}
+
   const mensagensIniciais = [
     {
       id: 'encarte_santacruz_01',
