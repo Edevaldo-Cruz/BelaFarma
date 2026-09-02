@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ab78fe7",
-  "commitMessage": "feat(compras-mineracao): substituir parser regex por agente de IA dedicado na interpretacao de ofertas",
-  "buildTime": "02/09/2026, 09:52:50"
+  "commitHash": "3be42b9",
+  "commitMessage": "fix(notificacao): garantir que o aviso e modal de maquininhas/provisoes sejam exibidos enquanto houver pendencias",
+  "buildTime": "02/09/2026, 09:57:51"
 }

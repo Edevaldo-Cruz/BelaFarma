@@ -70,6 +70,7 @@ module.exports = (db) => {
       d.setDate(d.getDate() + 1);
       isWeekendAcc = 1;
     } else {
+      // Segunda a Quinta -> D+1 útil
       d.setDate(d.getDate() + 1);
     }
     return {
@@ -77,6 +78,91 @@ module.exports = (db) => {
       isWeekendAccumulated: isWeekendAcc
     };
   };
+
+  // Sincronização automática: Popular recebíveis a partir dos fechamentos existentes que ainda não foram inseridos
+  try {
+    const closings = db.prepare('SELECT * FROM cash_closings ORDER BY date ASC').all();
+    const insertStmt = db.prepare(`
+      INSERT OR IGNORE INTO card_machine_receivables (
+        id, closing_id, sale_date, expected_payment_date, modality, brand, machine_name, is_weekend_accumulated,
+        gross_value, net_deposited_value, fee_value, fee_percent,
+        status, reconciled_at, reconciled_by, notes, created_at
+      ) VALUES (
+        @id, @closing_id, @sale_date, @expected_payment_date, @modality, @brand, @machine_name, @is_weekend_accumulated,
+        @gross_value, NULL, NULL, NULL,
+        'Pendente', NULL, NULL, @notes, @created_at
+      )
+    `);
+
+    db.transaction(() => {
+      closings.forEach(closing => {
+        const saleDate = closing.date ? closing.date.split('T')[0] : '2026-04-30';
+        const busDayInfo = getNextBusinessDayInfo(saleDate);
+        const createdAt = new Date().toISOString();
+
+        let grid = null;
+        try {
+          if (closing.card_grid_json) grid = JSON.parse(closing.card_grid_json);
+          else if (closing.cardGrid) grid = closing.cardGrid;
+        } catch(e) {}
+
+        let hasGridItems = false;
+        if (grid) {
+          ['Visa', 'Master', 'Elo', 'Outros'].forEach(brand => {
+            const row = grid[brand] || {};
+            const m1Deb = Number(row.m1_debit || 0);
+            const m1Cred = Number(row.m1_credit || 0);
+            const m1Inst = Number(row.m1_installments || 0);
+            const m2Deb = Number(row.m2_debit || 0);
+            const m2Cred = Number(row.m2_credit || 0);
+            const m2Inst = Number(row.m2_installments || 0);
+
+            if (m1Deb > 0) {
+              insertStmt.run({ id: `cmr_${closing.id}_${brand.toLowerCase()}_m1_deb`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Débito', brand, machine_name: 'M1', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: m1Deb, notes: `Fechamento ${saleDate} - ${brand} Débito (M1)`, created_at: createdAt });
+              hasGridItems = true;
+            }
+            if (m1Cred > 0) {
+              insertStmt.run({ id: `cmr_${closing.id}_${brand.toLowerCase()}_m1_cred`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Crédito à Vista', brand, machine_name: 'M1', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: m1Cred, notes: `Fechamento ${saleDate} - ${brand} Crédito à Vista (M1)`, created_at: createdAt });
+              hasGridItems = true;
+            }
+            if (m1Inst > 0) {
+              insertStmt.run({ id: `cmr_${closing.id}_${brand.toLowerCase()}_m1_inst`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Crédito Parcelado', brand, machine_name: 'M1', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: m1Inst, notes: `Fechamento ${saleDate} - ${brand} Crédito Parcelado (M1)`, created_at: createdAt });
+              hasGridItems = true;
+            }
+            if (m2Deb > 0) {
+              insertStmt.run({ id: `cmr_${closing.id}_${brand.toLowerCase()}_m2_deb`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Débito', brand, machine_name: 'M2', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: m2Deb, notes: `Fechamento ${saleDate} - ${brand} Débito (M2)`, created_at: createdAt });
+              hasGridItems = true;
+            }
+            if (m2Cred > 0) {
+              insertStmt.run({ id: `cmr_${closing.id}_${brand.toLowerCase()}_m2_cred`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Crédito à Vista', brand, machine_name: 'M2', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: m2Cred, notes: `Fechamento ${saleDate} - ${brand} Crédito à Vista (M2)`, created_at: createdAt });
+              hasGridItems = true;
+            }
+            if (m2Inst > 0) {
+              insertStmt.run({ id: `cmr_${closing.id}_${brand.toLowerCase()}_m2_inst`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Crédito Parcelado', brand, machine_name: 'M2', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: m2Inst, notes: `Fechamento ${saleDate} - ${brand} Crédito Parcelado (M2)`, created_at: createdAt });
+              hasGridItems = true;
+            }
+          });
+        }
+
+        if (!hasGridItems) {
+          const deb = Number(closing.debit || 0);
+          const cred = Number(closing.credit || 0);
+          const inst = Number(closing.credit_installments || 0);
+          if (deb > 0) {
+            insertStmt.run({ id: `cmr_${closing.id}_outros_deb`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Débito', brand: 'Outros', machine_name: 'M1', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: deb, notes: `Fechamento ${saleDate} - Débito`, created_at: createdAt });
+          }
+          if (cred > 0) {
+            insertStmt.run({ id: `cmr_${closing.id}_outros_cred`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Crédito à Vista', brand: 'Outros', machine_name: 'M1', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: cred, notes: `Fechamento ${saleDate} - Crédito à Vista`, created_at: createdAt });
+          }
+          if (inst > 0) {
+            insertStmt.run({ id: `cmr_${closing.id}_outros_inst`, closing_id: closing.id, sale_date: saleDate, expected_payment_date: busDayInfo.nextDate, modality: 'Crédito Parcelado', brand: 'Outros', machine_name: 'M1', is_weekend_accumulated: busDayInfo.isWeekendAccumulated, gross_value: inst, notes: `Fechamento ${saleDate} - Crédito Parcelado`, created_at: createdAt });
+          }
+        }
+      });
+    })();
+  } catch (syncErr) {
+    console.error('[CardMachines] Erro ao sincronizar fechamentos:', syncErr.message);
+  }
 
   // GET /api/card-machine-receivables - Lista recebíveis com filtros
   router.get('/card-machine-receivables', (req, res) => {
