@@ -40,7 +40,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   const [scanning, setScanning] = useState(false);
   const [diasVarredura, setDiasVarredura] = useState<number>(14);
   const [busca, setBusca] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState<string>('TODOS');
+  const [abaAtiva, setAbaAtiva] = useState<'RELEVANTES' | 'DESCONTO' | 'RUPTURA' | 'TODOS'>('RELEVANTES');
 
   // Modal de Detalhes da Oferta
   const [selectedOferta, setSelectedOferta] = useState<OportunidadeMinerada | null>(null);
@@ -143,27 +143,54 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   };
 
   const oportunidadesFiltradas = useMemo(() => {
-    return oportunidades.filter(op => {
-      const prodNome = (op as any).produto_nome || op.produtoNome || '';
-      const distNome = (op as any).distribuidora || (op as any).fornecedorNome || '';
-      const repNome = (op as any).representante || (op as any).representanteNome || '';
-      const eanStr = (op as any).ean || '';
+    return oportunidades
+      .filter(op => {
+        const prodNome = (op as any).produto_nome || op.produtoNome || '';
+        const distNome = (op as any).distribuidora || (op as any).fornecedorNome || '';
+        const repNome = (op as any).representante || (op as any).representanteNome || '';
+        const eanStr = (op as any).ean || '';
 
-      const matchBusca = !busca || 
-        prodNome.toLowerCase().includes(busca.toLowerCase()) ||
-        distNome.toLowerCase().includes(busca.toLowerCase()) ||
-        repNome.toLowerCase().includes(busca.toLowerCase()) ||
-        eanStr.includes(busca);
+        const matchBusca = !busca || 
+          prodNome.toLowerCase().includes(busca.toLowerCase()) ||
+          distNome.toLowerCase().includes(busca.toLowerCase()) ||
+          repNome.toLowerCase().includes(busca.toLowerCase()) ||
+          eanStr.includes(busca);
 
-      const statusOp = (op as any).status || '';
-      const matchStatus = filtroStatus === 'TODOS' || 
-        (filtroStatus === 'VANTAGOSAS' && (statusOp === 'Aprovado_Radar' || statusOp === 'Disponivel')) ||
-        (filtroStatus === 'DESCARTADAS' && (statusOp === 'Descartado_Preco' || statusOp === 'Descartado_Preco_Maior')) ||
-        (filtroStatus === 'SEM_HISTORICO' && statusOp === 'Oportunidade_Sem_Historico');
+        if (!matchBusca) return false;
 
-      return matchBusca && matchStatus;
-    });
-  }, [oportunidades, busca, filtroStatus]);
+        const economizou = (op.economiaPercentual || 0) > 0;
+        const temRuptura = Boolean(op.emRuptura || (op.estoqueAtual !== undefined && op.estoqueAtual <= 0));
+        const temEstoqueBaixo = Boolean(op.estoqueMinimo && op.estoqueAtual !== undefined && op.estoqueAtual < op.estoqueMinimo);
+        const precisaComprar = temRuptura || temEstoqueBaixo;
+
+        if (abaAtiva === 'RELEVANTES') {
+          // Exibir somente os relevantes: necessidade de estoque OU maior desconto
+          return precisaComprar || economizou;
+        }
+
+        if (abaAtiva === 'DESCONTO') {
+          return economizou;
+        }
+
+        if (abaAtiva === 'RUPTURA') {
+          return precisaComprar;
+        }
+
+        return true; // 'TODOS'
+      })
+      .sort((a, b) => {
+        if (abaAtiva === 'DESCONTO') {
+          return (b.economiaPercentual || 0) - (a.economiaPercentual || 0);
+        }
+        if (abaAtiva === 'RUPTURA') {
+          const scoreA = (a.estoqueAtual !== undefined && a.estoqueAtual <= 0 ? 100 : 50) + (a.economiaPercentual || 0);
+          const scoreB = (b.estoqueAtual !== undefined && b.estoqueAtual <= 0 ? 100 : 50) + (b.economiaPercentual || 0);
+          return scoreB - scoreA;
+        }
+        // 'RELEVANTES' ou padrão: pelo scoreRelevancia (Ruptura + Desconto primeiro, depois rupturas, depois super descontos)
+        return (b.scoreRelevancia || 0) - (a.scoreRelevancia || 0);
+      });
+  }, [oportunidades, busca, abaAtiva]);
 
   const handleCriarCotacaoComOferta = (op: OportunidadeMinerada) => {
     if (onNavigateToTab) {
@@ -248,142 +275,233 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto">
-          <span className="text-xs font-black uppercase text-slate-400 mr-1 flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5" /> Filtro:
-          </span>
           {[
-            { id: 'TODOS', label: 'Todas Ofertas' },
-            { id: 'VANTAGOSAS', label: 'Aprovadas no Radar (Mais Baratas)' },
-            { id: 'DESCARTADAS', label: 'Descartadas (Preço Maior)' },
-            { id: 'SEM_HISTORICO', label: 'Sem Histórico Digifarma' }
+            { id: 'RELEVANTES', label: '🎯 Mais Relevantes', badge: oportunidades.filter(o => (o.economiaPercentual || 0) > 0 || o.emRuptura).length },
+            { id: 'DESCONTO', label: '📉 Maior Desconto', badge: oportunidades.filter(o => (o.economiaPercentual || 0) > 0).length },
+            { id: 'RUPTURA', label: '🚨 Reposição / Ruptura', badge: oportunidades.filter(o => o.emRuptura).length },
+            { id: 'TODOS', label: '📦 Todas as Ofertas', badge: oportunidades.length }
           ].map(f => (
             <button
               key={f.id}
-              onClick={() => setFiltroStatus(f.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
-                filtroStatus === f.id
-                  ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
+              onClick={() => setAbaAtiva(f.id as any)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                abaAtiva === f.id
+                  ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md scale-[1.02]'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              {f.label}
+              <span>{f.label}</span>
+              {f.badge > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  abaAtiva === f.id
+                    ? 'bg-red-600 text-white dark:bg-red-500'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                }`}>
+                  {f.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Grid de Cards de Oportunidades */}
+      {/* Tabela Operacional de Oportunidades Relevantes */}
       {loading ? (
         <div className="p-12 text-center text-slate-400 font-bold bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
           <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-red-600" />
           Carregando oportunidades mineradas do WhatsApp...
         </div>
       ) : oportunidadesFiltradas.length === 0 ? (
-        <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <MessageSquare className="w-10 h-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-          <p className="font-bold text-slate-700 dark:text-slate-300">Nenhuma oportunidade minerada encontrada</p>
-          <p className="text-xs text-slate-400 mt-1">Clique em "Varrer WhatsApp Agora" para extrair ofertas das conversas com os representantes.</p>
+        <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+          <MessageSquare className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
+          <p className="font-bold text-slate-700 dark:text-slate-300">Nenhuma oportunidade relevante encontrada nesta aba</p>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            {abaAtiva === 'RELEVANTES' 
+              ? 'Não há ofertas com desconto ou ruptura no momento. Alterne para a aba "Todas as Ofertas" ou clique em "Varrer WhatsApp Agora".'
+              : 'Clique em "Varrer WhatsApp Agora" para extrair ofertas das conversas com os representantes.'}
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {oportunidadesFiltradas.map(op => {
-            const ehVantajosa = op.status === 'Aprovado_Radar';
-            const economizou = op.economiaPercentual && op.economiaPercentual > 0;
+        <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <tr>
+                  <th className="py-4 px-4">Produto & Fornecedor</th>
+                  <th className="py-4 px-3">Preço Ofertado</th>
+                  <th className="py-4 px-3">Última Compra</th>
+                  <th className="py-4 px-3 text-center">Desconto</th>
+                  <th className="py-4 px-3 text-center">Estoque</th>
+                  <th className="py-4 px-4 min-w-[260px]">Justificativa de Compra</th>
+                  <th className="py-4 px-4 text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                {oportunidadesFiltradas.map(op => {
+                  const ehVantajosa = op.status === 'Aprovado_Radar' || (op.economiaPercentual || 0) > 0;
+                  const economizou = op.economiaPercentual && op.economiaPercentual > 0;
+                  const emRup = Boolean(op.emRuptura || (op.estoqueAtual !== undefined && op.estoqueAtual <= 0));
+                  const precoOf = op.precoLiquidoEfetivo || op.precoOfertado;
+                  const precoUlt = op.precoUltCompraDigifarma;
+                  const econValor = (precoUlt && precoUlt > precoOf) ? (precoUlt - precoOf) : (op.economiaValor || 0);
 
-            return (
-              <div 
-                key={op.id}
-                className={`p-5 rounded-2xl border bg-white dark:bg-slate-900 transition-all hover:shadow-md flex flex-col justify-between ${
-                  ehVantajosa 
-                    ? 'border-emerald-300 dark:border-emerald-800/80 bg-gradient-to-b from-emerald-50/20 to-transparent' 
-                    : 'border-slate-200 dark:border-slate-800'
-                }`}
-              >
-                <div className="space-y-3">
-                  {/* Top: Distribuidora e Badge de Economia */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tight block">
-                        {op.fornecedorNome}
-                      </span>
-                      {op.representanteNome && (
-                        <span className="text-[11px] font-bold text-slate-400">
-                          Rep: {op.representanteNome}
+                  // Cores e texto da Justificativa
+                  const justBadge = op.justificativa?.badge || (emRup ? '🚨 Reposição Necessária' : (economizou ? '📉 Preço Competitivo' : 'Preço Normal'));
+                  const justTexto = op.justificativa?.texto || (emRup 
+                    ? `Estoque zerado ou abaixo do mínimo. Reposição necessária.` 
+                    : (economizou 
+                      ? `${op.economiaPercentual?.toFixed(1)}% mais barato que no Digifarma (Economia de R$ ${econValor.toFixed(2)}/un).`
+                      : 'Oferta recebida de representante parceiro.'));
+                  
+                  const justCor = op.justificativa?.cor || (emRup ? 'red' : (economizou ? 'emerald' : 'slate'));
+
+                  return (
+                    <tr 
+                      key={op.id}
+                      className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 ${
+                        emRup && economizou 
+                          ? 'bg-red-50/20 dark:bg-red-950/10' 
+                          : (economizou ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : '')
+                      }`}
+                    >
+                      {/* Produto & Fornecedor */}
+                      <td className="py-3.5 px-4 max-w-xs">
+                        <div className="font-black text-sm text-slate-900 dark:text-white line-clamp-2" title={op.produtoNome}>
+                          {op.produtoNome}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="font-bold text-slate-700 dark:text-slate-300">
+                            {op.fornecedorNome || (op as any).distribuidora || 'Distribuidora'}
+                          </span>
+                          {op.representanteNome && (
+                            <span>• Rep: {op.representanteNome}</span>
+                          )}
+                          {op.ean && (
+                            <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-500">
+                              {op.ean}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Preço Ofertado */}
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        <span className="text-sm font-black text-slate-900 dark:text-slate-100 block">
+                          R$ {precoOf?.toFixed(2)}
                         </span>
-                      )}
-                    </div>
+                        {op.bonificacaoTexto && (
+                          <span className="inline-block mt-0.5 px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-black">
+                            🎁 {op.bonificacaoTexto}
+                          </span>
+                        )}
+                      </td>
 
-                    {ehVantajosa && (
-                      <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 text-[10px] font-black border border-emerald-300 dark:border-emerald-800">
-                        <TrendingDown className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                        {economizou ? `-${op.economiaPercentual?.toFixed(1)}%` : 'Oferta Válida'}
-                      </span>
-                    )}
+                      {/* Última Compra Digifarma */}
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        {precoUlt ? (
+                          <>
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300 block">
+                              R$ {precoUlt.toFixed(2)}
+                            </span>
+                            {econValor > 0 && (
+                              <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 block">
+                                -R$ {econValor.toFixed(2)}/un
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs font-medium text-slate-400">Sem Histórico</span>
+                        )}
+                      </td>
 
-                    {!ehVantajosa && op.status === 'Descartado_Preco_Maior' && (
-                      <span className="px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 text-[10px] font-bold">
-                        Preço Maior
-                      </span>
-                    )}
-                  </div>
+                      {/* Desconto (%) */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        {economizou ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 text-xs font-black border border-emerald-300 dark:border-emerald-800 shadow-sm">
+                            <TrendingDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            -{op.economiaPercentual?.toFixed(1)}%
+                          </span>
+                        ) : op.status === 'Descartado_Preco_Maior' ? (
+                          <span className="px-2 py-1 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 text-[11px] font-bold">
+                            Preço Maior
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-400">—</span>
+                        )}
+                      </td>
 
-                  {/* Produto */}
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 line-clamp-2" title={op.produtoNome}>
-                      {op.produtoNome}
-                    </h4>
-                    {op.ean && (
-                      <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
-                        EAN: {op.ean}
-                      </span>
-                    )}
-                  </div>
+                      {/* Estoque */}
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                        {op.estoqueAtual !== undefined ? (
+                          <div className="flex flex-col items-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-black border ${
+                              op.estoqueAtual <= 0
+                                ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-300'
+                                : (op.estoqueMinimo && op.estoqueAtual < op.estoqueMinimo
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300')
+                            }`}>
+                              {op.estoqueAtual <= 0 ? 'Zerado (0)' : `${op.estoqueAtual} un`}
+                            </span>
+                            {op.estoqueMinimo ? (
+                              <span className="text-[10px] text-slate-400 mt-0.5">
+                                Mín: {op.estoqueMinimo}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
 
-                  {/* Bonificação */}
-                  {op.bonificacaoTexto && (
-                    <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                      <BadgePercent className="w-3.5 h-3.5 shrink-0" />
-                      <span>{op.bonificacaoTexto}</span>
-                    </div>
-                  )}
+                      {/* Justificativa de Compra */}
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-1">
+                          <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${
+                            justCor === 'red'
+                              ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-950/80 dark:text-red-300 dark:border-red-800'
+                              : (justCor === 'amber'
+                                ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-800'
+                                : (justCor === 'emerald'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
+                                  : (justCor === 'blue'
+                                    ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-800'
+                                    : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700')))
+                          }`}>
+                            {justBadge}
+                          </span>
+                          <p className="text-[11px] font-medium text-slate-700 dark:text-slate-300 leading-tight">
+                            {justTexto}
+                          </p>
+                        </div>
+                      </td>
 
-                  {/* Comparativo de Preços */}
-                  <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs">
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 block">Preço Ofertado:</span>
-                      <span className="text-sm font-black text-slate-900 dark:text-slate-100">
-                        R$ {op.precoLiquidoEfetivo?.toFixed(2) || op.precoOfertado?.toFixed(2)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 block">Última Compra Digifarma:</span>
-                      <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                        {op.precoUltCompraDigifarma ? `R$ ${op.precoUltCompraDigifarma.toFixed(2)}` : 'Sem Histórico'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                      {/* Ações */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedOferta(op)}
+                            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                            title="Ver mensagem original do WhatsApp"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </button>
 
-                {/* Ações */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                  <button
-                    onClick={() => setSelectedOferta(op)}
-                    className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer"
-                  >
-                    Ver transcrição
-                  </button>
-
-                  <button
-                    onClick={() => handleCriarCotacaoComOferta(op)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
-                  >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    Cotar Item
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+                          <button
+                            onClick={() => handleCriarCotacaoComOferta(op)}
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer active:scale-95"
+                          >
+                            <ShoppingBag className="w-3.5 h-3.5" />
+                            Cotar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

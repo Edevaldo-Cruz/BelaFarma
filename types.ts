@@ -914,6 +914,16 @@ export interface OportunidadeMinerada {
   dataMensagem?: string;
   textoOriginal?: string;
   createdAt: string;
+  estoqueAtual?: number;
+  estoqueMinimo?: number;
+  emRuptura?: boolean;
+  economiaValor?: number;
+  scoreRelevancia?: number;
+  justificativa?: {
+    badge: string;
+    cor: 'red' | 'amber' | 'emerald' | 'blue' | 'slate' | string;
+    texto: string;
+  };
 }
 
 export interface CotacaoItem {

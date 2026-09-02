@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3be42b9",
-  "commitMessage": "fix(notificacao): garantir que o aviso e modal de maquininhas/provisoes sejam exibidos enquanto houver pendencias",
-  "buildTime": "02/09/2026, 09:57:51"
+  "commitHash": "9143975",
+  "commitMessage": "fix(compras-mineracao): adicionar circuit breaker na IA e filtrar mensagens candidatas para eliminar 504 Gateway Timeout",
+  "buildTime": "02/09/2026, 18:17:52"
 }

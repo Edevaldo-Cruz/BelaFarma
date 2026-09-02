@@ -1,1 +1,0 @@
-const db = require('./backend/database'); const rows = db.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE produto_nome LIKE \'%BOLSA%\' OR produto_nome LIKE \'%Biolagrima%\'').all(); console.log(JSON.stringify(rows, null, 2));
