@@ -445,6 +445,68 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
   };
 }
 
+/**
+ * Usa IA (OpenAI/Gemini) para interpretar e extrair as ofertas do texto.
+ */
+async function minerarTextoLivreIA(texto, remetenteInfo = {}) {
+  if (!callAI) {
+    console.log('[Compras-Mineração] IA não disponível. Usando Regex como fallback.');
+    return minerarTextoLivre(texto, remetenteInfo);
+  }
+
+  const systemPrompt = `Você é um assistente de extração de dados farmacêuticos.
+Sua missão é ler a mensagem enviada por um fornecedor/representante comercial e extrair estritamente as ofertas em formato JSON.
+
+REGRAS:
+1. Produto: Extraia o nome do produto. Se o produto tiver concentração (ex: "Biolagrima 0,15", "Losartana 50mg"), MANTENHA a concentração no nome. NÃO confunda concentração com preço.
+2. Preço: Extraia APENAS o preço ofertado. O preço deve ser um número decimal (float, com ponto). Ignore preços sem sentido ou produtos sem preço.
+3. Não inclua moedas (R$) ou indicadores (por, cada) no nome do produto ou no preço.
+4. Distribuidora/Representante/Prazos/Pedido Mínimo: Extraia se for informado no texto.
+
+RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
+{
+  "distribuidora": "nome ou null",
+  "representante": "nome ou null",
+  "prazosPagamento": ["prazo1", "prazo2"],
+  "pedidoMinimoValor": 0.0,
+  "ofertas": [
+    {
+      "produtoNome": "Nome limpo com concentração (mas sem preço no nome)",
+      "ean": "código de barras numérico se houver ou null",
+      "precoOfertado": 16.50,
+      "bonificacao": "descrição da bonificação ou desconto, ou null"
+    }
+  ]
+}`;
+
+  try {
+    console.log('[Compras-Mineração] 🤖 Acionando motor IA para minerar o texto...');
+    const respostaIA = await callAI(texto, systemPrompt, { temperature: 0.1 });
+    const jsonStr = respostaIA.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+    const dadosIA = JSON.parse(jsonStr);
+
+    return {
+      representante: dadosIA.representante || remetenteInfo.pushName || null,
+      distribuidora: dadosIA.distribuidora || remetenteInfo.distribuidora || null,
+      telefone: remetenteInfo.telefone || remetenteInfo.phone || null,
+      prazosPagamento: Array.isArray(dadosIA.prazosPagamento) ? dadosIA.prazosPagamento : [],
+      pedidoMinimoValor: parseFloat(dadosIA.pedidoMinimoValor) || 0,
+      pedidoMinimoCondicoes: '',
+      categorias: [],
+      catalogoProdutos: (dadosIA.ofertas || []).map(o => o.produtoNome),
+      ofertas: (dadosIA.ofertas || []).map(o => ({
+        produtoNome: o.produtoNome,
+        ean: o.ean || null,
+        precoOfertado: parseFloat(o.precoOfertado) || 0,
+        bonificacao: o.bonificacao || null
+      })).filter(o => o.precoOfertado > 0)
+    };
+  } catch (err) {
+    console.error('[Compras-Mineração] Erro ao extrair com IA. Acionando fallback (Regex):', err.message);
+    return minerarTextoLivre(texto, remetenteInfo);
+  }
+}
+
 // ──────────────────────────────────────────────────────────
 // Validação e Comparação de Ofertas com o Digifarma Firebird / Cache Local
 // ──────────────────────────────────────────────────────────
@@ -718,7 +780,7 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
   const dbInst = getDb(db);
   if (!dbInst || !msgData || !msgData.text) return { minerado: false, ofertas: [] };
 
-  const extracao = minerarTextoLivre(msgData.text, {
+  const extracao = await minerarTextoLivreIA(msgData.text, {
     telefone: msgData.phone,
     nome: msgData.pushName || msgData.nome,
     pushName: msgData.pushName
