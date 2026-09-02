@@ -301,7 +301,7 @@ const App: React.FC = () => {
         }
       }
 
-      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha após 10h para Edevaldo (Apenas Dias Úteis) ---
+      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha e Provisões para Edevaldo/ADM ---
       if (user.name.toLowerCase().includes("edevaldo") || user.role === UserRole.ADM) {
         const checkCardMachinePending = async () => {
           try {
@@ -310,72 +310,66 @@ const App: React.FC = () => {
             // Não há repasse em finais de semana (Sábado e Domingo)
             if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
-            const currentHour = now.getHours();
-            if (currentHour >= 10) {
-              const [resPending, resClosings] = await Promise.all([
-                fetch('/api/card-machine-receivables/pending-due'),
-                fetch('/api/cash-closings')
-              ]);
+            const [resPending, resClosings] = await Promise.all([
+              fetch('/api/card-machine-receivables/pending-due'),
+              fetch('/api/cash-closings')
+            ]);
 
-              if (!resPending.ok) return;
-              const pending = await resPending.json();
-              if (Array.isArray(pending) && pending.length > 0) {
-                const sessionDismissed = sessionStorage.getItem("belafarma_card_reconcile_dismissed");
-                if (!sessionDismissed) {
-                  setIsCardMachineModalOpen(true);
-                  const isMonday = dayOfWeek === 1;
+            if (!resPending.ok) return;
+            const pending = await resPending.json();
+            if (Array.isArray(pending) && pending.length > 0) {
+              setIsCardMachineModalOpen(true);
+              const isMonday = dayOfWeek === 1;
 
-                  let closings: any[] = [];
-                  if (resClosings.ok) {
-                    try { closings = await resClosings.json(); } catch(e) {}
-                  }
+              let closings: any[] = [];
+              if (resClosings.ok) {
+                try { closings = await resClosings.json(); } catch(e) {}
+              }
 
-                  // Calcular datas de referência para o faturamento base
-                  const formatIsoDate = (d: Date) => {
-                    const y = d.getFullYear();
-                    const m = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    return `${y}-${m}-${day}`;
-                  };
+              // Calcular datas de referência para o faturamento base
+              const formatIsoDate = (d: Date) => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+              };
 
-                  let targetDates: string[] = [];
-                  if (isMonday) {
-                    // Sexta, Sábado e Domingo anteriores
-                    const dFri = new Date(now); dFri.setDate(dFri.getDate() - 3);
-                    const dSat = new Date(now); dSat.setDate(dSat.getDate() - 2);
-                    const dSun = new Date(now); dSun.setDate(dSun.getDate() - 1);
-                    targetDates = [formatIsoDate(dFri), formatIsoDate(dSat), formatIsoDate(dSun)];
-                  } else {
-                    // Dia útil anterior
-                    const dPrev = new Date(now); dPrev.setDate(dPrev.getDate() - 1);
-                    targetDates = [formatIsoDate(dPrev)];
-                  }
+              let targetDates: string[] = [];
+              if (isMonday) {
+                // Sexta, Sábado e Domingo anteriores
+                const dFri = new Date(now); dFri.setDate(dFri.getDate() - 3);
+                const dSat = new Date(now); dSat.setDate(dSat.getDate() - 2);
+                const dSun = new Date(now); dSun.setDate(dSun.getDate() - 1);
+                targetDates = [formatIsoDate(dFri), formatIsoDate(dSat), formatIsoDate(dSun)];
+              } else {
+                // Dia útil anterior
+                const dPrev = new Date(now); dPrev.setDate(dPrev.getDate() - 1);
+                targetDates = [formatIsoDate(dPrev)];
+              }
 
-                  const refSales = closings
-                    .filter((c: any) => targetDates.includes(c.date))
-                    .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
+              const refSales = closings
+                .filter((c: any) => targetDates.includes(c.date))
+                .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
 
-                  const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+              const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
-                  if (refSales > 0) {
-                    const valProlabore = refSales * 0.12;
-                    const valTax = refSales * 0.04;
-                    const valReserve = refSales * 0.01;
-                    const valTotal = valProlabore + valTax + valReserve;
+              if (refSales > 0) {
+                const valProlabore = refSales * 0.12;
+                const valTax = refSales * 0.04;
+                const valReserve = refSales * 0.01;
+                const valTotal = valProlabore + valTax + valReserve;
 
-                    addToast(
-                      `💳 ${pending.length} repasse(s) ${isMonday ? 'do Fim de Semana' : 'de ontem'} a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões de hoje (Pró-labore: ${formatBRL(valProlabore)}, Impostos: ${formatBRL(valTax)}, Reserva: ${formatBRL(valReserve)})!`,
-                      "info"
-                    );
-                  } else {
-                    addToast(
-                      isMonday 
-                        ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
-                        : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
-                      "info"
-                    );
-                  }
-                }
+                addToast(
+                  `💳 ${pending.length} repasse(s) ${isMonday ? 'do Fim de Semana' : 'de ontem'} a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões de hoje (Pró-labore: ${formatBRL(valProlabore)}, Impostos: ${formatBRL(valTax)}, Reserva: ${formatBRL(valReserve)})!`,
+                  "info"
+                );
+              } else {
+                addToast(
+                  isMonday 
+                    ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
+                    : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
+                  "info"
+                );
               }
             }
           } catch (err) {
@@ -1320,12 +1314,11 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Modal de Conferência Diária 10h de Maquininha para Edevaldo */}
+      {/* Modal de Conferência Diária de Maquininha e Provisões para Edevaldo */}
       <CardMachineReconcileModal
         isOpen={isCardMachineModalOpen}
         onClose={() => {
           setIsCardMachineModalOpen(false);
-          sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
         }}
         onNavigateToFullView={() => {
           handleNavigate('card-machines');

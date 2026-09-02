@@ -146,7 +146,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   };
 
   const handleDismissToday = () => {
-    sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
     onClose();
   };
 
@@ -297,7 +296,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       if (onReconcileSuccess) onReconcileSuccess();
 
       if (updatedList.length === 0) {
-        sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
         setTimeout(() => onClose(), 800);
       }
     } catch (err: any) {
@@ -346,7 +344,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       if (onReconcileSuccess) onReconcileSuccess();
 
       if (updatedList.length === 0) {
-        sessionStorage.setItem("belafarma_card_reconcile_dismissed", "true");
         setTimeout(() => onClose(), 800);
       }
     } catch (err: any) {
