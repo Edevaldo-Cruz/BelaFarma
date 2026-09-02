@@ -445,12 +445,14 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
   };
 }
 
+let aiQuotaExceededUntil = 0;
+
 /**
- * Usa IA (OpenAI/Gemini) para interpretar e extrair as ofertas do texto.
+ * Usa IA (OpenAI/Gemini) para interpretar e extrair as ofertas do texto com Circuit Breaker.
  */
 async function minerarTextoLivreIA(texto, remetenteInfo = {}) {
-  if (!callAI) {
-    console.log('[Compras-Mineração] IA não disponível. Usando Regex como fallback.');
+  // Se a IA estiver temporariamente desativada por cota esgotada ou offline
+  if (Date.now() < aiQuotaExceededUntil || !callAI) {
     return minerarTextoLivre(texto, remetenteInfo);
   }
 
@@ -479,10 +481,18 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
   ]
 }`;
 
+  // Trava de 8s para não prender a requisição HTTP
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('AI_TIMEOUT_EXCEEDED')), 8000)
+  );
+
   try {
-    console.log('[Compras-Mineração] 🤖 Acionando motor IA para minerar o texto...');
-    const respostaIA = await callAI(texto, systemPrompt, { temperature: 0.1 });
-    const jsonStr = respostaIA.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+    const respostaIA = await Promise.race([
+      callAI(texto, systemPrompt, { temperature: 0.1 }),
+      timeoutPromise
+    ]);
+
+    const jsonStr = (respostaIA || '').replace(/```json\n?/g, '').replace(/```/g, '').trim();
     const dadosIA = JSON.parse(jsonStr);
 
     return {
@@ -502,7 +512,19 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
       })).filter(o => o.precoOfertado > 0)
     };
   } catch (err) {
-    console.error('[Compras-Mineração] Erro ao extrair com IA. Acionando fallback (Regex):', err.message);
+    const errStr = (err.message || '').toLowerCase();
+    if (
+      errStr.includes('429') ||
+      errStr.includes('credit') ||
+      errStr.includes('exhausted') ||
+      errStr.includes('quota') ||
+      errStr.includes('billing') ||
+      errStr.includes('timeout') ||
+      errStr.includes('404')
+    ) {
+      console.warn(`[Compras-Mineração] ⚠️ Quota ou falha na IA (${err.message}). Ativando modo nativo/regex por 15 minutos.`);
+      aiQuotaExceededUntil = Date.now() + 15 * 60 * 1000;
+    }
     return minerarTextoLivre(texto, remetenteInfo);
   }
 }
@@ -976,6 +998,27 @@ async function minerarHistoricoConversas(db, options = {}) {
 }
 
 /**
+ * Avalia se uma mensagem possui características de cotação/tabela de fornecedor.
+ * Descarta mensagens curtas de conversa informal de clientes para poupar processamento.
+ */
+function isMensagemCandidataOferta(text) {
+  if (!text || typeof text !== 'string') return false;
+  const clean = text.trim();
+  if (clean.length < 12) return false;
+
+  // Descarta mensagens comuns de clientes em atendimento
+  if (/^(ol[aá]|oi|bom dia|boa tarde|boa noite|obrigad[ao]|sim|n[aã]o|ok|blz|valeu|chave pix|pix|endere[çc]o)\b/i.test(clean) && clean.length < 40) {
+    return false;
+  }
+
+  // Deve ter dígitos ou termos comerciais
+  const hasNumeros = /\d/.test(clean);
+  const hasKeywords = /oferta|promo|tabela|desc|boleto|fatur|pedido|comercial|distrib|lab|un|cx|pct|bonif|pre[çc]o|r\$|cota[çc]/i.test(clean);
+
+  return hasNumeros || hasKeywords;
+}
+
+/**
  * Executa a varredura retroativa completa dos últimos 90 dias nas mensagens gravadas no SQLite
  * e no histórico de compras, identificando representantes, prazos e ofertas.
  */
@@ -1005,7 +1048,8 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
       SELECT message_id as id, telefone as phone, texto_mensagem as text, timestamp, nome_contato as pushName
       FROM compras_historico_mensagens
       WHERE (timestamp >= ? OR timestamp >= ?) AND from_me = 0
-      ORDER BY timestamp ASC
+      ORDER BY timestamp DESC
+      LIMIT 100
     `).all(retroativoMs, retroativoSec);
   } catch (e) {}
 
@@ -1015,18 +1059,19 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     mensagensWhatsapp = db.prepare(`
       SELECT id, phone, messageText as text, timestamp, rawMessage
       FROM whatsapp_messages
-      WHERE (timestamp >= ? OR timestamp >= ? OR timestamp IS NULL) AND (fromMe = 0 OR fromMe IS NULL)
-      ORDER BY timestamp ASC
+      WHERE (timestamp >= ? OR timestamp >= ?) AND (fromMe = 0 OR fromMe IS NULL)
+      ORDER BY timestamp DESC
+      LIMIT 150
     `).all(retroativoMs, retroativoSec);
   } catch (e) {}
 
-  // Mescla e desduplica mensagens por ID
+  // Mescla e filtra apenas mensagens candidatas reais (evita processar conversas com clientes)
   const mapaMensagens = new Map();
   for (const m of mensagensHistorico) {
-    if (m.id && m.text) mapaMensagens.set(m.id, m);
+    if (m.id && m.text && isMensagemCandidataOferta(m.text)) mapaMensagens.set(m.id, m);
   }
   for (const m of mensagensWhatsapp) {
-    if (m.id && m.text && !mapaMensagens.has(m.id)) {
+    if (m.id && m.text && isMensagemCandidataOferta(m.text) && !mapaMensagens.has(m.id)) {
       let pushName = null;
       try {
         if (m.rawMessage) {
@@ -1038,8 +1083,9 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     }
   }
 
-  const todasMensagens = Array.from(mapaMensagens.values());
-  console.log(`[Compras-Mineração] 📋 Total de ${todasMensagens.length} mensagens encontradas na janela de 90 dias.`);
+  // Pega as mensagens candidatas mais recentes (limite seguro para resposta imediata sem 504)
+  const todasMensagens = Array.from(mapaMensagens.values()).slice(0, 60);
+  console.log(`[Compras-Mineração] 📋 Total de ${todasMensagens.length} mensagens candidatas selecionadas para mineração.`);
 
   let ofertasTotal = 0;
   let representantesCadastrados = 0;
