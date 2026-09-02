@@ -278,20 +278,35 @@ function extrairLinhasDeOferta(texto) {
       continue;
     }
 
-    // Prioridade 1: Preço explícito com R$ (ex: R$ 2,00)
-    let priceMatch = /R\$\s*([\d\.,]+)/i.exec(trimmed);
-    let matchedRegex = /R\$\s*[\d\.,]+/i;
-
-    // Prioridade 2: Preço com palavra-chave "por", "cada", "un:" ou "un R$"
-    if (!priceMatch) {
-      priceMatch = /(?:(?:por\s+)|(?:cada\s+)|(?:un\s*:\s*)|(?:un\s+))R?\$?\s*([\d\.,]+)/i.exec(trimmed);
-      matchedRegex = /(?:(?:por\s+)|(?:cada\s+)|(?:un\s*:\s*)|(?:un\s+))R?\$?\s*[\d\.,]+/i;
-    }
-
-    // Prioridade 3: Preço numérico no final da linha (ex: "Dipirona 500mg c/ 100 1,45")
-    if (!priceMatch) {
-      priceMatch = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?\s*$/i.exec(trimmed);
-      matchedRegex = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?\s*$/i;
+    // 1. Indicadores explícitos de preço (R$, por, cada, un)
+    let matchedRegex = null;
+    let priceMatch = null;
+    
+    const explicitRegex = /(?:R\$|por\s+|cada\s+|un\s*:\s*|un\s+)\s*([\d]{1,4}[,\.]\d{2})/i;
+    let m = explicitRegex.exec(trimmed);
+    if (m) {
+      priceMatch = m;
+      matchedRegex = explicitRegex;
+    } else {
+      // 2. Preço com traço separador (ex: LISMED - 16,50)
+      const dashRegex = /(?:-|\u2013|\u2014)\s*([\d]{1,4}[,\.]\d{2})(?!\s*(?:ml|mg|g|mcg|%))/i;
+      m = dashRegex.exec(trimmed);
+      if (m) {
+        priceMatch = m;
+        matchedRegex = dashRegex;
+      } else {
+        // 3. Preço no final da linha (ignorando parênteses no final)
+        const endRegex = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
+        m = endRegex.exec(trimmed);
+        if (m) {
+          const val = parsePriceValue(m[1]);
+          // Se não tem indicador claro e o valor for muito baixo (<= 0.50), provavelmente é uma concentração (ex: Biolagrima 0,15)
+          if (val > 0.50) {
+            priceMatch = m;
+            matchedRegex = endRegex;
+          }
+        }
+      }
     }
 
     if (priceMatch && priceMatch[1]) {
@@ -717,6 +732,12 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
   const ofertasProcessadas = [];
   const now = new Date().toISOString();
 
+  if (msgData.id) {
+    try {
+      dbInst.prepare('DELETE FROM compras_oportunidades_mineradas WHERE mensagem_id = ?').run(msgData.id);
+    } catch (e) {}
+  }
+
   for (const ofr of extracao.ofertas) {
     const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, options);
 
@@ -857,8 +878,8 @@ async function minerarHistoricoConversas(db, options = {}) {
 
   const limit = options.limit || 500;
   const query = options.apenasNaoProcessadas
-    ? `SELECT * FROM compras_historico_mensagens WHERE processado_mineracao = 0 ORDER BY timestamp DESC LIMIT ?`
-    : `SELECT * FROM compras_historico_mensagens ORDER BY timestamp DESC LIMIT ?`;
+    ? `SELECT * FROM compras_historico_mensagens WHERE processado_mineracao = 0 AND from_me = 0 ORDER BY timestamp DESC LIMIT ?`
+    : `SELECT * FROM compras_historico_mensagens WHERE from_me = 0 ORDER BY timestamp DESC LIMIT ?`;
 
   const rows = dbInst.prepare(query).all(limit);
   console.log(`[Compras-Mineração] 🔍 Iniciando varredura histórica de ${rows.length} mensagens...`);
@@ -921,7 +942,7 @@ async function executarVarreduraRetroativa90Dias(dbOrOptions = {}, talvezOptions
     mensagensHistorico = db.prepare(`
       SELECT message_id as id, telefone as phone, texto_mensagem as text, timestamp, nome_contato as pushName
       FROM compras_historico_mensagens
-      WHERE (timestamp >= ? OR timestamp >= ?)
+      WHERE (timestamp >= ? OR timestamp >= ?) AND from_me = 0
       ORDER BY timestamp ASC
     `).all(retroativoMs, retroativoSec);
   } catch (e) {}
