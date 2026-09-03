@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c81134b",
-  "commitMessage": "fix(compras): rejeitar C30/embalagens puras, forçar limpeza de radar e corrigir precificação",
-  "buildTime": "03/09/2026, 13:00:41"
+  "commitHash": "83d7b37",
+  "commitMessage": "feat(compras): unificar principio da lista de faltas com mineracao de ofertas (notas fiscais e fornecedores)",
+  "buildTime": "03/09/2026, 13:41:28"
 }

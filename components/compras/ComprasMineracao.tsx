@@ -20,7 +20,11 @@ import {
   Zap,
   ShoppingBag,
   Trash2,
-  X
+  X,
+  Briefcase,
+  ChevronDown,
+  ChevronUp,
+  Send
 } from 'lucide-react';
 import { OportunidadeMinerada, User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -57,6 +61,83 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   const [manualRepresentante, setManualRepresentante] = useState('');
   const [processandoManual, setProcessandoManual] = useState(false);
 
+  // Estados do Agente Horácio — Especialista em Compras
+  const [relatoriosHoracio, setRelatoriosHoracio] = useState<any[]>([]);
+  const [loadingHoracio, setLoadingHoracio] = useState(false);
+  const [executandoHoracio, setExecutandoHoracio] = useState(false);
+  const [relatorioSelecionado, setRelatorioSelecionado] = useState<any | null>(null);
+  const [horacioExpandido, setHoracioExpandido] = useState(true);
+
+  const carregarRelatoriosHoracio = async () => {
+    try {
+      setLoadingHoracio(true);
+      const res = await fetch('/api/central-compras/horacio/relatorios?limite=5');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          setRelatoriosHoracio(data.data);
+          if (data.data.length > 0) {
+            setRelatorioSelecionado(data.data[0]);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar relatórios do Horácio:', e);
+    } finally {
+      setLoadingHoracio(false);
+    }
+  };
+
+  const handlePedirAnaliseHoracio = async () => {
+    try {
+      setExecutandoHoracio(true);
+      addToast('Horácio iniciando análise executiva e consolidação de cortes...', 'info');
+      const res = await fetch('/api/central-compras/horacio/executar-analise', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Horácio concluiu a análise! ${data.totalRelatorios || 0} consolidações geradas.`, 'success');
+        await carregarRelatoriosHoracio();
+      } else {
+        addToast(data.error || 'Erro ao executar análise do Horácio', 'error');
+      }
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally {
+      setExecutandoHoracio(false);
+    }
+  };
+
+  const handleCriarCotacaoHoracio = async (relId: string) => {
+    try {
+      const res = await fetch(`/api/central-compras/horacio/criar-cotacao/${relId}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Cotação ${data.numeroCotacao} criada com ${data.totalItens} itens recomendados!`, 'success');
+        if (onNavigateToTab) {
+          onNavigateToTab('cotacoes');
+        }
+      } else {
+        addToast(data.error || 'Erro ao criar cotação', 'error');
+      }
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    }
+  };
+
+  const handleReenviarWhatsappHoracio = async (relId: string) => {
+    try {
+      const res = await fetch(`/api/central-compras/horacio/disparar-whatsapp/${relId}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Alerta reenviado para o WhatsApp do Administrador!', 'success');
+      } else {
+        addToast(data.error || 'Falha ao reenviar WhatsApp', 'error');
+      }
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    }
+  };
+
   const carregarOportunidades = async () => {
     try {
       const res = await fetch('/api/central-compras/oportunidades?limite=100');
@@ -75,9 +156,11 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
   useEffect(() => {
     carregarOportunidades();
+    carregarRelatoriosHoracio();
     // Atualiza automaticamente a cada 15 segundos para exibir novas ofertas mineradas
     const interval = setInterval(() => {
       carregarOportunidades();
+      carregarRelatoriosHoracio();
     }, 15000);
     return () => clearInterval(interval);
   }, []);
@@ -314,6 +397,174 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* PAINEL DO AGENTE HORÁCIO — ESPECIALISTA EM COMPRAS */}
+      <div className="rounded-[2rem] bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-indigo-500/30 p-6 shadow-xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-indigo-500/20">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-2xl shadow-inner">
+              👔
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-black text-white tracking-tight">
+                  Horácio — Especialista em Compras
+                </h3>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-black tracking-wide uppercase">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Vigilante em Tempo Real
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">
+                Monitorando WhatsApp • Zero Ruptura • Cortes programados às 11:00 e 16:00
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePedirAnaliseHoracio}
+              disabled={executandoHoracio}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider shadow-lg hover:shadow-indigo-500/25 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              title="Solicitar ao Horácio uma consolidação de oportunidades agora"
+            >
+              <Zap className={`w-3.5 h-3.5 text-amber-300 ${executandoHoracio ? 'animate-spin' : ''}`} />
+              {executandoHoracio ? 'Horácio Analisando...' : 'Pedir Análise ao Horácio Agora'}
+            </button>
+            <button
+              onClick={() => setHoracioExpandido(!horacioExpandido)}
+              className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              title={horacioExpandido ? 'Recolher painel' : 'Expandir painel'}
+            >
+              {horacioExpandido ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        {horacioExpandido && (
+          <div className="mt-4 space-y-4">
+            {relatoriosHoracio.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 text-center text-xs text-slate-400">
+                O Horácio ainda não emitiu relatórios neste ciclo. Clique em <strong>"Pedir Análise ao Horácio Agora"</strong> ou aguarde o próximo corte das 16h00.
+              </div>
+            ) : (
+              <div>
+                {/* Seletor de Relatórios do Horácio se houver múltiplos */}
+                {relatoriosHoracio.length > 1 && (
+                  <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+                    {relatoriosHoracio.map((rel) => (
+                      <button
+                        key={rel.id}
+                        onClick={() => setRelatorioSelecionado(rel)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                          relatorioSelecionado?.id === rel.id
+                            ? 'bg-indigo-600 text-white shadow-md'
+                            : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {rel.fornecedor_nome || 'Consolidação'} ({rel.itens?.length || 0} itens)
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {relatorioSelecionado && (
+                  <div className="space-y-3">
+                    {/* Cabeçalho Executivo do Fornecedor */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">Distribuidor / Representante</span>
+                        <span className="text-sm font-black text-white block mt-0.5">{relatorioSelecionado.fornecedor_nome}</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">Pedido Mínimo vs Sugerido</span>
+                        <span className="text-sm font-black text-white block mt-0.5">
+                          R$ {relatorioSelecionado.valor_total_sugerido?.toFixed(2)}
+                          <span className="text-[11px] font-medium text-slate-400 ml-1">
+                            (Mín: R$ {relatorioSelecionado.pedido_minimo?.toFixed(2)})
+                          </span>
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">Status de Urgência</span>
+                        <span className={`text-xs font-black block mt-1 ${
+                          relatorioSelecionado.status_urgencia?.includes('CRÍTICO') ? 'text-rose-400' : 'text-amber-400'
+                        }`}>
+                          {relatorioSelecionado.status_urgencia}
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleCriarCotacaoHoracio(relatorioSelecionado.id)}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer"
+                          title="Abrir cotação aberta com todos os itens recomendados pelo Horácio"
+                        >
+                          Gerar Cotação
+                        </button>
+                        <button
+                          onClick={() => handleReenviarWhatsappHoracio(relatorioSelecionado.id)}
+                          className="p-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                          title="Reenviar relatório no WhatsApp do Administrador"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tabela de Produtos Sugeridos pelo Horácio */}
+                    {relatorioSelecionado.itens && relatorioSelecionado.itens.length > 0 && (
+                      <div className="rounded-xl border border-slate-700/60 overflow-hidden bg-slate-900/80">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-800/80 text-slate-300 font-bold border-b border-slate-700/60">
+                            <tr>
+                              <th className="py-2.5 px-3">Produto / Apresentação</th>
+                              <th className="py-2.5 px-2">Tipo</th>
+                              <th className="py-2.5 px-2">Histórico</th>
+                              <th className="py-2.5 px-2">Preço Ofertado</th>
+                              <th className="py-2.5 px-2 text-center">Qtd Sugerida</th>
+                              <th className="py-2.5 px-3">Motivo / Urgência</th>
+                              <th className="py-2.5 px-3 text-right">Economia Estimada</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 text-slate-200">
+                            {relatorioSelecionado.itens.map((it: any, idx: number) => (
+                              <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
+                                <td className="py-2.5 px-3 font-bold text-white max-w-xs truncate" title={it.produtoNome}>
+                                  {it.produtoNome}
+                                </td>
+                                <td className="py-2.5 px-2">
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-bold">
+                                    {it.tipo}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-2 text-slate-400">
+                                  R$ {it.precoHistorico ? it.precoHistorico.toFixed(2) : '-'}
+                                </td>
+                                <td className="py-2.5 px-2 font-black text-emerald-400">
+                                  R$ {it.precoOfertado?.toFixed(2)}
+                                </td>
+                                <td className="py-2.5 px-2 text-center font-bold text-amber-300">
+                                  {it.qtdSugerida} un
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-300 text-[11px]">
+                                  {it.motivo}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-black text-emerald-400">
+                                  R$ {it.economiaEstimadaValor ? it.economiaEstimadaValor.toFixed(2) : '0.00'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Barra de Filtros e Busca */}

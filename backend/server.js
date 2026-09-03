@@ -4434,6 +4434,20 @@ cron.schedule('0 2 * * 0', async () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON-NAPP-SCRAPE] 📅 Robô de raspagem Napp agendado para rodar semanalmente (todo domingo às 02:00).');
 
+// CRON: AGENTE HORÁCIO — CONSOLIDAÇÃO EXECUTIVA DE COMPRAS (11:00 E 16:00 SEG-SÁB)
+cron.schedule('0 11,16 * * 1-6', async () => {
+  console.log('[CRON-HORACIO] 📋 Horário de corte atingido. Executando consolidação executiva de compras...');
+  try {
+    const horacioAgent = require('./services/horacio-agent.service');
+    const db = require('./database');
+    await horacioAgent.executarConsolidacaoHorarioCorte(db);
+    console.log('[CRON-HORACIO] ✅ Consolidação e relatório executivo disparados com sucesso.');
+  } catch (err) {
+    console.error('[CRON-HORACIO] ❌ Erro ao executar consolidação:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON-HORACIO] 👔 Agente Horácio agendado para rodar nos cortes das 11h00 e 16h00 (Seg-Sáb).');
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARADOR DE COTAÇÕES — /api/quotation/analyze

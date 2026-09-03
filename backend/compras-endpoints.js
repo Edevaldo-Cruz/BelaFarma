@@ -1046,5 +1046,67 @@ module.exports = (db) => {
     }
   });
 
+  // ─── ROTAS DO AGENTE HORÁCIO ──────────────────────────────────────────────
+
+  /**
+   * GET /api/central-compras/horacio/relatorios
+   * Lista relatórios executivos e alertas gerados pelo Horácio
+   */
+  router.get('/horacio/relatorios', (req, res) => {
+    try {
+      const limite = parseInt(req.query.limite, 10) || 20;
+      const horacioAgent = require('./services/horacio-agent.service');
+      const relatorios = horacioAgent.listarRelatorios(db, limite);
+      res.json({ success: true, data: relatorios });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/central-compras/horacio/executar-analise
+   * Dispara a consolidação executiva do Horácio sob demanda
+   */
+  router.post('/horacio/executar-analise', async (req, res) => {
+    try {
+      const horacioAgent = require('./services/horacio-agent.service');
+      const resultado = await horacioAgent.executarConsolidacaoHorarioCorte(db, { sobDemanda: true });
+      res.json({ success: true, ...resultado });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/central-compras/horacio/criar-cotacao/:id
+   * Converte os itens recomendados de um relatório em uma Sessão de Cotação aberta
+   */
+  router.post('/horacio/criar-cotacao/:id', (req, res) => {
+    try {
+      const horacioAgent = require('./services/horacio-agent.service');
+      const resultado = horacioAgent.criarCotacaoDeRelatorio(req.params.id, db);
+      res.json({ success: true, ...resultado });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/central-compras/horacio/disparar-whatsapp/:id
+   * Reenvia o relatório executivo do Horácio para o WhatsApp do Administrador
+   */
+  router.post('/horacio/disparar-whatsapp/:id', async (req, res) => {
+    try {
+      const horacioAgent = require('./services/horacio-agent.service');
+      const rel = db.prepare('SELECT * FROM compras_horacio_relatorios WHERE id = ?').get(req.params.id);
+      if (!rel) return res.status(404).json({ success: false, error: 'Relatório não encontrado' });
+
+      await horacioAgent.dispararAlertaWhatsappAdmin(rel.mensagem_whatsapp, rel.id, db);
+      res.json({ success: true, message: 'Alerta reenviado com sucesso' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 };

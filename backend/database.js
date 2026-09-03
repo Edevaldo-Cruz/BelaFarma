@@ -2191,6 +2191,31 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_ean ON compras_produtos_equivalentes(ean)');
     } catch(e) {}
 
+    // 12. Agente Horácio — Relatórios Executivos e Alertas de Compras
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_horacio_relatorios (
+        id TEXT PRIMARY KEY,
+        tipo TEXT NOT NULL,
+        titulo TEXT NOT NULL,
+        fornecedor_nome TEXT,
+        pedido_minimo REAL DEFAULT 0,
+        valor_total_sugerido REAL DEFAULT 0,
+        impacto_orcamento_percent REAL DEFAULT 0,
+        saldo_orcamento_restante REAL DEFAULT 0,
+        itens_json TEXT NOT NULL,
+        equivalentes_json TEXT,
+        status_urgencia TEXT DEFAULT 'MEDIO',
+        mensagem_whatsapp TEXT NOT NULL,
+        whatsapp_enviado INTEGER DEFAULT 0,
+        cotacao_id TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_chr_tipo ON compras_horacio_relatorios(tipo)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_chr_created ON compras_horacio_relatorios(created_at)');
+    } catch(e) {}
+
     // Limpeza de segurança: remove entradas espúrias como C30 e corrige histórico de Fluconazol
     try {
       db.exec(`

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c81134b",
-  "commitMessage": "fix(compras): rejeitar C30/embalagens puras, forçar limpeza de radar e corrigir precificação",
-  "buildTime": "03/09/2026, 13:00:41"
+  "commitHash": "e52c89f",
+  "commitMessage": "feat(compras): implementar Agente Horacio - Especialista em Compras Farmaceuticas com alertas WhatsApp e leitura multimodal",
+  "buildTime": "03/09/2026, 13:42:00"
 }

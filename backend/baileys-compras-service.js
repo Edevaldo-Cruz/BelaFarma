@@ -311,18 +311,52 @@ async function connect(db) {
               dateStr
             );
 
-            // Se for mensagem recebida (não enviada por nós), envia para o radar de mineração
-            if (!fromMe && text) {
-              const comprasMineracaoService = require('./services/compras-mineracao.service');
-              await comprasMineracaoService.processarMensagemRecebida({
-                messageId,
-                remoteJid,
-                phone,
-                contactName,
-                text,
-                mediaType,
-                timestamp
-              }, savedDb);
+            // Se for mensagem recebida (não enviada por nós), ativa o Agente Horácio e a Mineração
+            if (!fromMe) {
+              const horacioAgent = require('./services/horacio-agent.service');
+
+              // 1. Processamento Multimodal (se for imagem de folheto/tabela ou documento PDF)
+              if (mediaType === 'imagem' || mediaType === 'documento') {
+                try {
+                  const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+                  const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                  const mime = contentMsg.imageMessage?.mimetype || contentMsg.documentMessage?.mimetype || (mediaType === 'imagem' ? 'image/jpeg' : 'application/pdf');
+                  if (buffer) {
+                    await horacioAgent.processarMidiaMultimodal(buffer, mime, contactName, phone, savedDb);
+                  }
+                } catch(mediaErr) {
+                  console.warn('[Baileys-Compras] Aviso ao processar mídia para o Horácio:', mediaErr.message);
+                }
+              }
+
+              // 2. Processamento de Texto e Mineração de Ofertas
+              if (text && !text.startsWith('[📷') && !text.startsWith('[📄') && !text.startsWith('[🎙️')) {
+                const comprasMineracaoService = require('./services/compras-mineracao.service');
+                const resultadoMineracao = await comprasMineracaoService.processarMensagemRecebida({
+                  id: messageId,
+                  messageId,
+                  remoteJid,
+                  phone,
+                  contactName,
+                  text,
+                  mediaType,
+                  timestamp
+                }, savedDb);
+
+                // 3. O Horácio avalia cada oferta em tempo real para detectar rupturas e oportunidades críticas
+                if (resultadoMineracao && Array.isArray(resultadoMineracao.ofertas)) {
+                  for (const ofr of resultadoMineracao.ofertas) {
+                    await horacioAgent.analisarOfertasEmTempoReal({
+                      produtoNome: ofr.produtoNome,
+                      precoOfertado: ofr.precoOfertado,
+                      ean: ofr.ean,
+                      distribuidora: resultadoMineracao.fornecedor?.distribuidora || contactName,
+                      representante: resultadoMineracao.fornecedor?.representante || contactName,
+                      telefone: phone
+                    }, savedDb);
+                  }
+                }
+              }
             }
           } catch (dbErr) {
             console.error('[Baileys-Compras] Erro ao gravar mensagem no SQLite:', dbErr.message);
