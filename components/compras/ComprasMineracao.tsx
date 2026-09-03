@@ -42,6 +42,7 @@ import {
 } from 'recharts';
 import { OportunidadeMinerada, User } from '../../types';
 import { useToast } from '../ToastContext';
+import { ComprasChatViewer } from './ComprasChatViewer';
 
 interface ComprasMineracaoProps {
   user: User;
@@ -56,6 +57,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 }) => {
   const { addToast } = useToast();
   const [oportunidades, setOportunidades] = useState<OportunidadeMinerada[]>([]);
+  const [chatOportunidadeSelecionada, setChatOportunidadeSelecionada] = useState<OportunidadeMinerada | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [diasVarredura, setDiasVarredura] = useState<number>(14);
@@ -374,6 +376,20 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
       }]);
     }
   };
+
+  if (chatOportunidadeSelecionada) {
+    return (
+      <ComprasChatViewer
+        oportunidade={chatOportunidadeSelecionada}
+        theme={theme}
+        onVoltar={() => setChatOportunidadeSelecionada(null)}
+        onCriarCotacao={(op) => {
+          handleCriarCotacaoComOferta(op);
+          setChatOportunidadeSelecionada(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -730,9 +746,14 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                     >
                       {/* Produto & Fornecedor */}
                       <td className="py-3.5 px-4 max-w-xs">
-                        <div className="font-black text-sm text-slate-900 dark:text-white line-clamp-2" title={op.produtoNome}>
-                          {op.produtoNome}
-                        </div>
+                        <button
+                          onClick={() => setChatOportunidadeSelecionada(op)}
+                          className="text-left font-black text-sm text-slate-900 dark:text-white line-clamp-2 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer group flex items-start gap-1.5"
+                          title="Clique para abrir a conversa do WhatsApp que cita este produto"
+                        >
+                          <span className="group-hover:underline">{op.produtoNome}</span>
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
+                        </button>
                         <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                           <span className="font-bold text-slate-700 dark:text-slate-300">
                             {op.fornecedorNome || (op as any).distribuidora || 'Distribuidora'}
@@ -880,9 +901,9 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                           </button>
 
                           <button
-                            onClick={() => setSelectedOferta(op)}
-                            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
-                            title="Ver mensagem original do WhatsApp"
+                            onClick={() => setChatOportunidadeSelecionada(op)}
+                            className="p-2 rounded-xl text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-all cursor-pointer"
+                            title="Abrir conversa do WhatsApp com o contexto desta oferta"
                           >
                             <MessageSquare className="w-4 h-4" />
                           </button>

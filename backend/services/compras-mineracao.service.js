@@ -2221,6 +2221,80 @@ function obterVariacaoPrecosProduto(termo, ean = null, db = null) {
   };
 }
 
+/**
+ * Retorna o contexto da conversa do WhatsApp com o representante.
+ * Traz as mensagens anteriores e posteriores para visualização no chat.
+ */
+function obterContextoConversa(mensagemId, telefone = null, options = {}, db = null) {
+  const dbInst = getDb(db);
+  if (!dbInst) return { mensagens: [], contato: null, mensagemAlvoId: mensagemId };
+
+  let alvo = null;
+  if (mensagemId) {
+    alvo = dbInst.prepare('SELECT * FROM compras_historico_mensagens WHERE message_id = ?').get(mensagemId);
+  }
+
+  // Se não achou pelo message_id no histórico, busca na tabela de oportunidades mineradas
+  let oportunidade = null;
+  if (mensagemId) {
+    oportunidade = dbInst.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE mensagem_id = ? OR id = ?').get(mensagemId, mensagemId);
+  }
+
+  const tel = (alvo?.telefone || oportunidade?.telefone || telefone || '').replace(/\D/g, '');
+  const limite = options.limite || 30;
+
+  let mensagens = [];
+  if (tel) {
+    mensagens = dbInst.prepare(`
+      SELECT id, message_id, remote_jid, telefone, nome_contato, from_me,
+             timestamp, data_hora, tipo_mensagem, texto_mensagem, created_at
+      FROM compras_historico_mensagens
+      WHERE telefone LIKE ? OR remote_jid LIKE ?
+      ORDER BY timestamp ASC
+      LIMIT ?
+    `).all(`%${tel.slice(-8)}%`, `%${tel.slice(-8)}%`, limite);
+  }
+
+  // Se não houver histórico de mensagens salvo no SQLite, cria uma mensagem a partir da oportunidade
+  if (mensagens.length === 0 && oportunidade && oportunidade.mensagem_raw) {
+    mensagens.push({
+      id: oportunidade.id,
+      message_id: oportunidade.mensagem_id || oportunidade.id,
+      remote_jid: `${oportunidade.telefone || tel}@s.whatsapp.net`,
+      telefone: oportunidade.telefone || tel,
+      nome_contato: oportunidade.representante || oportunidade.distribuidora || 'Representante',
+      from_me: 0,
+      timestamp: oportunidade.created_at ? new Date(oportunidade.created_at).getTime() : Date.now(),
+      data_hora: oportunidade.data_oferta || oportunidade.created_at,
+      tipo_mensagem: 'texto',
+      texto_mensagem: oportunidade.mensagem_raw
+    });
+  }
+
+  const nomeContato = alvo?.nome_contato || oportunidade?.representante || oportunidade?.distribuidora || 'Representante Comercial';
+  const distribuidora = oportunidade?.distribuidora || alvo?.nome_contato || 'Distribuidora';
+
+  return {
+    mensagemAlvoId: alvo?.message_id || oportunidade?.mensagem_id || mensagemId,
+    contato: {
+      nome: nomeContato,
+      distribuidora,
+      telefone: tel,
+      representante: oportunidade?.representante || nomeContato
+    },
+    oportunidade: oportunidade ? {
+      id: oportunidade.id,
+      produtoNome: oportunidade.produto_nome,
+      precoOfertado: oportunidade.preco_ofertado,
+      precoUltCompraDigifarma: oportunidade.preco_ult_compra_digifarma,
+      descontoPercentual: oportunidade.percentual_desconto,
+      condicoesPagamento: oportunidade.condicoes_pagamento
+    } : null,
+    totalMensagens: mensagens.length,
+    mensagens
+  };
+}
+
 module.exports = {
   minerarTextoLivre,
   extrairPrazos,
@@ -2241,6 +2315,7 @@ module.exports = {
   atualizarFornecedorMeta,
   limparOportunidadesServidor,
   obterVariacaoPrecosProduto,
+  obterContextoConversa,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO

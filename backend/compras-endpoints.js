@@ -310,6 +310,23 @@ module.exports = (db) => {
     }
   });
 
+  /**
+   * GET /api/central-compras/mineracao/contexto-mensagem
+   * Retorna o contexto da conversa do WhatsApp em torno da oferta minerada
+   */
+  router.get('/mineracao/contexto-mensagem', async (req, res) => {
+    try {
+      const { mensagemId, telefone, limite } = req.query;
+      const resultado = comprasMineracaoService.obterContextoConversa(mensagemId, telefone, {
+        limite: limite ? parseInt(limite, 10) : 30
+      }, db);
+      res.json({ success: true, data: resultado });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /mineracao/contexto-mensagem:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades', async (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto, apenas_hoje } = req.query;
