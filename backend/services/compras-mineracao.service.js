@@ -2240,6 +2240,17 @@ function obterContextoConversa(mensagemId, telefone = null, options = {}, db = n
     oportunidade = dbInst.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE mensagem_id = ? OR id = ?').get(mensagemId, mensagemId);
   }
 
+  // Fallback por nome do produto se não achou pelo ID
+  if (!oportunidade && options.produtoNome) {
+    const termos = extrairTermosBuscaProduto(options.produtoNome);
+    const termoBusca = termos.palavras[0] || options.produtoNome.trim();
+    oportunidade = dbInst.prepare(`
+      SELECT * FROM compras_oportunidades_mineradas 
+      WHERE produto_nome LIKE ? 
+      ORDER BY created_at DESC LIMIT 1
+    `).get(`%${termoBusca}%`);
+  }
+
   const tel = (alvo?.telefone || oportunidade?.telefone || telefone || '').replace(/\D/g, '');
   const limite = options.limite || 30;
 

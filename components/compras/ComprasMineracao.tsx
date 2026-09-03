@@ -388,20 +388,6 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
     }
   };
 
-  if (chatOportunidadeSelecionada) {
-    return (
-      <ComprasChatViewer
-        oportunidade={chatOportunidadeSelecionada}
-        theme={theme}
-        onVoltar={() => setChatOportunidadeSelecionada(null)}
-        onCriarCotacao={(op) => {
-          handleCriarCotacaoComOferta(op);
-          setChatOportunidadeSelecionada(null);
-        }}
-      />
-    );
-  }
-
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header & Ações de Varredura */}
@@ -582,7 +568,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                       </div>
                     </div>
 
-                    {/* Tabela de Produtos Sugeridos pelo Horácio */}
+                      {/* Tabela de Produtos Sugeridos pelo Horácio */}
                     {relatorioSelecionado.itens && relatorioSelecionado.itens.length > 0 && (
                       <div className="rounded-xl border border-slate-700/60 overflow-hidden bg-slate-900/80">
                         <table className="w-full text-left text-xs">
@@ -595,36 +581,82 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                               <th className="py-2.5 px-2 text-center">Qtd Sugerida</th>
                               <th className="py-2.5 px-3">Motivo / Urgência</th>
                               <th className="py-2.5 px-3 text-right">Economia Estimada</th>
+                              <th className="py-2.5 px-2 text-right">Ações</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800 text-slate-200">
-                            {relatorioSelecionado.itens.map((it: any, idx: number) => (
-                              <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
-                                <td className="py-2.5 px-3 font-bold text-white max-w-xs truncate" title={it.produtoNome}>
-                                  {it.produtoNome}
-                                </td>
-                                <td className="py-2.5 px-2">
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-bold">
-                                    {it.tipo}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-2 text-slate-400">
-                                  R$ {it.precoHistorico ? it.precoHistorico.toFixed(2) : '-'}
-                                </td>
-                                <td className="py-2.5 px-2 font-black text-emerald-400">
-                                  R$ {it.precoOfertado?.toFixed(2)}
-                                </td>
-                                <td className="py-2.5 px-2 text-center font-bold text-amber-300">
-                                  {it.qtdSugerida} un
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-300 text-[11px]">
-                                  {it.motivo}
-                                </td>
-                                <td className="py-2.5 px-3 text-right font-black text-emerald-400">
-                                  R$ {it.economiaEstimadaValor ? it.economiaEstimadaValor.toFixed(2) : '0.00'}
-                                </td>
-                              </tr>
-                            ))}
+                            {relatorioSelecionado.itens.map((it: any, idx: number) => {
+                              const abrirChatDoItemHoracio = () => {
+                                const opMock: any = {
+                                  id: it.id || 'horacio_' + idx,
+                                  mensagemId: it.mensagemId || '',
+                                  produtoNome: it.produtoNome,
+                                  precoOfertado: it.precoOfertado,
+                                  precoUltCompra: it.precoHistorico,
+                                  economiaPercentual: it.economiaEstimadaPct,
+                                  fornecedorNome: it.distribuidora || relatorioSelecionado?.fornecedor_nome,
+                                  distribuidora: it.distribuidora || relatorioSelecionado?.fornecedor_nome,
+                                  representante: it.representante,
+                                  telefone: it.telefone,
+                                  ean: it.ean,
+                                  dataOferta: relatorioSelecionado?.created_at
+                                };
+                                setChatOportunidadeSelecionada(opMock);
+                              };
+
+                              return (
+                                <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
+                                  <td className="py-2.5 px-3 max-w-xs">
+                                    <button
+                                      onClick={abrirChatDoItemHoracio}
+                                      className="text-left font-bold text-white hover:text-emerald-400 transition-colors cursor-pointer group flex items-start gap-1.5 truncate w-full"
+                                      title="Clique para abrir a conversa do WhatsApp que cita este produto"
+                                    >
+                                      <span className="group-hover:underline truncate">{it.produtoNome}</span>
+                                      <MessageSquare className="w-3.5 h-3.5 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
+                                    </button>
+                                  </td>
+                                  <td className="py-2.5 px-2">
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-bold">
+                                      {it.tipo}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-2 text-slate-400">
+                                    R$ {it.precoHistorico ? it.precoHistorico.toFixed(2) : '-'}
+                                  </td>
+                                  <td className="py-2.5 px-2 font-black text-emerald-400">
+                                    R$ {it.precoOfertado?.toFixed(2)}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center font-bold text-amber-300">
+                                    {it.qtdSugerida} un
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-300 text-[11px]">
+                                    {it.motivo}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-black text-emerald-400">
+                                    R$ {it.economiaEstimadaValor ? it.economiaEstimadaValor.toFixed(2) : '0.00'}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-right whitespace-nowrap">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        onClick={abrirChatDoItemHoracio}
+                                        className="p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                                        title="Abrir conversa no WhatsApp"
+                                      >
+                                        <MessageSquare className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleAbrirGraficoVariacao(it.produtoNome, it.ean)}
+                                        className="p-1.5 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-950/40 transition-colors cursor-pointer"
+                                        title="Ver gráfico de variação de preços"
+                                      >
+                                        <LineChartIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1307,6 +1339,19 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Visualização da Conversa do WhatsApp com Destaque do Produto */}
+      {chatOportunidadeSelecionada && (
+        <ComprasChatViewer
+          oportunidade={chatOportunidadeSelecionada}
+          theme={theme}
+          onVoltar={() => setChatOportunidadeSelecionada(null)}
+          onCriarCotacao={(op) => {
+            handleCriarCotacaoComOferta(op);
+            setChatOportunidadeSelecionada(null);
+          }}
+        />
       )}
     </div>
   );

@@ -316,8 +316,9 @@ module.exports = (db) => {
    */
   router.get('/mineracao/contexto-mensagem', async (req, res) => {
     try {
-      const { mensagemId, telefone, limite } = req.query;
+      const { mensagemId, telefone, produtoNome, limite } = req.query;
       const resultado = comprasMineracaoService.obterContextoConversa(mensagemId, telefone, {
+        produtoNome,
         limite: limite ? parseInt(limite, 10) : 30
       }, db);
       res.json({ success: true, data: resultado });

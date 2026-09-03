@@ -56,6 +56,8 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
         if (oportunidade.mensagemId) params.append('mensagemId', oportunidade.mensagemId);
         else if (oportunidade.id) params.append('mensagemId', oportunidade.id);
         if (oportunidade.telefone) params.append('telefone', oportunidade.telefone);
+        const prod = oportunidade.produtoNome || (oportunidade as any).produto_nome;
+        if (prod) params.append('produtoNome', prod);
 
         const res = await fetch(`/api/central-compras/mineracao/contexto-mensagem?${params.toString()}`);
         if (res.ok) {
@@ -91,14 +93,21 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
     ? `+55 (${telefoneLimpo.slice(0, 2)}) ${telefoneLimpo.slice(2, 7)}-${telefoneLimpo.slice(7)}`
     : telefoneLimpo;
 
+  const produtoNome = (oportunidade.produtoNome || (oportunidade as any).produto_nome || '').trim();
+  const precoOfertadoNum = Number(oportunidade.precoOfertado || (oportunidade as any).preco_ofertado || 0);
+  const precoUltCompraNum = oportunidade.precoUltCompra 
+    ? Number(oportunidade.precoUltCompra) 
+    : (oportunidade as any).preco_ult_compra_digifarma 
+      ? Number((oportunidade as any).preco_ult_compra_digifarma) 
+      : null;
+
   const linkWhatsAppWeb = telefoneLimpo
-    ? `https://wa.me/${telefoneLimpo.startsWith('55') ? telefoneLimpo : '55' + telefoneLimpo}?text=${encodeURIComponent(`Olá! Gostaria de confirmar a oferta do item: *${oportunidade.produtoNome}* por R$ ${oportunidade.precoOfertado.toFixed(2)}.`)}`
+    ? `https://wa.me/${telefoneLimpo.startsWith('55') ? telefoneLimpo : '55' + telefoneLimpo}?text=${encodeURIComponent(`Olá! Gostaria de confirmar a oferta do item: *${produtoNome}* por R$ ${precoOfertadoNum.toFixed(2)}.`)}`
     : null;
 
   // Função para destacar o trecho do produto dentro do texto da mensagem
   const renderizarTextoComDestaque = (texto: string) => {
     if (!texto) return null;
-    const produtoNome = (oportunidade.produtoNome || '').trim();
     
     // Divide o texto por linhas
     const linhas = texto.split('\n');
@@ -132,9 +141,10 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8.5rem)] rounded-3xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden animate-in fade-in duration-200">
-      {/* Topo / Header Estilo WhatsApp */}
-      <header className="px-5 py-3.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-sm z-10">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-900/70 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="flex flex-col w-full max-w-6xl h-full max-h-[92vh] rounded-3xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+        {/* Topo / Header Estilo WhatsApp */}
+        <header className="px-5 py-3.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-sm z-10">
         <div className="flex items-center gap-3.5">
           <button
             onClick={onVoltar}
@@ -207,7 +217,7 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
               )}
             </div>
             <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
-              {oportunidade.produtoNome}
+              {produtoNome}
             </h3>
           </div>
         </div>
@@ -218,11 +228,11 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
             <span className="text-[10px] uppercase font-bold text-slate-400 block">Preço Ofertado</span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
-                R$ {oportunidade.precoOfertado.toFixed(2)}
+                R$ {precoOfertadoNum.toFixed(2)}
               </span>
-              {oportunidade.precoUltCompra && (
+              {precoUltCompraNum && (
                 <span className="text-xs text-slate-400 line-through">
-                  R$ {oportunidade.precoUltCompra.toFixed(2)}
+                  R$ {precoUltCompraNum.toFixed(2)}
                 </span>
               )}
             </div>
@@ -313,5 +323,6 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
         )}
       </div>
     </div>
+  </div>
   );
 };

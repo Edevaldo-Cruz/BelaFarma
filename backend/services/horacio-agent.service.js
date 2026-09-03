@@ -369,6 +369,12 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         const econItem = precoUlt > precoOf ? (precoUlt - precoOf) * qtd : 0;
 
         itensSugeridos.push({
+          id: ofr.id,
+          mensagemId: ofr.mensagemId || ofr.mensagem_id,
+          telefone: ofr.telefone,
+          distribuidora: ofr.distribuidora || distribuidor,
+          representante: ofr.representante,
+          ean: ofr.ean,
           produtoNome: ofr.produtoNome,
           tipo: classificarTipoMedicamento(ofr.produtoNome),
           precoHistorico: precoUlt,
