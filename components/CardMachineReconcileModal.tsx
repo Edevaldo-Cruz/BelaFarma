@@ -30,10 +30,12 @@ interface CardMachineReconcileModalProps {
 }
 
 interface GroupedBrandItem {
-  key: string; // e.g. "Visa_Débito", "Master_Crédito à Vista"
+  key: string; // e.g. "2026-09-03_Visa_Débito"
+  expectedDate: string;
   brand: string;
   modality: string;
   items: CardMachineReceivable[];
+  saleDates: string[];
   totalGross: number;
   m1Gross: number;
   m2Gross: number;
@@ -71,6 +73,8 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     impostos: false,
     reserva: false,
   });
+
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
 
   useEffect(() => {
     if (isOpen) {
@@ -145,6 +149,26 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     return `${d}/${m}/${y}`;
   };
 
+  const formatFriendlyDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const clean = dateStr.split('T')[0];
+    const parts = clean.split('-');
+    if (parts.length !== 3) return dateStr;
+    const [y, m, d] = parts;
+    const dt = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+    const weekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    const weekday = weekdays[dt.getDay()];
+    return `${d}/${m}/${y} (${weekday})`;
+  };
+
+  const formatSaleDatesSummary = (items: CardMachineReceivable[]) => {
+    const dates = Array.from(new Set(items.map(i => i.sale_date).filter(Boolean))).sort();
+    if (dates.length === 0) return 'Data não informada';
+    if (dates.length === 1) return formatDate(dates[0]);
+    if (dates.length === 2) return `${formatDate(dates[0])} e ${formatDate(dates[1])}`;
+    return `${formatDate(dates[0])} a ${formatDate(dates[dates.length - 1])} (${dates.length} dias)`;
+  };
+
   const handleDismissToday = () => {
     onClose();
   };
@@ -154,14 +178,43 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   const weekendItems = pendingItems.filter(item => item.is_weekend_accumulated === 1);
   const regularItems = pendingItems.filter(item => item.is_weekend_accumulated !== 1);
 
-  // Agrupamento por BANDEIRA & MODALIDADE (Somando M1 + M2)
+  // Datas únicas esperadas para repasse (em que deveria cair no banco)
+  const distinctExpectedDates = useMemo(() => {
+    const dates = Array.from(new Set(pendingItems.map(i => i.expected_payment_date).filter(Boolean)));
+    return dates.sort();
+  }, [pendingItems]);
+
+  // Itens exibidos no modal (considerando filtro de data opcional)
+  const displayedItems = useMemo(() => {
+    if (selectedDateFilter === 'all') return pendingItems;
+    return pendingItems.filter(i => i.expected_payment_date === selectedDateFilter);
+  }, [pendingItems, selectedDateFilter]);
+
+  // Resumo textual das datas de repasse
+  const expectedDatesSummaryText = useMemo(() => {
+    if (distinctExpectedDates.length === 0) return '';
+    if (distinctExpectedDates.length === 1) {
+      return formatFriendlyDate(distinctExpectedDates[0]);
+    }
+    const first = distinctExpectedDates[0];
+    const last = distinctExpectedDates[distinctExpectedDates.length - 1];
+    return `${formatDate(first)} a ${formatDate(last)} (${distinctExpectedDates.length} datas)`;
+  }, [distinctExpectedDates]);
+
+  // Datas esperadas do fim de semana
+  const weekendExpectedDates = useMemo(() => {
+    return Array.from(new Set(weekendItems.map(i => i.expected_payment_date).filter(Boolean))).sort();
+  }, [weekendItems]);
+
+  // Agrupamento por DATA PREVISTA + BANDEIRA & MODALIDADE (Somando M1 + M2)
   const groupedBrandItems = useMemo(() => {
     const map = new Map<string, GroupedBrandItem>();
 
-    pendingItems.forEach(item => {
+    displayedItems.forEach(item => {
       const modality = item.modality || 'Débito';
       const brand = item.brand || 'Outros';
-      const key = `${brand}_${modality}`;
+      const expectedDate = item.expected_payment_date || '';
+      const key = `${expectedDate}_${brand}_${modality}`;
 
       const gross = Number(item.gross_value) || 0;
       const isM2 = item.machine_name === 'M2';
@@ -169,9 +222,11 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       if (!map.has(key)) {
         map.set(key, {
           key,
+          expectedDate,
           brand,
           modality,
           items: [item],
+          saleDates: item.sale_date ? [item.sale_date] : [],
           totalGross: gross,
           m1Gross: isM2 ? 0 : gross,
           m2Gross: isM2 ? gross : 0,
@@ -180,25 +235,32 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       } else {
         const entry = map.get(key)!;
         entry.items.push(item);
+        if (item.sale_date && !entry.saleDates.includes(item.sale_date)) {
+          entry.saleDates.push(item.sale_date);
+          entry.saleDates.sort();
+        }
         entry.totalGross += gross;
         if (isM2) entry.m2Gross += gross;
         else entry.m1Gross += gross;
+        if (item.is_weekend_accumulated === 1) entry.isWeekend = true;
       }
     });
 
     return Array.from(map.values()).sort((a, b) => {
+      // Ordena por data esperada (mais antiga primeiro)
+      if (a.expectedDate !== b.expectedDate) return a.expectedDate.localeCompare(b.expectedDate);
       if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
       return a.modality.localeCompare(b.modality);
     });
-  }, [pendingItems]);
+  }, [displayedItems]);
 
-  // Totalizadores Gerais do Topo (M1 + M2 somados)
+  // Totalizadores Gerais do Topo (M1 + M2 somados) baseados nos itens exibidos
   const totalsSummary = useMemo(() => {
     let totalDebit = 0;
     let totalCredit = 0;
     let totalGross = 0;
 
-    pendingItems.forEach(item => {
+    displayedItems.forEach(item => {
       const val = Number(item.gross_value) || 0;
       totalGross += val;
       const mod = (item.modality || '').toLowerCase();
@@ -214,13 +276,13 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       totalCredit: Number(totalCredit.toFixed(2)),
       totalGross: Number(totalGross.toFixed(2))
     };
-  }, [pendingItems]);
+  }, [displayedItems]);
 
   // Resumo por Bandeira pura (Visa, Master, Elo, Outros) — sem separar por modalidade
   const brandSummary = useMemo(() => {
     const map: Record<string, { brand: string; gross: number; debit: number; credit: number; m1: number; m2: number; count: number }> = {};
 
-    pendingItems.forEach(item => {
+    displayedItems.forEach(item => {
       const brand = item.brand || 'Outros';
       const gross = Number(item.gross_value) || 0;
       const mod = (item.modality || '').toLowerCase();
@@ -240,9 +302,9 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     return ['Visa', 'Master', 'Elo', 'Outros']
       .filter(b => map[b] && map[b].gross > 0)
       .map(b => map[b]);
-  }, [pendingItems]);
+  }, [displayedItems]);
 
-  // Provisões calculadas sobre o total bruto dos recebíveis
+  // Provisões calculadas sobre o total bruto dos recebíveis exibidos
   const provisions = useMemo(() => {
     const gross = totalsSummary.totalGross;
     const prolabore = gross * 0.12;
@@ -375,9 +437,17 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                   {isMonday ? 'Segunda-feira (Acumulado FDS)' : 'Diário'}
                 </span>
               </div>
-              <p className="text-xs text-emerald-100 font-medium">
-                Olá, {userName}! Confira os valores somados por bandeira e audite as taxas retidas no banco.
-              </p>
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <p className="text-xs text-emerald-100 font-medium">
+                  Olá, {userName}! Confira os valores somados por bandeira e audite as taxas retidas no banco.
+                </p>
+                {expectedDatesSummaryText && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-white font-black text-xs backdrop-blur-md border border-white/30 shadow-xs">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>Deveria cair em: {expectedDatesSummaryText}</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -436,7 +506,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Ao cair o repasse no banco, separe imediatamente os valores nas caixinhas para manter reservas e tributos em dia.
+                          Ao cair o repasse no banco {expectedDatesSummaryText ? `(previsto: ${expectedDatesSummaryText})` : ''}, separe imediatamente os valores nas caixinhas para manter reservas e tributos em dia.
                         </p>
                       </div>
                     </div>
@@ -690,20 +760,27 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
               {isMonday && weekendItems.length > 0 && (
                 <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/30 dark:to-blue-950/20 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    <Layers className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                    <Layers className="w-6 h-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
                     <div>
-                      <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200">
-                        Acumulado de Fim de Semana ({weekendItems.length} repasses de Sexta, Sáb e Dom)
-                      </h4>
-                      <p className="text-[11px] text-indigo-700 dark:text-indigo-400">
-                        Você pode conferir por bandeira abaixo ou liquidar todo o montante de uma vez só.
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200">
+                          Acumulado de Fim de Semana ({weekendItems.length} repasses de Sexta, Sáb e Dom)
+                        </h4>
+                        {weekendExpectedDates.length > 0 && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700">
+                            Deveria cair em: {weekendExpectedDates.map(d => formatFriendlyDate(d)).join(', ')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-indigo-700 dark:text-indigo-400 mt-0.5">
+                        Vendas de: <strong>{formatSaleDatesSummary(weekendItems)}</strong>. Você pode conferir por bandeira abaixo ou liquidar todo o montante de uma vez só.
                       </p>
                     </div>
                   </div>
 
                   <button
                     onClick={() => setShowWeekendQuickAll(!showWeekendQuickAll)}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all shrink-0"
                   >
                     {showWeekendQuickAll ? 'Fechar Lote Único' : 'Conferir Lote Único Total'}
                   </button>
@@ -714,7 +791,14 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
               {showWeekendQuickAll && weekendItems.length > 0 && (
                 <div className="p-4 bg-white dark:bg-slate-900 border-2 border-indigo-300 dark:border-indigo-700 rounded-2xl space-y-3 animate-scale-up">
                   <div className="flex justify-between items-center text-xs font-black">
-                    <span className="text-slate-600 dark:text-slate-300">Total Bruto FDS (Sexta + Sáb + Dom):</span>
+                    <div className="space-y-0.5">
+                      <span className="text-slate-600 dark:text-slate-300 block">Total Bruto FDS (Sexta + Sáb + Dom):</span>
+                      {weekendExpectedDates.length > 0 && (
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium block">
+                          Previsão de crédito: {weekendExpectedDates.map(d => formatFriendlyDate(d)).join(', ')}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-base text-indigo-600 dark:text-indigo-400">{formatCurrency(totalsSummary.totalGross)}</span>
                   </div>
 
@@ -762,14 +846,61 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                 </div>
               )}
 
+              {/* FILTRO POR DATA EM QUE DEVERIA CAIR (SE HOUVER MAIS DE UMA DATA PENDENTE) */}
+              {distinctExpectedDates.length > 1 && (
+                <div className="p-3 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                      Filtrar por data em que deveria cair os valores:
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      onClick={() => setSelectedDateFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                        selectedDateFilter === 'all'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                    >
+                      Todas as Datas ({pendingItems.length})
+                    </button>
+                    {distinctExpectedDates.map(date => {
+                      const count = pendingItems.filter(i => i.expected_payment_date === date).length;
+                      const total = pendingItems.filter(i => i.expected_payment_date === date).reduce((sum, cur) => sum + (Number(cur.gross_value) || 0), 0);
+                      const todayStr = new Date().toISOString().slice(0, 10);
+                      const isToday = date === todayStr;
+                      const isPast = date < todayStr;
+                      return (
+                        <button
+                          key={date}
+                          onClick={() => setSelectedDateFilter(date)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                            selectedDateFilter === date
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                          }`}
+                        >
+                          <span>{formatFriendlyDate(date)}</span>
+                          {isToday && <span className="px-1.5 py-0.2 bg-emerald-700 text-white text-[9px] rounded font-black">Hoje</span>}
+                          {isPast && <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[9px] rounded font-black">Pendente</span>}
+                          <span className="text-[10px] opacity-80">({formatCurrency(total)})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* LISTA DE CARDS POR BANDEIRA & MODALIDADE (SOMANDO M1 + M2) */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Repasses por Bandeira ({groupedBrandItems.length} grupos consolidados)
+                    Repasses por Bandeira e Data ({groupedBrandItems.length} grupos consolidados)
                   </h4>
                   <span className="text-[11px] font-bold text-slate-400">
-                    Cada card soma as máquinas M1 e M2 daquela bandeira
+                    Cada card soma as máquinas M1 e M2 daquela data e bandeira
                   </span>
                 </div>
 
@@ -780,46 +911,79 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                     const feeVal = Math.max(0, group.totalGross - typedNet);
                     const feePct = group.totalGross > 0 && typedNet > 0 ? (feeVal / group.totalGross) * 100 : 0;
                     const isSaving = savingKey === group.key;
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const isToday = group.expectedDate === todayStr;
+                    const isPast = group.expectedDate < todayStr;
 
                     return (
                       <div 
                         key={group.key}
                         className="bg-slate-50 dark:bg-slate-800/60 border-2 border-slate-200/80 dark:border-slate-700/80 rounded-2xl p-4 transition-all hover:border-emerald-400 dark:hover:border-emerald-600 space-y-3 shadow-sm"
                       >
-                        {/* Header do Card da Bandeira */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-md">
+                        {/* Header do Card da Bandeira com a Data Prevista e Data de Venda em Destaque */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-start sm:items-center space-x-3">
+                            <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-md shrink-0 mt-0.5 sm:mt-0">
                               {group.brand.slice(0, 3).toUpperCase()}
                             </div>
                             <div>
-                              <div className="flex items-center space-x-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-black text-slate-900 dark:text-white">
                                   Total {group.brand} - {group.modality}
                                 </span>
+
+                                {/* DESTAQUE DA DATA EM QUE DEVERIA CAIR O VALOR */}
+                                {group.expectedDate && (
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-black border shadow-xs ${
+                                    isToday
+                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800'
+                                      : isPast
+                                      ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800'
+                                      : 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-300 dark:border-indigo-800'
+                                  }`}>
+                                    <Calendar className="w-3.5 h-3.5" />
+                                    <span>Deveria cair: {formatFriendlyDate(group.expectedDate)}</span>
+                                    {isToday && (
+                                      <span className="px-1 py-0.2 bg-emerald-600 text-white text-[9px] rounded font-black uppercase">Hoje</span>
+                                    )}
+                                    {isPast && (
+                                      <span className="px-1 py-0.2 bg-amber-600 text-white text-[9px] rounded font-black uppercase">Pendente</span>
+                                    )}
+                                  </span>
+                                )}
+
                                 {group.isWeekend && (
-                                  <span className="px-2 py-0.5 rounded text-[9px] font-black bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-black bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                                     FDS
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center space-x-2 text-[11px] text-slate-500 font-medium mt-0.5">
-                                <span>Origem:</span>
-                                {group.m1Gross > 0 && (
-                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold">
-                                    M1: {formatCurrency(group.m1Gross)}
-                                  </span>
-                                )}
-                                {group.m2Gross > 0 && (
-                                  <span className="px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-bold">
-                                    M2: {formatCurrency(group.m2Gross)}
-                                  </span>
-                                )}
+
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 font-medium mt-1">
+                                {/* DATA DA VENDA ORIGINAL */}
+                                <div className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                                  <Clock className="w-3 h-3 text-slate-400" />
+                                  <span>Venda(s): <strong className="font-bold">{formatSaleDatesSummary(group.items)}</strong></span>
+                                </div>
+
+                                <div className="flex items-center space-x-1.5">
+                                  <span>Origem:</span>
+                                  {group.m1Gross > 0 && (
+                                    <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold">
+                                      M1: {formatCurrency(group.m1Gross)}
+                                    </span>
+                                  )}
+                                  {group.m2Gross > 0 && (
+                                    <span className="px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-bold">
+                                      M2: {formatCurrency(group.m2Gross)}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
 
-                          <div className="text-right">
+                          <div className="text-right shrink-0">
                             <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Bruto Esperado</span>
                             <span className="text-base font-black text-slate-900 dark:text-white">
                               {formatCurrency(group.totalGross)}
