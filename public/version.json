@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4da5dbd",
-  "commitMessage": "feat(compras-mineracao): correcao fiel de ultima compra com fracionamento de embalagem e cache indexado digifarma",
-  "buildTime": "03/09/2026, 20:32:57"
+  "commitHash": "08c3e9c",
+  "commitMessage": "fix(compras-mineracao): correcao adversarial de sobreposicao de precos, fallback estrito, shadowing e performance < 10ms",
+  "buildTime": "03/09/2026, 20:46:11"
 }

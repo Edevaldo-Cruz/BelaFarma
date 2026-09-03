@@ -1959,6 +1959,8 @@ try {
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN nota_fiscal_ult_compra TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN embalagem_ult_compra TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_total_nota REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN produto_id INTEGER'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_com_prod_id ON compras_oportunidades_mineradas(produto_id)'); } catch(e) {}
 
     // Cache de Últimas Compras do Digifarma (Firebird -> SQLite) para consulta ultra rápida (< 5ms)
     db.exec(`
@@ -2292,10 +2294,10 @@ try {
             COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_total_nota,
             1 as quantidade,
             1 as embalagem,
-            'Unidade individual' as embalagem_detalhe,
+            'Cadastro Geral Digifarma' as embalagem_detalhe,
             COALESCE(sincronizado_em, atualizado_em) as data_compra,
-            'Distribuidora Cadastrada' as fornecedor_nome,
-            'NF Entrada' as numero_nota_fiscal,
+            'Cadastro Geral Digifarma' as fornecedor_nome,
+            'Sem NF Entrada' as numero_nota_fiscal,
             'ESTOQUE_CACHE' as fonte,
             datetime('now') as atualizado_em
           FROM compras_estoque_cache

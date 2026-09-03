@@ -350,6 +350,148 @@ async function runTests() {
     assert(Array.isArray(ops), 'Retorno deve ser array');
   });
 
+  // 15. Adversarial: Sincronização sobrepõe dados prévios de ESTOQUE_CACHE mesmo com NF emitida no passado
+  await asyncTest('Adversarial: Sincronização sobrepõe fallback ESTOQUE_CACHE com NF real de data anterior', async () => {
+    const prodIdTest = 999888;
+    // 1. Simula entrada gerada via compras_estoque_cache com data_compra de hoje
+    db.prepare(`
+      INSERT OR REPLACE INTO digifarma_ultimas_compras_cache (
+        produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
+        quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
+        numero_nota_fiscal, fonte, atualizado_em
+      ) VALUES (?, '7899998881112', 'PRODUTO TESTE SYNC OVERRIDE', 10.00, 10.00,
+        1, 1, 'Cadastro Geral Digifarma', datetime('now'), 'Cadastro Geral Digifarma',
+        'Sem NF Entrada', 'ESTOQUE_CACHE', datetime('now'))
+    `).run(prodIdTest);
+
+    // 2. Mock do Firebird com NF emitida 10 dias atrás a R$ 6.50
+    const mockQuerySync = async (sql, params) => {
+      return [{
+        PRODUTO_ID: prodIdTest,
+        COD_BARRAS: '7899998881112',
+        PRODUTO: 'PRODUTO TESTE SYNC OVERRIDE',
+        ITEM_NOTAS_PRCOMPRA: 6.50,
+        ITEM_NOTAS_EMBALAGEM: 1,
+        ITEM_NOTAS_ULT_COMPRA: 6.50,
+        ITEM_NOTAS_QUANT: 10,
+        DATA_EMISSAO: '2026-08-20 10:00:00',
+        NOTA_FISCAL: 'NF 123456',
+        FORNECEDOR: 'DISTRIBUIDORA REAL FIREBIRD'
+      }];
+    };
+
+    await comprasMineracaoService.sincronizarUltimasComprasDigifarma(db, {
+      dias: 90,
+      queryDigifarma: mockQuerySync,
+      skipFirebird: false
+    });
+
+    const itemCache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').get(prodIdTest);
+    assert.strictEqual(itemCache.fonte, 'NOTA_FISCAL', `Fonte esperada NOTA_FISCAL, obteve ${itemCache.fonte}`);
+    assert.strictEqual(itemCache.preco_unitario_ult_compra, 6.50, `Preço esperado 6.50, obteve ${itemCache.preco_unitario_ult_compra}`);
+    assert.strictEqual(itemCache.fornecedor_nome, 'DISTRIBUIDORA REAL FIREBIRD', `Fornecedor esperado DISTRIBUIDORA REAL FIREBIRD, obteve ${itemCache.fornecedor_nome}`);
+    assert.strictEqual(itemCache.numero_nota_fiscal, 'NF 123456', `NF esperada NF 123456, obteve ${itemCache.numero_nota_fiscal}`);
+
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').run(prodIdTest);
+  });
+
+  // 16. Adversarial: validarOfertaComDigifarma com precoOfertado passado como string não quebra .toFixed
+  await asyncTest('Adversarial: validarOfertaComDigifarma trata precoOfertado string sem crash', async () => {
+    const validacao = await comprasMineracaoService.validarOfertaComDigifarma({
+      produtoId: 188549,
+      precoOfertado: '2.80' // string ao invés de number
+    });
+
+    assert(validacao, 'Validação deve retornar objeto válido');
+    assert.strictEqual(typeof validacao.precoOfertado, 'number', 'precoOfertado deve ser numérico');
+    assert.strictEqual(validacao.precoOfertado, 2.80);
+    assert.strictEqual(validacao.status, 'Aprovado_Radar');
+  });
+
+  // 17. Adversarial: Produto sem código de barras (EAN nulo) persiste produto_id e enriquece no listarOportunidades
+  await asyncTest('Adversarial: Produto sem EAN (nulo) persiste produto_id e é localizado no listarOportunidades', async () => {
+    const opSemEanId = 'test-op-sem-ean-' + Date.now();
+    db.prepare(`
+      INSERT OR REPLACE INTO compras_oportunidades_mineradas (
+        id, mensagem_id, distribuidora, produto_nome, ean, produto_id,
+        preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
+        status, data_oferta, created_at
+      ) VALUES (?, 'msg-no-ean', 'DIST TESTE', 'AP.BARB VICEROY LADY CARE C/2 12UND',
+        NULL, 188549, 2.50, 38.88, 0, 'Disponivel', datetime('now'), datetime('now'))
+    `).run(opSemEanId);
+
+    const lista = comprasMineracaoService.listarOportunidades(db, { limite: 100 });
+    const opEncontrada = lista.find(o => o.id === opSemEanId);
+
+    assert(opEncontrada, 'Oportunidade sem EAN deve ser localizada');
+    assert.strictEqual(opEncontrada.precoUltCompraDigifarma, 3.24, `Preço deve ser enriquecido para 3.24 via produto_id, obteve ${opEncontrada.precoUltCompraDigifarma}`);
+    assert(opEncontrada.descontoPercentual > 20, `Desconto deve ser recalculado positivamente, obteve ${opEncontrada.descontoPercentual}%`);
+    assert(opEncontrada.embalagemUltCompra.includes('12'), 'Embalagem de 12 unidades deve ser retornada');
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(opSemEanId);
+  });
+
+  // 18. Adversarial: buscarUltimaCompraProduto seleciona candidato por pontuarCorrespondencia e não apenas pRows[0]
+  await asyncTest('Adversarial: buscarUltimaCompraProduto seleciona candidato no Firebird por melhor score de similaridade', async () => {
+    let consultouNotaComId = null;
+    const mockQueryRank = async (sql, params) => {
+      if (sql.includes('CONTAINING')) {
+        return [
+          { PRODUTO_ID: 101, PRODUTO: 'DIPIRONA GOTAS 20ML GENERICO', COD_BARRAS: '789101', VALOR_ULT_COMPRA: 4.00, PROD_PRCOMPRA: 3.50 },
+          { PRODUTO_ID: 102, PRODUTO: 'DIPIRONA SODICA 500MG COM 20 COMPRIMIDOS EMS', COD_BARRAS: '789102', VALOR_ULT_COMPRA: 5.20, PROD_PRCOMPRA: 4.80 }
+        ];
+      }
+      if (sql.includes('ITEM_NOTAS')) {
+        consultouNotaComId = params[0];
+        return [{
+          ITEM_NOTAS_PRCOMPRA: 5.20,
+          ITEM_NOTAS_EMBALAGEM: 1,
+          ITEM_NOTAS_ULT_COMPRA: 5.20,
+          ITEM_NOTAS_QUANT: 5,
+          DATA_EMISSAO: '2026-09-01 10:00:00',
+          NOTA_FISCAL: 'NF 9911',
+          FORNECEDOR: 'DISTRIBUIDORA EMS'
+        }];
+      }
+      return [];
+    };
+
+    const res = await comprasMineracaoService.buscarUltimaCompraProduto({
+      produtoNome: 'DIPIRONA 500MG C/20 COMP EMS',
+      dbInstance: db,
+      options: { queryDigifarma: mockQueryRank, skipFirebird: false, skipCache: true }
+    });
+
+    assert(res, 'Busca deve retornar resultado');
+    assert.strictEqual(consultouNotaComId, 102, `Deveria selecionar produto 102 (500mg comp EMS) e não 101 (gotas), mas consultou ${consultouNotaComId}`);
+    assert.strictEqual(res.precoUnitario, 5.20);
+
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id IN (101, 102)').run();
+  });
+
+  // 19. Adversarial: recalcularOfertasMineradas preenche produto_id e ean retroativamente no banco
+  await asyncTest('Adversarial: recalcularOfertasMineradas preenche produto_id e ean retroativamente', async () => {
+    const testBackfillId = 'test-op-backfill-' + Date.now();
+    db.prepare(`
+      INSERT OR REPLACE INTO compras_oportunidades_mineradas (
+        id, mensagem_id, distribuidora, produto_nome, ean, produto_id,
+        preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
+        status, data_oferta, created_at
+      ) VALUES (?, 'msg-bf', 'DIST BF', 'AP.BARB VICEROY LADY CARE C/2 12UND',
+        NULL, NULL, 2.80, NULL, 0, 'Disponivel', datetime('now'), datetime('now'))
+    `).run(testBackfillId);
+
+    await comprasMineracaoService.recalcularOfertasMineradas(db);
+
+    const saved = db.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE id = ?').get(testBackfillId);
+    assert.strictEqual(saved.produto_id, 188549, `produto_id esperado 188549, obteve ${saved.produto_id}`);
+    assert.strictEqual(saved.ean, '7898361212568', `ean esperado 7898361212568, obteve ${saved.ean}`);
+    assert.strictEqual(saved.preco_ult_compra_digifarma, 3.24, `preco_ult esperado 3.24, obteve ${saved.preco_ult_compra_digifarma}`);
+    assert.strictEqual(saved.status, 'Aprovado_Radar', `status esperado Aprovado_Radar, obteve ${saved.status}`);
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testBackfillId);
+  });
+
   console.log(`\n=== RESUMO DOS TESTES: ${passed} PASSOU | ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);

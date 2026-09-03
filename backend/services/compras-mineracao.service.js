@@ -761,6 +761,32 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
 }
 
 /**
+ * Calcula o preço unitário real de compra considerando a embalagem coletiva
+ * e o valor fracionado (ITEM_NOTAS_ULT_COMPRA) registrado nas notas fiscais (R1).
+ */
+function calcularPrecoUnitarioReal(prCompra, emb, ultFrac) {
+  const pCompra = parseFloat(prCompra) || 0;
+  const embalagem = Math.max(1, parseInt(emb, 10) || 1);
+  const frac = parseFloat(ultFrac) || 0;
+
+  let precoUnitario = pCompra;
+  if (embalagem > 1) {
+    if (frac > 0 && Math.abs(frac - pCompra) < 0.01) {
+      // prCompra já refletia o valor unitário
+      precoUnitario = frac;
+    } else if (frac > 0 && Math.abs(frac - (pCompra / embalagem)) < 0.02) {
+      // frac reflete o valor fracionado exato
+      precoUnitario = frac;
+    } else {
+      precoUnitario = pCompra / embalagem;
+    }
+  } else if (frac > 0 && frac < pCompra) {
+    precoUnitario = frac;
+  }
+  return Math.round(precoUnitario * 100) / 100;
+}
+
+/**
  * Valida o preço de uma oferta contra o histórico do Digifarma.
  * Se Firebird estiver disponível, consulta a tabela de produtos e últimas compras.
  * Caso contrário, utiliza o cache local `compras_estoque_cache` e `digifarma_products_cache`.
@@ -778,6 +804,10 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
   } else if (options && options.produtoId) {
     targetProdutoId = options.produtoId;
   }
+
+  // Sanitiza precoOfertado para tipo numérico garantindo que .toFixed() não quebre (Bugfix adversarial)
+  precoOfertado = parseFloat(precoOfertado) || 0;
+  produtoNome = produtoNome ? String(produtoNome).trim() : '';
 
   const dbInst = getDb(db);
 
@@ -827,14 +857,20 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
       if (!cacheRow && ean) {
         cacheRow = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1').get(String(ean));
       }
-      if (!cacheRow && termoPrincipal) {
-        const cands = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? LIMIT 30').all('%' + termoPrincipal + '%');
-        let best = null, bestScore = -1;
-        for (const c of cands) {
-          const sc = pontuarCorrespondencia(c, termos);
-          if (sc > bestScore) { bestScore = sc; best = c; }
+      if (!cacheRow && produtoNome) {
+        const itemExato = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? LIMIT 1').get(produtoNome);
+        if (itemExato) {
+          cacheRow = itemExato;
+        } else if (termoPrincipal) {
+          const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termoPrincipal;
+          const cands = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? LIMIT 30').all('%' + termoBusca + '%');
+          let best = null, bestScore = -1;
+          for (const c of cands) {
+            const sc = pontuarCorrespondencia(c, termos);
+            if (sc > bestScore) { bestScore = sc; best = c; }
+          }
+          if (best && bestScore > 0) cacheRow = best;
         }
-        if (best && bestScore > 0) cacheRow = best;
       }
 
       if (cacheRow) {
@@ -916,7 +952,7 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
               FROM ITEM_NOTAS I
               JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
               LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
-              WHERE I.PRODUTO_ID = ? AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
+              WHERE I.PRODUTO_ID = ? AND C.ENTRADA_SAIDA = 'E' AND (C.CANCELAMENTO = 'N' OR C.CANCELAMENTO IS NULL)
               ORDER BY C.DATA_EMISSAO DESC, C.CAB_NOTA_ID DESC
             `, [produtoId], 2000);
 
@@ -926,15 +962,8 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
               const ultFrac = parseFloat(notaRows[0].ITEM_NOTAS_ULT_COMPRA) || 0;
               embNota = emb;
 
-              // Preço unitário real: se ITEM_NOTAS_EMBALAGEM > 1, divide ITEM_NOTAS_PRCOMPRA por ITEM_NOTAS_EMBALAGEM
-              let precoUnitario = prCompra;
-              if (emb > 1) {
-                precoUnitario = prCompra / emb;
-              } else if (ultFrac > 0 && ultFrac < prCompra) {
-                precoUnitario = ultFrac;
-              }
-
-              precoNota = Math.round(precoUnitario * 100) / 100;
+              // Preço unitário real via função unificada (R1)
+              precoNota = calcularPrecoUnitarioReal(prCompra, emb, ultFrac);
               precoTotalNota = prCompra;
               ultimoFornecedor = notaRows[0].FORNECEDOR ? String(notaRows[0].FORNECEDOR).trim() : null;
               dataUltCompra = notaRows[0].DATA_EMISSAO ? new Date(notaRows[0].DATA_EMISSAO).toISOString() : null;
@@ -1363,6 +1392,10 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
       if (colNames.has('preco_total_nota')) {
         fields.push('preco_total_nota');
         values.push(validacao.precoTotalNota || null);
+      }
+      if (colNames.has('produto_id')) {
+        fields.push('produto_id');
+        values.push(validacao.produtoId || null);
       }
 
       const placeholders = fields.map(() => '?').join(', ');
@@ -1849,12 +1882,14 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
   const rows = db.prepare(sql).all(...params);
 
   // Prepared statements reutilizáveis para consulta indexada ultra rápida (< 0.05ms)
-  let stmtCacheId = null, stmtCacheEan = null, stmtEstoqueId = null, stmtEstoqueEan = null;
+  let stmtCacheId = null, stmtCacheEan = null, stmtCacheDesc = null, stmtEstoqueId = null, stmtEstoqueEan = null, stmtEstoqueDesc = null;
   try {
     stmtCacheId = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
     stmtCacheEan = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
+    stmtCacheDesc = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
     stmtEstoqueId = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1');
     stmtEstoqueEan = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE ean = ? LIMIT 1');
+    stmtEstoqueDesc = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE descricao = ? LIMIT 1');
   } catch (ePrep) {}
 
   const items = rows
@@ -1868,17 +1903,22 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       let nfUlt = r.nota_fiscal_ult_compra || null;
       let embUlt = r.embalagem_ult_compra || null;
       let pTotal = r.preco_total_nota ? parseFloat(r.preco_total_nota) : null;
+      let pIdResolvido = r.produto_id || r.digifarma_produto_id || null;
 
       // Enriquecimento e validação em alta velocidade com cache digifarma_ultimas_compras_cache (< 0.05ms)
       try {
         let cRow = null;
-        if (stmtCacheId && (r.digifarma_produto_id || r.produto_id)) {
-          cRow = stmtCacheId.get(String(r.digifarma_produto_id || r.produto_id));
+        if (stmtCacheId && pIdResolvido) {
+          cRow = stmtCacheId.get(String(pIdResolvido));
         }
         if (!cRow && stmtCacheEan && r.ean) {
           cRow = stmtCacheEan.get(r.ean);
         }
+        if (!cRow && stmtCacheDesc && r.produto_nome) {
+          cRow = stmtCacheDesc.get(r.produto_nome);
+        }
         if (cRow && cRow.preco_unitario_ult_compra > 0) {
+          if (!pIdResolvido && cRow.produto_id) pIdResolvido = cRow.produto_id;
           precoUltCompra = parseFloat(cRow.preco_unitario_ult_compra);
           pTotal = parseFloat(cRow.preco_total_nota) || precoUltCompra;
           if (cRow.fornecedor_nome) ultForn = cRow.fornecedor_nome;
@@ -1900,11 +1940,14 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       if (!r.estoque_atual && !r.estoque_minimo) {
         try {
           let pCache = null;
-          if (stmtEstoqueId && (r.digifarma_produto_id || r.produto_id)) {
-            pCache = stmtEstoqueId.get(String(r.digifarma_produto_id || r.produto_id));
+          if (stmtEstoqueId && pIdResolvido) {
+            pCache = stmtEstoqueId.get(String(pIdResolvido));
           }
           if (!pCache && stmtEstoqueEan && r.ean) {
             pCache = stmtEstoqueEan.get(r.ean);
+          }
+          if (!pCache && stmtEstoqueDesc && r.produto_nome) {
+            pCache = stmtEstoqueDesc.get(r.produto_nome);
           }
           if (pCache) {
             estoqueAtual = pCache.saldo || 0;
@@ -1980,6 +2023,8 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
 
     return {
       id: r.id,
+      produtoId: pIdResolvido,
+      produto_id: pIdResolvido,
       fornecedorId: r.fornecedor_id,
       fornecedorNome: r.distribuidora || 'Distribuidora',
       distribuidora: r.distribuidora || 'Distribuidora',
@@ -2591,6 +2636,14 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
     pId = produtoId.produtoId || produtoId.id;
   }
 
+  // Normalização estrita de parâmetros para evitar inconsistências em drivers de banco
+  if (pId !== null && pId !== undefined) {
+    const parsedId = parseInt(pId, 10);
+    pId = !isNaN(parsedId) ? parsedId : pId;
+  }
+  pEan = pEan ? String(pEan).trim() : null;
+  pDesc = pDesc ? String(pDesc).trim() : '';
+
   const db = getDb(dbInstance);
 
   function formatItem(item) {
@@ -2608,7 +2661,7 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
   }
 
   // 1. Busca imediata no cache SQLite indexado (< 1ms)
-  if (db) {
+  if (db && !opts.skipCache && !options.skipCache) {
     try {
       if (pId) {
         const item = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? AND preco_unitario_ult_compra > 0 LIMIT 1').get(String(pId));
@@ -2619,9 +2672,13 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
         if (item) return formatItem(item);
       }
       if (!pId && !pEan && pDesc) {
+        const itemExato = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1').get(pDesc);
+        if (itemExato) return formatItem(itemExato);
+
         const termos = extrairTermosBuscaProduto(pDesc);
         if (termos.palavras.length > 0) {
-          const cands = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 20').all('%' + termos.palavras[0] + '%');
+          const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termos.palavras[0];
+          const cands = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 30').all('%' + termoBusca + '%');
           let best = null, bestScore = -1;
           for (const c of cands) {
             const sc = pontuarCorrespondencia(c, termos);
@@ -2650,10 +2707,20 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
           }
         }
         if (pRows && pRows.length > 0) {
-          pId = pRows[0].PRODUTO_ID;
-          pDesc = pRows[0].PRODUTO;
-          pEan = pRows[0].COD_BARRAS;
-          prodCadastro = pRows[0];
+          let melhorItem = pRows[0];
+          let melhorScore = -1;
+          const termos = extrairTermosBuscaProduto(pDesc);
+          for (const p of pRows) {
+            const sc = pontuarCorrespondencia({ descricao: p.PRODUTO, ean: p.COD_BARRAS }, termos);
+            if (sc > melhorScore) {
+              melhorScore = sc;
+              melhorItem = p;
+            }
+          }
+          pId = melhorItem.PRODUTO_ID;
+          pDesc = melhorItem.PRODUTO;
+          pEan = melhorItem.COD_BARRAS;
+          prodCadastro = melhorItem;
         }
       }
 
@@ -2671,7 +2738,7 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
           FROM ITEM_NOTAS I
           JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
           LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
-          WHERE I.PRODUTO_ID = ? AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
+          WHERE I.PRODUTO_ID = ? AND C.ENTRADA_SAIDA = 'E' AND (C.CANCELAMENTO = 'N' OR C.CANCELAMENTO IS NULL)
           ORDER BY C.DATA_EMISSAO DESC, C.CAB_NOTA_ID DESC
         `, [pId], 2000);
 
@@ -2679,13 +2746,7 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
           const prCompra = parseFloat(notaRows[0].ITEM_NOTAS_PRCOMPRA) || 0;
           const emb = Math.max(1, parseInt(notaRows[0].ITEM_NOTAS_EMBALAGEM, 10) || 1);
           const ultFrac = parseFloat(notaRows[0].ITEM_NOTAS_ULT_COMPRA) || 0;
-          let precoUnitario = prCompra;
-          if (emb > 1) {
-            precoUnitario = prCompra / emb;
-          } else if (ultFrac > 0 && ultFrac < prCompra) {
-            precoUnitario = ultFrac;
-          }
-          precoUnitario = Math.round(precoUnitario * 100) / 100;
+          const precoUnitario = calcularPrecoUnitarioReal(prCompra, emb, ultFrac);
 
           const embDetalhe = emb > 1
             ? `Embalagem: Caixa c/ ${emb} unidades (R$ ${prCompra.toFixed(2)} total)`
@@ -2782,6 +2843,7 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
                       descricao = excluded.descricao,
                       preco_unitario_ult_compra = excluded.preco_unitario_ult_compra,
                       preco_total_nota = excluded.preco_total_nota,
+                      quantidade = excluded.quantidade,
                       embalagem = excluded.embalagem,
                       embalagem_detalhe = excluded.embalagem_detalhe,
                       data_compra = excluded.data_compra,
@@ -2870,6 +2932,7 @@ function recalcularOfertasMineradas(dbInstance) {
 
   const hasEmb = colNames.has('embalagem_ult_compra');
   const hasTotal = colNames.has('preco_total_nota');
+  const hasProdId = colNames.has('produto_id');
 
   let updateSql = `
     UPDATE compras_oportunidades_mineradas
@@ -2882,6 +2945,8 @@ function recalcularOfertasMineradas(dbInstance) {
   `;
   if (hasEmb) updateSql += `, embalagem_ult_compra = ?`;
   if (hasTotal) updateSql += `, preco_total_nota = ?`;
+  if (hasProdId) updateSql += `, produto_id = COALESCE(produto_id, ?)`;
+  updateSql += `, ean = COALESCE(NULLIF(ean, ''), ?)`;
   updateSql += ` WHERE id = ?`;
 
   const updateStmt = db.prepare(updateSql);
@@ -2905,15 +2970,21 @@ function recalcularOfertasMineradas(dbInstance) {
         cache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1').get(ofr.ean);
       }
       if (!cache && ofr.produto_nome) {
-        const termos = extrairTermosBuscaProduto(ofr.produto_nome);
-        if (termos.palavras.length > 0) {
-          const candidates = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? LIMIT 30').all('%' + termos.palavras[0] + '%');
-          let best = null, bestScore = -1;
-          for (const c of candidates) {
-            const sc = pontuarCorrespondencia(c, termos);
-            if (sc > bestScore) { bestScore = sc; best = c; }
+        const itemExato = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1').get(ofr.produto_nome);
+        if (itemExato) {
+          cache = itemExato;
+        } else {
+          const termos = extrairTermosBuscaProduto(ofr.produto_nome);
+          if (termos.palavras.length > 0) {
+            const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termos.palavras[0];
+            const candidates = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 30').all('%' + termoBusca + '%');
+            let best = null, bestScore = -1;
+            for (const c of candidates) {
+              const sc = pontuarCorrespondencia(c, termos);
+              if (sc > bestScore) { bestScore = sc; best = c; }
+            }
+            if (best && bestScore > 0) cache = best;
           }
-          if (best && bestScore > 0) cache = best;
         }
       }
 
@@ -2977,6 +3048,8 @@ function recalcularOfertasMineradas(dbInstance) {
         ];
         if (hasEmb) updateParams.push(embUlt);
         if (hasTotal) updateParams.push(precoTotal);
+        if (hasProdId) updateParams.push(cache?.produto_id || estItem?.produto_id || null);
+        updateParams.push(cache?.ean || estItem?.ean || null);
         updateParams.push(ofr.id);
 
         updateStmt.run(...updateParams);
@@ -3031,7 +3104,7 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
         JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
         JOIN PRODUTOS P ON I.PRODUTO_ID = P.PRODUTO_ID
         LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
-        WHERE C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
+        WHERE C.ENTRADA_SAIDA = 'E' AND (C.CANCELAMENTO = 'N' OR C.CANCELAMENTO IS NULL)
           AND C.DATA_EMISSAO >= ?
         ORDER BY C.DATA_EMISSAO DESC, C.CAB_NOTA_ID DESC
       `;
@@ -3058,7 +3131,8 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
             numero_nota_fiscal = excluded.numero_nota_fiscal,
             fonte = excluded.fonte,
             atualizado_em = excluded.atualizado_em
-          WHERE excluded.data_compra >= digifarma_ultimas_compras_cache.data_compra
+          WHERE digifarma_ultimas_compras_cache.fonte != 'NOTA_FISCAL'
+             OR excluded.data_compra >= digifarma_ultimas_compras_cache.data_compra
              OR digifarma_ultimas_compras_cache.data_compra IS NULL
         `);
 
@@ -3072,13 +3146,7 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
             const emb = Math.max(1, parseInt(item.ITEM_NOTAS_EMBALAGEM, 10) || 1);
             const ultFrac = parseFloat(item.ITEM_NOTAS_ULT_COMPRA) || 0;
 
-            let precoUnitario = prCompra;
-            if (emb > 1) {
-              precoUnitario = prCompra / emb;
-            } else if (ultFrac > 0 && ultFrac < prCompra) {
-              precoUnitario = ultFrac;
-            }
-            precoUnitario = Math.round(precoUnitario * 100) / 100;
+            const precoUnitario = calcularPrecoUnitarioReal(prCompra, emb, ultFrac);
             if (precoUnitario <= 0) continue;
 
             const embDetalhe = emb > 1

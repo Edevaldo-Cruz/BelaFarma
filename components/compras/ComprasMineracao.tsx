@@ -53,9 +53,14 @@ interface ComprasMineracaoProps {
 const formatarData = (val?: string | null): string => {
   if (!val) return '';
   try {
-    const s = String(val).includes('T') ? String(val) : String(val).replace(' ', 'T');
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? String(val).split(' ')[0] : d.toLocaleDateString('pt-BR');
+    const s = String(val).trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+    const brMatch = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (brMatch) return `${brMatch[1]}/${brMatch[2]}/${brMatch[3]}`;
+    const isoDateMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoDateMatch) return `${isoDateMatch[3]}/${isoDateMatch[2]}/${isoDateMatch[1]}`;
+    const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+    return isNaN(d.getTime()) ? s.split(' ')[0] : d.toLocaleDateString('pt-BR');
   } catch {
     return String(val);
   }
@@ -76,6 +81,14 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   const [abaAtiva, setAbaAtiva] = useState<'RELEVANTES' | 'DESCONTO' | 'RUPTURA' | 'TODOS'>('RELEVANTES');
   const [sincronizandoCompras, setSincronizandoCompras] = useState(false);
   const [auditoriaAbertaId, setAuditoriaAbertaId] = useState<string | null>(null);
+
+  // Fecha o card de auditoria ao tocar/clicar fora (UX refinada mobile/desktop)
+  useEffect(() => {
+    if (!auditoriaAbertaId) return;
+    const fecharAoClicarFora = () => setAuditoriaAbertaId(null);
+    window.addEventListener('click', fecharAoClicarFora);
+    return () => window.removeEventListener('click', fecharAoClicarFora);
+  }, [auditoriaAbertaId]);
 
   // Modal de Detalhes da Oferta
   const [selectedOferta, setSelectedOferta] = useState<OportunidadeMinerada | null>(null);
@@ -965,13 +978,17 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                   </div>
                                 )}
 
-                                {((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra) && (
-                                  <div className="pt-1.5 border-t border-slate-800 text-[11px] text-slate-300">
-                                    📦 {((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra).startsWith('Embalagem:')
-                                      ? ((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra)
-                                      : `Embalagem: ${(op as any).embalagemUltCompra || (op as any).embalagem_ult_compra}`}
-                                  </div>
-                                )}
+                                {((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra) && (() => {
+                                  const rawEmb = String((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra);
+                                  const embText = rawEmb.startsWith('Embalagem:') ? rawEmb : `Embalagem: ${rawEmb}`;
+                                  const pTot = (op as any).precoTotalNota || (op as any).preco_total_nota;
+                                  const needTotal = pTot && precoUlt && Math.abs(pTot - precoUlt) > 0.01 && !embText.includes('total)') && !embText.includes('R$');
+                                  return (
+                                    <div className="pt-1.5 border-t border-slate-800 text-[11px] text-slate-300">
+                                      📦 {embText}{needTotal ? ` (R$ ${Number(pTot).toFixed(2)} total)` : ''}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -1146,14 +1163,20 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                       📄 NF: <strong className="text-slate-800 dark:text-slate-100">{selectedOferta.notaFiscalUltCompra || (selectedOferta as any).nota_fiscal_ult_compra}</strong>
                     </div>
                   )}
-                  {(selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra) && (
-                    <div>
-                      📦 Embalagem: <strong className="text-slate-800 dark:text-slate-100">{selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra}</strong>
-                      {selectedOferta.precoTotalNota ? (
-                        <span className="text-slate-500 dark:text-slate-400 font-semibold"> (R$ {selectedOferta.precoTotalNota.toFixed(2)} total)</span>
-                      ) : null}
-                    </div>
-                  )}
+                  {(selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra) && (() => {
+                    const rawEmb = String(selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra);
+                    const pTot = selectedOferta.precoTotalNota || (selectedOferta as any).preco_total_nota;
+                    const pUlt = selectedOferta.precoUltCompraDigifarma || (selectedOferta as any).preco_ult_compra_digifarma;
+                    const needTotal = pTot && pUlt && Math.abs(pTot - pUlt) > 0.01 && !rawEmb.includes('total)') && !rawEmb.includes('R$');
+                    return (
+                      <div>
+                        📦 Embalagem: <strong className="text-slate-800 dark:text-slate-100">{rawEmb}</strong>
+                        {needTotal ? (
+                          <span className="text-slate-500 dark:text-slate-400 font-semibold"> (R$ {Number(pTot).toFixed(2)} total)</span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
