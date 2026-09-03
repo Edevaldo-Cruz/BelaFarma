@@ -173,18 +173,23 @@ async function connect(db) {
           }
         }, 2000);
 
-        // Iniciar ciclo de varredura periódica em background a cada 10 minutos
+        // Iniciar ciclo de varredura periódica em background a cada 5 minutos (Segunda a Sábado)
         if (!global.comprasAutoMinerInterval) {
           global.comprasAutoMinerInterval = setInterval(async () => {
             try {
+              // Domingo o bot não precisa trabalhar
+              if (new Date().getDay() === 0) {
+                return;
+              }
+
               if (savedDb) {
                 const comprasMineracaoService = require('./services/compras-mineracao.service');
-                await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 14 });
+                await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 1 });
               }
             } catch (cronErr) {
-              console.warn('[Baileys-Compras] Aviso no ciclo periódico de mineração:', cronErr.message);
+              console.warn('[Baileys-Compras] Aviso no ciclo periódico de mineração (5m):', cronErr.message);
             }
-          }, 10 * 60 * 1000);
+          }, 5 * 60 * 1000);
         }
       }
 
@@ -246,6 +251,9 @@ async function connect(db) {
     sock.ev.on('messages.upsert', async (m) => {
       try {
         if (m.type !== 'notify') return;
+        // Domingo o bot de compras não precisa trabalhar
+        if (new Date().getDay() === 0) return;
+
         const msg = m.messages?.[0];
         if (!msg || !msg.message) return;
 

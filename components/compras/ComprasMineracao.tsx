@@ -24,8 +24,22 @@ import {
   Briefcase,
   ChevronDown,
   ChevronUp,
-  Send
+  Send,
+  LineChart as LineChartIcon,
+  BarChart3,
+  Calendar
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip as RechartsTooltip,
+  Legend,
+  CartesianGrid,
+  ReferenceLine
+} from 'recharts';
 import { OportunidadeMinerada, User } from '../../types';
 import { useToast } from '../ToastContext';
 
@@ -138,9 +152,38 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
     }
   };
 
+  // Filtro de Exibição do Dia vs Histórico
+  const [apenasHoje, setApenasHoje] = useState(true);
+
+  // Modal de Gráfico de Variação de Preço
+  const [modalGraficoProduto, setModalGraficoProduto] = useState<string | null>(null);
+  const [dadosGrafico, setDadosGrafico] = useState<any | null>(null);
+  const [loadingGrafico, setLoadingGrafico] = useState(false);
+
+  const handleAbrirGraficoVariacao = async (produtoNome: string, ean?: string) => {
+    setModalGraficoProduto(produtoNome);
+    setDadosGrafico(null);
+    setLoadingGrafico(true);
+    try {
+      const q = new URLSearchParams({ produto: produtoNome });
+      if (ean) q.append('ean', ean);
+      const res = await fetch(`/api/central-compras/mineracao/variacao-precos?${q.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setDadosGrafico(data.data);
+        }
+      }
+    } catch(err: any) {
+      addToast('Erro ao carregar gráfico de variação: ' + err.message, 'error');
+    } finally {
+      setLoadingGrafico(false);
+    }
+  };
+
   const carregarOportunidades = async () => {
     try {
-      const res = await fetch('/api/central-compras/oportunidades?limite=100');
+      const res = await fetch(`/api/central-compras/oportunidades?limite=100&apenas_hoje=${apenasHoje}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
@@ -163,7 +206,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
       carregarRelatoriosHoracio();
     }, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [apenasHoje]);
 
   const dispararVarredura = async (diasParam?: number) => {
     const dias = diasParam !== undefined ? diasParam : diasVarredura;
@@ -580,6 +623,21 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
           />
         </div>
 
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setApenasHoje(!apenasHoje)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+              apenasHoje
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-sm'
+                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+            }`}
+            title={apenasHoje ? 'Exibindo apenas ofertas recebidas hoje. Clique para ver histórico.' : 'Exibindo todo o histórico. Clique para filtrar apenas hoje.'}
+          >
+            <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>{apenasHoje ? '📅 Apenas Hoje' : '🌐 Todo o Histórico'}</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 overflow-x-auto">
           {[
             { id: 'RELEVANTES', label: '🎯 Mais Relevantes', badge: oportunidades.filter(o => (o.economiaPercentual || 0) > 0 || o.emRuptura).length },
@@ -814,6 +872,14 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                           )}
 
                           <button
+                            onClick={() => handleAbrirGraficoVariacao(op.produtoNome, op.ean)}
+                            className="p-2 rounded-xl text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-all cursor-pointer"
+                            title="Ver gráfico de variação de preços por fornecedor"
+                          >
+                            <LineChartIcon className="w-4 h-4" />
+                          </button>
+
+                          <button
                             onClick={() => setSelectedOferta(op)}
                             className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
                             title="Ver mensagem original do WhatsApp"
@@ -891,6 +957,138 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             <div className="flex items-center justify-end">
               <button
                 onClick={() => setSelectedOferta(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Gráfico de Variação de Preço por Fornecedor */}
+      {modalGraficoProduto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-4xl p-6 rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-2xl">
+                  <LineChartIcon className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                    Variação de Preço por Fornecedor
+                  </h3>
+                  <p className="text-xs font-bold text-slate-400">
+                    {modalGraficoProduto}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setModalGraficoProduto(null)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {loadingGrafico ? (
+              <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
+                <span>Carregando histórico e cotações de fornecedores...</span>
+              </div>
+            ) : dadosGrafico ? (
+              <div className="space-y-4">
+                {/* Cards de Resumo */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Última Compra (Digifarma)</span>
+                    <span className="text-lg font-black text-slate-900 dark:text-slate-100 block mt-0.5">
+                      {dadosGrafico.precoReferencia ? `R$ ${dadosGrafico.precoReferencia.toFixed(2)}` : 'Sem Histórico'}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900">
+                    <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 block">Menor Preço Ofertado</span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-lg font-black text-emerald-700 dark:text-emerald-300">
+                        {dadosGrafico.menorPreco ? `R$ ${dadosGrafico.menorPreco.preco.toFixed(2)}` : '—'}
+                      </span>
+                      {dadosGrafico.menorPreco && (
+                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 truncate">
+                          • {dadosGrafico.menorPreco.fornecedor}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
+                    <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 block">Fornecedores Mapeados</span>
+                    <span className="text-lg font-black text-blue-700 dark:text-blue-300 block mt-0.5">
+                      {dadosGrafico.fornecedores?.length || 0} distribuidores ({dadosGrafico.totalOfertas || 0} cotações)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Gráfico Recharts */}
+                {dadosGrafico.pontos && dadosGrafico.pontos.length > 0 ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={dadosGrafico.pontos} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
+                          <XAxis dataKey="data" stroke="#64748b" fontSize={11} />
+                          <YAxis stroke="#64748b" fontSize={11} domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v) => `R$ ${v.toFixed(2)}`} />
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const pt = payload[0].payload;
+                                return (
+                                  <div className="p-3 rounded-xl bg-slate-900 text-white border border-slate-700 shadow-xl text-xs space-y-1">
+                                    <p className="font-bold text-slate-300">{pt.dataHora ? new Date(pt.dataHora).toLocaleString('pt-BR') : pt.data}</p>
+                                    <p className="font-extrabold text-emerald-400 text-sm">R$ {pt.preco?.toFixed(2)}</p>
+                                    <p className="text-slate-300">🏢 {pt.fornecedor}</p>
+                                    {pt.representante && <p className="text-slate-400 text-[10px]">👤 {pt.representante}</p>}
+                                    {pt.tipo === 'compra_real' && <p className="text-blue-300 text-[10px] font-bold">🛒 Compra Real Digifarma</p>}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          {dadosGrafico.precoReferencia && (
+                            <ReferenceLine
+                              y={dadosGrafico.precoReferencia}
+                              stroke="#ef4444"
+                              strokeDasharray="4 4"
+                              label={{ value: `Ref: R$ ${dadosGrafico.precoReferencia.toFixed(2)}`, fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }}
+                            />
+                          )}
+                          <Line
+                            type="monotone"
+                            dataKey="preco"
+                            name="Preço Ofertado (R$)"
+                            stroke="#10b981"
+                            strokeWidth={3}
+                            dot={{ r: 5, fill: '#10b981', strokeWidth: 2, stroke: '#ffffff' }}
+                            activeDot={{ r: 7 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-center text-xs text-slate-400">
+                    Ainda não há ofertas suficientes mineradas para este produto. Conforme os representantes enviarem encartes, o histórico de variação aparecerá aqui.
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-end">
+              <button
+                onClick={() => setModalGraficoProduto(null)}
                 className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider cursor-pointer"
               >
                 Fechar

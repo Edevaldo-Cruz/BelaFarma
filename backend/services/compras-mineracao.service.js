@@ -1712,6 +1712,11 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     sql += ` AND percentual_desconto > 0`;
   }
 
+  // Por padrão, exibe apenas ofertas capturadas no dia corrente
+  if (filtros.apenasHoje !== false) {
+    sql += ` AND (DATE(data_oferta, 'localtime') = DATE('now', 'localtime') OR DATE(created_at, 'localtime') = DATE('now', 'localtime'))`;
+  }
+
   if (filtros.busca) {
     sql += ` AND (produto_nome LIKE ? OR distribuidora LIKE ? OR representante LIKE ?)`;
     const b = `%${filtros.busca}%`;
@@ -2072,7 +2077,10 @@ function limparOportunidadesServidor(db, options = {}) {
 
   if (options.tudo) {
     const info = dbInst.prepare('DELETE FROM compras_oportunidades_mineradas').run();
-    return { success: true, deletados: info.changes, message: 'Todas as oportunidades do radar foram limpas com sucesso.' };
+    try {
+      dbInst.prepare('DELETE FROM compras_horacio_relatorios').run();
+    } catch(e) {}
+    return { success: true, deletados: info.changes, message: 'Todas as oportunidades do radar e relatórios foram limpos com sucesso.' };
   }
 
   const rows = dbInst.prepare('SELECT id, produto_nome, preco_ofertado, preco_ult_compra_digifarma FROM compras_oportunidades_mineradas').all();
@@ -2101,6 +2109,118 @@ function limparOportunidadesServidor(db, options = {}) {
   return { success: true, deletados, corrigidos, message: `Limpeza concluída: ${deletados} inválidos excluídos e ${corrigidos} corrigidos.` };
 }
 
+/**
+ * Retorna a evolução/variação de preços de um produto ao longo do tempo por fornecedor.
+ * Inclui ofertas do WhatsApp e histórico de compras reais no Digifarma.
+ */
+function obterVariacaoPrecosProduto(termo, ean = null, db = null) {
+  const dbInst = getDb(db);
+  if (!dbInst || (!termo && !ean)) {
+    return { produto: '', pontos: [], fornecedores: [] };
+  }
+
+  const termoLimpo = (termo || '').trim();
+  const termos = extrairTermosBuscaProduto(termoLimpo);
+  const palavraChave = termos.palavras[0] || termoLimpo;
+
+  // 1. Busca ofertas mineradas no SQLite
+  let sqlOfertas = `
+    SELECT id, produto_nome, ean, distribuidora, representante, preco_ofertado,
+           preco_ult_compra_digifarma, percentual_desconto, data_oferta, created_at
+    FROM compras_oportunidades_mineradas
+    WHERE (produto_nome LIKE ? OR (? != '' AND ean = ?))
+    ORDER BY created_at ASC
+  `;
+  const ofertasRows = dbInst.prepare(sqlOfertas).all(`%${palavraChave}%`, ean || '', ean || '');
+
+  const pontos = [];
+  const fornecedoresSet = new Set();
+  let precoReferencia = null;
+
+  for (const ofr of ofertasRows) {
+    const dataHora = ofr.data_oferta || ofr.created_at;
+    const dataFormatada = dataHora ? new Date(dataHora).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : 'Hoje';
+    const forn = ofr.distribuidora || 'Distribuidora';
+    fornecedoresSet.add(forn);
+
+    if (ofr.preco_ult_compra_digifarma && !precoReferencia) {
+      precoReferencia = ofr.preco_ult_compra_digifarma;
+    }
+
+    pontos.push({
+      id: ofr.id,
+      dataHora,
+      data: dataFormatada,
+      fornecedor: forn,
+      representante: ofr.representante,
+      preco: ofr.preco_ofertado,
+      desconto: ofr.percentual_desconto || 0,
+      tipo: 'oferta'
+    });
+  }
+
+  // 2. Busca histórico de compras reais da Lista de Faltas (shortages.history)
+  try {
+    const shortageRow = dbInst.prepare(`
+      SELECT valorUltimaCompra, history
+      FROM shortages
+      WHERE productName LIKE ?
+      ORDER BY id DESC LIMIT 1
+    `).get(`%${palavraChave}%`);
+
+    if (shortageRow) {
+      if (shortageRow.valorUltimaCompra && !precoReferencia) {
+        precoReferencia = shortageRow.valorUltimaCompra;
+      }
+      if (shortageRow.history) {
+        const histArr = JSON.parse(shortageRow.history);
+        if (Array.isArray(histArr)) {
+          for (const h of histArr) {
+            if (h.precoCompra && Number(h.precoCompra) > 0) {
+              const dStr = h.dataCompra || new Date().toISOString();
+              const fornHist = (h.fornecedor || 'Última Compra Digifarma').trim();
+              fornecedoresSet.add(fornHist);
+              pontos.push({
+                dataHora: dStr,
+                data: new Date(dStr).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                fornecedor: fornHist,
+                representante: h.notaFiscal ? `NF ${h.notaFiscal}` : '',
+                preco: parseFloat(h.precoCompra),
+                desconto: 0,
+                tipo: 'compra_real'
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  // Ordena os pontos cronologicamente
+  pontos.sort((a, b) => new Date(a.dataHora).getTime() - new Date(b.dataHora).getTime());
+
+  // Calcula menor e maior preço ofertado
+  const ofertasApenas = pontos.filter(p => p.tipo === 'oferta');
+  let menorPreco = null;
+  let maiorPreco = null;
+
+  if (ofertasApenas.length > 0) {
+    menorPreco = ofertasApenas.reduce((min, p) => p.preco < min.preco ? p : min, ofertasApenas[0]);
+    maiorPreco = ofertasApenas.reduce((max, p) => p.preco > max.preco ? p : max, ofertasApenas[0]);
+  }
+
+  return {
+    produto: termoLimpo,
+    ean: ean || '',
+    precoReferencia,
+    menorPreco,
+    maiorPreco,
+    totalOfertas: pontos.length,
+    fornecedores: Array.from(fornecedoresSet),
+    pontos
+  };
+}
+
 module.exports = {
   minerarTextoLivre,
   extrairPrazos,
@@ -2120,6 +2240,7 @@ module.exports = {
   obterCatalogoFornecedor,
   atualizarFornecedorMeta,
   limparOportunidadesServidor,
+  obterVariacaoPrecosProduto,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO

@@ -292,26 +292,47 @@ module.exports = (db) => {
     }
   });
 
+  /**
+   * GET /api/central-compras/mineracao/variacao-precos
+   * Retorna série temporal de variação de preços do produto por fornecedor
+   */
+  router.get('/mineracao/variacao-precos', async (req, res) => {
+    try {
+      const { produto, ean } = req.query;
+      if (!produto && !ean) {
+        return res.status(400).json({ success: false, error: 'Parâmetro produto ou ean é obrigatório' });
+      }
+      const resultado = comprasMineracaoService.obterVariacaoPrecosProduto(produto, ean, db);
+      res.json({ success: true, data: resultado });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /mineracao/variacao-precos:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades', async (req, res) => {
     try {
-      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
+      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto, apenas_hoje } = req.query;
+      const apenasHojeBool = apenas_hoje === undefined ? true : (apenas_hoje === 'true' || apenas_hoje === '1');
       let oportunidades = comprasMineracaoService.listarOportunidades(db, {
         status: status || null,
         fornecedorId: fornecedor_id || null,
         busca: busca || null,
         apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+        apenasHoje: apenasHojeBool,
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
 
-      // Se ainda não houver oportunidades geradas, executa a varredura automática inicial
+      // Se ainda não houver oportunidades geradas hoje, executa a varredura automática inicial
       if (oportunidades.length === 0 && !busca && !fornecedor_id) {
-        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 14 });
+        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 1 });
         oportunidades = comprasMineracaoService.listarOportunidades(db, {
           status: status || null,
           fornecedorId: fornecedor_id || null,
           busca: busca || null,
           apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+          apenasHoje: apenasHojeBool,
           limite: limite ? parseInt(limite, 10) : 50,
           offset: offset ? parseInt(offset, 10) : 0
         });
