@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4fe585b",
-  "commitMessage": "fix(compras): preservar guia do fornecedor selecionado no painel do Agente Horacio evitando reset automatico",
-  "buildTime": "03/09/2026, 15:27:56"
+  "commitHash": "7c5d31a",
+  "commitMessage": "fix(compras): tornar produtos do Horacio clicaveis com abertura em overlay modal e busca segura por produtoNome",
+  "buildTime": "03/09/2026, 15:45:43"
 }
