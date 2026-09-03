@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "7c46bba",
-  "commitMessage": "feat(compras): permitir edicao de representante, empresa, prazos de pagamento e pedido minimo no chat",
-  "buildTime": "03/09/2026, 17:21:44"
+  "commitHash": "ba20211",
+  "commitMessage": "feat(card-machines): exibir datas previstas de repasse e vendas no modal de conferência",
+  "buildTime": "03/09/2026, 17:34:55"
 }
