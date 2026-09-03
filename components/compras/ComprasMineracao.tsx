@@ -473,6 +473,14 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                 -R$ {econValor.toFixed(2)}/un
                               </span>
                             )}
+                            {(op.ultimoFornecedor || (op as any).ultimo_fornecedor) && (
+                              <span 
+                                className="text-[10px] text-slate-400 dark:text-slate-500 block truncate max-w-[140px]" 
+                                title={`${op.ultimoFornecedor || (op as any).ultimo_fornecedor}${(op.dataUltCompra || (op as any).data_ult_compra) ? ' em ' + new Date(op.dataUltCompra || (op as any).data_ult_compra).toLocaleDateString('pt-BR') : ''}`}
+                              >
+                                🏢 {op.ultimoFornecedor || (op as any).ultimo_fornecedor}
+                              </span>
+                            )}
                           </>
                         ) : (
                           <span className="text-xs font-medium text-slate-400">Sem Histórico</span>
@@ -611,6 +619,23 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap font-mono leading-relaxed max-h-60 overflow-y-auto">
               {selectedOferta.textoOriginal || 'Texto completo não gravado no histórico.'}
             </div>
+
+            {selectedOferta.precoUltCompraDigifarma && (
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="font-bold text-blue-900 dark:text-blue-200">Referência Digifarma: </span>
+                  <span className="font-extrabold text-blue-700 dark:text-blue-300">R$ {selectedOferta.precoUltCompraDigifarma.toFixed(2)}</span>
+                </div>
+                {(selectedOferta.ultimoFornecedor || (selectedOferta as any).ultimo_fornecedor) && (
+                  <div className="text-slate-600 dark:text-slate-300 text-[11px] font-medium">
+                    🏢 Fornecedor: <strong>{selectedOferta.ultimoFornecedor || (selectedOferta as any).ultimo_fornecedor}</strong>
+                    {(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra) && (
+                      <span> • {new Date(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra).toLocaleDateString('pt-BR')}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center justify-end">
               <button

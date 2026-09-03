@@ -952,6 +952,9 @@ export interface OportunidadeMinerada {
   bonificacaoTexto?: string;
   precoLiquidoEfetivo: number;
   precoUltCompraDigifarma?: number | null;
+  ultimoFornecedor?: string | null;
+  dataUltCompra?: string | null;
+  notaFiscalUltCompra?: string | null;
   economiaPercentual?: number | null;
   status: 'Aprovado_Radar' | 'Descartado_Preco_Maior' | 'Oportunidade_Sem_Historico' | string;
   dataMensagem?: string;

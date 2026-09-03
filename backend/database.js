@@ -1954,6 +1954,10 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_com_ean ON compras_oportunidades_mineradas(ean)');
     } catch(e) {}
 
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN ultimo_fornecedor TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN data_ult_compra TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN nota_fiscal_ult_compra TEXT'); } catch(e) {}
+
     // 4. Sessões de Cotações Inteligentes
     db.exec(`
       CREATE TABLE IF NOT EXISTS compras_cotacoes (

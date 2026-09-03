@@ -786,6 +786,9 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
   }
 
   let precoUltCompra = null;
+  let ultimoFornecedor = null;
+  let dataUltCompra = null;
+  let notaFiscalUltCompra = null;
   let produtoId = null;
   let descricaoEncontrada = produtoNome;
   let estoqueAtual = 0;
@@ -834,8 +837,45 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
           descricaoEncontrada = melhorItem.PRODUTO;
           estoqueAtual = parseFloat(melhorItem.PROD_SALDO) || 0;
           estMinimo = parseFloat(melhorItem.PROD_ESTMINIMO) || 0;
-          precoUltCompra = parseFloat(melhorItem.VALOR_ULT_COMPRA || melhorItem.PROD_PRCOMPRA) || null;
           emRuptura = estoqueAtual <= 0 || (estMinimo > 0 && estoqueAtual < estMinimo);
+
+          // Princípio da Lista de Faltas (Prioridade 1):
+          // Consulta as notas fiscais de entrada (ITEM_NOTAS + CAB_NOTAS + FORNECEDORES)
+          let precoNota = null;
+          try {
+            const notaRows = await queryDigifarma(`
+              SELECT FIRST 1
+                I.ITEM_NOTAS_PRCOMPRA as PRECO_COMPRA,
+                C.DATA_EMISSAO as DATA_COMPRA,
+                F.FORNECEDOR as FORNECEDOR,
+                C.NOTA_FISCAL as NOTA_FISCAL
+              FROM ITEM_NOTAS I
+              JOIN CAB_NOTAS C ON I.CAB_NOTA_ID = C.CAB_NOTA_ID
+              LEFT JOIN FORNECEDORES F ON C.FORNECEDOR_ID = F.FORNECEDOR_ID
+              WHERE I.PRODUTO_ID = ? AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
+              ORDER BY C.DATA_EMISSAO DESC
+            `, [produtoId], 2000);
+
+            if (notaRows && notaRows.length > 0) {
+              precoNota = parseFloat(notaRows[0].PRECO_COMPRA) || null;
+              ultimoFornecedor = notaRows[0].FORNECEDOR ? String(notaRows[0].FORNECEDOR).trim() : null;
+              dataUltCompra = notaRows[0].DATA_COMPRA ? new Date(notaRows[0].DATA_COMPRA).toISOString() : null;
+              notaFiscalUltCompra = notaRows[0].NOTA_FISCAL ? String(notaRows[0].NOTA_FISCAL).trim() : null;
+            }
+          } catch (eNota) {}
+
+          // Prioridade 2: Cadastro do Produto (VALOR_ULT_COMPRA compatível ou precoNota / PROD_PRCOMPRA)
+          const pUlt = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
+          const pCusto = parseFloat(melhorItem.PROD_PRCOMPRA) || 0;
+          const isHospitalarIncompativel = (pUlt > 50 && termos.unidades <= 4 && (pCusto < 20 || (precoNota && precoNota < 20)));
+
+          if (pUlt > 0 && !isHospitalarIncompativel) {
+            precoUltCompra = pUlt;
+          } else if (precoNota && precoNota > 0) {
+            precoUltCompra = precoNota;
+          } else if (pCusto > 0) {
+            precoUltCompra = pCusto;
+          }
         }
       }
     } catch (err) {
@@ -872,6 +912,8 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
                 ean: item.ean,
                 saldo: item.saldo,
                 est_minimo: item.est_minimo_calculado || item.est_minimo_digifarma,
+                ultima_compra_valor: item.ultima_compra_valor,
+                custo_unitario: item.custo_unitario,
                 preco: item.ultima_compra_valor || item.custo_unitario
               };
             }
@@ -891,6 +933,8 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
                 ean: item.codigo_barras,
                 saldo: item.estoque_atual || 0,
                 est_minimo: 0,
+                ultima_compra_valor: null,
+                custo_unitario: item.preco_custo,
                 preco: item.preco_custo
               };
             }
@@ -903,8 +947,46 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
         descricaoEncontrada = melhorCache.descricao;
         estoqueAtual = melhorCache.saldo || 0;
         estMinimo = melhorCache.est_minimo || 0;
-        precoUltCompra = parseFloat(melhorCache.preco) || null;
         emRuptura = estoqueAtual <= 0 || (estMinimo > 0 && estoqueAtual < estMinimo);
+
+        // Prioridade 1 no Cache: Verifica se há nota salva no histórico da Lista de Faltas (shortages.history)
+        let precoNotaCache = null;
+        try {
+          const shortageItem = db.prepare(`
+            SELECT history, valorUltimaCompra
+            FROM shortages
+            WHERE productName = ? OR productName LIKE ?
+            ORDER BY id DESC LIMIT 1
+          `).get(descricaoEncontrada, '%' + termoPrincipal + '%');
+
+          if (shortageItem && shortageItem.history) {
+            const hArr = JSON.parse(shortageItem.history);
+            if (Array.isArray(hArr) && hArr.length > 0) {
+              const latestH = hArr[0];
+              if (latestH.precoCompra && Number(latestH.precoCompra) > 0) {
+                precoNotaCache = parseFloat(latestH.precoCompra);
+                ultimoFornecedor = latestH.fornecedor || null;
+                dataUltCompra = latestH.dataCompra || null;
+                notaFiscalUltCompra = latestH.notaFiscal ? String(latestH.notaFiscal) : null;
+              }
+            }
+          }
+        } catch (eHist) {}
+
+        // Prioridade 2 no Cache: VALOR_ULT_COMPRA compatível ou precoNota / custo_unitario
+        const pUltCache = parseFloat(melhorCache.ultima_compra_valor) || 0;
+        const pCustCache = parseFloat(melhorCache.custo_unitario || melhorCache.preco_custo) || 0;
+        const isHospCache = (pUltCache > 50 && termos.unidades <= 4 && (pCustCache < 20 || (precoNotaCache && precoNotaCache < 20)));
+
+        if (pUltCache > 0 && !isHospCache) {
+          precoUltCompra = pUltCache;
+        } else if (precoNotaCache && precoNotaCache > 0) {
+          precoUltCompra = precoNotaCache;
+        } else if (pCustCache > 0) {
+          precoUltCompra = pCustCache;
+        } else {
+          precoUltCompra = parseFloat(melhorCache.preco) || null;
+        }
       }
     } catch (e) {
       // Ignora erro de cache
@@ -923,6 +1005,9 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
         // Se o produto específico nunca foi comprado, usa o menor preço histórico dos equivalentes
         if (!precoUltCompra || precoUltCompra <= 0) {
           precoUltCompra = gEquiv.menorUltimaCompra || gEquiv.mediaUltimaCompra || null;
+          if (!ultimoFornecedor) {
+            ultimoFornecedor = `Ref. Equivalente (${gEquiv.nomeGrupo})`;
+          }
         }
       }
     } catch (e) {}
@@ -945,6 +1030,9 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     produtoId,
     descricaoDigifarma: descricaoEncontrada,
     precoUltCompra: precoUltCompra ? Number(precoUltCompra.toFixed(2)) : null,
+    ultimoFornecedor,
+    dataUltCompra,
+    notaFiscalUltCompra,
     precoOfertado: Number(precoOfertado.toFixed(2)),
     percentualDesconto: Number(percentualDesconto.toFixed(2)),
     percentualEconomia: Number(percentualDesconto.toFixed(2)),
@@ -1144,8 +1232,9 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
           id, fornecedor_id, distribuidora, representante, telefone,
           mensagem_id, mensagem_raw, produto_nome, ean,
           preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
-          condicoes_pagamento, status, data_oferta, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          condicoes_pagamento, status, data_oferta, created_at,
+          ultimo_fornecedor, data_ult_compra, nota_fiscal_ult_compra
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         ofertaId,
         fornecedorSalvo ? fornecedorSalvo.id : null,
@@ -1162,16 +1251,22 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         extracao.prazosPagamento.length > 0 ? extracao.prazosPagamento.join('/') : 'À vista',
         statusOferta,
         now,
-        now
+        now,
+        validacao.ultimoFornecedor || null,
+        validacao.dataUltCompra || null,
+        validacao.notaFiscalUltCompra || null
       );
 
       ofertasProcessadas.push({
         id: ofertaId,
         produtoNome: ofr.produtoNome,
         precoOfertado: ofr.precoOfertado,
-        precoUltimaCompra: validacao.precoUltimaCompra,
+        precoUltimaCompra: validacao.precoUltCompra,
         percentualEconomia: validacao.percentualEconomia,
         vantajosa: validacao.vantajosa,
+        ultimoFornecedor: validacao.ultimoFornecedor,
+        dataUltCompra: validacao.dataUltCompra,
+        notaFiscalUltCompra: validacao.notaFiscalUltCompra,
         status: statusOferta
       });
     } catch (dbErr) {
@@ -1776,6 +1871,9 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       preco_ofertado: precoOfertado,
       precoUltCompraDigifarma: precoUltCompra,
       preco_ult_compra_digifarma: precoUltCompra,
+      ultimoFornecedor: r.ultimo_fornecedor || null,
+      dataUltCompra: r.data_ult_compra || null,
+      notaFiscalUltCompra: r.nota_fiscal_ult_compra || null,
       precoLiquidoEfetivo: precoOfertado,
       descontoPercentual,
       economiaPercentual: descontoPercentual,

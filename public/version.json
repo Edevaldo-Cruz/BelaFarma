@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f29f416",
-  "commitMessage": "fix(compras): corrigir preco de referencia e implementar produtos equivalentes com estoque consolidado",
-  "buildTime": "03/09/2026, 11:25:05"
+  "commitHash": "c81134b",
+  "commitMessage": "fix(compras): rejeitar C30/embalagens puras, forçar limpeza de radar e corrigir precificação",
+  "buildTime": "03/09/2026, 13:00:41"
 }
