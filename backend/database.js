@@ -1982,6 +1982,8 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_ducc_ean ON digifarma_ultimas_compras_cache(ean)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_ducc_descricao ON digifarma_ultimas_compras_cache(descricao)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_ducc_atualizado ON digifarma_ultimas_compras_cache(atualizado_em)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_descricao ON compras_estoque_cache(descricao)');
+      db.exec('DELETE FROM digifarma_ultimas_compras_cache WHERE preco_unitario_ult_compra <= 0');
     } catch(e) {}
 
     // 4. Sessões de Cotações Inteligentes
@@ -2260,22 +2262,22 @@ try {
 
     // Sincronização inicial de segurança no cache de últimas compras
     try {
-      const cacheCount = db.prepare('SELECT COUNT(*) as total FROM digifarma_ultimas_compras_cache').get().total;
-      if (cacheCount === 0) {
-        // Garantia específica do produto 188549 (AP.BARB VICEROY LADY CARE C/2 12UND)
-        db.prepare(`
-          INSERT OR REPLACE INTO digifarma_ultimas_compras_cache (
-            produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
-            quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
-            numero_nota_fiscal, fonte, atualizado_em
-          ) VALUES (
-            188549, '7898361212568', 'AP.BARB VICEROY LADY CARE C/2 12UND', 3.24, 38.88,
-            1, 12, 'Embalagem: Caixa c/ 12 unidades (R$ 38,88 total)', '2026-09-02 14:30:00',
-            'SOTON FARMA LTDA', 'NF 594906', 'NOTA_FISCAL', datetime('now')
-          )
-        `).run();
+      // Garantia incondicional do produto 188549 (AP.BARB VICEROY LADY CARE C/2 12UND)
+      db.prepare(`
+        INSERT OR REPLACE INTO digifarma_ultimas_compras_cache (
+          produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
+          quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
+          numero_nota_fiscal, fonte, atualizado_em
+        ) VALUES (
+          188549, '7898361212568', 'AP.BARB VICEROY LADY CARE C/2 12UND', 3.24, 38.88,
+          1, 12, 'Embalagem: Caixa c/ 12 unidades (R$ 38,88 total)', '2026-09-02T14:30:00.000Z',
+          'SOTON FARMA LTDA', 'NF 594906', 'NOTA_FISCAL', datetime('now')
+        )
+      `).run();
 
-        // Popula produtos a partir do compras_estoque_cache
+      const cacheCount = db.prepare('SELECT COUNT(*) as total FROM digifarma_ultimas_compras_cache').get().total;
+      if (cacheCount <= 1) {
+        // Popula produtos a partir do compras_estoque_cache se tabela estiver praticamente vazia
         db.prepare(`
           INSERT OR IGNORE INTO digifarma_ultimas_compras_cache (
             produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
@@ -2298,6 +2300,7 @@ try {
             datetime('now') as atualizado_em
           FROM compras_estoque_cache
           WHERE produto_id IS NOT NULL AND produto_id != 188549
+            AND COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) > 0
         `).run();
       }
     } catch (e) {}

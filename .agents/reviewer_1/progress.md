@@ -1,0 +1,21 @@
+# Progresso da Revisão Adversarial - reviewer_1
+
+- [x] Leitura independente da requisição original (`ORIGINAL_REQUEST.md`)
+- [x] Criação do plano adversarial (`plan.md`)
+- [x] Execução dos testes e verificação de integridade atual
+- [x] Auditoria profunda do código: backend, banco de dados, frontend e endpoints
+- [x] Elaboração e execução de testes adversariais para casos de borda e falhas
+- [x] Correção de todos os problemas detectados:
+  - Correção da sobreposição do preço de caixa no `listarOportunidades`
+  - Correção de parameter shadowing (`pId`) em `buscarUltimaCompraProduto`
+  - Adição do fallback estrito de `PRODUTOS` quando não há NF de entrada em `buscarUltimaCompraProduto`
+  - Adição do fallback estrito no SQLite (`compras_estoque_cache`) para `buscarUltimaCompraProduto`
+  - Tratamento de preços <= 0 (impedindo 100% de desconto e aprovação indevida no radar)
+  - Prevenção de divisão por zero / embalagens negativas com `Math.max(1, ...)`
+  - Otimização com prepared statements e eliminação de full table scans em `listarOportunidades` (de ~292ms para 9ms, ganho de 30x)
+  - Limpeza de registros zerados e proteção contra downgrade de fontes no cache
+  - Função `formatarData` resiliente contra `Invalid Date` no Safari/WebKit
+- [x] Re-verificação de todos os cenários (14/14 testes passaram, suite M2 16/16 passou)
+- [x] Build do frontend (`npm run build` concluiu com sucesso)
+- [ ] Commit e Push para GitHub `origin/main`
+- [ ] Envio do relatório final via `send_message` ao parent

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "d0d361c",
-  "commitMessage": "fix(card-machines): filtrar repasses pendentes apenas da semana passada em diante",
-  "buildTime": "03/09/2026, 20:13:59"
+  "commitHash": "4da5dbd",
+  "commitMessage": "feat(compras-mineracao): correcao fiel de ultima compra com fracionamento de embalagem e cache indexado digifarma",
+  "buildTime": "03/09/2026, 20:32:57"
 }

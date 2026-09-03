@@ -50,6 +50,17 @@ interface ComprasMineracaoProps {
   onNavigateToTab?: (tab: string, preselectedItems?: any[]) => void;
 }
 
+const formatarData = (val?: string | null): string => {
+  if (!val) return '';
+  try {
+    const s = String(val).includes('T') ? String(val) : String(val).replace(' ', 'T');
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? String(val).split(' ')[0] : d.toLocaleDateString('pt-BR');
+  } catch {
+    return String(val);
+  }
+};
+
 export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   user,
   theme,
@@ -929,7 +940,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                   <div>
                                     <span className="text-slate-400 text-[10px] uppercase font-bold block">Data da Compra</span>
                                     <span className="font-bold text-slate-200">
-                                      📅 {new Date(op.dataUltCompra || (op as any).data_ult_compra).toLocaleDateString('pt-BR')}
+                                      📅 {formatarData(op.dataUltCompra || (op as any).data_ult_compra)}
                                     </span>
                                   </div>
                                 )}
@@ -1119,7 +1130,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                   </div>
                   {(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra) && (
                     <span className="text-[11px] text-blue-600 dark:text-blue-400 font-bold">
-                      📅 {new Date(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra).toLocaleDateString('pt-BR')}
+                      📅 {formatarData(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra)}
                     </span>
                   )}
                 </div>

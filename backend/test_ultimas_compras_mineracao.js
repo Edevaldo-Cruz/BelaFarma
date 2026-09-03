@@ -190,6 +190,166 @@ async function runTests() {
     db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testId);
   });
 
+  // 9. Adversarial: listarOportunidades sobrepõe preço de caixa legado (38.88) com unitário real (3.24)
+  await asyncTest('Adversarial: listarOportunidades sobrepõe preço legado de caixa (R$ 38,88) por R$ 3,24 unitário', async () => {
+    const testId = 'test-op-legacy-box-' + Date.now();
+    db.prepare(`
+      INSERT OR REPLACE INTO compras_oportunidades_mineradas (
+        id, mensagem_id, distribuidora, produto_nome, ean,
+        preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
+        status, data_oferta, created_at, ultimo_fornecedor
+      ) VALUES (?, 'msg-legacy', 'SOTON FARMA', 'AP.BARB VICEROY LADY CARE C/2 12UND',
+        '7898361212568', 2.80, 38.88, 92.8, 'Aprovado_Radar', datetime('now'), datetime('now'), 'SOTON FARMA')
+    `).run(testId);
+
+    const lista = await comprasMineracaoService.listarOportunidades(db);
+    const op = lista.find(o => o.id === testId);
+
+    assert(op, 'Oportunidade de teste com preço legado deve existir na listagem');
+    assert.strictEqual(op.precoUltCompraDigifarma, 3.24, `Esperado R$ 3,24 unitário, obteve R$ ${op.precoUltCompraDigifarma}`);
+    assert(Math.abs(op.descontoPercentual - 13.58) < 0.1, `Desconto esperado ~13.58%, obteve ${op.descontoPercentual}%`);
+    assert(op.embalagemUltCompra.includes('12'), `Embalagem esperada com 12 un, obteve ${op.embalagemUltCompra}`);
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testId);
+  });
+
+  // 10. Adversarial: buscarUltimaCompraProduto com objeto e queryDigifarma mockada
+  await asyncTest('Adversarial: buscarUltimaCompraProduto trata argumento objeto e passa ID escalar ao Firebird', async () => {
+    let capturedId = null;
+    const mockQuery = async (sql, params) => {
+      if (sql.includes('ITEM_NOTAS')) {
+        capturedId = params[0];
+        return [{
+          ITEM_NOTAS_PRCOMPRA: 48.00,
+          ITEM_NOTAS_EMBALAGEM: 12,
+          ITEM_NOTAS_ULT_COMPRA: 4.00,
+          ITEM_NOTAS_QUANT: 2,
+          DATA_EMISSAO: '2026-09-01 10:00:00',
+          NOTA_FISCAL: '778899',
+          FORNECEDOR: 'DISTRIBUIDORA TESTE MOCK'
+        }];
+      }
+      return [];
+    };
+
+    const res = await comprasMineracaoService.buscarUltimaCompraProduto({
+      produtoId: 888777,
+      ean: '7899998887776',
+      produtoNome: 'PRODUTO TESTE MOCK C/12',
+      dbInstance: db,
+      options: { queryDigifarma: mockQuery, skipFirebird: false }
+    });
+
+    assert.strictEqual(typeof capturedId, 'number', `ID capturado no mock deve ser numérico escalar, obteve ${typeof capturedId}`);
+    assert.strictEqual(capturedId, 888777, `ID esperado 888777, obteve ${capturedId}`);
+    assert(res, 'Resultado do mock não pode ser nulo');
+    assert.strictEqual(res.precoUnitario, 4.00, `Preço unitário esperado 4.00, obteve ${res.precoUnitario}`);
+    assert.strictEqual(res.precoTotalNota, 48.00, `Preço total esperado 48.00, obteve ${res.precoTotalNota}`);
+
+    // Limpa do cache
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id = 888777').run();
+  });
+
+  // 11. Adversarial: Fallback estrito para PRODUTOS no Firebird quando produto não tem NF de entrada
+  await asyncTest('Adversarial: Fallback estrito para PRODUTOS quando produto nunca teve NF de entrada', async () => {
+    const mockQueryNoNf = async (sql, params) => {
+      if (sql.includes('ITEM_NOTAS')) {
+        return []; // Nunca teve NF
+      }
+      if (sql.includes('PRODUTOS')) {
+        return [{
+          PRODUTO_ID: 777111,
+          PRODUTO: 'DIPIRONA GOTAS 20ML TESTE FALLBACK',
+          COD_BARRAS: '7891112223334',
+          VALOR_ULT_COMPRA: 5.50,
+          PROD_PRCOMPRA: 4.80
+        }];
+      }
+      return [];
+    };
+
+    const res = await comprasMineracaoService.buscarUltimaCompraProduto({
+      produtoId: 777111,
+      ean: '7891112223334',
+      produtoNome: 'DIPIRONA GOTAS 20ML TESTE FALLBACK',
+      dbInstance: db,
+      options: { queryDigifarma: mockQueryNoNf, skipFirebird: false }
+    });
+
+    assert(res, 'Fallback deve retornar dados do cadastro de PRODUTOS');
+    assert.strictEqual(res.precoUnitario, 5.50, `Preço esperado do fallback 5.50, obteve ${res.precoUnitario}`);
+    assert.strictEqual(res.fonte, 'PRODUTOS_CADASTRO', `Fonte esperada PRODUTOS_CADASTRO, obteve ${res.fonte}`);
+
+    // Limpa do cache
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id = 777111').run();
+  });
+
+  // 12. Adversarial: Fallback no compras_estoque_cache do SQLite quando Firebird está offline
+  await asyncTest('Adversarial: Fallback no compras_estoque_cache do SQLite quando Firebird está offline', async () => {
+    // Insere produto temporário em compras_estoque_cache
+    db.prepare(`
+      INSERT OR REPLACE INTO compras_estoque_cache (
+        produto_id, ean, descricao, saldo, custo_unitario, ultima_compra_valor, atualizado_em
+      ) VALUES (666555, '7896665554443', 'PRODUTO TESTE SOMENTE ESTOQUE', 15, 7.20, 7.20, datetime('now'))
+    `).run();
+
+    const res = await comprasMineracaoService.buscarUltimaCompraProduto({
+      produtoId: 666555,
+      ean: '7896665554443',
+      produtoNome: 'PRODUTO TESTE SOMENTE ESTOQUE',
+      dbInstance: db,
+      options: { skipFirebird: true }
+    });
+
+    assert(res, 'Deve resolver via compras_estoque_cache');
+    assert.strictEqual(res.precoUnitario, 7.20, `Preço unitário esperado 7.20, obteve ${res.precoUnitario}`);
+    assert.strictEqual(res.fonte, 'ESTOQUE_CACHE', `Fonte esperada ESTOQUE_CACHE, obteve ${res.fonte}`);
+
+    // Limpa
+    db.prepare('DELETE FROM compras_estoque_cache WHERE produto_id = 666555').run();
+  });
+
+  // 13. Adversarial: Ofertas com preco_ofertado <= 0 não recebem 100% de desconto nem status Aprovado_Radar
+  await asyncTest('Adversarial: Oferta com preço 0 ou negativo é descartada e não recebe desconto de 100%', async () => {
+    const validacaoZero = await comprasMineracaoService.validarOfertaComDigifarma({
+      produtoId: 188549,
+      precoOfertado: 0.00
+    });
+
+    assert(!validacaoZero.valida, 'Preço zero não pode ser considerado oferta válida');
+    assert.strictEqual(validacaoZero.status, 'Descartado_Preco_Maior');
+    assert.strictEqual(validacaoZero.percentualDesconto, 0, 'Desconto deve ser 0% para preço 0, não 100%');
+
+    // Recálculo com oferta de preço 0
+    const testZeroId = 'test-op-zero-' + Date.now();
+    db.prepare(`
+      INSERT INTO compras_oportunidades_mineradas (
+        id, mensagem_id, distribuidora, produto_nome, ean,
+        preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
+        status, data_oferta, created_at
+      ) VALUES (?, 'msg-z', 'DIST ZERO', 'AP.BARB VICEROY LADY CARE C/2 12UND',
+        '7898361212568', 0, 3.24, 0, 'Aprovado_Radar', datetime('now'), datetime('now'))
+    `).run(testZeroId);
+
+    await comprasMineracaoService.recalcularOfertasMineradas(db);
+    const updatedZero = db.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE id = ?').get(testZeroId);
+    assert.strictEqual(updatedZero.status, 'Descartado_Preco_Maior', `Status esperado Descartado_Preco_Maior, obteve ${updatedZero.status}`);
+    assert.strictEqual(updatedZero.percentual_desconto, 0, `Desconto esperado 0%, obteve ${updatedZero.percentual_desconto}%`);
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testZeroId);
+  });
+
+  // 14. Performance & Latência do endpoint e listagem de oportunidades (< 100ms)
+  await asyncTest('R2/Critério: Listar oportunidades executa em menos de 100ms', async () => {
+    const t0 = performance.now();
+    const ops = comprasMineracaoService.listarOportunidades(db, { limite: 100 });
+    const elapsed = performance.now() - t0;
+
+    console.log(`         Tempo de listagem de oportunidades: ${elapsed.toFixed(3)}ms (limite 100)`);
+    assert(elapsed < 100.0, `Tempo de resposta muito alto: ${elapsed}ms (esperado < 100ms)`);
+    assert(Array.isArray(ops), 'Retorno deve ser array');
+  });
+
   console.log(`\n=== RESUMO DOS TESTES: ${passed} PASSOU | ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);
