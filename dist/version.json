@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "7c5d31a",
-  "commitMessage": "fix(compras): tornar produtos do Horacio clicaveis com abertura em overlay modal e busca segura por produtoNome",
-  "buildTime": "03/09/2026, 15:45:43"
+  "commitHash": "b381a9c",
+  "commitMessage": "feat(compras): permitir edicao de representante, empresa, prazos de pagamento e pedido minimo no chat",
+  "buildTime": "03/09/2026, 17:04:35"
 }

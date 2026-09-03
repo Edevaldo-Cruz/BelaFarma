@@ -328,6 +328,26 @@ module.exports = (db) => {
     }
   });
 
+  /**
+   * Atualiza os dados de identificação do fornecedor (Representante, Distribuidora, Prazos de Pagamento, Pedido Mínimo)
+   */
+  router.post('/mineracao/atualizar-contato', async (req, res) => {
+    try {
+      const { telefone, representante, distribuidora, prazosPagamento, pedidoMinimo } = req.body;
+      const resultado = comprasMineracaoService.atualizarDadosContatoFornecedor({
+        telefone,
+        representante,
+        distribuidora,
+        prazosPagamento,
+        pedidoMinimo
+      }, db);
+      res.json({ success: true, data: resultado });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /mineracao/atualizar-contato:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades', async (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto, apenas_hoje } = req.query;

@@ -12,9 +12,14 @@ import {
   Phone,
   RefreshCw,
   Search,
-  MessageSquare
+  MessageSquare,
+  Edit3,
+  Clock,
+  X,
+  DollarSign
 } from 'lucide-react';
 import { OportunidadeMinerada, User } from '../../types';
+import { useToast } from '../ToastContext';
 
 interface ComprasChatViewerProps {
   oportunidade: OportunidadeMinerada;
@@ -36,17 +41,38 @@ interface MensagemChat {
   texto_mensagem?: string;
 }
 
+interface ContatoInfo {
+  id?: string | null;
+  nome: string;
+  distribuidora: string;
+  telefone: string;
+  representante?: string;
+  prazosPagamento?: string;
+  pedidoMinimo?: number;
+}
+
 export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
   oportunidade,
   theme,
   onVoltar,
   onCriarCotacao
 }) => {
+  const { addToast } = useToast();
   const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
   const [loading, setLoading] = useState(true);
-  const [contato, setContato] = useState<{ nome: string; distribuidora: string; telefone: string; representante?: string } | null>(null);
+  const [contato, setContato] = useState<ContatoInfo | null>(null);
   const [mensagemAlvoId, setMensagemAlvoId] = useState<string | null>(null);
   const targetMessageRef = useRef<HTMLDivElement | null>(null);
+
+  // Estados para edição cadastral do fornecedor
+  const [isEditingContato, setIsEditingContato] = useState(false);
+  const [salvandoContato, setSalvandoContato] = useState(false);
+  const [editForm, setEditForm] = useState({
+    representante: '',
+    distribuidora: '',
+    prazosPagamento: '',
+    pedidoMinimo: 0
+  });
 
   useEffect(() => {
     const carregarContexto = async () => {
@@ -92,6 +118,54 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
   const telefoneFormatado = telefoneLimpo.length >= 10
     ? `+55 (${telefoneLimpo.slice(0, 2)}) ${telefoneLimpo.slice(2, 7)}-${telefoneLimpo.slice(7)}`
     : telefoneLimpo;
+
+  const handleAbrirEdicao = () => {
+    setEditForm({
+      representante: contato?.representante || oportunidade.representante || contato?.nome || '',
+      distribuidora: contato?.distribuidora || oportunidade.distribuidora || '',
+      prazosPagamento: contato?.prazosPagamento || (oportunidade as any).condicoesPagamento || (oportunidade as any).condicoes_pagamento || '',
+      pedidoMinimo: contato?.pedidoMinimo || 0
+    });
+    setIsEditingContato(true);
+  };
+
+  const handleSalvarContato = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    try {
+      setSalvandoContato(true);
+      const tel = contato?.telefone || oportunidade.telefone || '';
+      const res = await fetch('/api/central-compras/mineracao/atualizar-contato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telefone: tel,
+          representante: editForm.representante,
+          distribuidora: editForm.distribuidora,
+          prazosPagamento: editForm.prazosPagamento,
+          pedidoMinimo: editForm.pedidoMinimo
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setContato(prev => ({
+          ...(prev || { telefone: tel, nome: editForm.representante }),
+          representante: editForm.representante,
+          nome: editForm.representante,
+          distribuidora: editForm.distribuidora,
+          prazosPagamento: editForm.prazosPagamento,
+          pedidoMinimo: editForm.pedidoMinimo
+        }));
+        setIsEditingContato(false);
+        addToast('Dados do fornecedor atualizados com sucesso!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao salvar alterações do fornecedor.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Falha ao conectar com o servidor: ' + err.message, 'error');
+    } finally {
+      setSalvandoContato(false);
+    }
+  };
 
   const produtoNome = (oportunidade.produtoNome || (oportunidade as any).produto_nome || '').trim();
   const precoOfertadoNum = Number(oportunidade.precoOfertado || (oportunidade as any).preco_ofertado || 0);
@@ -158,25 +232,41 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
           {/* Avatar e Dados do Contato */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white font-black flex items-center justify-center text-sm shadow-md">
-              {(contato?.nome || oportunidade.representante || oportunidade.distribuidora || 'R').charAt(0).toUpperCase()}
+              {(contato?.representante || contato?.nome || oportunidade.representante || oportunidade.distribuidora || 'R').charAt(0).toUpperCase()}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-black text-slate-900 dark:text-slate-100">
-                  {contato?.nome || oportunidade.representante || 'Representante Comercial'}
+                  {contato?.representante || contato?.nome || oportunidade.representante || 'Representante Comercial'}
                 </h2>
                 <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-black uppercase tracking-wider">
                   WhatsApp
                 </span>
+                <button
+                  onClick={handleAbrirEdicao}
+                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer"
+                  title="Editar dados do representante, empresa e prazos"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  🏢 {contato?.distribuidora || oportunidade.distribuidora}
+                  🏢 {contato?.distribuidora || oportunidade.distribuidora || 'Distribuidora'}
                 </span>
                 {telefoneFormatado && (
                   <>
                     <span>•</span>
                     <span>📞 {telefoneFormatado}</span>
+                  </>
+                )}
+                {contato?.prazosPagamento && (
+                  <>
+                    <span>•</span>
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] border border-indigo-200/60 dark:border-indigo-800/60 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-indigo-500" />
+                      Prazos: {contato.prazosPagamento}
+                    </span>
                   </>
                 )}
               </div>
@@ -186,6 +276,15 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
 
         {/* Ações Rápidas no Cabeçalho */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleAbrirEdicao}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+            title="Editar dados cadastrais do representante e prazos"
+          >
+            <Edit3 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Editar Fornecedor</span>
+          </button>
+
           {linkWhatsAppWeb && (
             <a
               href={linkWhatsAppWeb}
@@ -323,6 +422,131 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
         )}
       </div>
     </div>
+
+    {/* Modal de Edição dos Dados do Representante e Empresa */}
+    {isEditingContato && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 animate-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                <Edit3 className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                  Editar Dados do Fornecedor
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Facilita a identificação no Radar e no WhatsApp
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsEditingContato(false)}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSalvarContato} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Nome do Representante
+              </label>
+              <input
+                type="text"
+                value={editForm.representante}
+                onChange={(e) => setEditForm(prev => ({ ...prev, representante: e.target.value }))}
+                placeholder="Ex: Roberto, Carlos, Marcos..."
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Nome da Empresa / Distribuidora
+              </label>
+              <input
+                type="text"
+                value={editForm.distribuidora}
+                onChange={(e) => setEditForm(prev => ({ ...prev, distribuidora: e.target.value }))}
+                placeholder="Ex: Profarma, Panpharma, Santa Cruz, CIMED..."
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Prazos de Pagamento Liberados
+              </label>
+              <input
+                type="text"
+                value={editForm.prazosPagamento}
+                onChange={(e) => setEditForm(prev => ({ ...prev, prazosPagamento: e.target.value }))}
+                placeholder="Ex: 28/35/42/49 dias, 14/28 dias boleto..."
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              {/* Sugestões rápidas de prazos */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {['28/35/42/49 dias', '14/28/42 dias', '28/56 dias', '30 dias', 'À vista / 7 dias'].map((opcao) => (
+                  <button
+                    key={opcao}
+                    type="button"
+                    onClick={() => setEditForm(prev => ({ ...prev, prazosPagamento: opcao }))}
+                    className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                  >
+                    + {opcao}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Pedido Mínimo (R$)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={editForm.pedidoMinimo || ''}
+                onChange={(e) => setEditForm(prev => ({ ...prev, pedidoMinimo: parseFloat(e.target.value) || 0 }))}
+                placeholder="Ex: 500.00"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsEditingContato(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={salvandoContato}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {salvandoContato ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Salvando...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    <span>Salvar Alterações</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
   </div>
   );
 };

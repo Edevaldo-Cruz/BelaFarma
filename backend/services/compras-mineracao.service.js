@@ -2282,16 +2282,41 @@ function obterContextoConversa(mensagemId, telefone = null, options = {}, db = n
     });
   }
 
-  const nomeContato = alvo?.nome_contato || oportunidade?.representante || oportunidade?.distribuidora || 'Representante Comercial';
-  const distribuidora = oportunidade?.distribuidora || alvo?.nome_contato || 'Distribuidora';
+  // Busca metadados cadastrais do fornecedor no compras_fornecedores_meta
+  let fornecedorMeta = null;
+  if (tel) {
+    fornecedorMeta = dbInst.prepare(`
+      SELECT * FROM compras_fornecedores_meta 
+      WHERE telefone LIKE ? OR telefone LIKE ?
+      LIMIT 1
+    `).get(`%${tel.slice(-8)}%`, `%${tel}%`);
+  }
+  if (!fornecedorMeta) {
+    const dNome = (oportunidade?.distribuidora || alvo?.nome_contato || '').trim();
+    if (dNome && dNome !== 'Distribuidora') {
+      fornecedorMeta = dbInst.prepare(`
+        SELECT * FROM compras_fornecedores_meta 
+        WHERE distribuidora LIKE ?
+        LIMIT 1
+      `).get(`%${dNome}%`);
+    }
+  }
+
+  const repNome = fornecedorMeta?.representante || oportunidade?.representante || alvo?.nome_contato || 'Representante Comercial';
+  const distNome = fornecedorMeta?.distribuidora || oportunidade?.distribuidora || 'Distribuidora';
+  const prazosPagamento = fornecedorMeta?.prazos_pagamento || oportunidade?.condicoes_pagamento || '';
+  const pedidoMinimo = fornecedorMeta?.pedido_minimo_valor || 0;
 
   return {
     mensagemAlvoId: alvo?.message_id || oportunidade?.mensagem_id || mensagemId,
     contato: {
-      nome: nomeContato,
-      distribuidora,
+      id: fornecedorMeta?.id || null,
+      nome: repNome,
+      distribuidora: distNome,
       telefone: tel,
-      representante: oportunidade?.representante || nomeContato
+      representante: repNome,
+      prazosPagamento,
+      pedidoMinimo
     },
     oportunidade: oportunidade ? {
       id: oportunidade.id,
@@ -2303,6 +2328,126 @@ function obterContextoConversa(mensagemId, telefone = null, options = {}, db = n
     } : null,
     totalMensagens: mensagens.length,
     mensagens
+  };
+}
+
+/**
+ * Atualiza os dados de identificação do fornecedor/representante:
+ * Nome do representante, Empresa/Distribuidora, Prazos de Pagamento e Pedido Mínimo.
+ */
+function atualizarDadosContatoFornecedor(dados, db = null) {
+  const dbInst = getDb(db);
+  if (!dbInst) throw new Error('Conexão com banco de dados indisponível.');
+
+  const telefoneRaw = (dados.telefone || '').replace(/\D/g, '');
+  const representante = (dados.representante || '').trim();
+  const distribuidora = (dados.distribuidora || '').trim();
+  const prazosPagamento = (dados.prazosPagamento || '').trim();
+  const pedidoMinimo = Number(dados.pedidoMinimo) || 0;
+
+  if (!distribuidora && !representante && !telefoneRaw) {
+    throw new Error('Informe ao menos a distribuidora, o representante ou o telefone.');
+  }
+
+  // 1. Verifica se já existe em compras_fornecedores_meta
+  let existente = null;
+  if (telefoneRaw) {
+    existente = dbInst.prepare(`
+      SELECT * FROM compras_fornecedores_meta 
+      WHERE telefone LIKE ? OR telefone LIKE ?
+      LIMIT 1
+    `).get(`%${telefoneRaw.slice(-8)}%`, `%${telefoneRaw}%`);
+  }
+  if (!existente && distribuidora) {
+    existente = dbInst.prepare(`
+      SELECT * FROM compras_fornecedores_meta 
+      WHERE distribuidora LIKE ?
+      LIMIT 1
+    `).get(`%${distribuidora}%`);
+  }
+
+  const agora = new Date().toISOString();
+
+  if (existente) {
+    dbInst.prepare(`
+      UPDATE compras_fornecedores_meta
+      SET distribuidora = COALESCE(NULLIF(?, ''), distribuidora),
+          representante = COALESCE(NULLIF(?, ''), representante),
+          telefone = CASE WHEN ? != '' THEN ? ELSE telefone END,
+          prazos_pagamento = ?,
+          pedido_minimo_valor = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(
+      distribuidora,
+      representante,
+      telefoneRaw,
+      telefoneRaw,
+      prazosPagamento,
+      pedidoMinimo,
+      agora,
+      existente.id
+    );
+  } else {
+    const novoId = 'forn_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    dbInst.prepare(`
+      INSERT INTO compras_fornecedores_meta (
+        id, distribuidora, representante, telefone, prazos_pagamento,
+        pedido_minimo_valor, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      novoId,
+      distribuidora || 'Distribuidora Comercial',
+      representante || 'Representante Comercial',
+      telefoneRaw || '0000000000',
+      prazosPagamento,
+      pedidoMinimo,
+      agora,
+      agora
+    );
+  }
+
+  // 2. Propaga atualização para compras_oportunidades_mineradas
+  if (telefoneRaw) {
+    try {
+      dbInst.prepare(`
+        UPDATE compras_oportunidades_mineradas
+        SET distribuidora = COALESCE(NULLIF(?, ''), distribuidora),
+            representante = COALESCE(NULLIF(?, ''), representante),
+            condicoes_pagamento = COALESCE(NULLIF(?, ''), condicoes_pagamento)
+        WHERE telefone LIKE ? OR telefone LIKE ?
+      `).run(distribuidora, representante, prazosPagamento, `%${telefoneRaw.slice(-8)}%`, `%${telefoneRaw}%`);
+    } catch(e) {}
+  } else if (distribuidora) {
+    try {
+      dbInst.prepare(`
+        UPDATE compras_oportunidades_mineradas
+        SET representante = COALESCE(NULLIF(?, ''), representante),
+            condicoes_pagamento = COALESCE(NULLIF(?, ''), condicoes_pagamento)
+        WHERE distribuidora LIKE ?
+      `).run(representante, prazosPagamento, `%${distribuidora}%`);
+    } catch(e) {}
+  }
+
+  // 3. Propaga atualização para compras_historico_mensagens
+  if (telefoneRaw && representante) {
+    try {
+      const nomeFormatado = distribuidora ? `${representante} (${distribuidora})` : representante;
+      dbInst.prepare(`
+        UPDATE compras_historico_mensagens
+        SET nome_contato = ?
+        WHERE telefone LIKE ? OR telefone LIKE ?
+      `).run(nomeFormatado, `%${telefoneRaw.slice(-8)}%`, `%${telefoneRaw}%`);
+    } catch(e) {}
+  }
+
+  return {
+    sucesso: true,
+    representante: representante || existente?.representante,
+    distribuidora: distribuidora || existente?.distribuidora,
+    telefone: telefoneRaw || existente?.telefone,
+    prazosPagamento,
+    pedidoMinimo
   };
 }
 
@@ -2327,6 +2472,7 @@ module.exports = {
   limparOportunidadesServidor,
   obterVariacaoPrecosProduto,
   obterContextoConversa,
+  atualizarDadosContatoFornecedor,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO
