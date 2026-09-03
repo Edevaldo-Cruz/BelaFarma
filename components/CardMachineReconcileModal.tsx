@@ -75,10 +75,11 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   });
 
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
+  const [includeOlderPending, setIncludeOlderPending] = useState<boolean>(false);
 
   useEffect(() => {
     if (isOpen) {
-      fetchPendingItems();
+      fetchPendingItems(false);
       const hoje = new Date().toISOString().slice(0, 10);
       try {
         const saved = localStorage.getItem(`belafarma_provisions_confirmed_${hoje}`);
@@ -111,16 +112,17 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     });
   };
 
-  const fetchPendingItems = async () => {
+  const fetchPendingItems = async (fetchAll: boolean = false) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/card-machine-receivables/pending-due');
+      const url = fetchAll ? '/api/card-machine-receivables/pending-due?all=true' : '/api/card-machine-receivables/pending-due';
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Erro ao buscar pendências');
       const data: CardMachineReceivable[] = await res.json();
       setPendingItems(data);
     } catch (err: any) {
       console.error('Erro ao carregar pendências:', err);
-      addToast('Não foi possível carregar os repasses de hoje.', 'error');
+      addToast('Não foi possível carregar os repasses.', 'error');
     } finally {
       setLoading(false);
     }
@@ -482,7 +484,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
               <div className="flex items-center space-x-2">
                 <h3 className="text-xl font-black tracking-tight">Conferência de Repasses das Maquininhas</h3>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/25 text-white border border-white/30">
-                  {isMonday ? 'Segunda-feira (Acumulado FDS)' : 'Diário'}
+                  {includeOlderPending ? 'Histórico Completo' : (isMonday ? 'Segunda-feira (Acumulado FDS)' : 'Semana passada em diante')}
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -523,8 +525,22 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
               <div>
                 <h4 className="text-lg font-black text-slate-800 dark:text-slate-100">Tudo conferido por aqui!</h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1">
-                  Não há repasses pendentes de conferência para a data de hoje.
+                  Não há repasses pendentes de conferência da semana passada em diante.
                 </p>
+                {!includeOlderPending && (
+                  <div className="pt-3">
+                    <button
+                      onClick={() => {
+                        setIncludeOlderPending(true);
+                        fetchPendingItems(true);
+                      }}
+                      className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1"
+                    >
+                      <span>Consultar pendências anteriores à semana passada</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
               <button
                 onClick={onClose}

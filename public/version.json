@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ba20211",
-  "commitMessage": "feat(card-machines): exibir datas previstas de repasse e vendas no modal de conferência",
-  "buildTime": "03/09/2026, 17:34:55"
+  "commitHash": "5e64635",
+  "commitMessage": "feat(card-machines): exibir card individual para cada bandeira, categoria e data",
+  "buildTime": "03/09/2026, 18:20:55"
 }

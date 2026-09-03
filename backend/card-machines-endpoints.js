@@ -224,19 +224,46 @@ module.exports = (db) => {
     }
   });
 
-  // GET /api/card-machine-receivables/pending-due - Recebíveis pendentes com repasse até hoje
+  // GET /api/card-machine-receivables/pending-due - Recebíveis pendentes com repasse da semana passada até hoje
   router.get('/card-machine-receivables/pending-due', (req, res) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+
+      // Se solicitado all=true, traz todo o histórico sem corte inferior
+      if (req.query.all === 'true') {
+        const stmt = db.prepare(`
+          SELECT * FROM card_machine_receivables 
+          WHERE status = 'Pendente' AND expected_payment_date <= ?
+          ORDER BY expected_payment_date ASC, is_weekend_accumulated DESC, brand ASC, modality ASC, sale_date ASC
+        `);
+        return res.json(stmt.all(today));
+      }
+
+      // Segunda-feira da semana passada como data de corte inicial padrão
+      const day = now.getDay(); // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+      const daysToThisMonday = day === 0 ? 6 : (day - 1);
+      const thisMonday = new Date(now);
+      thisMonday.setDate(now.getDate() - daysToThisMonday);
+
+      const lastMonday = new Date(thisMonday);
+      lastMonday.setDate(thisMonday.getDate() - 7);
+      const defaultStartDate = lastMonday.toISOString().split('T')[0];
+
+      const startDate = req.query.startDate || defaultStartDate;
+      const endDate = req.query.endDate || today;
+
       const stmt = db.prepare(`
         SELECT * FROM card_machine_receivables 
-        WHERE status = 'Pendente' AND expected_payment_date <= ?
+        WHERE status = 'Pendente' 
+          AND expected_payment_date >= ? 
+          AND expected_payment_date <= ?
         ORDER BY expected_payment_date ASC, is_weekend_accumulated DESC, brand ASC, modality ASC, sale_date ASC
       `);
-      const rows = stmt.all(today);
+      const rows = stmt.all(startDate, endDate);
       res.json(rows);
     } catch (err) {
-      console.error('[CardMachines] Erro ao buscar pendências do dia:', err);
+      console.error('[CardMachines] Erro ao buscar pendências da semana passada em diante:', err);
       res.status(500).json({ error: 'Erro ao buscar pendências', details: err.message });
     }
   });
