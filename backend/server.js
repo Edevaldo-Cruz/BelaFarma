@@ -4178,15 +4178,22 @@ setInterval(async () => {
   }
 }, 2 * 60 * 1000);
 
-// Ciclo Completo (a cada 10 min): Catálogo de Produtos, Curva ABC e Resumo de Estoque
+// Ciclo Completo (a cada 2 horas): Catálogo de 64k Produtos, Curva ABC e Resumo de Estoque
+// Evita sobrecarga no Firebird durante o expediente mantendo o cache aquecido
+let isSyncingCompleto = false;
 setInterval(async () => {
+  if (isSyncingCompleto) return;
+  isSyncingCompleto = true;
   try {
+    console.log('[Sync Daemon Completo] 🔄 Iniciando sincronização periódica de produtos e resumo...');
     await syncProdutos(db);
     await syncEstoqueResumo(db);
   } catch (e) {
     console.error('[Sync Daemon Completo] Erro:', e.message);
+  } finally {
+    isSyncingCompleto = false;
   }
-}, 10 * 60 * 1000);
+}, 2 * 60 * 60 * 1000);
 
 // Rotina periódica em segundo plano para auditar variações de preço de entradas recentes (a cada 15 min)
 const { sincronizarVariacaoPrecosMural } = require('./services/entradas-sync.service');

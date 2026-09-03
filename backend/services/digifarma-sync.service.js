@@ -83,13 +83,13 @@ async function syncProdutos(db) {
       salesData = await queryDigifarma(`
         SELECT 
           iv.PRODUTO_ID,
-          SUM(iv.ITEM_VENDAS_QUANT) as TOTAL_QTD,
-          SUM(iv.ITEM_VENDAS_VALOR) as TOTAL_VALOR
+          SUM(iv.ITEMVEND_QUANT) as TOTAL_QTD,
+          SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) as TOTAL_VALOR
         FROM ITEM_VENDAS iv
-        JOIN CAB_VENDAS cv ON iv.CAB_VENDAS_ID = cv.CAB_VENDAS_ID
-        WHERE cv.DATA_EMISSAO >= '${dataInicioStr}'
+        JOIN CAB_VENDAS cv ON iv.VENDA_NOTA_ID = cv.VENDA_NOTA_ID
+        WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= '${dataInicioStr}'
         GROUP BY iv.PRODUTO_ID
-      `, [], 45000);
+      `, [], 60000);
     } catch (sErr) {
       console.warn('[Digifarma Sync] Aviso: Não foi possível obter histórico de vendas para Curva ABC:', sErr.message);
     }
@@ -328,9 +328,10 @@ async function syncEstoqueResumo(db) {
         AND NOT EXISTS (
           SELECT FIRST 1 1 
           FROM ITEM_VENDAS iv
-          JOIN CAB_VENDAS v ON iv.CAB_VENDAS_ID = v.CAB_VENDAS_ID
+          JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
           WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
-            AND v.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - 90
+            AND v.CANCELADO <> 'S'
+            AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 90
         )
     `, [], 45000);
 

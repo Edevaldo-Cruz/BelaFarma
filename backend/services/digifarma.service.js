@@ -14,7 +14,7 @@ const options = {
 /**
  * Cria um pool de conexões reutilizáveis para evitar abrir/fechar conexão a cada query.
  */
-const pool = firebird.pool(5, options);
+const pool = firebird.pool(10, options);
 
 let firebirdOfflineUntil = 0;
 
@@ -28,7 +28,10 @@ let firebirdOfflineUntil = 0;
  * @returns {Promise<Array>}
  */
 async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
-    if (Date.now() < firebirdOfflineUntil) {
+    const isWrite = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql);
+
+    // Se o Circuit Breaker estiver ativo, permite que escritas ou consultas pontuais prioritárias tentem conectar
+    if (Date.now() < firebirdOfflineUntil && !isWrite) {
         return Promise.reject(new Error('Circuit Breaker: Servidor do Digifarma Offline.'));
     }
 
@@ -38,8 +41,8 @@ async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
         const timer = setTimeout(() => {
             if (!finished) {
                 finished = true;
-                firebirdOfflineUntil = Date.now() + 60000; // Circuit breaker 1 min
-                console.error(`[Digifarma DB] Query Timeout (${timeoutMs}ms exceeded) for SQL:`, sql);
+                // Query timeout não significa que o servidor físico caiu, apenas que a consulta demorou muito
+                console.warn(`[Digifarma DB] Query Timeout (${timeoutMs}ms exceeded) for SQL:`, (sql || '').substring(0, 100));
                 reject(new Error(`Timeout de ${timeoutMs}ms excedido na consulta ao Digifarma.`));
             }
         }, timeoutMs);
@@ -49,6 +52,10 @@ async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
             finished = true;
             clearTimeout(timer);
             if (err) return reject(err);
+            // Se respondeu com sucesso, garante que o circuit breaker seja limpo
+            if (firebirdOfflineUntil > 0) {
+                firebirdOfflineUntil = 0;
+            }
             resolve(result || []);
         };
 
@@ -59,7 +66,8 @@ async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
             }
 
             if (err) {
-                firebirdOfflineUntil = Date.now() + 60000; // Circuit breaker 1 min
+                // Erro real de rede/conexão física no pool -> ativa circuit breaker por 20s
+                firebirdOfflineUntil = Date.now() + 20000;
                 console.error('[Digifarma DB] Connection Error:', err.message);
                 return done(new Error('Servidor do Digifarma Offline ou Inacessível.'));
             }

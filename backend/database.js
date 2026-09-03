@@ -616,6 +616,8 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_id ON digifarma_products_cache(produto_id);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_desc ON digifarma_products_cache(descricao);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_curva ON digifarma_products_cache(curva);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_curva_desc ON digifarma_products_cache(curva, descricao);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_estoque ON digifarma_products_cache(estoque_atual);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_ean ON napp_prices(ean);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_prod_id ON napp_prices(produto_id);'); } catch(e) {}
 
@@ -771,6 +773,9 @@ try {
     try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE pricing_suggestions ADD COLUMN preco_proffer_alto REAL'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_ps_curva_aprov_desc ON pricing_suggestions(curva, requer_aprovacao_manual, descricao);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_ps_categoria ON pricing_suggestions(categoria);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_ps_variacao ON pricing_suggestions(variacao_valor);'); } catch(e) {}
 
     try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN tributacao_monofasica TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN cst_pis TEXT'); } catch(e) {}

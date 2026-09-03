@@ -388,34 +388,40 @@ module.exports = function (db) {
    */
   router.get('/stats', (req, res) => {
     try {
-      const row = db.prepare(`
+      const prodStats = db.prepare(`
         SELECT 
           COUNT(1) as total,
-          SUM(CASE WHEN c.curva = 'A' THEN 1 ELSE 0 END) as curveA,
-          SUM(CASE WHEN c.curva = 'B' THEN 1 ELSE 0 END) as curveB,
-          SUM(CASE WHEN c.curva = 'C' THEN 1 ELSE 0 END) as curveC,
-          SUM(CASE WHEN c.preco_custo > 0 AND c.preco_venda < c.preco_custo THEN 1 ELSE 0 END) as belowCost,
-          SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL THEN 1 ELSE 0 END) as withNapp,
-          SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_medio, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketAvg,
-          SUM(CASE WHEN COALESCE(n.preco_proffer_baixo, n.preco_proffer) IS NOT NULL AND c.preco_venda < COALESCE(n.preco_proffer_baixo, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketMin,
-          SUM(CASE WHEN COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL AND ABS(c.preco_venda - COALESCE(n.preco_proffer_medio, n.preco_proffer)) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
-        FROM digifarma_products_cache c
-        LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
+          SUM(CASE WHEN curva = 'A' THEN 1 ELSE 0 END) as curveA,
+          SUM(CASE WHEN curva = 'B' THEN 1 ELSE 0 END) as curveB,
+          SUM(CASE WHEN curva = 'C' THEN 1 ELSE 0 END) as curveC,
+          SUM(CASE WHEN preco_custo > 0 AND preco_venda < preco_custo THEN 1 ELSE 0 END) as belowCost
+        FROM digifarma_products_cache
+      `).get();
+
+      const nappStats = db.prepare(`
+        SELECT 
+          COUNT(1) as withNapp,
+          SUM(CASE WHEN c.preco_venda < COALESCE(n.preco_proffer_medio, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketAvg,
+          SUM(CASE WHEN c.preco_venda < COALESCE(n.preco_proffer_baixo, n.preco_proffer) THEN 1 ELSE 0 END) as belowMarketMin,
+          SUM(CASE WHEN ABS(c.preco_venda - COALESCE(n.preco_proffer_medio, n.preco_proffer)) / c.preco_venda > 0.01 THEN 1 ELSE 0 END) as discrepant
+        FROM napp_prices n
+        JOIN digifarma_products_cache c ON n.ean = c.codigo_barras
+        WHERE COALESCE(n.preco_proffer_medio, n.preco_proffer) IS NOT NULL
       `).get();
 
       const scheduledCountRow = db.prepare(`SELECT COUNT(1) as total FROM price_scheduled_steps WHERE status = 'ativo'`).get();
       const snapshotsCountRow = db.prepare(`SELECT COUNT(1) as total FROM price_change_snapshots`).get();
 
       res.json({
-        total: row.total || 0,
-        curveA: row.curveA || 0,
-        curveB: row.curveB || 0,
-        curveC: row.curveC || 0,
-        belowCost: row.belowCost || 0,
-        withNapp: row.withNapp || 0,
-        belowMarketAvg: row.belowMarketAvg || 0,
-        belowMarketMin: row.belowMarketMin || 0,
-        discrepant: row.discrepant || 0,
+        total: prodStats ? prodStats.total || 0 : 0,
+        curveA: prodStats ? prodStats.curveA || 0 : 0,
+        curveB: prodStats ? prodStats.curveB || 0 : 0,
+        curveC: prodStats ? prodStats.curveC || 0 : 0,
+        belowCost: prodStats ? prodStats.belowCost || 0 : 0,
+        withNapp: nappStats ? nappStats.withNapp || 0 : 0,
+        belowMarketAvg: nappStats ? nappStats.belowMarketAvg || 0 : 0,
+        belowMarketMin: nappStats ? nappStats.belowMarketMin || 0 : 0,
+        discrepant: nappStats ? nappStats.discrepant || 0 : 0,
         activeSchedules: scheduledCountRow ? scheduledCountRow.total : 0,
         totalSnapshots: snapshotsCountRow ? snapshotsCountRow.total : 0
       });
@@ -971,16 +977,21 @@ module.exports = function (db) {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const dataInicioStr = formatarDataFirebird(thirtyDaysAgo);
 
-      const salesData = await queryDigifarma(`
-        SELECT 
-          iv.PRODUTO_ID,
-          SUM(iv.ITEM_VENDAS_QUANT) as TOTAL_QTD,
-          SUM(iv.ITEM_VENDAS_VALOR) as TOTAL_VALOR
-        FROM ITEM_VENDAS iv
-        JOIN CAB_VENDAS cv ON iv.CAB_VENDAS_ID = cv.CAB_VENDAS_ID
-        WHERE cv.DATA_EMISSAO >= '${dataInicioStr}'
-        GROUP BY iv.PRODUTO_ID
-      `);
+      let salesData = [];
+      try {
+        salesData = await queryDigifarma(`
+          SELECT 
+            iv.PRODUTO_ID,
+            SUM(iv.ITEMVEND_QUANT) as TOTAL_QTD,
+            SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) as TOTAL_VALOR
+          FROM ITEM_VENDAS iv
+          JOIN CAB_VENDAS cv ON iv.VENDA_NOTA_ID = cv.VENDA_NOTA_ID
+          WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= '${dataInicioStr}'
+          GROUP BY iv.PRODUTO_ID
+        `, [], 60000);
+      } catch (salesErr) {
+        console.warn('[Price Manager API] Aviso ao obter histórico de vendas para Curva ABC:', salesErr.message);
+      }
 
       const salesMap = new Map();
       let totalRevenue = 0;
