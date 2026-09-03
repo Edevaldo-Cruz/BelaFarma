@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5e64635",
-  "commitMessage": "feat(card-machines): exibir card individual para cada bandeira, categoria e data",
-  "buildTime": "03/09/2026, 18:20:55"
+  "commitHash": "d0d361c",
+  "commitMessage": "fix(card-machines): filtrar repasses pendentes apenas da semana passada em diante",
+  "buildTime": "03/09/2026, 20:13:59"
 }

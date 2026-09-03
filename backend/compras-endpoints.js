@@ -293,6 +293,45 @@ module.exports = (db) => {
   });
 
   /**
+   * POST /api/central-compras/sincronizar-ultimas-compras
+   * Sincronização em lote de alta performance das últimas entradas do Digifarma para SQLite (R2)
+   * e recálculo automático das ofertas mineradas (R3).
+   */
+  router.post('/sincronizar-ultimas-compras', async (req, res) => {
+    try {
+      const resultado = await comprasMineracaoService.sincronizarUltimasComprasDigifarma(db, req.body || {});
+      res.json({
+        success: true,
+        message: resultado.message || 'Sincronização de últimas compras realizada com sucesso!',
+        ...resultado,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /sincronizar-ultimas-compras:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/central-compras/recalcular-ofertas-mineradas
+   * Recálculo automático das oportunidades com os valores exatos de última compra (R3).
+   */
+  router.post('/recalcular-ofertas-mineradas', async (req, res) => {
+    try {
+      const resultado = comprasMineracaoService.recalcularOfertasMineradas(db);
+      res.json({
+        success: true,
+        message: resultado.message || 'Oportunidades recalculadas com sucesso!',
+        ...resultado,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /recalcular-ofertas-mineradas:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/central-compras/mineracao/variacao-precos
    * Retorna série temporal de variação de preços do produto por fornecedor
    */
@@ -362,18 +401,21 @@ module.exports = (db) => {
         offset: offset ? parseInt(offset, 10) : 0
       });
 
-      // Se ainda não houver oportunidades geradas hoje, executa a varredura automática inicial
-      if (oportunidades.length === 0 && !busca && !fornecedor_id) {
-        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 1 });
-        oportunidades = comprasMineracaoService.listarOportunidades(db, {
-          status: status || null,
-          fornecedorId: fornecedor_id || null,
-          busca: busca || null,
-          apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
-          apenasHoje: apenasHojeBool,
-          limite: limite ? parseInt(limite, 10) : 50,
-          offset: offset ? parseInt(offset, 10) : 0
-        });
+      // Se a tabela estiver completamente vazia e for explicitamente solicitado auto_minerar
+      const totalGravadas = db ? (db.prepare('SELECT COUNT(*) as c FROM compras_oportunidades_mineradas').get()?.c || 0) : 0;
+      if (oportunidades.length === 0 && totalGravadas === 0 && !busca && !fornecedor_id && req.query.auto_minerar === 'true') {
+        try {
+          await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 1 });
+          oportunidades = comprasMineracaoService.listarOportunidades(db, {
+            status: status || null,
+            fornecedorId: fornecedor_id || null,
+            busca: busca || null,
+            apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+            apenasHoje: apenasHojeBool,
+            limite: limite ? parseInt(limite, 10) : 50,
+            offset: offset ? parseInt(offset, 10) : 0
+          });
+        } catch (eScan) {}
       }
 
       res.json({ success: true, data: oportunidades });

@@ -63,6 +63,8 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   const [diasVarredura, setDiasVarredura] = useState<number>(14);
   const [busca, setBusca] = useState('');
   const [abaAtiva, setAbaAtiva] = useState<'RELEVANTES' | 'DESCONTO' | 'RUPTURA' | 'TODOS'>('RELEVANTES');
+  const [sincronizandoCompras, setSincronizandoCompras] = useState(false);
+  const [auditoriaAbertaId, setAuditoriaAbertaId] = useState<string | null>(null);
 
   // Modal de Detalhes da Oferta
   const [selectedOferta, setSelectedOferta] = useState<OportunidadeMinerada | null>(null);
@@ -248,6 +250,29 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
       addToast('Falha na comunicação: ' + err.message, 'error');
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleSincronizarUltimasCompras = async () => {
+    try {
+      setSincronizandoCompras(true);
+      addToast('Conectando ao Digifarma e sincronizando últimas compras...', 'info');
+      const res = await fetch('/api/central-compras/sincronizar-ultimas-compras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dias: 90 })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`✅ ${data.message || 'Últimas compras sincronizadas com sucesso!'}`, 'success');
+        await carregarOportunidades();
+      } else {
+        addToast(data.error || 'Erro ao sincronizar últimas compras do Digifarma', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro na conexão: ' + err.message, 'error');
+    } finally {
+      setSincronizandoCompras(false);
     }
   };
 
@@ -440,6 +465,16 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             >
               <FileText className="w-4 h-4 text-orange-400" />
               Colar Oferta
+            </button>
+
+            <button
+              onClick={handleSincronizarUltimasCompras}
+              disabled={sincronizandoCompras}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black uppercase tracking-wider shadow-lg hover:shadow-blue-500/25 transition-all disabled:opacity-50 cursor-pointer active:scale-95 whitespace-nowrap"
+              title="Sincronizar histórico das últimas notas de entrada do Digifarma e recalcular oportunidades"
+            >
+              <RefreshCw className={`w-4 h-4 ${sincronizandoCompras ? 'animate-spin' : ''}`} />
+              {sincronizandoCompras ? 'Sincronizando...' : 'Sincronizar Últimas Compras do Digifarma'}
             </button>
 
             <button
@@ -835,26 +870,100 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                       </td>
 
                       {/* Última Compra Digifarma */}
-                      <td className="py-3.5 px-3 whitespace-nowrap">
+                      <td className="py-3.5 px-3 whitespace-nowrap relative">
                         {precoUlt ? (
-                          <>
-                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300 block">
-                              R$ {precoUlt.toFixed(2)}
-                            </span>
-                            {econValor > 0 && (
-                              <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 block">
-                                -R$ {econValor.toFixed(2)}/un
-                              </span>
-                            )}
-                            {(op.ultimoFornecedor || (op as any).ultimo_fornecedor) && (
-                              <span 
-                                className="text-[10px] text-slate-400 dark:text-slate-500 block truncate max-w-[140px]" 
-                                title={`${op.ultimoFornecedor || (op as any).ultimo_fornecedor}${(op.dataUltCompra || (op as any).data_ult_compra) ? ' em ' + new Date(op.dataUltCompra || (op as any).data_ult_compra).toLocaleDateString('pt-BR') : ''}`}
-                              >
-                                🏢 {op.ultimoFornecedor || (op as any).ultimo_fornecedor}
-                              </span>
-                            )}
-                          </>
+                          <div className="relative group inline-block">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAuditoriaAbertaId(auditoriaAbertaId === op.id ? null : op.id);
+                              }}
+                              className="text-left cursor-pointer focus:outline-none block"
+                              title="Clique ou passe o mouse para ver detalhes da auditoria no Digifarma"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-black text-slate-800 dark:text-slate-100 block">
+                                  R$ {precoUlt.toFixed(2)}/un
+                                </span>
+                                <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 text-[9px] font-black group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                  ℹ️
+                                </span>
+                              </div>
+                              {econValor > 0 && (
+                                <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 block">
+                                  -R$ {econValor.toFixed(2)}/un
+                                </span>
+                              )}
+                              {(op.ultimoFornecedor || (op as any).ultimo_fornecedor) && (
+                                <span 
+                                  className="text-[10px] text-slate-400 dark:text-slate-500 block truncate max-w-[140px]" 
+                                >
+                                  🏢 {op.ultimoFornecedor || (op as any).ultimo_fornecedor}
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Card / Tooltip de Auditoria Completa Digifarma */}
+                            <div className={`absolute left-0 bottom-full mb-2 z-50 w-72 p-3.5 rounded-2xl bg-slate-900 text-white shadow-2xl border border-slate-700 pointer-events-auto transition-all ${
+                              auditoriaAbertaId === op.id ? 'block scale-100 opacity-100' : 'hidden group-hover:block scale-95 group-hover:scale-100 group-hover:opacity-100'
+                            }`}>
+                              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                                <span className="text-blue-400 text-[11px] font-black uppercase tracking-wider">
+                                  🧾 Auditoria Digifarma
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 font-bold border border-blue-800">
+                                  NF Entrada
+                                </span>
+                              </div>
+
+                              <div className="space-y-1.5 text-xs">
+                                <div>
+                                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Valor Unitário Real</span>
+                                  <span className="text-emerald-400 font-black text-sm">
+                                    R$ {precoUlt.toFixed(2)}/un
+                                  </span>
+                                </div>
+
+                                {(op.dataUltCompra || (op as any).data_ult_compra) && (
+                                  <div>
+                                    <span className="text-slate-400 text-[10px] uppercase font-bold block">Data da Compra</span>
+                                    <span className="font-bold text-slate-200">
+                                      📅 {new Date(op.dataUltCompra || (op as any).data_ult_compra).toLocaleDateString('pt-BR')}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {(op.ultimoFornecedor || (op as any).ultimo_fornecedor) && (
+                                  <div>
+                                    <span className="text-slate-400 text-[10px] uppercase font-bold block">Fornecedor / Distribuidora</span>
+                                    <span className="font-bold text-slate-200 truncate block">
+                                      🏢 {op.ultimoFornecedor || (op as any).ultimo_fornecedor}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {(op.notaFiscalUltCompra || (op as any).nota_fiscal_ult_compra) && (
+                                  <div>
+                                    <span className="text-slate-400 text-[10px] uppercase font-bold block">Número da Nota Fiscal</span>
+                                    <span className="font-bold text-amber-300 font-mono">
+                                      {String(op.notaFiscalUltCompra || (op as any).nota_fiscal_ult_compra).startsWith('NF')
+                                        ? String(op.notaFiscalUltCompra || (op as any).nota_fiscal_ult_compra)
+                                        : `NF ${op.notaFiscalUltCompra || (op as any).nota_fiscal_ult_compra}`}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra) && (
+                                  <div className="pt-1.5 border-t border-slate-800 text-[11px] text-slate-300">
+                                    📦 {((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra).startsWith('Embalagem:')
+                                      ? ((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra)
+                                      : `Embalagem: ${(op as any).embalagemUltCompra || (op as any).embalagem_ult_compra}`}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         ) : (
                           <span className="text-xs font-medium text-slate-400">Sem Histórico</span>
                         )}
@@ -1002,19 +1111,39 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             </div>
 
             {selectedOferta.precoUltCompraDigifarma && (
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div>
-                  <span className="font-bold text-blue-900 dark:text-blue-200">Referência Digifarma: </span>
-                  <span className="font-extrabold text-blue-700 dark:text-blue-300">R$ {selectedOferta.precoUltCompraDigifarma.toFixed(2)}</span>
-                </div>
-                {(selectedOferta.ultimoFornecedor || (selectedOferta as any).ultimo_fornecedor) && (
-                  <div className="text-slate-600 dark:text-slate-300 text-[11px] font-medium">
-                    🏢 Fornecedor: <strong>{selectedOferta.ultimoFornecedor || (selectedOferta as any).ultimo_fornecedor}</strong>
-                    {(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra) && (
-                      <span> • {new Date(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra).toLocaleDateString('pt-BR')}</span>
-                    )}
+              <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-bold text-blue-900 dark:text-blue-200">Última Compra Digifarma: </span>
+                    <span className="font-extrabold text-blue-700 dark:text-blue-300 text-sm">R$ {selectedOferta.precoUltCompraDigifarma.toFixed(2)}/un</span>
                   </div>
-                )}
+                  {(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra) && (
+                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-bold">
+                      📅 {new Date(selectedOferta.dataUltCompra || (selectedOferta as any).data_ult_compra).toLocaleDateString('pt-BR')}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300 border-t border-blue-200/60 dark:border-blue-900/40 pt-2">
+                  {(selectedOferta.ultimoFornecedor || (selectedOferta as any).ultimo_fornecedor) && (
+                    <div>
+                      🏢 Fornecedor: <strong className="text-slate-800 dark:text-slate-100">{selectedOferta.ultimoFornecedor || (selectedOferta as any).ultimo_fornecedor}</strong>
+                    </div>
+                  )}
+                  {(selectedOferta.notaFiscalUltCompra || (selectedOferta as any).nota_fiscal_ult_compra) && (
+                    <div>
+                      📄 NF: <strong className="text-slate-800 dark:text-slate-100">{selectedOferta.notaFiscalUltCompra || (selectedOferta as any).nota_fiscal_ult_compra}</strong>
+                    </div>
+                  )}
+                  {(selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra) && (
+                    <div>
+                      📦 Embalagem: <strong className="text-slate-800 dark:text-slate-100">{selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra}</strong>
+                      {selectedOferta.precoTotalNota ? (
+                        <span className="text-slate-500 dark:text-slate-400 font-semibold"> (R$ {selectedOferta.precoTotalNota.toFixed(2)} total)</span>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1069,7 +1198,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                   <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Última Compra (Digifarma)</span>
                     <span className="text-lg font-black text-slate-900 dark:text-slate-100 block mt-0.5">
-                      {dadosGrafico.precoReferencia ? `R$ ${dadosGrafico.precoReferencia.toFixed(2)}` : 'Sem Histórico'}
+                      {dadosGrafico.precoReferencia ? `R$ ${dadosGrafico.precoReferencia.toFixed(2)}/un` : 'Sem Histórico'}
                     </span>
                   </div>
 

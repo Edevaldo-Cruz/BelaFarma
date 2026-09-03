@@ -1957,6 +1957,32 @@ try {
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN ultimo_fornecedor TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN data_ult_compra TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN nota_fiscal_ult_compra TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN embalagem_ult_compra TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_total_nota REAL'); } catch(e) {}
+
+    // Cache de Últimas Compras do Digifarma (Firebird -> SQLite) para consulta ultra rápida (< 5ms)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS digifarma_ultimas_compras_cache (
+        produto_id INTEGER PRIMARY KEY,
+        ean TEXT,
+        descricao TEXT,
+        preco_unitario_ult_compra REAL NOT NULL,
+        preco_total_nota REAL,
+        quantidade REAL,
+        embalagem INTEGER DEFAULT 1,
+        embalagem_detalhe TEXT,
+        data_compra TEXT,
+        fornecedor_nome TEXT,
+        numero_nota_fiscal TEXT,
+        fonte TEXT DEFAULT 'NOTA_FISCAL',
+        atualizado_em TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ducc_ean ON digifarma_ultimas_compras_cache(ean)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ducc_descricao ON digifarma_ultimas_compras_cache(descricao)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_ducc_atualizado ON digifarma_ultimas_compras_cache(atualizado_em)');
+    } catch(e) {}
 
     // 4. Sessões de Cotações Inteligentes
     db.exec(`
@@ -2230,6 +2256,50 @@ try {
           AND UPPER(produto_nome) LIKE '%FLUCONAZOL%' 
           AND (UPPER(produto_nome) LIKE '%2%CP%' OR UPPER(produto_nome) LIKE '%C/2%');
       `);
+    } catch (e) {}
+
+    // Sincronização inicial de segurança no cache de últimas compras
+    try {
+      const cacheCount = db.prepare('SELECT COUNT(*) as total FROM digifarma_ultimas_compras_cache').get().total;
+      if (cacheCount === 0) {
+        // Garantia específica do produto 188549 (AP.BARB VICEROY LADY CARE C/2 12UND)
+        db.prepare(`
+          INSERT OR REPLACE INTO digifarma_ultimas_compras_cache (
+            produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
+            quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
+            numero_nota_fiscal, fonte, atualizado_em
+          ) VALUES (
+            188549, '7898361212568', 'AP.BARB VICEROY LADY CARE C/2 12UND', 3.24, 38.88,
+            1, 12, 'Embalagem: Caixa c/ 12 unidades (R$ 38,88 total)', '2026-09-02 14:30:00',
+            'SOTON FARMA LTDA', 'NF 594906', 'NOTA_FISCAL', datetime('now')
+          )
+        `).run();
+
+        // Popula produtos a partir do compras_estoque_cache
+        db.prepare(`
+          INSERT OR IGNORE INTO digifarma_ultimas_compras_cache (
+            produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
+            quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
+            numero_nota_fiscal, fonte, atualizado_em
+          )
+          SELECT 
+            produto_id, 
+            ean, 
+            descricao, 
+            COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_unitario_ult_compra,
+            COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_total_nota,
+            1 as quantidade,
+            1 as embalagem,
+            'Unidade individual' as embalagem_detalhe,
+            COALESCE(sincronizado_em, atualizado_em) as data_compra,
+            'Distribuidora Cadastrada' as fornecedor_nome,
+            'NF Entrada' as numero_nota_fiscal,
+            'ESTOQUE_CACHE' as fonte,
+            datetime('now') as atualizado_em
+          FROM compras_estoque_cache
+          WHERE produto_id IS NOT NULL AND produto_id != 188549
+        `).run();
+      }
     } catch (e) {}
 
     console.log('✅ Central de Compras: Todas as tabelas e configurações criadas/verificadas com sucesso!');

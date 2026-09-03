@@ -955,6 +955,8 @@ export interface OportunidadeMinerada {
   ultimoFornecedor?: string | null;
   dataUltCompra?: string | null;
   notaFiscalUltCompra?: string | null;
+  embalagemUltCompra?: string | null;
+  precoTotalNota?: number | null;
   economiaPercentual?: number | null;
   status: 'Aprovado_Radar' | 'Descartado_Preco_Maior' | 'Oportunidade_Sem_Historico' | string;
   dataMensagem?: string;

@@ -1,29 +1,26 @@
 # Handoff Report — Project Sentinel
 
 ## Observation
-- User request recorded in `f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md`.
-- Project Orchestrator executed milestones M1 to M6 covering all requirements R1 to R5.
-- Independent Victory Auditor (`teamwork_preview_victory_auditor`) executed 3-phase audit and confirmed VICTORY CONFIRMED.
-- All background tasks and subagents successfully terminated.
+- User submitted a new targeted request: "This is a single self-contained fix; keep it small and focused. Correção definitiva da coleta e cálculo da informação de 'Última Compra' na guia Mineração (Central de Compras), eliminando qualquer divergência com o banco de dados do Digifarma (Firebird)."
+- Appended verbatim to `f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md` under `## Follow-up — 2026-09-03T22:59:08Z`.
+- Evaluated Routing Decision Table: Single self-contained code change + explicit user directive for small/focused -> Routed to `teamwork_preview_swe` (SWE Light path).
+- Subagent `teamwork_preview_swe` (ID `760ed85a-fdca-4d22-a104-0b5825d8a97f`) spawned with dedicated working directory `f:\Documentos\Desenvolvimento\BelaFarma\.agents\swe_1`.
+- Crons scheduled: Cron 1 (`*/8 * * * *`, task-23) for progress reporting, Cron 2 (`*/10 * * * *`, task-25) for liveness check.
 
 ## Logic Chain
-1. User submitted prompt for the "Central de Compras" module (R1: 30-day stock intelligence & Firebird Digifarma sync; R2: isolated Baileys WhatsApp & historical chat mining; R3: weighted quote ranking & minimum order optimizer; R4: mandatory human approval queue with web & WhatsApp alerts; R5: purchasing orders, budget control & unified web interface).
-2. Sentinel appended exact user request verbatim to `ORIGINAL_REQUEST.md`.
-3. Sentinel updated its briefing file and dispatched `teamwork_preview_orchestrator` to manage the complete lifecycle and implementation.
-4. Orchestrator planned, decomposed into milestones, ran specialists with paired reviews, challengers, auditors, and e2e testing.
-5. On victory claim, Sentinel dispatched independent `teamwork_preview_victory_auditor`.
-6. Victory Auditor validated all requirements, executed 160 E2E tests, 121 backend unit tests, 34 Tier 5 adversarial tests, verified zero `alert()` usage, verified frontend build compilation, and returned `VICTORY CONFIRMED`.
-7. Crons and subagents cleaned up per protocol.
+1. Verified user instructions for SWE Light routing: matched "single self-contained fix; keep it small and focused" exactly.
+2. Created working directory `f:\Documentos\Desenvolvimento\BelaFarma\.agents\swe_1`.
+3. Dispatched `teamwork_preview_swe` with comprehensive prompt containing R1-R4 requirements, acceptance criteria, and repo rules.
+4. Scheduled background monitoring crons for progress scanning and liveness detection.
+5. Awaiting execution and completion report from `teamwork_preview_swe` before initiating mandatory independent Victory Audit.
 
 ## Caveats
-- Production deployment on Raspberry Pi 4 (192.168.1.70) requires `git pull origin main` and container restart (`docker-compose down && docker-compose build && docker-compose up -d`).
-- First connection of Baileys WhatsApp Compras instance requires scanning the QR Code on sub-aba 7.
+- No code modification or technical decisions done by Sentinel (strictly context ultra-light).
+- Victory Audit is blocking before reporting final success.
 
 ## Conclusion
-The "Central de Compras" module has been fully implemented, verified, tested, and audited with VICTORY CONFIRMED.
+Task dispatched to SWE Light Orchestrator (`swe_1`). Sentinel monitoring active.
 
 ## Verification Method
-- Run E2E test suite: `node test_compras_e2e.js` (160 tests PASS).
-- Run backend unit tests: `node backend/test_compras_estoque.js`, `node backend/test_compras_m2.js`, `node backend/test_compras_m3.js`, `node backend/test_compras_m4.js`, `node backend/test_compras_m5.js`.
-- Run Tier 5 adversarial tests: `node .agents/challenger_final_1/test_tier5_adversarial.js`.
-- Verify frontend compilation: `npm run build`.
+- Active monitoring via Cron 1 (`*/8 * * * *`) and Cron 2 (`*/10 * * * *`).
+- Independent Victory Auditor to be spawned upon completion report.
