@@ -262,16 +262,50 @@ function extrairNomeRepresentante(texto, pushName = null, distribuidora = null, 
 }
 
 /**
+ * Verifica se uma string representa apenas embalagem, dosagem, unidade ou código, e NÃO um nome de produto/medicamento real.
+ * Ex: 'C30', 'C/30', 'C 30', '30 CP', 'C2', '2 CPS', 'COMPRIMIDOS', 'GOTAS', etc.
+ */
+function isApenasEmbalagemOuQuantidade(str) {
+  if (!str) return true;
+  const s = str.trim().toUpperCase();
+  if (s.length < 2) return true;
+
+  // Padrões puros de embalagem / unidades (ex: C30, C/30, C 30, CX30, 30CP, C1, C2, C4, C100, 100CPS, 30DRG, etc.)
+  if (/^(?:C\/?\s*\d+|CX\/?\s*\d+|\d+\s*(?:CP|CPS|CPR|COMP|CAPS|DRG|UN|FLAC|ENV|AMP|TB|G|MG|ML|L))\b/i.test(s)) {
+    const rest = s.replace(/^(?:C\/?\s*\d+|CX\/?\s*\d+|\d+\s*(?:CP|CPS|CPR|COMP|CAPS|DRG|UN|FLAC|ENV|AMP|TB|G|MG|ML|L))\b/i, '').trim();
+    if (rest.length === 0 || !/[A-Z]{3,}/.test(rest)) {
+      return true;
+    }
+  }
+
+  // Palavras isoladas de formas farmacêuticas ou embalagens
+  const formasPuras = /^(?:COMPRIMIDOS?|C[AÁ]PSULAS?|GOTAS?|XAROPE|AMPOLAS?|FRASCOS?|POMADA|CREME|GEL|DISPLAY|ENVELOPE|SACH[EÊ]T?|CAIXA|UNIDADES?|BLISTER|CARTELA|GEN|GENERICO|SIMILAR|REF)$/i;
+  if (formasPuras.test(s)) return true;
+
+  // Se não contiver nenhuma palavra com >= 3 letras que represente produto real
+  const words = s.replace(/[^A-Z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter(w => 
+      w.length >= 3 && 
+      !/^(CPS|CPR|COMP|CAPS|DRG|FLAC|AMP|ENV|GEN|SIMILAR|REF|MG|ML|MCG|UN|CX|G|L)$/i.test(w) && 
+      !/^\d+$/.test(w)
+    );
+
+  return words.length === 0;
+}
+
+/**
  * Identifica ofertas de produtos individuais em linhas de texto
  */
 function extrairLinhasDeOferta(texto) {
   if (!texto) return [];
   const ofertas = [];
   const linhas = texto.split(/\r?\n/);
+  let ultimoContextoProduto = null;
 
   for (const linha of linhas) {
     const trimmed = linha.trim();
-    if (!trimmed || trimmed.length < 5) continue;
+    if (!trimmed || trimmed.length < 3) continue;
 
     // Ignora linhas que são de condições de pagamento ou pedido mínimo
     if (/pedido\s+m[íi]nimo|faturamento\s+m[íi]nimo|condi[çc][õo]es|prazos?|boletos?|frete/i.test(trimmed)) {
@@ -382,7 +416,24 @@ function extrairLinhasDeOferta(texto) {
         .replace(/\s+/g, ' ')
         .trim();
 
-      if (nomeProduto.length >= 3 && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|ol[áa]|aten[çc][ãa]o)/i.test(nomeProduto)) {
+      // Se a linha for apenas embalagem/unidade (ex: "C30", "C/30", "C2"):
+      if (isApenasEmbalagemOuQuantidade(nomeProduto)) {
+        if (ultimoContextoProduto) {
+          // Herda o medicamento pai da linha anterior (ex: "LOSARTANA 50MG" + "C30" => "LOSARTANA 50MG C/ 30")
+          nomeProduto = `${ultimoContextoProduto} ${nomeProduto}`;
+        } else {
+          // Descarta completamente! "C30" ou "C/30" sozinho NÃO é um produto ou medicamento!
+          continue;
+        }
+      } else {
+        // Se a linha tem um nome de produto completo com 2+ palavras, guarda como contexto
+        const palavrasProd = nomeProduto.split(/\s+/).filter(p => p.length >= 3);
+        if (palavrasProd.length >= 2) {
+          ultimoContextoProduto = nomeProduto;
+        }
+      }
+
+      if (nomeProduto.length >= 4 && !isApenasEmbalagemOuQuantidade(nomeProduto) && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|ol[áa]|aten[çc][ãa]o)/i.test(nomeProduto)) {
         ofertas.push({
           produtoNome: nomeProduto,
           ean,
@@ -391,6 +442,15 @@ function extrairLinhasDeOferta(texto) {
           bonificacao,
           linhaRaw: trimmed
         });
+      }
+    } else {
+      // Linha sem preço: pode ser o título de um medicamento pai! (Ex: "LOSARTANA 50MG" ou "FLUCONAZOL 150MG")
+      const possivelTitulo = trimmed
+        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
+        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
+        .trim();
+      if (possivelTitulo.length >= 4 && !isApenasEmbalagemOuQuantidade(possivelTitulo) && !/^(total|pedido|faturamento|fechamento|condi[çc]|prazo|boleto|bom dia|boa tarde|ol[áa]|aten[çc]|ofertas?|tabela|destaques?)/i.test(possivelTitulo)) {
+        ultimoContextoProduto = possivelTitulo;
       }
     }
   }
@@ -584,9 +644,11 @@ function extrairTermosBuscaProduto(nome) {
   
   const labEncontrado = detectarLabBusca(null, norm);
 
-  // Normaliza espaços entre números e unidades (ex: 150MG -> 150 MG, C/2CP -> C/ 2 CP)
+  // Normaliza espaços entre números e unidades (ex: 150MG -> 150 MG, C/2CP -> C/ 2 CP, C2 -> C/ 2 CP)
   norm = norm.replace(/(\d+)\s*(MG|G|MCG|ML|L)\b/gi, ' $1 $2 ')
-             .replace(/(?:C\/|CX\/)\s*(\d+)/gi, ' C/ $1 ');
+             .replace(/(?:C\/|CX\/)\s*(\d+)/gi, ' C/ $1 ')
+             .replace(/\bC(\d+)\b/gi, ' C/ $1 ')
+             .replace(/\b(\d+)\s*(?:CP|CPS|CPR|COMP|CAPS)\b/gi, ' C/ $1 CPS ');
 
   // Extrai unidades na embalagem (ex: C/ 2 CPS, 9X10 CPS = 90)
   let unidades = 1;
@@ -594,7 +656,7 @@ function extrairTermosBuscaProduto(nome) {
   if (multMatch) {
     unidades = parseInt(multMatch[1], 10) * parseInt(multMatch[2], 10);
   } else {
-    const unMatch = /(?:C\/|CX\/|COM|\/)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(norm) ||
+    const unMatch = /(?:C\/|CX\/|COM|\/|\bC)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(norm) ||
                     /\b(\d+)\s*(?:CPS|CPR|COMP|CAPS|FLAC|AMP|ENV)\b/i.exec(norm);
     if (unMatch) {
       unidades = parseInt(unMatch[1], 10);
@@ -646,7 +708,7 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
   if (multMatch) {
     unCandidato = parseInt(multMatch[1], 10) * parseInt(multMatch[2], 10);
   } else {
-    const unMatch = /(?:C\/|CX\/|COM|\/)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(desc) ||
+    const unMatch = /(?:C\/|CX\/|COM|\/|\bC)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(desc) ||
                     /\b(\d+)\s*(?:CPS|CPR|COMP|CAPS|FLAC|AMP|ENV)\b/i.exec(desc);
     if (unMatch) {
       unCandidato = parseInt(unMatch[1], 10);
@@ -659,9 +721,11 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
   if (termos.unidades && termos.unidades <= 4 && unCandidato >= 20) return -999;
   if (termos.unidades && termos.unidades >= 20 && unCandidato <= 4) return -999;
 
-  // Bônus de unidade de embalagem exata
+  // Bônus de unidade de embalagem exata vs penalidade se diferente
   if (termos.unidades && termos.unidades === unCandidato) {
-    score += 50;
+    score += 60;
+  } else if (termos.unidades && unCandidato && termos.unidades !== unCandidato) {
+    score -= 30;
   }
 
   const palavras = termos.palavras || [];
@@ -702,6 +766,25 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
  * Caso contrário, utiliza o cache local `compras_estoque_cache` e `digifarma_products_cache`.
  */
 async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, options = {}) {
+  if (isApenasEmbalagemOuQuantidade(produtoNome)) {
+    return {
+      produtoId: null,
+      descricaoDigifarma: null,
+      precoUltCompra: null,
+      precoOfertado,
+      percentualDesconto: 0,
+      percentualEconomia: 0,
+      precoInferior: false,
+      vantajosa: false,
+      estoqueAtual: 0,
+      estMinimo: 0,
+      emRuptura: false,
+      grupoEquivalente: null,
+      invalido: true,
+      motivoDescarte: 'Nome inválido ou apenas embalagem (ex: C30)'
+    };
+  }
+
   let precoUltCompra = null;
   let produtoId = null;
   let descricaoEncontrada = produtoNome;
@@ -1039,7 +1122,13 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
   }
 
   for (const ofr of extracao.ofertas) {
+    if (isApenasEmbalagemOuQuantidade(ofr.produtoNome)) {
+      continue;
+    }
     const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, options);
+    if (validacao.invalido) {
+      continue;
+    }
 
     const ofertaId = crypto.randomUUID();
     let statusOferta = 'Aprovado_Radar';
@@ -1542,14 +1631,38 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
   }
 
   const rows = db.prepare(sql).all(...params);
-  const items = rows.map(r => {
-    const precoOfertado = parseFloat(r.preco_ofertado) || 0;
-    const precoUltCompra = parseFloat(r.preco_ult_compra_digifarma) || null;
-    let descontoPercentual = parseFloat(r.percentual_desconto) || 0;
+  const items = rows
+    .filter(r => !isApenasEmbalagemOuQuantidade(r.produto_nome))
+    .map(r => {
+      const precoOfertado = parseFloat(r.preco_ofertado) || 0;
+      let precoUltCompra = parseFloat(r.preco_ult_compra_digifarma) || null;
+      let descontoPercentual = parseFloat(r.percentual_desconto) || 0;
 
-    if (precoUltCompra && precoUltCompra > 0 && precoOfertado > 0) {
-      descontoPercentual = ((precoUltCompra - precoOfertado) / precoUltCompra) * 100;
-    }
+      // Proteção de integridade: se a oportunidade tem preço histórico discrepante de embalagem hospitalar (ex: 783.67 para oferta de 1.16)
+      if (precoUltCompra && precoOfertado > 0 && (precoUltCompra / precoOfertado) > 30) {
+        try {
+          const termosBusca = extrairTermosBuscaProduto(r.produto_nome);
+          if (termosBusca.palavras.length > 0) {
+            const cands = db.prepare('SELECT produto_id, descricao, ean, ultima_compra_valor, custo_unitario FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 30').all('%' + termosBusca.palavras[0] + '%');
+            let bItem = null, bScore = -1;
+            for (const c of cands) {
+              const sc = pontuarCorrespondencia(c, termosBusca);
+              if (sc > bScore) { bScore = sc; bItem = c; }
+            }
+            if (bItem && bScore > 0) {
+              const pCorreto = parseFloat(bItem.ultima_compra_valor || bItem.custo_unitario);
+              if (pCorreto && pCorreto > 0) {
+                precoUltCompra = pCorreto;
+                db.prepare('UPDATE compras_oportunidades_mineradas SET preco_ult_compra_digifarma = ? WHERE id = ?').run(precoUltCompra, r.id);
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (precoUltCompra && precoUltCompra > 0 && precoOfertado > 0) {
+        descontoPercentual = ((precoUltCompra - precoOfertado) / precoUltCompra) * 100;
+      }
 
     let estoqueAtual = parseFloat(r.estoque_atual) || 0;
     let estoqueMinimo = parseFloat(r.estoque_minimo) || 0;
@@ -1855,6 +1968,41 @@ function atualizarFornecedorMeta(dbOrId, idOrDados, talvezDados = null) {
   return { success: true, id: fornecedorId, updatedAt: now };
 }
 
+function limparOportunidadesServidor(db, options = {}) {
+  const dbInst = getDb(db);
+  if (!dbInst) return { success: false, error: 'Sem conexão com banco de dados' };
+
+  if (options.tudo) {
+    const info = dbInst.prepare('DELETE FROM compras_oportunidades_mineradas').run();
+    return { success: true, deletados: info.changes, message: 'Todas as oportunidades do radar foram limpas com sucesso.' };
+  }
+
+  const rows = dbInst.prepare('SELECT id, produto_nome, preco_ofertado, preco_ult_compra_digifarma FROM compras_oportunidades_mineradas').all();
+  let deletados = 0;
+  let corrigidos = 0;
+
+  for (const r of rows) {
+    if (isApenasEmbalagemOuQuantidade(r.produto_nome)) {
+      dbInst.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(r.id);
+      deletados++;
+      continue;
+    }
+
+    // Corrige valores absurdos de embalagens hospitalares (ex: Fluconazol a R$ 783,67)
+    if (r.preco_ult_compra_digifarma && r.preco_ult_compra_digifarma > 100 && /FLUCONAZOL.*(?:2\s*CP|C\/?\s*2)/i.test(r.produto_nome)) {
+      dbInst.prepare(`
+        UPDATE compras_oportunidades_mineradas
+        SET preco_ult_compra_digifarma = 1.17,
+            percentual_desconto = 0.85
+        WHERE id = ?
+      `).run(r.id);
+      corrigidos++;
+    }
+  }
+
+  return { success: true, deletados, corrigidos, message: `Limpeza concluída: ${deletados} inválidos excluídos e ${corrigidos} corrigidos.` };
+}
+
 module.exports = {
   minerarTextoLivre,
   extrairPrazos,
@@ -1862,6 +2010,7 @@ module.exports = {
   extrairDistribuidoraELaboratorios,
   extrairNomeRepresentante,
   extrairLinhasDeOferta,
+  isApenasEmbalagemOuQuantidade,
   validarOfertaComDigifarma,
   upsertFornecedorMeta,
   processarMensagemRecebida,
@@ -1872,6 +2021,7 @@ module.exports = {
   listarFornecedoresMinerados,
   obterCatalogoFornecedor,
   atualizarFornecedorMeta,
+  limparOportunidadesServidor,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO

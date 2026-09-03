@@ -271,6 +271,27 @@ module.exports = (db) => {
     }
   });
 
+  router.post('/mineracao/limpar', (req, res) => {
+    try {
+      const { tudo } = req.body || {};
+      const resultado = comprasMineracaoService.limparOportunidadesServidor(db, { tudo: tudo === true });
+      res.json(resultado);
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /mineracao/limpar:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/oportunidades/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(id);
+      res.json({ success: true, message: 'Oportunidade removida com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades', async (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;

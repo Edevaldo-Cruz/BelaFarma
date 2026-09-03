@@ -18,7 +18,9 @@ import {
   BadgePercent,
   Check,
   Zap,
-  ShoppingBag
+  ShoppingBag,
+  Trash2,
+  X
 } from 'lucide-react';
 import { OportunidadeMinerada, User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -145,6 +147,46 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
     }
   };
 
+  const [limpandoRadar, setLimpandoRadar] = useState(false);
+
+  const handleLimparRadar = async () => {
+    if (!confirm('Deseja limpar as ofertas antigas do radar para remover entradas incorretas e começar do zero?')) {
+      return;
+    }
+    try {
+      setLimpandoRadar(true);
+      const res = await fetch('/api/central-compras/mineracao/limpar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tudo: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('🧹 Radar limpo com sucesso! Você pode varrer ou colar novas ofertas.', 'success');
+        setOportunidades([]);
+      } else {
+        addToast(data.error || 'Erro ao limpar radar.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro ao limpar: ' + err.message, 'error');
+    } finally {
+      setLimpandoRadar(false);
+    }
+  };
+
+  const handleExcluirOportunidade = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`/api/central-compras/oportunidades/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        addToast('Oferta removida do radar.', 'info');
+        setOportunidades(prev => prev.filter(o => o.id !== id));
+      }
+    } catch (err) {}
+  };
+
   const oportunidadesFiltradas = useMemo(() => {
     return oportunidades
       .filter(op => {
@@ -259,6 +301,16 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
             >
               <FileText className="w-4 h-4 text-orange-400" />
               Colar Oferta
+            </button>
+
+            <button
+              onClick={handleLimparRadar}
+              disabled={limpandoRadar}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-3 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 dark:bg-slate-800 dark:hover:bg-rose-950/40 dark:text-slate-400 dark:hover:text-rose-400 text-xs font-black uppercase tracking-wider border border-slate-200 dark:border-slate-700 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              title="Limpar ofertas antigas do radar"
+            >
+              <Trash2 className="w-4 h-4" />
+              {limpandoRadar ? 'Limpando...' : 'Limpar Radar'}
             </button>
           </div>
         </div>
@@ -508,6 +560,14 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                             title="Ver mensagem original do WhatsApp"
                           >
                             <MessageSquare className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            onClick={(e) => handleExcluirOportunidade(op.id, e)}
+                            className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all cursor-pointer"
+                            title="Descartar esta oferta do radar"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
 
                           <button

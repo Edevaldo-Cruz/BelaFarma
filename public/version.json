@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e262a8b",
-  "commitMessage": "fix(precos): otimiza queries de precificacao e resolve falsos alertas de digifarma offline",
-  "buildTime": "03/09/2026, 10:46:27"
+  "commitHash": "f29f416",
+  "commitMessage": "fix(compras): corrigir preco de referencia e implementar produtos equivalentes com estoque consolidado",
+  "buildTime": "03/09/2026, 11:25:05"
 }

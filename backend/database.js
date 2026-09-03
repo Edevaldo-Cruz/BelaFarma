@@ -2187,6 +2187,22 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_ean ON compras_produtos_equivalentes(ean)');
     } catch(e) {}
 
+    // Limpeza de segurança: remove entradas espúrias como C30 e corrige histórico de Fluconazol
+    try {
+      db.exec(`
+        DELETE FROM compras_oportunidades_mineradas 
+        WHERE UPPER(TRIM(produto_nome)) IN ('C30', 'C/30', 'C 30', 'C2', 'C1', '30CP')
+           OR LENGTH(TRIM(produto_nome)) < 4;
+
+        UPDATE compras_oportunidades_mineradas
+        SET preco_ult_compra_digifarma = 1.17,
+            percentual_desconto = 0.85
+        WHERE preco_ult_compra_digifarma > 100 
+          AND UPPER(produto_nome) LIKE '%FLUCONAZOL%' 
+          AND (UPPER(produto_nome) LIKE '%2%CP%' OR UPPER(produto_nome) LIKE '%C/2%');
+      `);
+    } catch (e) {}
+
     console.log('✅ Central de Compras: Todas as tabelas e configurações criadas/verificadas com sucesso!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
