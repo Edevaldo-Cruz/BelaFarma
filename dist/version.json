@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0d92aaa",
-  "commitMessage": "feat(compras): ajustes de producao com varredura 5m, pausa aos domingos, filtro do dia e grafico de variacao de preco por fornecedor",
-  "buildTime": "03/09/2026, 15:14:02"
+  "commitHash": "503c5ee",
+  "commitMessage": "feat(compras): adicionar visualizacao da conversa do WhatsApp com destaque do produto e atalhos de cotacao",
+  "buildTime": "03/09/2026, 15:16:52"
 }

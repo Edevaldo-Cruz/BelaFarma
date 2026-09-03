@@ -84,16 +84,27 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   const [relatorioSelecionado, setRelatorioSelecionado] = useState<any | null>(null);
   const [horacioExpandido, setHoracioExpandido] = useState(true);
 
-  const carregarRelatoriosHoracio = async () => {
+  const carregarRelatoriosHoracio = async (isSilent = false) => {
     try {
-      setLoadingHoracio(true);
-      const res = await fetch('/api/central-compras/horacio/relatorios?limite=5');
+      if (!isSilent && relatoriosHoracio.length === 0) {
+        setLoadingHoracio(true);
+      }
+      const res = await fetch('/api/central-compras/horacio/relatorios?limite=10');
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
           setRelatoriosHoracio(data.data);
           if (data.data.length > 0) {
-            setRelatorioSelecionado(data.data[0]);
+            setRelatorioSelecionado((prev: any) => {
+              // Mantém o fornecedor que o usuário já escolheu clicar
+              if (prev && prev.id) {
+                const aindaExiste = data.data.find((r: any) => r.id === prev.id);
+                if (aindaExiste) return aindaExiste;
+              }
+              return data.data[0];
+            });
+          } else {
+            setRelatorioSelecionado(null);
           }
         }
       }
@@ -205,7 +216,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
     // Atualiza automaticamente a cada 15 segundos para exibir novas ofertas mineradas
     const interval = setInterval(() => {
       carregarOportunidades();
-      carregarRelatoriosHoracio();
+      carregarRelatoriosHoracio(true);
     }, 15000);
     return () => clearInterval(interval);
   }, [apenasHoje]);

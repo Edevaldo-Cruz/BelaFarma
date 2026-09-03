@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e84d2f1",
-  "commitMessage": "feat(compras): adicionar visualizacao da conversa do WhatsApp com destaque do produto e atalhos de cotacao",
-  "buildTime": "03/09/2026, 15:15:00"
+  "commitHash": "41ef9bc",
+  "commitMessage": "fix(compras): preservar guia do fornecedor selecionado no painel do Agente Horacio evitando reset automatico",
+  "buildTime": "03/09/2026, 15:17:30"
 }
