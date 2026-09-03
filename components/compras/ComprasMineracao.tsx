@@ -45,6 +45,9 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   // Modal de Detalhes da Oferta
   const [selectedOferta, setSelectedOferta] = useState<OportunidadeMinerada | null>(null);
   
+  // Modal de Produtos Equivalentes da Oferta
+  const [modalEquivOferta, setModalEquivOferta] = useState<any | null>(null);
+
   // Modal de Mineração Manual / Colar Texto
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualTexto, setManualTexto] = useState('');
@@ -381,6 +384,16 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                               {op.ean}
                             </span>
                           )}
+                          {op.grupoEquivalente && (
+                            <button
+                              onClick={() => setModalEquivOferta(op.grupoEquivalente)}
+                              className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                              title="Clique para ver o estoque e preços dos produtos equivalentes"
+                            >
+                              <Layers className="w-3 h-3 text-indigo-500" />
+                              <span>Equivalentes: {op.grupoEquivalente.saldoTotal} un ({op.grupoEquivalente.quantidadeProdutos} marcas)</span>
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -479,6 +492,16 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                       {/* Ações */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-2">
+                          {op.grupoEquivalente && (
+                            <button
+                              onClick={() => setModalEquivOferta(op.grupoEquivalente)}
+                              className="p-2 rounded-xl text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all cursor-pointer"
+                              title="Ver produtos e marcas equivalentes"
+                            >
+                              <Layers className="w-4 h-4" />
+                            </button>
+                          )}
+
                           <button
                             onClick={() => setSelectedOferta(op)}
                             className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
@@ -615,6 +638,105 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
               >
                 <Sparkles className={`w-4 h-4 ${processandoManual ? 'animate-spin' : ''}`} />
                 {processandoManual ? 'Minerando IA...' : 'Processar e Minerar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Detalhes dos Produtos Equivalentes */}
+      {modalEquivOferta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-xl p-6 rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+                  <Layers className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100">
+                    {modalEquivOferta.nome || modalEquivOferta.nomeGrupo}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Estoque consolidado de marcas equivalentes / genéricos
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalEquivOferta(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-center">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Saldo Total</span>
+                <span className={`text-lg font-black ${modalEquivOferta.saldoTotal > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
+                  {modalEquivOferta.saldoTotal} un
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estoque Mínimo</span>
+                <span className="text-lg font-black text-slate-700 dark:text-slate-300">
+                  {modalEquivOferta.estMinimoTotal || 0} un
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Menor Compra</span>
+                <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                  {modalEquivOferta.menorUltimaCompra > 0 ? `R$ ${modalEquivOferta.menorUltimaCompra.toFixed(2)}` : '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                Marcas e Estoque Atual na Farmácia:
+              </span>
+              <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl">
+                {modalEquivOferta.produtos && modalEquivOferta.produtos.length > 0 ? (
+                  modalEquivOferta.produtos.map((p: any) => (
+                    <div key={p.produto_id} className="p-3 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <div>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 block">{p.descricao}</span>
+                        <span className="text-[11px] text-slate-400">ID: {p.produto_id} {p.ean ? `• EAN: ${p.ean}` : ''}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className={`font-black block ${p.saldo > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                          {p.saldo} un
+                        </span>
+                        {p.ultima_compra_valor > 0 && (
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                            Últ: R$ {Number(p.ultima_compra_valor).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-6 text-center text-xs text-slate-400">Nenhum produto detalhado encontrado.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={() => {
+                  setModalEquivOferta(null);
+                  if (onNavigateToTab) onNavigateToTab('equivalentes');
+                }}
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer"
+              >
+                Gerenciar todos os grupos na aba "Equivalentes" →
+              </button>
+
+              <button
+                onClick={() => setModalEquivOferta(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                Fechar
               </button>
             </div>
           </div>

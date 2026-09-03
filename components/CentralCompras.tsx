@@ -14,14 +14,16 @@ import {
   Wallet,
   CheckCircle2,
   AlertTriangle,
-  Lock
+  Lock,
+  Layers
 } from 'lucide-react';
 import { CentralComprasTab, User } from '../types';
 import { useToast } from './ToastContext';
 
-// 7 Subcomponentes Especializados
+// Subcomponentes Especializados
 import { ComprasDashboard } from './compras/ComprasDashboard';
 import { ComprasMineracao } from './compras/ComprasMineracao';
+import { ComprasEquivalentes } from './compras/ComprasEquivalentes';
 import { ComprasCotacoes } from './compras/ComprasCotacoes';
 import { ComprasAprovacaoFila } from './compras/ComprasAprovacaoFila';
 import { ComprasPedidosPainel } from './compras/ComprasPedidosPainel';
@@ -107,36 +109,43 @@ export const CentralCompras: React.FC<CentralComprasProps> = ({
       badge: null
     },
     {
+      id: 'equivalentes',
+      label: '3. Equivalentes & Marcas',
+      shortLabel: 'Equivalentes',
+      icon: Layers,
+      badge: null
+    },
+    {
       id: 'cotacoes',
-      label: '3. Cotações & Ranking',
+      label: '4. Cotações & Ranking',
       shortLabel: 'Cotações',
       icon: Calculator,
       badge: null
     },
     {
       id: 'aprovacao',
-      label: '4. Fila de Aprovação',
+      label: '5. Fila de Aprovação',
       shortLabel: 'Aprovação',
       icon: ShieldCheck,
       badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : null
     },
     {
       id: 'pedidos',
-      label: '5. Pedidos & Orçamento',
+      label: '6. Pedidos & Orçamento',
       shortLabel: 'Pedidos',
       icon: FileText,
       badge: null
     },
     {
       id: 'representantes',
-      label: '6. Representantes',
+      label: '7. Representantes',
       shortLabel: 'Representantes',
       icon: Users,
       badge: null
     },
     {
       id: 'whatsapp',
-      label: '7. WhatsApp Comercial',
+      label: '8. WhatsApp Comercial',
       shortLabel: 'WhatsApp',
       icon: Smartphone,
       isOnline: whatsappConnected
@@ -249,6 +258,13 @@ export const CentralCompras: React.FC<CentralComprasProps> = ({
             user={user}
             theme={theme}
             onNavigateToTab={handleNavigateToTab}
+          />
+        )}
+
+        {activeTab === 'equivalentes' && (
+          <ComprasEquivalentes
+            user={user}
+            theme={theme}
           />
         )}
 

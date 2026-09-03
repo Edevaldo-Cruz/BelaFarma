@@ -2141,12 +2141,52 @@ try {
       ['peso_score_historico', '0.15', 'Peso do critério de Histórico e Confiabilidade no ranking (padrão: 15%)'],
       ['alerta_duplo_whatsapp_adm', 'true', 'Ativar disparo de alerta no WhatsApp dos Administradores para itens da fila']
     ];
-    
     const insertConfig = db.prepare('INSERT OR IGNORE INTO compras_configuracoes (chave, valor, descricao, updated_at) VALUES (?, ?, ?, ?)');
     const nowIso = new Date().toISOString();
     for (const [k, v, desc] of defaultConfigs) {
       insertConfig.run(k, v, desc, nowIso);
     }
+    
+    // 9. Produtos Equivalentes e Grupos de Substituição
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_grupos_equivalentes (
+        id TEXT PRIMARY KEY,
+        nome_grupo TEXT NOT NULL,
+        principio_ativo TEXT NOT NULL,
+        dosagem TEXT,
+        unidades_embalagem INTEGER DEFAULT 1,
+        forma_farmaceutica TEXT,
+        est_minimo_grupo REAL DEFAULT 0,
+        observacoes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cge_principio ON compras_grupos_equivalentes(principio_ativo)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cge_nome ON compras_grupos_equivalentes(nome_grupo)');
+    } catch(e) {}
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_produtos_equivalentes (
+        id TEXT PRIMARY KEY,
+        grupo_id TEXT NOT NULL,
+        produto_id INTEGER NOT NULL,
+        ean TEXT,
+        descricao TEXT NOT NULL,
+        laboratorio TEXT,
+        manual_override INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        UNIQUE(grupo_id, produto_id),
+        FOREIGN KEY (grupo_id) REFERENCES compras_grupos_equivalentes(id) ON DELETE CASCADE
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_grupo ON compras_produtos_equivalentes(grupo_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_produto ON compras_produtos_equivalentes(produto_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_ean ON compras_produtos_equivalentes(ean)');
+    } catch(e) {}
+
     console.log('✅ Central de Compras: Todas as tabelas e configurações criadas/verificadas com sucesso!');
 
     console.log('Tabelas verificadas/criadas com sucesso.');

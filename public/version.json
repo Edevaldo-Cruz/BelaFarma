@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9143975",
-  "commitMessage": "fix(compras-mineracao): adicionar circuit breaker na IA e filtrar mensagens candidatas para eliminar 504 Gateway Timeout",
-  "buildTime": "02/09/2026, 18:17:52"
+  "commitHash": "e262a8b",
+  "commitMessage": "fix(precos): otimiza queries de precificacao e resolve falsos alertas de digifarma offline",
+  "buildTime": "03/09/2026, 10:46:27"
 }

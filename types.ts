@@ -865,11 +865,54 @@ export interface Note {
 export type CentralComprasTab = 
   | 'dashboard'
   | 'mineracao'
+  | 'equivalentes'
   | 'cotacoes'
   | 'aprovacao'
   | 'pedidos'
   | 'representantes'
   | 'whatsapp';
+
+export interface ProdutoEquivalenteItem {
+  vinculo_id?: string;
+  produto_id: number;
+  ean?: string | null;
+  descricao: string;
+  laboratorio?: string | null;
+  manual_override?: number;
+  saldo: number;
+  est_minimo?: number;
+  custo_unitario?: number;
+  ultima_compra_valor?: number;
+  vmd_ponderado?: number;
+}
+
+export interface GrupoEquivalente {
+  grupoId: string;
+  nomeGrupo: string;
+  principioAtivo: string;
+  dosagem?: string;
+  unidadesEmbalagem?: number;
+  formaFarmaceutica?: string;
+  saldoTotal: number;
+  estMinimoTotal: number;
+  emRuptura: boolean;
+  menorUltimaCompra: number;
+  mediaUltimaCompra: number;
+  quantidadeProdutos: number;
+  produtos: ProdutoEquivalenteItem[];
+}
+
+export interface GrupoEquivalenteResumo {
+  id: string;
+  nome: string;
+  saldoTotal: number;
+  estMinimoTotal: number;
+  emRuptura: boolean;
+  menorUltimaCompra: number;
+  mediaUltimaCompra: number;
+  quantidadeProdutos: number;
+  produtos?: ProdutoEquivalenteItem[];
+}
 
 export interface EstoqueMinimoProduto {
   produtoId: number;
@@ -919,6 +962,7 @@ export interface OportunidadeMinerada {
   emRuptura?: boolean;
   economiaValor?: number;
   scoreRelevancia?: number;
+  grupoEquivalente?: GrupoEquivalenteResumo | null;
   justificativa?: {
     badge: string;
     cor: 'red' | 'amber' | 'emerald' | 'blue' | 'slate' | string;

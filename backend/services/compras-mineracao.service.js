@@ -529,46 +529,144 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
   }
 }
 
+let equivService = null;
+try {
+  equivService = require('./compras-equivalentes.service');
+} catch (e) {}
+
 // ──────────────────────────────────────────────────────────
 // Validação e Comparação de Ofertas com o Digifarma Firebird / Cache Local
 // ──────────────────────────────────────────────────────────
 
+const EAN_PREFIX_LABS = {
+  '78968629': 'MEDQUIMICA',
+  '78965232': 'CIMED',
+  '78967142': 'NEO QUIMICA',
+  '7891317': 'EUROFARMA',
+  '7896112': 'TEUTO',
+  '78981483': 'PRATI',
+  '7898495': 'GERMED',
+  '78990952': 'GEOLAB',
+  '78980497': 'VITAMEDIC',
+  '78996209': 'GLOBO',
+  '78966580': 'ACHE',
+  '78961819': 'BIOLAB',
+  '78975956': 'SANDOZ'
+};
+
 const LABS_CONHECIDOS_BUSCA = [
-  'LEGRAND', 'EMS', 'CIMED', 'NEO QUIMICA', 'MEDLEY', 'EUROFARMA', 'TEUTO', 'GERMED',
-  'PRATI', 'ACHE', 'SANDOZ', 'BIOLAB', 'NOVA QUIMICA', 'GEOLAB', 'SANVAL', 'BELFAR',
-  'PHARLAB', 'LISMED', 'BIOSINTETICA', 'HYPERA', 'GLAXO', 'ASTRAZENECA', 'SANOFI',
-  'NOVARTIS', 'BAYER', 'TAKEDA', 'ABBOTT', 'APSEN', 'CRISTALIA', 'MANTECORP'
+  'MEDQUIMICA', 'MEDQUIMIC', 'LEGRAND', 'EMS', 'CIMED', 'NEO QUIMICA', 'MEDLEY', 'EUROFARMA',
+  'TEUTO', 'GERMED', 'PRATI', 'ACHE', 'SANDOZ', 'BIOLAB', 'NOVA QUIMICA', 'GEOLAB',
+  'SANVAL', 'BELFAR', 'PHARLAB', 'LISMED', 'BIOSINTETICA', 'HYPERA', 'GLAXO',
+  'ASTRAZENECA', 'SANOFI', 'NOVARTIS', 'BAYER', 'TAKEDA', 'ABBOTT', 'APSEN',
+  'CRISTALIA', 'MANTECORP', 'VITAMEDIC', 'VITAPAN', 'GLOBO', 'ONE'
 ];
 
-function extrairTermosBuscaProduto(nome) {
-  if (!nome || typeof nome !== 'string') return { palavras: [], lab: null, dosagemNum: null };
-  const norm = nome.toUpperCase();
-  
-  let labEncontrado = null;
+function detectarLabBusca(ean, texto) {
+  const d = (texto || '').toUpperCase();
+  if (ean) {
+    for (const [pfx, lab] of Object.entries(EAN_PREFIX_LABS)) {
+      if (ean.startsWith(pfx)) return lab;
+    }
+  }
   for (const lab of LABS_CONHECIDOS_BUSCA) {
-    if (norm.includes(lab)) {
-      labEncontrado = lab;
-      break;
+    if (d.includes(lab)) {
+      if (lab === 'MEDQUIMIC') return 'MEDQUIMICA';
+      return lab;
+    }
+  }
+  return null;
+}
+
+function extrairTermosBuscaProduto(nome) {
+  if (!nome || typeof nome !== 'string') return { palavras: [], lab: null, dosagemNum: null, unidades: 1 };
+  let norm = nome.toUpperCase();
+  
+  const labEncontrado = detectarLabBusca(null, norm);
+
+  // Normaliza espaços entre números e unidades (ex: 150MG -> 150 MG, C/2CP -> C/ 2 CP)
+  norm = norm.replace(/(\d+)\s*(MG|G|MCG|ML|L)\b/gi, ' $1 $2 ')
+             .replace(/(?:C\/|CX\/)\s*(\d+)/gi, ' C/ $1 ');
+
+  // Extrai unidades na embalagem (ex: C/ 2 CPS, 9X10 CPS = 90)
+  let unidades = 1;
+  const multMatch = /(\d+)\s*[Xx]\s*(\d+)/.exec(norm);
+  if (multMatch) {
+    unidades = parseInt(multMatch[1], 10) * parseInt(multMatch[2], 10);
+  } else {
+    const unMatch = /(?:C\/|CX\/|COM|\/)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(norm) ||
+                    /\b(\d+)\s*(?:CPS|CPR|COMP|CAPS|FLAC|AMP|ENV)\b/i.exec(norm);
+    if (unMatch) {
+      unidades = parseInt(unMatch[1], 10);
     }
   }
 
   const doseMatch = /(\d+(?:[,\.]\d+)?)\s*(MG|G|MCG|ML|L)\b/i.exec(norm);
   const dosagemNum = doseMatch ? doseMatch[1].replace(',', '.') : null;
 
-  const stopwords = new Set(['DE', 'DA', 'DO', 'DOS', 'DAS', 'COM', 'PARA', 'POR', 'C', 'MG', 'CPR', 'CAPS', 'DRG', 'G', 'ML', 'L', ...LABS_CONHECIDOS_BUSCA]);
+  const stopwords = new Set([
+    'DE', 'DA', 'DO', 'DOS', 'DAS', 'COM', 'PARA', 'POR', 'C', 'MG', 'CPR', 'CAPS', 'CPS', 'COMP',
+    'DRG', 'G', 'ML', 'L', 'GEN', 'GENERICO', 'GENÉRICO', 'SIMILAR', 'REF', 'REFERENCIA',
+    'CX', 'FR', 'BL', 'UN', 'LOTES', ...LABS_CONHECIDOS_BUSCA
+  ]);
   const palavras = norm.replace(/[^A-Z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length >= 3 && !stopwords.has(w) && !/^\d+$/.test(w));
 
-  return { palavras, lab: labEncontrado, dosagemNum };
+  return { palavras, lab: labEncontrado, dosagemNum, unidades };
 }
 
-function pontuarCorrespondencia(descricaoProduto, palavras, lab, dosagemNum) {
-  const desc = (descricaoProduto || '').toUpperCase();
+function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab, maybeDosagemNum) {
+  let desc = '';
+  let ean = null;
+  if (typeof candidatoOuDescricao === 'object' && candidatoOuDescricao !== null) {
+    desc = (candidatoOuDescricao.descricao || candidatoOuDescricao.PRODUTO || '').toUpperCase();
+    ean = candidatoOuDescricao.ean || candidatoOuDescricao.COD_BARRAS || null;
+  } else {
+    desc = (candidatoOuDescricao || '').toUpperCase();
+  }
+
+  let termos = {};
+  if (palavrasOuTermos && typeof palavrasOuTermos === 'object' && !Array.isArray(palavrasOuTermos)) {
+    termos = palavrasOuTermos;
+  } else {
+    termos = {
+      palavras: Array.isArray(palavrasOuTermos) ? palavrasOuTermos : [],
+      lab: maybeLab,
+      dosagemNum: maybeDosagemNum,
+      unidades: 1
+    };
+  }
+
   let score = 0;
 
+  // Unidades da embalagem do produto candidato
+  let unCandidato = 1;
+  const multMatch = /(\d+)\s*[Xx]\s*(\d+)/.exec(desc);
+  if (multMatch) {
+    unCandidato = parseInt(multMatch[1], 10) * parseInt(multMatch[2], 10);
+  } else {
+    const unMatch = /(?:C\/|CX\/|COM|\/)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(desc) ||
+                    /\b(\d+)\s*(?:CPS|CPR|COMP|CAPS|FLAC|AMP|ENV)\b/i.exec(desc);
+    if (unMatch) {
+      unCandidato = parseInt(unMatch[1], 10);
+    }
+  }
+
+  // DESCARTE DE EMBALAGEM INCOMPATÍVEL:
+  // Se a oferta é para 1 ou 2 comprimidos e o candidato é caixa hospitalar/fracionada (>= 20 un),
+  // ou vice-versa, descarta imediatamente com score fortemente negativo para nunca gerar falso desconto.
+  if (termos.unidades && termos.unidades <= 4 && unCandidato >= 20) return -999;
+  if (termos.unidades && termos.unidades >= 20 && unCandidato <= 4) return -999;
+
+  // Bônus de unidade de embalagem exata
+  if (termos.unidades && termos.unidades === unCandidato) {
+    score += 50;
+  }
+
+  const palavras = termos.palavras || [];
   if (palavras.length > 0 && desc.includes(palavras[0])) {
-    score += 25;
+    score += 30;
   }
 
   for (let i = 1; i < palavras.length; i++) {
@@ -577,17 +675,22 @@ function pontuarCorrespondencia(descricaoProduto, palavras, lab, dosagemNum) {
     }
   }
 
-  // Dosagem exata (ex: 10 MG)
-  if (dosagemNum) {
-    const doseRegex = new RegExp('\\b' + dosagemNum + '\\s*(?:MG|G|ML|L)?\\b');
+  // Dosagem exata (ex: 150 MG)
+  if (termos.dosagemNum) {
+    const doseRegex = new RegExp('\\b' + termos.dosagemNum + '\\s*(?:MG|G|ML|L)?\\b');
     if (doseRegex.test(desc)) {
       score += 40;
     }
   }
 
-  // Laboratório exato (ex: LEGRAND)
-  if (lab && desc.includes(lab)) {
-    score += 50;
+  // Laboratório
+  const candLab = detectarLabBusca(ean, desc);
+  if (termos.lab && candLab) {
+    if (termos.lab === candLab) {
+      score += 70; // Bônus alto para laboratório exato
+    } else {
+      score -= 10;
+    }
   }
 
   return score;
@@ -605,10 +708,11 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
   let estoqueAtual = 0;
   let estMinimo = 0;
   let emRuptura = false;
+  let grupoEquivalente = null;
 
   const useFirebird = queryDigifarma && !options.skipFirebird;
-  const { palavras, lab, dosagemNum } = extrairTermosBuscaProduto(produtoNome);
-  const termoPrincipal = palavras.length > 0 ? palavras[0] : null;
+  const termos = extrairTermosBuscaProduto(produtoNome);
+  const termoPrincipal = termos.palavras.length > 0 ? termos.palavras[0] : null;
 
   // 1. Tenta buscar no Firebird se conectado
   if (useFirebird) {
@@ -616,27 +720,26 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
       let rows = [];
       if (ean) {
         rows = await queryDigifarma(`
-          SELECT FIRST 1 PRODUTO_ID, PRODUTO, PROD_SALDO, PROD_ESTMINIMO, PROD_PRCOMPRA, VALOR_ULT_COMPRA
+          SELECT FIRST 1 PRODUTO_ID, PRODUTO, PROD_SALDO, PROD_ESTMINIMO, PROD_PRCOMPRA, VALOR_ULT_COMPRA, COD_BARRAS
           FROM PRODUTOS
           WHERE COD_BARRAS = ?
         `, [ean], 2000);
       }
       
       if ((!rows || rows.length === 0) && termoPrincipal) {
-        // Busca múltiplos candidatos pelo princípio ativo/nome principal para ranqueamento inteligente
         rows = await queryDigifarma(`
-          SELECT FIRST 25 PRODUTO_ID, PRODUTO, PROD_SALDO, PROD_ESTMINIMO, PROD_PRCOMPRA, VALOR_ULT_COMPRA
+          SELECT FIRST 30 PRODUTO_ID, PRODUTO, PROD_SALDO, PROD_ESTMINIMO, PROD_PRCOMPRA, VALOR_ULT_COMPRA, COD_BARRAS
           FROM PRODUTOS
           WHERE PRODUTO CONTAINING ? AND PROD_ATIVO = 'S'
         `, [termoPrincipal], 2500);
       }
 
       if (rows && rows.length > 0) {
-        let melhorItem = rows[0];
+        let melhorItem = null;
         let melhorScore = -1;
 
         for (const p of rows) {
-          const score = pontuarCorrespondencia(p.PRODUTO, palavras, lab, dosagemNum);
+          const score = pontuarCorrespondencia({ descricao: p.PRODUTO, ean: p.COD_BARRAS }, termos);
           if (score > melhorScore) {
             melhorScore = score;
             melhorItem = p;
@@ -649,7 +752,7 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
           estoqueAtual = parseFloat(melhorItem.PROD_SALDO) || 0;
           estMinimo = parseFloat(melhorItem.PROD_ESTMINIMO) || 0;
           precoUltCompra = parseFloat(melhorItem.VALOR_ULT_COMPRA || melhorItem.PROD_PRCOMPRA) || null;
-          emRuptura = estoqueAtual <= 0 || estoqueAtual < estMinimo;
+          emRuptura = estoqueAtual <= 0 || (estMinimo > 0 && estoqueAtual < estMinimo);
         }
       }
     } catch (err) {
@@ -671,18 +774,19 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
         }
       }
 
-      // 2.2 Busca ranqueada por Nome / Dosagem / Laboratório
+      // 2.2 Busca ranqueada por Nome / Dosagem / Laboratório / Embalagem
       if (!melhorCache && termoPrincipal) {
         // Busca candidatos no cache de estoque
         try {
-          const estoqueCandidates = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 30').all('%' + termoPrincipal + '%');
+          const estoqueCandidates = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 40').all('%' + termoPrincipal + '%');
           for (const item of estoqueCandidates) {
-            const score = pontuarCorrespondencia(item.descricao, palavras, lab, dosagemNum);
+            const score = pontuarCorrespondencia(item, termos);
             if (score > melhorScore) {
               melhorScore = score;
               melhorCache = {
                 produto_id: item.produto_id,
                 descricao: item.descricao,
+                ean: item.ean,
                 saldo: item.saldo,
                 est_minimo: item.est_minimo_calculado || item.est_minimo_digifarma,
                 preco: item.ultima_compra_valor || item.custo_unitario
@@ -693,14 +797,15 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
 
         // Busca candidatos no cache de produtos geral
         try {
-          const prodCandidates = db.prepare('SELECT * FROM digifarma_products_cache WHERE descricao LIKE ? LIMIT 30').all('%' + termoPrincipal + '%');
+          const prodCandidates = db.prepare('SELECT * FROM digifarma_products_cache WHERE descricao LIKE ? LIMIT 40').all('%' + termoPrincipal + '%');
           for (const item of prodCandidates) {
-            const score = pontuarCorrespondencia(item.descricao, palavras, lab, dosagemNum);
+            const score = pontuarCorrespondencia({ descricao: item.descricao, ean: item.codigo_barras }, termos);
             if (score > melhorScore) {
               melhorScore = score;
               melhorCache = {
                 produto_id: item.produto_id,
                 descricao: item.descricao,
+                ean: item.codigo_barras,
                 saldo: item.estoque_atual || 0,
                 est_minimo: 0,
                 preco: item.preco_custo
@@ -721,6 +826,23 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     } catch (e) {
       // Ignora erro de cache
     }
+  }
+
+  // 3. Integração com Produtos Equivalentes (Consolidação de Estoque e Preço de Referência)
+  if (equivService && db) {
+    try {
+      const gEquiv = equivService.buscarGrupoPorProduto(produtoId, ean, produtoNome, db);
+      if (gEquiv) {
+        grupoEquivalente = gEquiv;
+        estoqueAtual = gEquiv.saldoTotal;
+        estMinimo = gEquiv.estMinimoTotal;
+        emRuptura = gEquiv.emRuptura;
+        // Se o produto específico nunca foi comprado, usa o menor preço histórico dos equivalentes
+        if (!precoUltCompra || precoUltCompra <= 0) {
+          precoUltCompra = gEquiv.menorUltimaCompra || gEquiv.mediaUltimaCompra || null;
+        }
+      }
+    } catch (e) {}
   }
 
   // Calcula a economia percentual
@@ -747,7 +869,8 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     vantajosa: precoInferior,
     estoqueAtual,
     estMinimo,
-    emRuptura
+    emRuptura,
+    grupoEquivalente
   };
 }
 
@@ -1440,12 +1563,12 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
           pCache = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE ean = ? LIMIT 1').get(r.ean);
         }
         if (!pCache && r.produto_nome) {
-          const { palavras, lab, dosagemNum } = extrairTermosBuscaProduto(r.produto_nome);
-          if (palavras.length > 0) {
-            const candidates = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma, descricao FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 10').all('%' + palavras[0] + '%');
+          const termosBusca = extrairTermosBuscaProduto(r.produto_nome);
+          if (termosBusca.palavras.length > 0) {
+            const candidates = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma, descricao, ean FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 20').all('%' + termosBusca.palavras[0] + '%');
             let best = null, bestScore = -1;
             for (const c of candidates) {
-              const sc = pontuarCorrespondencia(c.descricao, palavras, lab, dosagemNum);
+              const sc = pontuarCorrespondencia(c, termosBusca);
               if (sc > bestScore) { bestScore = sc; best = c; }
             }
             if (best) pCache = best;
@@ -1455,6 +1578,22 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
           estoqueAtual = pCache.saldo || 0;
           estoqueMinimo = pCache.est_minimo_calculado || pCache.est_minimo_digifarma || 0;
           emRuptura = estoqueAtual <= 0 || (estoqueMinimo > 0 && estoqueAtual < estoqueMinimo);
+        }
+      } catch (e) {}
+    }
+
+    // Integração com Grupo de Produtos Equivalentes (Estoque Consolidado de todas as marcas)
+    let grupoEquiv = null;
+    if (equivService) {
+      try {
+        grupoEquiv = equivService.buscarGrupoPorProduto(null, r.ean, r.produto_nome, db);
+        if (grupoEquiv) {
+          estoqueAtual = grupoEquiv.saldoTotal;
+          estoqueMinimo = grupoEquiv.estMinimoTotal;
+          emRuptura = grupoEquiv.emRuptura;
+          if (!precoUltCompra || precoUltCompra <= 0) {
+            precoUltCompra = grupoEquiv.menorUltimaCompra || grupoEquiv.mediaUltimaCompra || null;
+          }
         }
       } catch (e) {}
     }
@@ -1536,6 +1675,17 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       estoqueAtual,
       estoqueMinimo,
       emRuptura,
+      grupoEquivalente: grupoEquiv ? {
+        id: grupoEquiv.grupoId,
+        nome: grupoEquiv.nomeGrupo,
+        saldoTotal: grupoEquiv.saldoTotal,
+        estMinimoTotal: grupoEquiv.estMinimoTotal,
+        emRuptura: grupoEquiv.emRuptura,
+        menorUltimaCompra: grupoEquiv.menorUltimaCompra,
+        mediaUltimaCompra: grupoEquiv.mediaUltimaCompra,
+        quantidadeProdutos: grupoEquiv.quantidadeProdutos,
+        produtos: grupoEquiv.produtos
+      } : null,
       justificativa: {
         badge: justificativaBadge,
         cor: justificativaCor,

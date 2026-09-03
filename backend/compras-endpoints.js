@@ -21,6 +21,7 @@ const comprasMineracaoService = require('./services/compras-mineracao.service');
 const comprasCotacoesService = require('./services/compras-cotacoes.service');
 const comprasAprovacaoService = require('./services/compras-aprovacao.service');
 const comprasPedidosService = require('./services/compras-pedidos.service');
+const comprasEquivalentesService = require('./services/compras-equivalentes.service');
 
 // Serviço WhatsApp Baileys Compras
 let baileysComprasService = null;
@@ -908,6 +909,117 @@ module.exports = (db) => {
       })();
 
       res.json({ success: true, message: 'Configurações atualizadas com sucesso!' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // 10. PRODUTOS EQUIVALENTES & GRUPOS DE SUBSTITUIÇÃO
+  // ──────────────────────────────────────────────────────────
+
+  router.get('/equivalentes', (req, res) => {
+    try {
+      const { busca, pagina, limite, apenasRuptura } = req.query;
+      const resultado = comprasEquivalentesService.listarGruposEquivalentes({
+        busca: busca || '',
+        pagina: pagina ? parseInt(pagina, 10) : 1,
+        limite: limite ? parseInt(limite, 10) : 20,
+        apenasRuptura: apenasRuptura === 'true' || apenasRuptura === true
+      }, db);
+      res.json({ success: true, data: resultado });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /equivalentes:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/equivalentes/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const grupo = comprasEquivalentesService.obterEstoqueConsolidadoGrupo(id, db);
+      if (!grupo) {
+        return res.status(404).json({ success: false, error: 'Grupo não encontrado.' });
+      }
+      res.json({ success: true, data: grupo });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/equivalentes', (req, res) => {
+    try {
+      const dados = req.body;
+      if (!dados.nomeGrupo || !dados.principioAtivo) {
+        return res.status(400).json({ success: false, error: 'Nome do grupo e princípio ativo são obrigatórios.' });
+      }
+      const grupo = comprasEquivalentesService.salvarGrupoManual(dados, db);
+      res.json({ success: true, data: grupo, message: 'Grupo salvo com sucesso!' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/equivalentes/vincular', (req, res) => {
+    try {
+      const { grupoId, produtoId } = req.body;
+      if (!grupoId || !produtoId) {
+        return res.status(400).json({ success: false, error: 'grupoId e produtoId são obrigatórios.' });
+      }
+      const grupo = comprasEquivalentesService.vincularProdutoAoGrupo(grupoId, produtoId, db);
+      res.json({ success: true, data: grupo, message: 'Produto vinculado ao grupo com sucesso!' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/equivalentes/:grupoId/produtos/:produtoId', (req, res) => {
+    try {
+      const { grupoId, produtoId } = req.params;
+      const grupo = comprasEquivalentesService.desvincularProdutoDoGrupo(grupoId, produtoId, db);
+      res.json({ success: true, data: grupo, message: 'Produto desvinculado do grupo.' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/equivalentes/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      comprasEquivalentesService.removerGrupoEquivalente(id, db);
+      res.json({ success: true, message: 'Grupo de equivalência removido com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/equivalentes/gerar-automaticos', (req, res) => {
+    try {
+      const resultado = comprasEquivalentesService.gerarGruposAutomaticos(db);
+      res.json({
+        success: true,
+        data: resultado,
+        message: `${resultado.gruposCriados} grupos criados e ${resultado.produtosVinculados} produtos vinculados!`
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /equivalentes/gerar-automaticos:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/produtos-busca', (req, res) => {
+    try {
+      const { q } = req.query;
+      if (!q || q.trim().length < 2) {
+        return res.json({ success: true, data: [] });
+      }
+      const rows = db.prepare(`
+        SELECT produto_id, descricao, ean, saldo, custo_unitario, ultima_compra_valor
+        FROM compras_estoque_cache
+        WHERE descricao LIKE ? OR ean = ?
+        LIMIT 25
+      `).all(`%${q.trim()}%`, q.trim());
+      res.json({ success: true, data: rows });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
