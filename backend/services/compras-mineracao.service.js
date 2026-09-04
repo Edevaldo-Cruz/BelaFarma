@@ -639,32 +639,46 @@ function detectarLabBusca(ean, texto) {
 }
 
 function extrairTermosBuscaProduto(nome) {
-  if (!nome || typeof nome !== 'string') return { palavras: [], lab: null, dosagemNum: null, unidades: 1 };
+  if (!nome || typeof nome !== 'string') return { palavras: [], lab: null, dosagemNum: null, unidades: 1, unidadesExplicitas: false, isXr: false };
   let norm = nome.toUpperCase();
   
   const labEncontrado = detectarLabBusca(null, norm);
 
-  // Normaliza espaços entre números e unidades (ex: 150MG -> 150 MG, C/2CP -> C/ 2 CP, C2 -> C/ 2 CP)
-  norm = norm.replace(/(\d+)\s*(MG|G|MCG|ML|L)\b/gi, ' $1 $2 ')
+  // Normaliza espaços entre números e unidades ou modificadores (ex: 500XR -> 500 XR, XR500 -> XR 500, 150MG -> 150 MG)
+  norm = norm.replace(/(\d+)\s*(XR|CR|SR|LA|OD|RETARD|DUO|PLUS|COMP|CPR|CAPS|CPS|MG|G|MCG|ML|L)\b/gi, ' $1 $2 ')
+             .replace(/\b(XR|CR|SR|LA|OD|RETARD|DUO|PLUS)\s*(\d+)/gi, ' $1 $2 ')
              .replace(/(?:C\/|CX\/)\s*(\d+)/gi, ' C/ $1 ')
              .replace(/\bC(\d+)\b/gi, ' C/ $1 ')
              .replace(/\b(\d+)\s*(?:CP|CPS|CPR|COMP|CAPS)\b/gi, ' C/ $1 CPS ');
 
+  const isXr = /\b(XR|LIB\s*PROL|ACAO\s*PROL|RETARD|SR|CR|LA)\b/i.test(norm);
+
   // Extrai unidades na embalagem (ex: C/ 2 CPS, 9X10 CPS = 90)
   let unidades = 1;
+  let unidadesExplicitas = false;
   const multMatch = /(\d+)\s*[Xx]\s*(\d+)/.exec(norm);
   if (multMatch) {
     unidades = parseInt(multMatch[1], 10) * parseInt(multMatch[2], 10);
+    unidadesExplicitas = true;
   } else {
     const unMatch = /(?:C\/|CX\/|COM|\/|\bC)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(norm) ||
                     /\b(\d+)\s*(?:CPS|CPR|COMP|CAPS|FLAC|AMP|ENV)\b/i.exec(norm);
     if (unMatch) {
       unidades = parseInt(unMatch[1], 10);
+      unidadesExplicitas = true;
     }
   }
 
   const doseMatch = /(\d+(?:[,\.]\d+)?)\s*(MG|G|MCG|ML|L)\b/i.exec(norm);
-  const dosagemNum = doseMatch ? doseMatch[1].replace(',', '.') : null;
+  let dosagemNum = doseMatch ? doseMatch[1].replace(',', '.') : null;
+
+  if (!dosagemNum) {
+    // Procura número isolado que não seja a unidade de embalagem
+    const numAvulsoMatch = /\b(2\.5|5|10|15|20|25|30|40|50|75|80|100|125|150|200|250|300|400|500|600|750|800|850|1000)\b/.exec(norm);
+    if (numAvulsoMatch && (!unidadesExplicitas || parseInt(numAvulsoMatch[1], 10) !== unidades)) {
+      dosagemNum = numAvulsoMatch[1];
+    }
+  }
 
   const stopwords = new Set([
     'DE', 'DA', 'DO', 'DOS', 'DAS', 'COM', 'PARA', 'POR', 'C', 'MG', 'CPR', 'CAPS', 'CPS', 'COMP',
@@ -675,7 +689,7 @@ function extrairTermosBuscaProduto(nome) {
     .split(/\s+/)
     .filter(w => w.length >= 3 && !stopwords.has(w) && !/^\d+$/.test(w));
 
-  return { palavras, lab: labEncontrado, dosagemNum, unidades };
+  return { palavras, lab: labEncontrado, dosagemNum, unidades, unidadesExplicitas, isXr };
 }
 
 function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab, maybeDosagemNum) {
@@ -696,7 +710,9 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
       palavras: Array.isArray(palavrasOuTermos) ? palavrasOuTermos : [],
       lab: maybeLab,
       dosagemNum: maybeDosagemNum,
-      unidades: 1
+      unidades: 1,
+      unidadesExplicitas: false,
+      isXr: false
     };
   }
 
@@ -715,43 +731,57 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
     }
   }
 
-  // DESCARTE DE EMBALAGEM INCOMPATÍVEL:
-  // Se a oferta é para 1 ou 2 comprimidos e o candidato é caixa hospitalar/fracionada (>= 20 un),
-  // ou vice-versa, descarta imediatamente com score fortemente negativo para nunca gerar falso desconto.
-  if (termos.unidades && termos.unidades <= 4 && unCandidato >= 20) return -999;
-  if (termos.unidades && termos.unidades >= 20 && unCandidato <= 4) return -999;
-
-  // Bônus de unidade de embalagem exata vs penalidade se diferente
-  if (termos.unidades && termos.unidades === unCandidato) {
-    score += 60;
-  } else if (termos.unidades && unCandidato && termos.unidades !== unCandidato) {
-    score -= 30;
+  // DESCARTE DE EMBALAGEM INCOMPATÍVEL apenas se explicitamente informada na oferta
+  if (termos.unidadesExplicitas) {
+    if (termos.unidades <= 4 && unCandidato >= 20) return -999;
+    if (termos.unidades >= 20 && unCandidato <= 4) return -999;
+    if (termos.unidades === unCandidato) {
+      score += 60;
+    } else if (unCandidato && termos.unidades !== unCandidato) {
+      score -= 30;
+    }
   }
 
   const palavras = termos.palavras || [];
   if (palavras.length > 0 && desc.includes(palavras[0])) {
-    score += 30;
+    score += 40;
   }
 
   for (let i = 1; i < palavras.length; i++) {
     if (desc.includes(palavras[i])) {
-      score += 15;
+      score += 20;
     }
   }
 
-  // Dosagem exata (ex: 150 MG)
+  // Dosagem
   if (termos.dosagemNum) {
     const doseRegex = new RegExp('\\b' + termos.dosagemNum + '\\s*(?:MG|G|ML|L)?\\b');
     if (doseRegex.test(desc)) {
-      score += 40;
+      score += 80;
+    } else {
+      // Se o candidato possui outra dosagem numérica diferente (ex: 850, 750, 1G vs 500), descarta
+      const candDoseMatch = /\b(2\.5|5|10|15|20|25|40|50|75|80|100|125|150|200|250|300|400|500|600|750|800|850|1000|1\s*G|1\s*GR)\b/i.exec(desc);
+      if (candDoseMatch) {
+        return -999;
+      }
     }
+  }
+
+  // XR / Liberação Prolongada
+  const candIsXr = /\b(XR|LIB\s*PROL|ACAO\s*PROL|RETARD|SR|CR|LA)\b/i.test(desc);
+  if (termos.isXr && candIsXr) {
+    score += 50;
+  } else if (termos.isXr && !candIsXr) {
+    score -= 40;
+  } else if (!termos.isXr && candIsXr) {
+    score -= 30;
   }
 
   // Laboratório
   const candLab = detectarLabBusca(ean, desc);
   if (termos.lab && candLab) {
     if (termos.lab === candLab) {
-      score += 70; // Bônus alto para laboratório exato
+      score += 70;
     } else {
       score -= 10;
     }
@@ -880,22 +910,64 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
       if (cacheRow) {
         produtoId = cacheRow.produto_id;
         descricaoEncontrada = cacheRow.descricao || descricaoEncontrada;
-        precoUltCompra = parseFloat(cacheRow.preco_unitario_ult_compra) || null;
+        precoUltCompra = parseFloat(cacheRow.preco_unitario_ult_compra || cacheRow.ultima_compra_valor) || null;
         precoTotalNota = parseFloat(cacheRow.preco_total_nota) || precoUltCompra;
-        ultimoFornecedor = cacheRow.fornecedor_nome || null;
-        dataUltCompra = cacheRow.data_compra || null;
-        notaFiscalUltCompra = cacheRow.numero_nota_fiscal || null;
+        ultimoFornecedor = cacheRow.fornecedor_nome || cacheRow.ultima_compra_fornecedor || null;
+        dataUltCompra = cacheRow.data_compra || cacheRow.ultima_compra_data || null;
+        notaFiscalUltCompra = cacheRow.numero_nota_fiscal || cacheRow.ultima_compra_nf || null;
         embalagemUltCompra = cacheRow.embalagem_detalhe || null;
 
-        // Recupera estoque do compras_estoque_cache
+        // Recupera estoque e CMV oficial do compras_estoque_cache
         try {
-          const est = dbInst.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE produto_id = ? OR ean = ? LIMIT 1').get(produtoId, ean);
+          const est = dbInst.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma, preco_unitario_ult_compra, ultima_compra_valor FROM compras_estoque_cache WHERE produto_id = ? OR ean = ? LIMIT 1').get(produtoId, ean);
           if (est) {
             estoqueAtual = parseFloat(est.saldo) || 0;
             estMinimo = parseFloat(est.est_minimo_calculado || est.est_minimo_digifarma) || 0;
             emRuptura = estoqueAtual <= 0 || (estMinimo > 0 && estoqueAtual < estMinimo);
+            const cmvPadrao = parseFloat(est.ultima_compra_valor || est.preco_unitario_ult_compra) || 0;
+            if (cmvPadrao > 0) {
+              precoUltCompra = cmvPadrao;
+            }
           }
         } catch(eEst) {}
+      } else {
+        // Fallback imediato no compras_estoque_cache (base completa de catálogo)
+        let estRow = null;
+        if (targetProdutoId) {
+          estRow = dbInst.prepare('SELECT * FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1').get(Number(targetProdutoId));
+        }
+        if (!estRow && ean) {
+          estRow = dbInst.prepare('SELECT * FROM compras_estoque_cache WHERE ean = ? LIMIT 1').get(String(ean));
+        }
+        if (!estRow && produtoNome) {
+          const itemExato = dbInst.prepare('SELECT * FROM compras_estoque_cache WHERE descricao = ? LIMIT 1').get(produtoNome);
+          if (itemExato) {
+            estRow = itemExato;
+          } else if (termoPrincipal) {
+            const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termoPrincipal;
+            const cands = dbInst.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 40').all('%' + termoBusca + '%');
+            let best = null, bestScore = -1;
+            for (const c of cands) {
+              const sc = pontuarCorrespondencia(c, termos);
+              if (sc > bestScore) { bestScore = sc; best = c; }
+            }
+            if (best && bestScore > 0) estRow = best;
+          }
+        }
+
+        if (estRow) {
+          produtoId = estRow.produto_id;
+          descricaoEncontrada = estRow.descricao || descricaoEncontrada;
+          precoUltCompra = parseFloat(estRow.preco_unitario_ult_compra || estRow.ultima_compra_valor || estRow.custo_unitario) || null;
+          precoTotalNota = precoUltCompra;
+          ultimoFornecedor = estRow.ultima_compra_fornecedor || null;
+          dataUltCompra = estRow.ultima_compra_data || null;
+          notaFiscalUltCompra = estRow.ultima_compra_nf || null;
+          embalagemUltCompra = 'Unidade individual';
+          estoqueAtual = parseFloat(estRow.saldo) || 0;
+          estMinimo = parseFloat(estRow.est_minimo_calculado || estRow.est_minimo_digifarma) || 0;
+          emRuptura = estoqueAtual <= 0 || (estMinimo > 0 && estoqueAtual < estMinimo);
+        }
       }
     } catch(eCache) {}
   }
@@ -978,17 +1050,17 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
             }
           } catch (eNota) {}
 
-          if (precoNota !== null && precoNota > 0) {
-            // Nota fiscal de entrada tem prioridade absoluta (R1)
+          const pUltCmv = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
+          if (pUltCmv > 0) {
+            precoUltCompra = pUltCmv;
+          } else if (precoNota !== null && precoNota > 0) {
             precoUltCompra = precoNota;
           } else {
-            // Fallback estrito: PRODUTOS.VALOR_ULT_COMPRA ou PRODUTOS.PROD_PRCOMPRA somente se nunca teve NF de entrada
-            const pUlt = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
             const pCusto = parseFloat(melhorItem.PROD_PRCOMPRA) || 0;
-            precoUltCompra = pUlt > 0 ? pUlt : (pCusto > 0 ? pCusto : null);
-            precoTotalNota = precoUltCompra;
-            embalagemUltCompra = 'Cadastro Geral Digifarma';
+            precoUltCompra = pCusto > 0 ? pCusto : null;
           }
+          precoTotalNota = precoTotalNota || precoUltCompra;
+          if (!embalagemUltCompra) embalagemUltCompra = 'Unidade individual';
 
           // Grava no cache local SQLite de alta performance (R2)
           if (db && precoUltCompra > 0) {
@@ -1923,8 +1995,8 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
         }
         if (cRow && cRow.preco_unitario_ult_compra > 0) {
           if (!pIdResolvido && cRow.produto_id) pIdResolvido = cRow.produto_id;
-          precoUltCompra = parseFloat(cRow.preco_unitario_ult_compra);
-          pTotal = parseFloat(cRow.preco_total_nota) || precoUltCompra;
+          precoUltCompra = Math.round(parseFloat(cRow.preco_unitario_ult_compra) * 100) / 100;
+          pTotal = cRow.preco_total_nota ? Math.round(parseFloat(cRow.preco_total_nota) * 100) / 100 : precoUltCompra;
           if (cRow.fornecedor_nome) ultForn = cRow.fornecedor_nome;
           if (cRow.data_compra) dtUlt = cRow.data_compra;
           if (cRow.numero_nota_fiscal) nfUlt = cRow.numero_nota_fiscal;
@@ -2663,8 +2735,8 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
     if (!item) return null;
     return {
       ...item,
-      precoUnitario: item.preco_unitario_ult_compra,
-      precoTotalNota: item.preco_total_nota,
+      precoUnitario: item.preco_unitario_ult_compra ? Math.round(parseFloat(item.preco_unitario_ult_compra) * 100) / 100 : 0,
+      precoTotalNota: item.preco_total_nota ? Math.round(parseFloat(item.preco_total_nota) * 100) / 100 : 0,
       embalagem: item.embalagem,
       embalagemDetalhe: item.embalagem_detalhe,
       dataCompra: item.data_compra,
@@ -3043,6 +3115,7 @@ function recalcularOfertasMineradas(dbInstance) {
       }
 
       if (precoUlt && precoUlt > 0) {
+        precoUlt = Math.round(parseFloat(precoUlt) * 100) / 100;
         let desc = 0;
         let novoStatus = 'Aprovado_Radar';
         if (precoOfertado > 0 && precoOfertado < precoUlt) {
@@ -3115,6 +3188,8 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
           I.PRODUTO_ID,
           P.COD_BARRAS,
           P.PRODUTO,
+          P.VALOR_ULT_COMPRA,
+          P.PROD_CMV,
           I.ITEM_NOTAS_PRCOMPRA,
           I.ITEM_NOTAS_EMBALAGEM,
           I.ITEM_NOTAS_ULT_COMPRA,
@@ -3167,8 +3242,10 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
             const prCompra = parseFloat(item.ITEM_NOTAS_PRCOMPRA) || 0;
             const emb = Math.max(1, parseInt(item.ITEM_NOTAS_EMBALAGEM, 10) || 1);
             const ultFrac = parseFloat(item.ITEM_NOTAS_ULT_COMPRA) || 0;
+            const pUltCmv = parseFloat(item.VALOR_ULT_COMPRA || item.PROD_CMV || 0);
 
-            const precoUnitario = calcularPrecoUnitarioReal(prCompra, emb, ultFrac);
+            const precoUnitarioCalculado = calcularPrecoUnitarioReal(prCompra, emb, ultFrac);
+            const precoUnitario = pUltCmv > 0 ? pUltCmv : precoUnitarioCalculado;
             if (precoUnitario <= 0) continue;
 
             const precoTotal = prCompra > 0 ? prCompra : Math.round(precoUnitario * emb * 100) / 100;
@@ -3207,7 +3284,7 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
   // Popula / sincroniza itens do compras_estoque_cache que ainda não estejam no cache de últimas compras
   try {
     db.prepare(`
-      INSERT OR IGNORE INTO digifarma_ultimas_compras_cache (
+      INSERT INTO digifarma_ultimas_compras_cache (
         produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
         quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
         numero_nota_fiscal, fonte, atualizado_em
@@ -3216,19 +3293,28 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
         produto_id, 
         ean, 
         descricao, 
-        COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_unitario_ult_compra,
-        COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_total_nota,
+        COALESCE(NULLIF(preco_unitario_ult_compra, 0), NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_unitario_ult_compra,
+        COALESCE(NULLIF(preco_unitario_ult_compra, 0), NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as preco_total_nota,
         1 as quantidade,
         1 as embalagem,
         'Cadastro Geral Digifarma' as embalagem_detalhe,
         COALESCE(sincronizado_em, atualizado_em) as data_compra,
-        'Cadastro Geral Digifarma' as fornecedor_nome,
-        'Sem NF Entrada' as numero_nota_fiscal,
+        COALESCE(ultima_compra_fornecedor, 'Cadastro Geral Digifarma') as fornecedor_nome,
+        COALESCE(ultima_compra_nf, 'Sem NF Entrada') as numero_nota_fiscal,
         'ESTOQUE_CACHE' as fonte,
         datetime('now') as atualizado_em
       FROM compras_estoque_cache
       WHERE produto_id IS NOT NULL 
-        AND COALESCE(NULLIF(ultima_compra_valor, 0), custo_unitario, 0) > 0
+        AND COALESCE(NULLIF(preco_unitario_ult_compra, 0), NULLIF(ultima_compra_valor, 0), custo_unitario, 0) > 0
+      ON CONFLICT(produto_id) DO UPDATE SET
+        preco_unitario_ult_compra = CASE 
+          WHEN excluded.preco_unitario_ult_compra > 0 THEN excluded.preco_unitario_ult_compra 
+          ELSE digifarma_ultimas_compras_cache.preco_unitario_ult_compra 
+        END,
+        ean = COALESCE(excluded.ean, digifarma_ultimas_compras_cache.ean),
+        fornecedor_nome = COALESCE(NULLIF(excluded.fornecedor_nome, 'Cadastro Geral Digifarma'), digifarma_ultimas_compras_cache.fornecedor_nome),
+        numero_nota_fiscal = COALESCE(NULLIF(excluded.numero_nota_fiscal, 'Sem NF Entrada'), digifarma_ultimas_compras_cache.numero_nota_fiscal),
+        atualizado_em = datetime('now')
     `).run();
   } catch(e) {}
 

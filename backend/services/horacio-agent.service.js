@@ -181,8 +181,12 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
     const vmd = dadosEstoque?.vmd_ponderado || (vendas30d / 30);
     const saldoAtual = validacao.estoqueAtual || 0;
     const estMinimo = validacao.estMinimo || dadosEstoque?.est_minimo_calculado || 0;
-    const precoUltCompra = validacao.precoUltCompra || null;
-    const descontoPct = validacao.percentualDesconto || 0;
+    const precoUltCompra = (dadosEstoque && (dadosEstoque.preco_unitario_ult_compra || dadosEstoque.ultima_compra_valor))
+      ? parseFloat(dadosEstoque.preco_unitario_ult_compra || dadosEstoque.ultima_compra_valor)
+      : (validacao.precoUltCompra || null);
+    const descontoPct = precoUltCompra && precoUltCompra > dadosOferta.precoOfertado
+      ? ((precoUltCompra - dadosOferta.precoOfertado) / precoUltCompra) * 100
+      : (validacao.percentualDesconto || 0);
 
     // 3. Regras de Classificação de Urgência
     const isCurvaA = curvaAbc === 'A';
@@ -355,11 +359,21 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
 
       for (const ofr of listaOfertas) {
         const precoOf = ofr.precoOfertado || 0;
-        const precoUlt = ofr.precoUltCompraDigifarma || 0;
+        let precoUlt = ofr.precoUltCompraDigifarma || 0;
+
+        // Prioriza o CMV oficial padronizado em compras_estoque_cache
+        try {
+          const estItem = dbInst.prepare('SELECT saldo, est_minimo_calculado, preco_unitario_ult_compra, ultima_compra_valor FROM compras_estoque_cache WHERE produto_id = ? OR ean = ? LIMIT 1').get(ofr.produto_id || ofr.digifarma_produto_id, ofr.ean);
+          if (estItem) {
+            const cmvOficial = parseFloat(estItem.preco_unitario_ult_compra || estItem.ultima_compra_valor) || 0;
+            if (cmvOficial > 0) precoUlt = cmvOficial;
+          }
+        } catch(e) {}
+
         const saldo = ofr.estoqueAtual || 0;
         const estMin = ofr.estoqueMinimo || 0;
         const isCurvaA = ofr.curvaAbc === 'A';
-        const desconto = ofr.descontoPercentual || 0;
+        const desconto = precoUlt > 0 && precoUlt > precoOf ? ((precoUlt - precoOf) / precoUlt) * 100 : (ofr.descontoPercentual || 0);
 
         // Só inclui se for ruptura ou tiver desconto positivo
         if (saldo > estMin && desconto <= 0) continue;
