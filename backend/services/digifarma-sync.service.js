@@ -60,6 +60,8 @@ async function syncProdutos(db) {
         ESTOQUE,
         PROD_PRVENDA,
         PROD_PRCOMPRA,
+        VALOR_ULT_COMPRA,
+        PROD_CMV,
         PROD_PRPROMOCAO,
         INICIO_PROMOCAO,
         TERMINO_PROMOCAO,
@@ -138,6 +140,7 @@ async function syncProdutos(db) {
         const effectivePrice = getEffectivePrice(p);
         const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
         const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
+        const custoCmv = parseFloat(p.VALOR_ULT_COMPRA || p.PROD_CMV || p.PROD_PRCOMPRA || 0);
 
         insertOrReplaceStmt.run(
           p.PRODUTO_ID,
@@ -146,7 +149,7 @@ async function syncProdutos(db) {
           p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID) : null,
           parseFloat(p.ESTOQUE || 0),
           effectivePrice,
-          parseFloat(p.PROD_PRCOMPRA || 0),
+          custoCmv,
           promoPrice,
           normalPrice,
           p.curve,

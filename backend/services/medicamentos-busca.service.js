@@ -347,7 +347,7 @@ async function sincronizarEstoqueMedicamentos(database, options = {}) {
           p.PROD_SALDO as SALDO,
           p.PROD_ESTMINIMO as EST_MINIMO_DIGIFARMA,
           COALESCE(p.PROD_PRCOMPRA, 0) as CUSTO_UNITARIO,
-          COALESCE(p.VALOR_ULT_COMPRA, 0) as ULTIMA_COMPRA_VALOR,
+          COALESCE(p.VALOR_ULT_COMPRA, p.PROD_CMV, p.PROD_PRCOMPRA, 0) as ULTIMA_COMPRA_VALOR,
           COALESCE(p.PROD_PRVENDA, 0) as PRECO_NORMAL,
           COALESCE(p.PROD_PRPROMOCAO, 0) as PRECO_PROMOCIONAL,
           p.INICIO_PROMOCAO,
@@ -503,11 +503,13 @@ async function sincronizarEstoqueMedicamentos(database, options = {}) {
     const ativo = String(p.PROD_ATIVO || 'S').toUpperCase() === 'S';
 
     const uc = ultimasComprasMap.get(pId);
-    const precoUnitarioUltCompra = uc && Number(uc.preco_unitario_ult_compra) > 0
-      ? Number(uc.preco_unitario_ult_compra)
+    const precoUnitarioUltCompra = ultCompraValor > 0
+      ? ultCompraValor
       : (Number(p.PRECO_UNITARIO_ULT_COMPRA || p.preco_unitario_ult_compra) > 0
           ? Number(p.PRECO_UNITARIO_ULT_COMPRA || p.preco_unitario_ult_compra)
-          : (ultCompraValor > 0 ? ultCompraValor : custoUnitario));
+          : (uc && Number(uc.preco_unitario_ult_compra) > 0
+              ? Number(uc.preco_unitario_ult_compra)
+              : custoUnitario));
 
     const ucTemNfReal = uc && (uc.fonte === 'NOTA_FISCAL' || uc.fonte === undefined) && uc.fornecedor_nome && uc.fornecedor_nome !== 'Cadastro Geral Digifarma';
     const ultFornecedor = ucTemNfReal ? uc.fornecedor_nome : (p.ULTIMA_COMPRA_FORNECEDOR || p.ultima_compra_fornecedor || (uc ? uc.fornecedor_nome : null));

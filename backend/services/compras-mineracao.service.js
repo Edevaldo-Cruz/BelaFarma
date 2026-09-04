@@ -783,8 +783,9 @@ function calcularPrecoUnitarioReal(prCompra, emb, ultFrac) {
     } else {
       precoUnitario = pCompra / embalagem;
     }
-  } else if (frac > 0 && frac < pCompra) {
-    precoUnitario = frac;
+  } else {
+    // Embalagem individual (emb == 1): o preço da nota é o prCompra
+    precoUnitario = pCompra > 0 ? pCompra : frac;
   }
   return Math.round(precoUnitario * 100) / 100;
 }
