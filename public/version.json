@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "d6a6e01",
-  "commitMessage": "fix(compras-mineracao): correcao de escopo estItem, fracionamento bonificado, status consistente e formatacao UI",
-  "buildTime": "03/09/2026, 21:01:47"
+  "commitHash": "7097f0b",
+  "commitMessage": "fix(horacio): corrigir matching de dosagem/XR e padronizar preco historico de CMV oficial para GLIFAGE 500XR",
+  "buildTime": "04/09/2026, 19:53:29"
 }

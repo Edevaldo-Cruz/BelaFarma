@@ -3365,6 +3365,8 @@ module.exports = {
   obterVariacaoPrecosProduto,
   obterContextoConversa,
   atualizarDadosContatoFornecedor,
+  extrairTermosBuscaProduto,
+  pontuarCorrespondencia,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO

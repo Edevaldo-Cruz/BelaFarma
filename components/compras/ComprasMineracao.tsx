@@ -635,8 +635,9 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                             <tr>
                               <th className="py-2.5 px-3">Produto / Apresentação</th>
                               <th className="py-2.5 px-2">Tipo</th>
-                              <th className="py-2.5 px-2">Histórico</th>
+                              <th className="py-2.5 px-2">Últ. Compra (CMV)</th>
                               <th className="py-2.5 px-2">Preço Ofertado</th>
+                              <th className="py-2.5 px-2 text-center">Variação (%)</th>
                               <th className="py-2.5 px-2 text-center">Qtd Sugerida</th>
                               <th className="py-2.5 px-3">Motivo / Urgência</th>
                               <th className="py-2.5 px-3 text-right">Economia Estimada</th>
@@ -663,6 +664,15 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                 setChatOportunidadeSelecionada(opMock);
                               };
 
+                              const precoUlt = Number(it.precoHistorico || it.precoUltCompra || 0);
+                              const precoOf = Number(it.precoOfertado || 0);
+                              let diffPct = 0;
+                              let temComparacao = false;
+                              if (precoUlt > 0 && precoOf > 0) {
+                                temComparacao = true;
+                                diffPct = ((precoOf - precoUlt) / precoUlt) * 100;
+                              }
+
                               return (
                                 <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
                                   <td className="py-2.5 px-3 max-w-xs">
@@ -680,11 +690,36 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                       {it.tipo}
                                     </span>
                                   </td>
-                                  <td className="py-2.5 px-2 text-slate-400">
-                                    R$ {it.precoHistorico ? it.precoHistorico.toFixed(2) : '-'}
+                                  <td className="py-2.5 px-2 text-slate-300 font-medium">
+                                    R$ {precoUlt > 0 ? precoUlt.toFixed(2) : '-'}
                                   </td>
                                   <td className="py-2.5 px-2 font-black text-emerald-400">
-                                    R$ {it.precoOfertado?.toFixed(2)}
+                                    R$ {precoOf.toFixed(2)}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                                    {!temComparacao ? (
+                                      <span className="text-slate-500 text-[10px]">-</span>
+                                    ) : diffPct < 0 ? (
+                                      <span 
+                                        className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 text-[10px] font-black"
+                                        title={`Preço R$ ${Math.abs(precoOf - precoUlt).toFixed(2)} menor que a última compra (${Math.abs(diffPct).toFixed(1)}% de desconto)`}
+                                      >
+                                        <TrendingDown className="w-3 h-3 text-emerald-400" />
+                                        -{Math.abs(diffPct).toFixed(1)}% Desc
+                                      </span>
+                                    ) : diffPct > 0 ? (
+                                      <span 
+                                        className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-rose-950/80 border border-rose-700/80 text-rose-300 text-[10px] font-black"
+                                        title={`Preço R$ ${(precoOf - precoUlt).toFixed(2)} acima da última compra (+${diffPct.toFixed(1)}% de acréscimo)`}
+                                      >
+                                        <TrendingUp className="w-3 h-3 text-rose-400" />
+                                        +{diffPct.toFixed(1)}% Acrésc
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">
+                                        0.0% (Igual)
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-2 text-center font-bold text-amber-300">
                                     {it.qtdSugerida} un
