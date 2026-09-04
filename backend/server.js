@@ -4117,7 +4117,7 @@ const medicamentosBuscaService = require('./services/medicamentos-busca.service'
 app.use('/api/medicamentos', medicamentosEndpoints(db));
 console.log('💊 Motor de Busca e Inteligência de Medicamentos inicializado em /api/medicamentos.');
 
-// Agendamento Diário (07:30 e 17:30): Sincronização e Reposição Inteligente de Medicamentos
+// Agendamento Diário (08:45 e 15:45): Sincronização e Reposição Inteligente de Medicamentos
 let ultimoHorarioMedicamentosSync = '';
 setInterval(async () => {
   try {
@@ -4125,18 +4125,18 @@ setInterval(async () => {
     const hora = agora.getHours();
     const minuto = agora.getMinutes();
     const diaAtual = agora.toISOString().slice(0, 10);
-    const chaveSyncManha = `${diaAtual}_0730`;
-    const chaveSyncTarde = `${diaAtual}_1730`;
+    const chaveSyncManha = `${diaAtual}_0845`;
+    const chaveSyncTarde = `${diaAtual}_1545`;
 
-    if (hora === 7 && minuto >= 30 && minuto <= 35 && ultimoHorarioMedicamentosSync !== chaveSyncManha) {
+    if (hora === 8 && minuto >= 45 && minuto <= 50 && ultimoHorarioMedicamentosSync !== chaveSyncManha) {
       ultimoHorarioMedicamentosSync = chaveSyncManha;
-      console.log('[Cron Medicamentos] 🌅 Iniciando sincronização matinal de medicamentos (07:30)...');
+      console.log('[Cron Medicamentos] 🌅 Iniciando sincronização matinal de medicamentos (08:45)...');
       await medicamentosBuscaService.sincronizarEstoqueMedicamentos(db, { notificarHoracio: true });
     }
 
-    if (hora === 17 && minuto >= 30 && minuto <= 35 && ultimoHorarioMedicamentosSync !== chaveSyncTarde) {
+    if (hora === 15 && minuto >= 45 && minuto <= 50 && ultimoHorarioMedicamentosSync !== chaveSyncTarde) {
       ultimoHorarioMedicamentosSync = chaveSyncTarde;
-      console.log('[Cron Medicamentos] 🌆 Iniciando sincronização vespertina de medicamentos (17:30)...');
+      console.log('[Cron Medicamentos] 🌆 Iniciando sincronização vespertina de medicamentos (15:45)...');
       await medicamentosBuscaService.sincronizarEstoqueMedicamentos(db, { notificarHoracio: true });
     }
   } catch (errSync) {

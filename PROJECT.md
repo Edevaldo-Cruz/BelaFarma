@@ -11,7 +11,7 @@
 - **Camada de API REST**:
   - `backend/medicamentos-endpoints.js`: Montado em `/api/medicamentos` em `backend/server.js`.
 - **Agendamento**:
-  - `node-cron` configurado para 07:30 e 17:30 (horário de Brasília) em `backend/server.js`.
+  - Configurado para 08:45 e 15:45 (horário comercial de funcionamento) em `backend/server.js`.
 - **Testes**:
   - `backend/test_motor_busca_medicamentos.js` cobrindo 100% dos requisitos R1-R5.
 
@@ -31,7 +31,7 @@
 | 11 | Detalhe de Medicamento | Implementar `GET /api/medicamentos/:id` (com fallback por EAN) | M3 | R4 |
 | 12 | Listagem de Rupturas | Implementar `GET /api/medicamentos/rupturas` com quantidade necessária para 30 dias | M3 | R4 |
 | 13 | Endpoint Sincronizar | Implementar `POST /api/medicamentos/sincronizar` sob demanda | M3 | R3/R4 |
-| 14 | Agendamento 2x ao dia | Configurar cron para 07:30 e 17:30 em `server.js` | M3 | R3 |
+| 14 | Agendamento 2x ao dia | Configurar cron para 08:45 e 15:45 em `server.js` | M3 | R3 |
 | 15 | Horácio Proativo | Compilar itens críticos pós-sync e acionar Horácio para relatório executivo de compras | M4 | R5 |
 | 16 | Horácio & Mineração Reativo | Atualizar Horácio e mineração para usar busca unificada como fonte única da verdade | M4 | R5 |
 | 17 | Testes E2E Automatizados | Criar `backend/test_motor_busca_medicamentos.js` cobrindo 100% dos requisitos R1-R5 | M5 | Verification |
