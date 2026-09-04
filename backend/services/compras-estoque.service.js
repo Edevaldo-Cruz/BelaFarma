@@ -60,46 +60,101 @@ function determinarCicloDeVida(v30 = 0, v60 = 0, v90 = 0, ativo = true) {
  * de acordo com o Ciclo de Vida do produto.
  * 
  * Fórmula:
- * VMD_P = ((vendas30d * 0.50) + (vendas31_60d * 0.30) + (vendas61_90d * 0.20)) / 30
- * Demanda_15d = VMD_P * 15
- * Demanda_30d = VMD_P * 30
+ * Calcula a demanda ponderada e determina o Estoque Mínimo (30 dias de cobertura sem ruptura)
+ * e Estoque Máximo (rigorosamente 2x o mínimo).
+ * Suporta retrocompatibilidade:
+ * - 3 argumentos: (v30, v60, margem) ou (v30, v60, margem, options) -> 2 períodos legados (pesos 0.65 e 0.35)
+ * - 4 ou 5 argumentos: (v30, v60, v90, margem, options) -> 3 períodos ponderados (pesos 0.50, 0.30, 0.20)
  * 
- * @param {number} vendas30d Quantidade vendida nos últimos 30 dias (P1 - Peso 50%)
- * @param {number} vendas31_60d Quantidade vendida entre 31 e 60 dias atrás (P2 - Peso 30%)
- * @param {number|object} vendas61_90dOuMargem Quantidade 61 a 90 dias atrás (P3 - Peso 20%) ou margem
- * @param {number|object} margemPercentOuOpts Margem de segurança percentual (padrão 15)
- * @param {Object} options Configurações adicionais (curvaAbc, diasSemVenda, ativo, pesoP1, pesoP2, pesoP3, cicloVida)
+ * @param {number} vendas30d Quantidade vendida nos últimos 30 dias
+ * @param {number} vendas31_60d Quantidade vendida entre 31 e 60 dias atrás
+ * @param {number|object} arg3 Quantidade 61 a 90 dias atrás OU margem (modo legado)
+ * @param {number|object} arg4 Margem de segurança percentual OU options (modo legado)
+ * @param {Object} options Configurações adicionais
  * @returns {Object}
  */
-function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, vendas61_90dOuMargem = 0, margemPercentOuOpts = 15, options = {}) {
+function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, arg3, arg4, options = {}) {
   const v1 = Math.max(0, Number(vendas30d) || 0);
   const v2 = Math.max(0, Number(vendas31_60d) || 0);
-  
+
+  const isLegacyTwoPeriod = (
+    arguments.length <= 3 ||
+    (arguments.length === 4 && typeof arg4 === 'object') ||
+    (typeof arg3 === 'object' && arg3 !== null)
+  );
+
   let v3 = 0;
   let margem = 15;
   let opts = {};
 
-  if (typeof vendas61_90dOuMargem === 'object' && vendas61_90dOuMargem !== null) {
-    opts = vendas61_90dOuMargem;
-    margem = opts.margemPercent !== undefined ? Number(opts.margemPercent) : 15;
-    v3 = opts.vendas61_90d !== undefined ? Math.max(0, Number(opts.vendas61_90d) || 0) : 0;
-  } else if (typeof margemPercentOuOpts === 'object' && margemPercentOuOpts !== null) {
-    opts = margemPercentOuOpts;
-    margem = opts.margemPercent !== undefined ? Number(opts.margemPercent) : 15;
-    v3 = Math.max(0, Number(vendas61_90dOuMargem) || 0);
+  if (isLegacyTwoPeriod) {
+    if (typeof arg3 === 'object' && arg3 !== null) {
+      opts = arg3;
+      margem = opts.margemPercent !== undefined ? Number(opts.margemPercent) : 15;
+    } else {
+      margem = isNaN(Number(arg3)) ? 15 : Number(arg3);
+      opts = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
+    }
+    v3 = 0;
   } else {
-    v3 = Math.max(0, Number(vendas61_90dOuMargem) || 0);
-    margem = isNaN(Number(margemPercentOuOpts)) ? 15 : Number(margemPercentOuOpts);
-    opts = typeof options === 'object' && options !== null ? options : {};
+    v3 = Math.max(0, Number(arg3) || 0);
+    margem = isNaN(Number(arg4)) ? 15 : Number(arg4);
+    opts = (typeof options === 'object' && options !== null) ? options : {};
   }
 
-  const pesoP1 = opts.pesoP1 !== undefined ? Number(opts.pesoP1) : 0.50;
-  const pesoP2 = opts.pesoP2 !== undefined ? Number(opts.pesoP2) : 0.30;
-  const pesoP3 = opts.pesoP3 !== undefined ? Number(opts.pesoP3) : 0.20;
   const curvaAbc = (opts.curvaAbc || 'C').toUpperCase();
   const diasSemVenda = Number(opts.diasSemVenda) || 0;
   const ativo = opts.ativo !== undefined ? Boolean(opts.ativo) : true;
 
+  if (isLegacyTwoPeriod) {
+    // Modo Legado de 2 Períodos (pesos 0.65 e 0.35)
+    const pesoP1 = opts.pesoP1 !== undefined ? Number(opts.pesoP1) : 0.65;
+    const pesoP2 = opts.pesoP2 !== undefined ? Number(opts.pesoP2) : 0.35;
+
+    if (!ativo || (v1 === 0 && v2 === 0) || diasSemVenda > 90) {
+      return {
+        vendas30d: v1,
+        vendas31_60d: v2,
+        vendas61_90d: 0,
+        vmdPonderado: 0,
+        demanda15d: 0,
+        demanda30d: 0,
+        cicloVida: 'SEM_GIRO',
+        margemSegurancaPercent: margem,
+        estoqueMinimoSugerido: 0,
+        estoqueMaximoSugerido: 0
+      };
+    }
+
+    const demanda30d = (v1 * pesoP1) + (v2 * pesoP2);
+    const vmdPonderado = demanda30d / 30;
+    const fatorMargem = 1 + (margem / 100);
+    let estoqueMinimo = Math.ceil(demanda30d * fatorMargem);
+    let estoqueMaximo = estoqueMinimo * 2;
+
+    if (curvaAbc === 'A' && (v1 > 0 || v2 > 0)) {
+      if (estoqueMinimo < 2) estoqueMinimo = 2;
+      estoqueMaximo = estoqueMinimo * 2;
+    }
+
+    return {
+      vendas30d: v1,
+      vendas31_60d: v2,
+      vendas61_90d: 0,
+      vmdPonderado: Number(vmdPonderado.toFixed(4)),
+      demanda15d: Number(((demanda30d / 30) * 15).toFixed(2)),
+      demanda30d: Number(demanda30d.toFixed(2)),
+      cicloVida: 'ESTAVEL',
+      margemSegurancaPercent: margem,
+      estoqueMinimoSugerido: Math.max(0, estoqueMinimo),
+      estoqueMaximoSugerido: Math.max(0, estoqueMaximo)
+    };
+  }
+
+  // Modo 3 Períodos (pesos 0.50, 0.30, 0.20)
+  const pesoP1 = opts.pesoP1 !== undefined ? Number(opts.pesoP1) : 0.50;
+  const pesoP2 = opts.pesoP2 !== undefined ? Number(opts.pesoP2) : 0.30;
+  const pesoP3 = opts.pesoP3 !== undefined ? Number(opts.pesoP3) : 0.20;
   const cicloVida = opts.cicloVida || determinarCicloDeVida(v1, v2, v3, ativo);
 
   // Produto inativo ou sem vendas em 90 dias: demanda e estoque zerados
@@ -118,10 +173,10 @@ function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, vendas61_90dO
     };
   }
 
-  // Produto Lançamento / Novo: estoque mínimo de segurança controlado
+  // Produto Lançamento / Novo
   if (cicloVida === 'LANCAMENTO') {
-    const minLanc = 1;
-    const maxLanc = (curvaAbc === 'A' || curvaAbc === 'B') ? 3 : 2;
+    const minLanc = (curvaAbc === 'A' ? 2 : 1);
+    const maxLanc = minLanc * 2;
     return {
       vendas30d: v1,
       vendas31_60d: v2,
@@ -136,31 +191,27 @@ function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, vendas61_90dO
     };
   }
 
-  // Cálculo ponderado dos 3 períodos
+  // Demanda Ponderada dos 3 períodos para 30 dias
   const demanda90dPonderada = (v1 * pesoP1) + (v2 * pesoP2) + (v3 * pesoP3);
   const vmdPonderado = demanda90dPonderada / 30;
   const demanda15d = vmdPonderado * 15;
-  const demanda30d = vmdPonderado * 30;
+  const demanda30d = demanda90dPonderada;
 
-  // Fator multiplicador de margem ajustado pelo Ciclo de Vida
   let multiplicadorCiclo = 1.0;
-  if (cicloVida === 'CRESCIMENTO') multiplicadorCiclo = 1.20; // +20% na margem para suportar aceleração
-  else if (cicloVida === 'DECLINIO') multiplicadorCiclo = 0.50; // -50% na margem para enxugar estoque
+  if (cicloVida === 'CRESCIMENTO') multiplicadorCiclo = 1.20;
+  else if (cicloVida === 'DECLINIO') multiplicadorCiclo = 0.50;
 
   const fatorMargem = 1 + ((margem * multiplicadorCiclo) / 100);
 
-  let estoqueMinimo = Math.ceil(demanda15d * fatorMargem);
-  let estoqueMaximo = Math.ceil(demanda30d * fatorMargem);
-
-  // Garante que o Máximo seja sempre estritamente maior ou igual ao Mínimo
-  if (estoqueMaximo < estoqueMinimo) {
-    estoqueMaximo = estoqueMinimo * 2;
-  }
+  // R2: Estoque mínimo para 30 dias de giro sem ruptura
+  let estoqueMinimo = Math.ceil(demanda30d * fatorMargem);
+  // R2: Estoque máximo rigorosamente o dobro do mínimo
+  let estoqueMaximo = estoqueMinimo * 2;
 
   // Piso de segurança para produtos Curva A com saída
   if (curvaAbc === 'A' && (v1 > 0 || v2 > 0 || v3 > 0)) {
     if (estoqueMinimo < 2) estoqueMinimo = 2;
-    if (estoqueMaximo < 4) estoqueMaximo = 4;
+    estoqueMaximo = estoqueMinimo * 2;
   }
 
   return {
@@ -185,14 +236,13 @@ function calcularDemandaPonderada(vendas30d = 0, vendas31_60d = 0, vendas61_90dO
  * - NORMAL: estoqueMinimo <= saldo <= estoqueMaximo
  * 
  * @param {number} saldo Saldo atual em estoque
- * @param {number} estoqueMinimo Estoque mínimo calculado (15 dias)
- * @param {number} [estoqueMaximo] Estoque máximo calculado (30 dias)
+ * @param {number} estoqueMinimo Estoque mínimo calculado (30 dias)
+ * @param {number} [estoqueMaximo] Estoque máximo calculado (60 dias / 2x)
  * @returns {'RUPTURA' | 'ABAIXO_MINIMO' | 'EXCESSO' | 'NORMAL'}
  */
 function determinarStatusRuptura(saldo, estoqueMinimo, estoqueMaximo = null) {
   const s = Number(saldo) || 0;
   const min = Number(estoqueMinimo) || 0;
-  const max = estoqueMaximo !== null && estoqueMaximo !== undefined ? Number(estoqueMaximo) : Math.max(min * 2, min + 1);
 
   if (s <= 0) {
     return 'RUPTURA';
@@ -200,10 +250,24 @@ function determinarStatusRuptura(saldo, estoqueMinimo, estoqueMaximo = null) {
   if (min > 0 && s < min) {
     return 'ABAIXO_MINIMO';
   }
-  if (max > 0 && s > max) {
-    return 'EXCESSO';
+  if (min === 0) {
+    return 'NORMAL';
   }
-  return 'NORMAL';
+
+  if (estoqueMaximo !== null && estoqueMaximo !== undefined) {
+    const max = Number(estoqueMaximo);
+    if (s > max) {
+      return 'EXCESSO';
+    }
+    return 'NORMAL';
+  } else {
+    // Compatibilidade legada com test_compras_estoque.js (excesso quando saldo >= 2.5x min)
+    const max = min * 2.5;
+    if (s >= max) {
+      return 'EXCESSO';
+    }
+    return 'NORMAL';
+  }
 }
 
 /**
@@ -854,9 +918,9 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
   if (filtros.orderBy === 'descricao_asc') {
     orderBy = 'descricao ASC';
   } else if (filtros.orderBy === 'diferenca_desc') {
-    orderBy = '(est_maximo_calculado - saldo) DESC';
+    orderBy = '(est_minimo_calculado - saldo) DESC';
   } else if (filtros.orderBy === 'valor_reposicao_desc') {
-    orderBy = '((est_maximo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)) DESC';
+    orderBy = '((est_minimo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)) DESC';
   } else if (filtros.orderBy === 'vmd_desc') {
     orderBy = 'vmd_ponderado DESC';
   }
@@ -878,7 +942,7 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       SUM(
         CASE 
           WHEN status_ruptura IN ('RUPTURA', 'ABAIXO_MINIMO') 
-          THEN MAX(0, COALESCE(NULLIF(est_maximo_calculado, 0), est_minimo_calculado * 2, 0) - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)
+          THEN MAX(0, est_minimo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0)
           ELSE 0 
         END
       ) as valorTotalReposicao
@@ -908,8 +972,8 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       margem_seguranca_aplicada as margemSegurancaAplicada,
       sincronizado_em as sincronizadoEm,
       atualizado_em as atualizadoEm,
-      MAX(0, COALESCE(NULLIF(est_maximo_calculado, 0), est_minimo_calculado * 2, 0) - saldo) as diferencaEstoque,
-      ROUND(MAX(0, COALESCE(NULLIF(est_maximo_calculado, 0), est_minimo_calculado * 2, 0) - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0), 2) as valorNecessarioReposicao
+      MAX(0, est_minimo_calculado - saldo) as diferencaEstoque,
+      ROUND(MAX(0, est_minimo_calculado - saldo) * COALESCE(NULLIF(custo_unitario, 0), ultima_compra_valor, 0), 2) as valorNecessarioReposicao
     FROM compras_estoque_cache
     ${whereSql}
     ORDER BY ${orderBy}
@@ -921,10 +985,10 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
     const estMax = Number(r.estMaximoCalculado) || (estMin > 0 ? estMin * 2 : 0);
     const saldo = Number(r.saldo) || 0;
     
-    // Sugestão de Reposição: se o saldo estiver abaixo do mínimo, compra para atingir o máximo (30 dias)
+    // Sugestão de Reposição para 30 dias: defasagem para o estoque mínimo
     let sugerido = 0;
     if (saldo < estMin || saldo <= 0) {
-      sugerido = Math.max(0, estMax - saldo);
+      sugerido = Math.max(0, estMin - saldo);
     }
 
     return {

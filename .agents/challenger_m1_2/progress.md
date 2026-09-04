@@ -1,13 +1,17 @@
-# Progress — Challenger 2 (Milestone M1)
+# Progress Log — Challenger M1-2
 
-**Last visited**: 2026-08-29T17:16:45Z  
-**Status**: COMPLETE  
+Last visited: 2026-09-04T12:24:15Z
 
-## Steps
-- [x] Received dispatch and initialized BRIEFING.md
-- [x] Investigated M1 implementation (`compras-estoque.service.js` and `database.js`)
-- [x] Created `math_concurrency_test.js` (1,000 samples mathematical oracle + async concurrency harness)
-- [x] Executed `math_concurrency_test.js` (1,516 assertions passed, 0 failures)
-- [x] Evaluated findings and stress results (APPROVE)
-- [/] Generating `handoff.md` with final verdict
-- [ ] Send completion message to parent
+## Status: COMPLETED
+
+### Completed Steps
+1. Initialized DISPATCH.md and BRIEFING.md.
+2. Read mandatory documents: ORIGINAL_REQUEST.md, PROJECT.md, worker_m1/handoff.md.
+3. Created reproducible empirical test suite in `scratch/test_m1_challenger2_full_suite.cjs`.
+4. Executed EXPLAIN QUERY PLAN verification across `ean`, `curva_abc`, `status_ruptura`, `descricao`.
+5. Benchmark of query latency against real dataset of 64,537 rows in `data/belafarma.db`.
+6. Executed WAL concurrency stress test: 1,000 rapid writes, 2,000 concurrent reads, snapshot isolation, multi-connection simulation.
+7. Executed database integrity checks (`PRAGMA integrity_check`, `wal_checkpoint`).
+8. Updated BRIEFING.md with Attack Surface and findings.
+9. Emitting formal evaluation in `handoff.md` with APPROVE verdict and architectural caveat on NOCASE indexing.
+10. Notifying orchestrator via `send_message`.

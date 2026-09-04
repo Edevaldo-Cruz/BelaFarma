@@ -1,22 +1,19 @@
-# Tarefa: Challenger 1 - Milestone M1 (Stress & Edge Case Verifier)
+﻿## 2026-09-04T12:19:14Z
+<USER_REQUEST>
+Você é o Challenger 1 para estressar e verificar empiricamente a robustez do Milestone M1 (Schema SQLite de compras_estoque_cache).
+Seu diretório exclusivo de trabalho é:
+f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1
 
-## 2026-08-29T17:14:25Z
+LEIA OS DOCUMENTOS OBRIGATÓRIOS:
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md (seção '## 2026-09-04T12:09:33Z')
+- f:\Documentos\Desenvolvimento\BelaFarma\PROJECT.md
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1\handoff.md
 
-
-## Identidade e Diretório
-- Archetype: teamwork_preview_challenger
-- Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1
-- Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-- Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
-- Target Implementation: f:\Documentos\Desenvolvimento\BelaFarma\backend\services\compras-estoque.service.js
-
-## Missão
-Realizar verificação empírica e testes de estresse adversarial na lógica de estoque mínimo e sincronização:
-1. Criar um script de teste de estresse em sua pasta de trabalho (`f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1\stress_test.js`).
-2. Testar casos extremos:
-   - Margens de segurança extremas (-50%, 0%, 100%, 1000%).
-   - Volumes maciços de produtos (10.000 itens) para avaliar performance do bulk-upsert SQLite.
-   - Entradas corrompidas (strings no lugar de números, arrays vazios, objetos circulares, SQL injection strings em filtros de busca).
-   - Simulação de desconexão abrupta do Firebird no meio de um lote de sincronização.
-3. Executar o script de teste de estresse.
-4. Emitir veredito formal (`APPROVE` ou `REQUEST_CHANGES`) em `handoff.md` e notificar o Orquestrador.
+TESTES ADVERSARIAIS:
+1. Crie testes adversariais empíricos testando idempotência de migração: execute database.js múltiplas vezes e confirme que não ocorre erro nem duplicação.
+2. Teste operações de INSERT, UPDATE e SELECT com valores extremos (preços nulos, strings longas, números com ponto flutuante, caracteres especiais em apresentação e fornecedor).
+3. Meça os tempos de resposta para verificar se todas as queries continuam operando abaixo do limite estrito de 10ms.
+4. Emita seu relatório e parecer formal (APPROVE ou REJECT) em:
+   f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_1\handoff.md
+Avise seu orchestrator via send_message ao concluir.
+</USER_REQUEST>

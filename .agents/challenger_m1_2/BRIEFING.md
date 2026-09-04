@@ -1,52 +1,50 @@
-# BRIEFING — 2026-08-29T17:16:00Z
+# BRIEFING — 2026-09-04T12:24:10Z
 
 ## Mission
-Adversarially verify Milestone 1 (M1) mathematical calculations (weighted daily sales, 30-day demand, safety margin, Curva A floor, inactivity/dormancy rules) against an exact oracle across 1,000 randomized samples, and stress-test SQLite WAL concurrency under heavy simultaneous async read/write loads.
+Testar empiricamente a concorrência (WAL mode) e integridade estrutural (EXPLAIN QUERY PLAN e índices) do Milestone M1 na tabela compras_estoque_cache.
 
 ## 🔒 My Identity
-- Archetype: challenger
+- Archetype: empirical_challenger
 - Roles: critic, specialist
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_2
-- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
+- Original parent: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
 - Milestone: M1
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code.
-- Empirically test 1,000 randomized samples against exact mathematical oracle.
-- Stress-test async concurrent reads and writes on SQLite cache and stock service.
-- Clean up any test records after testing.
-- Produce handoff report with APPROVE or REQUEST_CHANGES verdict.
+- Review-only — do NOT modify implementation code
+- Challenger 2: Testar concorrência SQLite WAL e planos de execução (EXPLAIN QUERY PLAN) de compras_estoque_cache
+- .agents/ holds only metadata — NEVER place source code, tests, or data files here
 
 ## Current Parent
-- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Updated: 2026-08-29T17:16:00Z
+- Conversation ID: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Updated: not yet
 
 ## Review Scope
-- **Files to review**: `backend/services/compras-estoque.service.js`, `backend/database.js`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`
-- **Review criteria**: Mathematical exactness, rounding precision, safety floor logic, dormancy/inactivity handling, status classification, async SQLite concurrency without locks/corruption.
+- **Files to review**: backend/database.js, migrations, and compras_estoque_cache schema/indices
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, worker_m1 handoff
+- **Review criteria**: Concurrency under WAL, index utilization on ean/descricao/status_ruptura/curva_abc
 
 ## Attack Surface
 - **Hypotheses tested**:
-  1. Floating-point precision errors in weighted demand formula $\lceil ((V_{30d} \times 0.65) + (V_{31\_60d} \times 0.35)) \times (1 + \alpha/100) \rceil$: PASSED (1,000/1,000 random samples matched exact oracle).
-  2. Edge cases (0 sales, negative numbers, extreme floats, Curva A < 2 floor, inactive items, > 90 days without sales): PASSED (100% adherence).
-  3. Status classification matrix (RUPTURA, ABAIXO_MINIMO, NORMAL, EXCESSO): PASSED (500/500 random samples matched exact oracle).
-  4. Concurrent async reads and writes to SQLite cache (`compras_estoque_cache`) under heavy parallel load (600 simultaneous ops): PASSED (0 locks, 0 errors, 643.1 ops/sec, PRAGMA integrity_check = ok).
-- **Vulnerabilities found**: None. Implementation is mathematically sound, robust against invalid inputs, and thread/async resilient in SQLite WAL mode.
-- **Untested angles**: Firebird live socket writes in production network (handled via fallback mechanism and tested in local mocks).
+  1. Concorrência WAL sob alta frequência gera inconsistência ou dirty reads -> REJEITADA (Snapshot isolation perfeito, 0 leituras sujas, 0 erros em 1000 escritas e 2000 leituras).
+  2. Buscas por ean, curva_abc e status_ruptura sofrem table scan -> REJEITADA (`SEARCH USING INDEX` ativo em 100% dos testes, latência p50 < 0.5ms).
+  3. Busca LIKE prefixo em descricao utiliza `idx_cec_descricao` -> CONFIRMADA FALHA DE ÍNDICE (Collation BINARY força full scan em LIKE case-insensitive; recomendada migração para `COLLATE NOCASE`).
+  4. Múltiplas conexões concorrentes geram deadlock ou `SQLITE_BUSY` -> REJEITADA (`busy_timeout: 5000` em modo WAL assegura transições transparentes).
+- **Vulnerabilities found**:
+  - `idx_cec_descricao` não é utilizado por buscas `LIKE 'termo%'` porque o índice não possui `COLLATE NOCASE`.
+- **Untested angles**:
+  - Comportamento de checkpoint sob disco 100% saturado (fora do escopo do M1).
 
 ## Loaded Skills
 - None
 
 ## Key Decisions Made
-- Created and executed automated empirical test suite `.agents/challenger_m1_2/math_concurrency_test.js`.
-- All 1,516 test assertions passed without a single failure.
-- Issued APPROVE verdict for Milestone M1.
+- Executada suíte empírica completa em `scratch/test_m1_challenger2_full_suite.cjs` contra base real (64.537 registros).
+- Veredito formal emitido: APPROVE para o Milestone M1, acompanhado de recomendação de melhoria para M2/M3 referente ao índice de descrição com `COLLATE NOCASE`.
 
 ## Artifact Index
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_2\BRIEFING.md`
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_2\DISPATCH.md`
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_2\progress.md`
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_2\math_concurrency_test.js`
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m1_2\handoff.md`
+- .agents/challenger_m1_2/DISPATCH.md — Incoming dispatch
+- .agents/challenger_m1_2/progress.md — Liveness heartbeat and progress tracking
+- .agents/challenger_m1_2/handoff.md — Final formal review and verdict
+- scratch/test_m1_challenger2_full_suite.cjs — Executable empirical verification harness

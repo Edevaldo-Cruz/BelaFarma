@@ -1,96 +1,206 @@
-# Handoff Report — Challenger 2 (Milestone M2: Session Isolation & Security Gate)
+# Relatório de Handoff — Challenger 2: Invariantes Matemáticos e Concorrência Assíncrona (Milestone M2)
+
+**Data/Hora**: 2026-09-04T12:38:00Z  
+**Agente**: Challenger 2 (Empirical Challenger: critic, specialist)  
+**Diretório de Trabalho**: `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2`  
+**Destinatário**: Orchestrator (`43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce`)  
+**Parecer Formal**: ❌ **REJECT**
+
+---
+
+## Challenge Summary
+
+**Avaliação Geral de Risco**: **HIGH**
+
+Os invariantes matemáticos de cálculo de estoque mínimo/máximo e quantidade sugerida foram validados com 100% de sucesso empírico. No entanto, a implementação do motor central de busca `buscarMedicamentos` em `backend/services/medicamentos-busca.service.js` possui um gargalo crítico de performance que viola diretamente o SLA contratual de `< 10ms` sob concorrência assíncrona (`Promise.all`) em qualquer consulta utilizando o parâmetro de busca textual/código `q`.
+
+---
 
 ## 1. Observation
-- **Arquivos Inspecionados e Auditados:**
-  - `backend/baileys-compras-service.js`: Linhas 17-20 (definição de `SESSION_DIR`), linhas 413-432 (`sendTextMessage`), linhas 481-535 (`enviarMensagemAprovada`).
-  - `backend/services/compras-mineracao.service.js`: Linhas 498-618 (`upsertFornecedorMeta`), linhas 623-713 (`processarMensagemRecebida`), linhas 718-773 (`processarMensagensEmLote`).
-  - `backend/database.js`: Linhas 1807-2038 (DDL e índices de `compras_estoque_cache`, `compras_fornecedores_meta`, `compras_historico_mensagens`, `compras_oportunidades_mineradas`, `compras_fila_aprovacao`).
 
-- **Execução Empírica de Testes de Estresse Adversarial (`.agents/challenger_m2_2/security_stress_m2.js`):**
-  - **Comando:** `node .agents/challenger_m2_2/security_stress_m2.js`
-  - **Resultado:** 28/28 asserções passaram (100% de sucesso, 0 falhas).
-  ```text
-  🔒 SEÇÃO 1: TRAVA DE SEGURANÇA E TENTATIVAS DE BYPASS (SECURITY GATE)
-    ✅ [PASS] 1.1 - Bloqueio de envio para item com status "pendente"
-    ✅ [PASS] 1.2 - Bloqueio de envio para item com status "rejeitado"
-    ✅ [PASS] 1.3 - Bloqueio de envio para item com status "cancelado"
-    ✅ [PASS] 1.4 - Prevenção de Replay Attack (Item com status "enviado" não pode ser reenviado)
-    ✅ [PASS] 1.5 - Rejeição de status arbitrário ou malformado ("hacked", "", null)
-    ✅ [PASS] 1.6 - Tratamento robusto para approvalId inexistente
-    ✅ [PASS] 1.7 - Imunidade a SQL Injection no ID de aprovação
-    ✅ [PASS] 1.8 - Validação de banco de dados ausente
-    ✅ [PASS] 1.9 - Bloqueio de chamadas diretas com socket desconectado
-    ✅ [PASS] 1.10 - Rejeição de telefones inválidos e mensagens vazias
-    ✅ [PASS] 1.11 - Proteção de envio de item aprovado quando socket está desconectado
-    ✅ [PASS] 1.12 - Suporte a status "editado_enviado" valida socket antes de disparo
-
-  ⚡ SEÇÃO 2: CONCORRÊNCIA MASSIVA DE INGESTÃO E ESCRITA SQLITE WAL
-    ✅ [PASS] 2.1 - Ingestão concorrente de 100 mensagens simultâneas (Promise.all)
-    ✅ [PASS] 2.2 - Condição de corrida: 50 mensagens simultâneas do MESMO fornecedor (Upsert lock stress)
-    ✅ [PASS] 2.3 - Execução simultânea de Lote Histórico e Mensagens em Tempo Real
-    ✅ [PASS] 2.4 - Verificação de Integridade Forense do Banco SQLite (PRAGMA integrity_check)
-    ✅ [PASS] 2.5 - Integridade de Colunas JSON em compras_fornecedores_meta
-    ✅ [PASS] 2.6 - Leituras concorrentes sob escrita contínua (Stress Dashboard Polling)
-
-  📂 SEÇÃO 3: ISOLAMENTO DE SESSÃO E CAMINHOS MULTIPLATAFORMA (WINDOWS & LINUX)
-    ✅ [PASS] 3.1 - Isolamento de caminho de sessão no Windows
-    ✅ [PASS] 3.2 - Verificação de conformidade do caminho em Linux/Docker (/data/baileys-session-compras)
-    ✅ [PASS] 3.3 - Resistência contra Path Traversal em arquivos de sessão
-    ✅ [PASS] 3.4 - Estado da conexão isolado e getters padronizados
-    ✅ [PASS] 3.5 - Triplo Isolamento de Sessões Baileys (Principal, Secundário e Compras)
-
-  🧪 SEÇÃO 4: PAYLOADS ADVERSARIAIS, REDOS E CASOS DE BORDA DO PARSER
-    ✅ [PASS] 4.1 - Proteção contra ReDoS em textos patológicos gigantes (>50.000 caracteres)
-    ✅ [PASS] 4.2 - Parser de valores monetários extremos e malformados
-    ✅ [PASS] 4.3 - Resiliência a Emojis, Unicode, Zero-Width e Caracteres Especiais
-    ✅ [PASS] 4.4 - Tolerância a dados JSON corrompidos em compras_fornecedores_meta
-    ✅ [PASS] 4.5 - Cálculo exato de bonificações extremas ("compre 100 ganhe 50", "99% off", "0% desc")
+### 1.1 Invariante Estrito 1: `est_maximo_calculado === est_minimo_calculado * 2`
+- **Arquivo**: `backend/services/medicamentos-busca.service.js` (linhas 47-48) e `backend/services/compras-estoque.service.js` (linhas 133, 137, 209, 214).
+- **Execução**: Suíte adversarial `scratch/test_m2_challenger2_invariants_concurrency.cjs` gerou 1.000 amostras randômicas e de borda cobrindo VMD de 0 a 100.000, giros microscópicos (0.001), margens de 0% a 500%, curvas A/B/C e status ativo/inativo.
+- **Resultado Verbatim**:
+  ```
+  >>> [TESTE 1] VERIFICAÇÃO DO INVARIANTE ESTRITO: est_maximo === est_minimo * 2
+      Gerando 1.000 amostras aleatórias e de borda (giros, margens, curvas, status)...
+      ✅ 1.000 amostras testadas: 0 violações. min * 2 === max comprovado empiricamente.
   ```
 
-- **Execuções Complementares:**
-  - `node backend/test_compras_m2.js`: 16/16 testes passaram (100% de sucesso).
-  - `node test_compras_e2e.js`: 160/160 testes passaram nos 4 Tiers (100% de sucesso).
+### 1.2 Invariante Estrito 2: `qtd_sugerida_compra === Math.max(0, est_minimo_calculado - saldo)`
+- **Arquivo**: `backend/services/medicamentos-busca.service.js` (linha 51).
+- **Execução**: 1.000 amostras particionadas em:
+  - 350 amostras com saldos negativos (estoque furado, -0.1 a -5.000);
+  - 150 amostras com saldo zero exato;
+  - 500 amostras com saldos positivos (0.1 a 10.000).
+- **Resultado Verbatim**:
+  ```
+  >>> [TESTE 2] VERIFICAÇÃO DO INVARIANTE: qtd_sugerida_compra === Math.max(0, est_minimo - saldo)
+      Gerando 1.000 amostras com saldos POSITIVOS, NULOS e NEGATIVOS...
+      Distribuicão das 1.000 amostras:
+        - Saldos Negativos (estoque furado): 350
+        - Saldos Nulos (ruptura zero):        150
+        - Saldos Positivos:                  500
+      ✅ 1.000 amostras testadas: 0 violações. Defasagem exata comprovada empiricamente.
+  ```
+
+### 1.3 Concorrência Assíncrona e Latência de `buscarMedicamentos` (SLA < 10ms)
+- **Arquivo**: `backend/services/medicamentos-busca.service.js` (linhas 135-187).
+- **Trecho de Código Observado**:
+  ```javascript
+  144:   if (q) {
+  145:     const trimmed = String(q).trim();
+  146:     const isNumeric = /^\d+$/.test(trimmed);
+  147:     if (isNumeric) {
+  148:       const num = Number(trimmed);
+  149:       whereParts.push('(produto_id = ? OR ean = ? OR descricao LIKE ?)');
+  150:       queryParams.push(num, trimmed, `%${trimmed}%`);
+  151:     } else {
+  152:       whereParts.push('(descricao LIKE ? OR ean = ?)');
+  153:       queryParams.push(`%${trimmed}%`, trimmed);
+  154:     }
+  155:   }
+  ...
+  169:   const countRow = sqlite.prepare(`SELECT COUNT(*) as c FROM compras_estoque_cache ${whereSql}`).get(...queryParams);
+  ...
+  172:   const items = sqlite.prepare(`
+  173:     SELECT *
+  174:     FROM compras_estoque_cache
+  175:     ${whereSql}
+  176:     ORDER BY produto_id ASC
+  177:     LIMIT ? OFFSET ?
+  178:   `).all(...queryParams, lim, off);
+  ```
+- **Execução do Plano de Consulta (`EXPLAIN QUERY PLAN`)**:
+  ```powershell
+  EXPLAIN QUERY PLAN SELECT COUNT(*) FROM compras_estoque_cache WHERE (produto_id = ? OR ean = ? OR descricao LIKE ?)
+  # Resultado: [{ id: 3, detail: 'SCAN compras_estoque_cache' }] -> FULL TABLE SCAN DE 64.537 REGISTROS
+  ```
+- **Resultados de Latência Medidos Empiricamente por Tipo de Consulta (Base de 64.537 registros)**:
+  - `status + curva`: total 50 reqs = 43.3ms | **média: 0.867ms** ✅ PASS
+  - `curva_abc`: total 50 reqs = 17.0ms | **média: 0.339ms** ✅ PASS
+  - `status_ruptura`: total 50 reqs = 180.9ms | **média: 3.617ms** ✅ PASS
+  - `q numérico (ID)`: total 50 reqs = 936.7ms | **média: 18.734ms** ❌ **FAIL (> 10ms)**
+  - `q numérico (EAN)`: total 50 reqs = 3.258.9ms | **média: 65.177ms** ❌ **FAIL (> 10ms)**
+  - `q texto (LIKE)`: total 50 reqs = 1.524.3ms | **média: 30.486ms** ❌ **FAIL (> 10ms)**
+
+- **Resultados Sob Concorrência Simultânea via `Promise.all`**:
+  - **Bateria 3.1 (100 chamadas simultâneas mistas via `Promise.all`)**:
+    - Tempo total do lote: **3.592.26ms**
+    - Tempo de resposta médio percebido por chamada: **1.669.153ms** (SLA < 10ms) ❌ **FAIL**
+  - **Bateria 3.2 (500 chamadas simultâneas mistas via `Promise.all`)**:
+    - Tempo total do lote: **15.811.27ms**
+    - Tempo de resposta médio percebido por chamada: **8.460.103ms** (SLA < 10ms) ❌ **FAIL**
+  - **Bateria 3.3 (1.000 chamadas simultâneas mistas via `Promise.all`)**:
+    - Tempo total do lote: **26.582.82ms**
+    - Tempo de resposta médio percebido por chamada: **13.355.297ms (13,3 segundos)** (SLA < 10ms) ❌ **FAIL**
+  - **Bateria 3.4 (1.000 chamadas simultâneas medindo tempo de execução pura no SQLite)**:
+    - Tempo de execução médio por query: **29.958ms** (SLA < 10ms) ❌ **FAIL**
 
 ---
 
 ## 2. Logic Chain
-1. **Security Gate & Human-in-the-Loop:** A função `enviarMensagemAprovada` em `backend/baileys-compras-service.js` valida rigorosamente se o status do registro na tabela `compras_fila_aprovacao` é `aprovado` ou `editado_enviado`. Se o item possuir status `pendente`, `rejeitado`, `cancelado`, `enviado` ou qualquer string maliciosa, a execução é interrompida com exceção explícita antes de qualquer interação com o socket do WhatsApp.
-2. **Prevenção de Replay Attack & Duplo Envio:** Uma vez despachado, o item na fila é atualizado atomicamente para o status `enviado`. Tentativas subsequentes de reenvio com o mesmo `approvalId` falham imediatamente, garantindo que fornecedores não recebam cotações duplicadas.
-3. **Concorrência & Resiliência SQLite WAL:** Durante testes de carga com 100 mensagens assíncronas paralelas via `Promise.all` e condições de corrida com 50 mensagens simultâneas do mesmo remetente, a cláusula `ON CONFLICT` e a serialização em modo WAL impediram travamentos, deadlocks e corrupções. `PRAGMA integrity_check` retornou `ok` e `PRAGMA foreign_key_check` retornou 0 violações.
-4. **Isolamento de Sessão Multiplataforma:** O caminho `SESSION_DIR` em Windows e Linux/Docker aponta com precisão para diretórios isolados (`backend/baileys-session-compras` e `backend/data/baileys-session-compras`), mantendo 100% de separação física em relação às instâncias primária (`baileys-session`) e secundária (`baileys-session-secondary`). Tentativas de Path Traversal foram neutralizadas.
-5. **Resistência a ReDoS e Payloads Patológicos:** Textos de teste com mais de 50.000 caracteres foram processados pelos parsers regex em menos de 200ms, sem risco de negação de serviço. Payloads contendo Emojis, caracteres Unicode Zero-Width, números em formato internacional e JSONs corrompidos foram manipulados com total tolerância a falhas.
+
+1. **Premissa 1 (SLA Contratual de Performance)**:
+   - Conforme especificado em `PROJECT.md` (Feature 2: "Validar índices garantindo busca < 10ms") e `ORIGINAL_REQUEST.md` (Acceptance Criteria: "Consultas por ID, EAN ou termo LIKE executam em menos de 10ms utilizando os índices SQLite").
+2. **Premissa 2 (Causa Raiz da Degradação)**:
+   - Na implementação de `buscarMedicamentos`, quando o usuário pesquisa por um ID numérico ou EAN, a cláusula `where` concatena `(produto_id = ? OR ean = ? OR descricao LIKE ?)` com `%${trimmed}%`.
+   - A inclusão do predicado `OR descricao LIKE '%...%'` com wildcard à esquerda invalida a utilização dos índices B-tree (`idx_cec_ean` e a Chave Primária `produto_id`), forçando o SQLite a executar um **SCAN completo de todas as 64.537 linhas**.
+   - Para agravar o custo, o método executa **duas vezes** a varredura completa por chamada: primeiro no `SELECT COUNT(*) as c FROM compras_estoque_cache`, e logo em seguida no `SELECT * FROM compras_estoque_cache ... ORDER BY produto_id ASC LIMIT ? OFFSET ?`.
+   - Cada chamada individual leva entre **18ms e 65ms** apenas para executar no banco.
+3. **Premissa 3 (Impacto da Concorrência Assíncrona)**:
+   - O driver `better-sqlite3` opera de forma síncrona na thread do processo Node.js.
+   - Quando 100 chamadas concorrentes são disparadas simultaneamente via `Promise.all`, o tempo total do lote acumula para ~3,6 segundos, resultando em uma latência média percebida pelo cliente de **1.669ms**. Em 1.000 chamadas, a latência média atinge **13,3 segundos**.
+   - Mesmo isolando a medição estrita de CPU de cada query sem tempo de fila, a média foi de **29.958ms**, quase 3 vezes superior ao teto de 10ms exigido.
+4. **Premissa 4 (Falso Positivo na Validação do Worker M2)**:
+   - O arquivo de testes do worker (`backend/test_motor_busca_medicamentos.js`, linhas 351-425) mediu benchmarks isolados executando comandos SQL crus (`SELECT * FROM compras_estoque_cache WHERE produto_id = ?` e `WHERE descricao LIKE 'AMOX%'` com prefixo), **sem chamar a função `buscarMedicamentos` real** e sem a cláusula de `OR` com `LIKE '%...%'` nem o duplo `SELECT COUNT(*)`. Por isso, o worker reportou falsamente benchmarks de 0.05ms a 0.75ms.
+5. **Conclusão Lógica**:
+   - Como o critério de aceitação de latência média < 10ms sob concorrência falha objetivamente no motor de busca implementado, o handoff do Milestone M2 não pode ser aprovado em seu estado atual.
 
 ---
 
 ## 3. Caveats
-- O teste de socket real com leitura de QR Code físico requer dispositivo celular com WhatsApp ativo; os testes automatizados cobriram a lógica determinística de conexão, geração de QR Code em Base64, reconexão e travas de segurança do dispatch.
-- Em ambiente de teste automatizado local, a consulta direta ao Firebird do ERP Digifarma (`192.168.1.10:3050`) utiliza o fallback do cache SQLite (`compras_estoque_cache`), o que é o comportamento previsto em arquitetura resiliente.
+
+- **Isolamento de Outras Funções**: A função `obterMedicamentoPorId` não sofre dessa degradação, executando 1.000 chamadas concorrentes com tempo médio de **0.087ms**, pois utiliza `WHERE produto_id = ?` direto.
+- **Filtros por Status/Curva**: Quando `buscarMedicamentos` é chamado sem o parâmetro `q` (apenas com `status` e `curva`), o tempo médio sob concorrência foi de **0.437ms a 1.285ms**, plenamente aprovado. O problema reside estritamente nas ramificações que utilizam `q`.
 
 ---
 
-## 4. Conclusion
-**Veredito:** `APPROVE`
-O Milestone M2 cumpre integralmente os requisitos de segurança, isolamento de caminhos, prevenção de bypass de envio externo não autorizado e estabilidade de concorrência em SQLite WAL. A implementação está pronta para progressão para o Milestone M3 (Motor de Cotações Inteligentes & Ranking Ponderado).
+## 4. Challenges & Mitigações Recomendadas
+
+### [High] Falha de SLA em `buscarMedicamentos` com parâmetro `q`
+
+- **Suposição Desafiada**: Que as buscas textuais e por ID/EAN via `buscarMedicamentos` operam dentro do SLA de 10ms.
+- **Cenário de Falha**: Chamada a `buscarMedicamentos(db, { q: '123' })` ou `buscarMedicamentos(db, { q: '7891058000001' })` ou `buscarMedicamentos(db, { q: 'DIPIRONA' })`.
+- **Raio de Destruição**: Sob carga de 100 requisições simultâneas na API REST Express, o servidor Node.js bloqueará o event loop por mais de 3,5 segundos, degradando severamente a experiência do usuário e causando timeouts no Agente Horácio e na Central de Compras.
+- **Mitigação Recomendada para o Worker M2**:
+  1. **Desacoplar busca exata de ID e EAN da busca LIKE**:
+     ```javascript
+     if (q) {
+       const trimmed = String(q).trim();
+       const isNumeric = /^\d+$/.test(trimmed);
+       if (isNumeric) {
+         const num = Number(trimmed);
+         // Multi-index OR ultrarrápido (< 0.1ms)
+         whereParts.push('(produto_id = ? OR ean = ?)');
+         queryParams.push(num, trimmed);
+       } else {
+         // Busca textual por prefixo utilizando o índice idx_cec_descricao (< 1.5ms)
+         whereParts.push('(descricao LIKE ? OR ean = ?)');
+         queryParams.push(`${trimmed}%`, trimmed);
+       }
+     }
+     ```
+  2. **Evitar duplo `SELECT COUNT(*)` desnecessário**:
+     - Se `q` for numérico (ID/EAN), o total é no máximo 1 (ou o número de itens retornados), dispensando uma varredura de `COUNT(*)`.
+     - Para buscas paginadas normais, se `items.length < limit`, o `total` pode ser inferido sem disparar query de agregação extra.
 
 ---
 
-## 5. Verification Method
-Para reproduzir e verificar de forma independente os resultados obtidos:
+## 5. Stress Test Results
 
-1. **Executar a Suíte de Estresse Adversarial do Challenger 2:**
-   ```bash
-   node .agents/challenger_m2_2/security_stress_m2.js
-   ```
-   *Condição de validação:* 28/28 testes devem passar com exit code 0.
+| Cenário de Teste | Comportamento Esperado | Comportamento Observado | Status |
+|---|---|---|---|
+| Invariante 1: `est_maximo === min * 2` (1.000 amostras) | 0 violações | 0 violações em 1.000 amostras | **PASS** ✅ |
+| Invariante 2: `qtd_sugerida === Math.max(0, min - saldo)` (1.000 amostras) | 0 violações | 0 violações (350 neg, 150 zero, 500 pos) | **PASS** ✅ |
+| Concorrência: 50 chamadas `status + curva` | Média < 10ms | **0.867ms** | **PASS** ✅ |
+| Concorrência: 50 chamadas `curva_abc` | Média < 10ms | **0.339ms** | **PASS** ✅ |
+| Concorrência: 50 chamadas `status_ruptura` | Média < 10ms | **3.617ms** | **PASS** ✅ |
+| Concorrência: 50 chamadas `q` numérico (ID) | Média < 10ms | **18.734ms** | **FAIL** ❌ |
+| Concorrência: 50 chamadas `q` numérico (EAN) | Média < 10ms | **65.177ms** | **FAIL** ❌ |
+| Concorrência: 50 chamadas `q` texto (LIKE) | Média < 10ms | **30.486ms** | **FAIL** ❌ |
+| Concorrência: 100 chamadas simultâneas mistas via `Promise.all` | Média < 10ms | **1.669ms** (Total: 3.592ms) | **FAIL** ❌ |
+| Concorrência: 1.000 chamadas simultâneas mistas via `Promise.all` | Média < 10ms | **13.355ms** (Total: 26.582ms) | **FAIL** ❌ |
+| Execução interna direta: 1.000 chamadas mistas | Média < 10ms | **29.958ms** | **FAIL** ❌ |
 
-2. **Executar a Suíte Unificada do Worker M2:**
-   ```bash
-   node backend/test_compras_m2.js
-   ```
-   *Condição de validação:* 16/16 testes devem passar com exit code 0.
+---
 
-3. **Executar a Suíte E2E Global:**
-   ```bash
-   node test_compras_e2e.js
-   ```
-   *Condição de validação:* 160/160 testes devem passar com exit code 0.
+## 6. Unchallenged Areas
+
+- Endpoints HTTP Express (`backend/medicamentos-endpoints.js`) e agendamento cron: fora do escopo do M2, pertencendo ao Milestone M3.
+- Notificação do Agente Horácio em produção: escopo do Milestone M4.
+
+---
+
+## 7. Conclusion
+
+**Parecer**: **REJECT**
+
+Embora a matemática de reposição para 30 dias de giro e dobro no máximo esteja impecável e rigorosamente comprovada em 1.000 amostras, o serviço `buscarMedicamentos` em `backend/services/medicamentos-busca.service.js` não atende ao SLA de concorrência e latência (< 10ms) quando acionado com o parâmetro de busca `q`. Recomenda-se retornar o Milestone M2 ao Worker responsável para otimizar as cláusulas de busca de `buscarMedicamentos` conforme orientado na Seção 4 antes da aprovação final.
+
+---
+
+## 8. Verification Method
+
+Para reproduzir integralmente os testes empíricos deste relatório:
+
+```powershell
+# Executar a suíte de testes adversariais do Challenger 2
+node scratch/test_m2_challenger2_invariants_concurrency.cjs
+```
+
+### Critérios de Invalidação
+Este parecer será invalidado se:
+1. Uma execução da suíte demonstrar tempo médio de resposta inferior a 10ms para 100 e 1.000 chamadas simultâneas de `buscarMedicamentos` com o parâmetro `q`.
+2. A query `EXPLAIN QUERY PLAN` demonstrar que a busca por `q` utiliza `idx_cec_ean` ou `idx_cec_descricao` em vez de `SCAN compras_estoque_cache`.

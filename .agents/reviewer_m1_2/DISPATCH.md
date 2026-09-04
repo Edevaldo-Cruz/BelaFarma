@@ -1,14 +1,18 @@
-## 2026-08-29T17:14:25Z
-Você é o Reviewer 2 para o Milestone M1 (Estoque Mínimo & Digifarma Sync).
+## 2026-09-04T12:19:14Z
 
-Diretório de trabalho exclusivo: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2
-Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
-Worker Handoff: f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1_estoque\handoff.md
-Arquivo de despacho: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2\DISPATCH.md
+Você é o Reviewer 2 para a validação independente do Milestone M1 (Schema SQLite da tabela compras_estoque_cache).
+Seu diretório de trabalho exclusivo é:
+f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2
 
-Sua missão:
-1. Analisar backend/services/compras-estoque.service.js e backend/database.js.
-2. Executar node backend/test_compras_estoque.js.
-3. Verificar contratos de interface, resiliência a falhas, proteção Curva A e histórico zerado.
-4. Escrever f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2\handoff.md com seu veredito (APPROVE ou REQUEST_CHANGES) e enviar mensagem de conclusão.
+LEIA OS DOCUMENTOS OBRIGATÓRIOS:
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md (seção '## 2026-09-04T12:09:33Z')
+- f:\Documentos\Desenvolvimento\BelaFarma\PROJECT.md
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1\handoff.md
+
+INSPEÇÃO E VERIFICAÇÃO:
+1. Verifique se todas as 11 novas colunas e índices cumprem os requisitos de R1.
+2. Teste a inicialização do banco SQLite em backend/database.js e execute queries com dados de teste.
+3. Teste o desempenho de busca no SQLite com dados reais ou simulados para garantir latência < 10ms.
+4. Emita seu veredito formal (APPROVE ou REQUEST_CHANGES) no arquivo:
+   f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2\handoff.md
+Avise seu orchestrator via send_message ao concluir.

@@ -1,69 +1,61 @@
-# BRIEFING — 2026-08-29T17:20:00Z
+# BRIEFING — 2026-09-04T12:33:00Z
 
 ## Mission
-Adversarial Stress-Testing for Milestone M2 (Offer Parsing & Edge Cases). Build comprehensive empirical stress test suite (`stress_test_m2.js`), execute stress tests against informal rep texts, multiple products, complex terms, and compound bonuses, verify robustness, and provide handoff verdict.
+Estressar e verificar empiricamente a robustez do Milestone M2 (Inteligência de Estoque, 30d/2x e Sincronização Resiliente), avaliando casos extremos e emitindo parecer APPROVE/REJECT.
 
 ## 🔒 My Identity
 - Archetype: EMPIRICAL CHALLENGER
 - Roles: critic, specialist
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_1
-- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Milestone: M2 (Offer Parsing & Edge Cases)
+- Original parent: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Milestone: M2
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Must run verification code directly / verify code trace empirically
-- Review-only — do NOT modify implementation code directly
-- Handoff report in handoff.md with clear verdict (APPROVE or REQUEST_CHANGES)
-- Communication in Portuguese for user-facing content
+- Review-only — do NOT modify implementation code
+- Run verification code empirically (do NOT trust worker's claims or logs)
+- Reproduce findings with executable tests/harnesses
+- Layout compliance: .agents/ holds only agent metadata, no source/tests/data files
+- Follow Handoff Protocol with 5 sections: Observation, Logic Chain, Caveats, Conclusion, Verification Method
 
 ## Current Parent
-- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Updated: 2026-08-29T17:20:00Z
+- Conversation ID: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Updated: not yet
 
 ## Review Scope
 - **Files to review**:
-  - `backend/services/compras-mineracao.service.js`
-  - `backend/baileys-compras-service.js`
-  - `backend/test_compras_m2.js`
-  - `test_compras_e2e.js`
-- **Interface contracts**:
-  - `minerarTextoLivre(texto, remetenteInfo)`
-  - `extrairPrazos(texto)`
-  - `extrairPedidoMinimo(texto)`
-  - `extrairDistribuidoraELaboratorios(texto)`
-  - `extrairNomeRepresentante(texto)`
-  - `extrairLinhasDeOferta(texto)`
-  - `validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, options)`
-  - `processarMensagemRecebida(msgData, db, options)`
-  - `minerarHistoricoConversas(db, options)`
-- **Review criteria**: Empirical correctness, resilience under informal rep messages, compound bonuses, multiple products, edge cases, error resilience.
+  - `delivery-service/src/services/medicamentoSyncService.js` (e módulos associados a estoque e preço)
+  - `delivery-service/src/services/estoqueService.js` (se aplicável)
+  - `f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m2\handoff.md`
+  - `f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m2\changes.md`
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
+- **Review criteria**: correctness, numerical stability, boundary conditions, edge case handling, resilience under failure
 
 ## Attack Surface
-- **Hypotheses tested**:
-  - H1: Informal WhatsApp jargon (emojis, markdown bold `*Bruno*`, role titles `Consultor Comercial`). -> FAILED on 2 edge cases.
-  - H2: Complex payment terms (28/35/42/49/56 ddl, 15/30/45/60, à vista pix, mixed terms). -> PASSED 100%.
-  - H3: Multi-tier compound bonuses (10+2 with 10% desc, compre 50 leve 60 with 5% off, decimal discounts). -> PASSED, but FAILED on "leve 12 pague 10".
-  - H4: Multi-product encarte tables with EAN-13, dosages in description, bullet variations. -> PASSED 100%.
-  - H5: Boundary conditions & malformed inputs (nulls, SQL injection strings, Brazilian currency formats). -> PASSED, but FAILED on abbreviated "pedido min".
-  - H6: Database persistence & idempotency under batch processing. -> PASSED 100%.
-  - H7: Isolated Baileys session verification. -> PASSED 100%.
+- **Hypotheses tested**: 
+  - Hipótese 1: Cálculo de inteligência sob saldos negativos, fracionários, giros nulos e dormência em Curva A. (Robusto / Aprovado)
+  - Hipótese 2: Preço vigente sob limites de borda milissegundo e formatos sem hora. (Robusto / Aprovado)
+  - Hipótese 3: Sincronização offline e com queda simulada do Firebird. (Robusto / Aprovado)
+  - Hipótese 4: Sincronização contra banco Firebird real com tipos TIMESTAMP nativos. (FALHA CRÍTICA CONFIRMADA)
 - **Vulnerabilities found**:
-  1. False product offering ingestion from emoji-prefixed header lines (`📦 Faturamento mínimo: R$ 800,00`).
-  2. Representative name extraction failure on WhatsApp markdown bolding (`*Bruno*`) and colon punctuation (`Vendedor:`).
-  3. Representative name polluted by title words (`Consultor Comercial - Marcio Ferreira` extracting `'Comercial'`).
-  4. Phrasing variation unhandled for volume bonus (`leve 12 pague 10` / `pague 10 leve 12`).
-  5. Abbreviated minimum order notation (`pedido min R$ 400`) returning 0.
-- **Untested angles**: Audio message transcription via Whisper (out of current scope, relies on external STT).
+  - V1 (Bloqueante): Driver `node-firebird` retorna `INICIO_PROMOCAO`/`TERMINO_PROMOCAO` como `Date` objects; `better-sqlite3` aborta transação inteira com `SQLite3 can only bind numbers, strings, bigints, buffers, and null`. 0 produtos salvos no cache.
+  - V2 (Alta): Mascaramento silencioso do erro em `catch (errTx)` retornando `success: true` mesmo com rollback atômico de todos os registros.
+  - V3 (Média): Proliferação de 62.484 itens críticos para o Horácio devido a catálogo histórico sem giro (`saldo <= 0`).
+- **Untested angles**:
+  - Endpoints REST Express (pertencentes a M3).
+
+## Loaded Skills
+- None
 
 ## Key Decisions Made
-- Executed empirical test harness `.agents/challenger_m2_1/stress_test_m2.js` (32 tests across 8 suites).
-- Recorded 28 PASSES and 4 FAILS.
-- Issued verdict: REQUEST_CHANGES with precise actionable remediation for Worker M2.
+- Emitido parecer formal **REJECT** com base em falha empírica reproduzível no banco real e na suíte de testes unitários.
+- Criada suíte adversarial `backend/test_adversarial_m2.js` cobrindo 40 cenários.
+- Elaboradas recomendações precisas de mitigação para o Worker.
 
 ## Artifact Index
-- `.agents/challenger_m2_1/DISPATCH.md` — Dispatch record
-- `.agents/challenger_m2_1/BRIEFING.md` — Active briefing state
-- `.agents/challenger_m2_1/progress.md` — Liveness progress log
-- `.agents/challenger_m2_1/stress_test_m2.js` — Adversarial stress test script
-- `.agents/challenger_m2_1/handoff.md` — Final handoff report
+- DISPATCH.md — histórico de despachos
+- BRIEFING.md — memória situacional
+- progress.md — registro de batimento cardíaco
+- handoff.md — relatório formal de auditoria e parecer REJECT
+- backend/test_adversarial_m2.js — suíte de testes adversariais
+

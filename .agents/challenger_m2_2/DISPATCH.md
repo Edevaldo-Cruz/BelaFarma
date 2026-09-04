@@ -1,17 +1,18 @@
-# Tarefa: Challenger 2 - Milestone M2 (Session Isolation & Security Gate)
+## 2026-09-04T12:32:27Z
 
-## 2026-08-29T17:16:39Z
-- Archetype: empirical_challenger
-- Roles: critic, specialist
-- Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2
-- Original Request: f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-- Project Scope: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md
+Você é o Challenger 2 para verificar os invariantes matemáticos e a concorrência assíncrona do Milestone M2.
+Seu diretório exclusivo de trabalho é:
+f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2
 
-### Missão
-Realizar testes de estresse adversarial de segurança e concorrência na instância Baileys:
-1. Criar script em sua pasta (`.agents/challenger_m2_2/security_stress_m2.js`):
-   - Testar tentativa de bypass de envio de mensagem sem aprovação (verificar que `enviarMensagemAprovada` rejeita terminantemente status pendente ou rejeitado).
-   - Testar concorrência de ingestão de mensagens e gravação no SQLite WAL.
-   - Testar integridade de caminhos de arquivos de sessão em Windows e Linux.
-2. Executar o script de teste.
-3. Gravar `handoff.md` com seu veredito formal (`APPROVE` ou `REQUEST_CHANGES`) e notificar o Orquestrador.
+LEIA OS DOCUMENTOS OBRIGATÓRIOS:
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md (seção '## 2026-09-04T12:09:33Z')
+- f:\Documentos\Desenvolvimento\BelaFarma\PROJECT.md
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m2\handoff.md
+
+TESTES ADVERSARIAIS:
+1. Verifique o invariante estrito: est_maximo_calculado === est_minimo_calculado * 2 em 1.000 amostras aleatórias de giros e margens.
+2. Verifique o invariante: qtd_sugerida_compra === Math.max(0, est_minimo_calculado - saldo) em 1.000 amostras com saldos positivos, nulos e negativos.
+3. Verifique a concorrência assíncrona de buscarMedicamentos sob múltiplas chamadas simultâneas via Promise.all e meça o tempo de resposta médio (deve ser < 10ms).
+4. Emita seu parecer formal (APPROVE ou REJECT) em:
+   f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2\handoff.md
+Avise seu orchestrator via send_message ao concluir.

@@ -1,14 +1,18 @@
-# Progress Log - Challenger M2_2
+# Progress — Challenger 2 (M2)
 
-Last visited: 2026-08-29T17:17:40Z
+- Last visited: 2026-09-04T12:37:45Z
+- Status: Adversarial testing completed. Generating handoff report with formal verdict REJECT.
 
-- [x] Recebeu mensagem de despacho e atualizou DISPATCH.md com timestamp UTC
-- [x] Atualizou BRIEFING.md com a missão M2 (Session Isolation & Security Gate)
-- [x] Inspecionou codebase (`baileys-compras-service.js`, `compras-mineracao.service.js`, `test_compras_m2.js`)
-- [x] Criar script de teste adversarial `.agents/challenger_m2_2/security_stress_m2.js`
-- [x] Executar o script de teste de estresse de segurança
-- [x] Analisar os resultados empíricos (28/28 testes passaram com 100% de sucesso)
-- [x] Atualizar BRIEFING.md com achados e estatísticas
-- [x] Gerar relatório formal `handoff.md` com veredito (APPROVE)
-- [x] Enviar mensagem de conclusão ao Orquestrador
-
+## Tasks
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Read required documents (ORIGINAL_REQUEST.md, PROJECT.md, worker_m2/handoff.md)
+- [x] Examined implementation code (`medicamentos-busca.service.js` e `compras-estoque.service.js`)
+- [x] Ran standard test suites (100% pass across all 3 suites: 82/82)
+- [x] Implemented comprehensive adversarial test script (`scratch/test_m2_challenger2_invariants_concurrency.cjs`)
+- [x] Executed adversarial stress tests:
+  - [x] Invariant 1: `est_maximo_calculado === est_minimo_calculado * 2` (1.000 amostras -> 0 violações, PASS)
+  - [x] Invariant 2: `qtd_sugerida_compra === Math.max(0, est_minimo_calculado - saldo)` (1.000 amostras com saldos +, 0, - -> 0 violações, PASS)
+  - [x] Concorrência assíncrona: `buscarMedicamentos` via `Promise.all` com 50, 100, 500, 1.000 chamadas (violação crítica de SLA em buscas com `q`, FAIL)
+- [x] Documented findings and updated BRIEFING.md
+- [/] Generating handoff.md with formal verdict (REJECT)
+- [ ] Notify parent orchestrator

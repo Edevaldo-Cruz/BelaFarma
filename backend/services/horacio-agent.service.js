@@ -661,6 +661,101 @@ function criarCotacaoDeRelatorio(relatorioId, db = null) {
   };
 }
 
+/**
+ * Gera relatório executivo de compras a partir de itens críticos identificados na sincronização.
+ * Alimenta o Agente Horácio de forma proativa para reposição de 30 dias sem ruptura.
+ * 
+ * @param {Array<Object>} itensCriticos Lista de produtos em RUPTURA ou ABAIXO_MINIMO
+ * @param {Object} db Instância do banco SQLite
+ * @returns {Promise<Object>}
+ */
+async function gerarRelatorioExecutivoSincronizacao(itensCriticos = [], db = null) {
+  const dbInst = getDb(db);
+  if (!dbInst) throw new Error('Conexão com banco de dados não disponível');
+
+  const itens = Array.isArray(itensCriticos) ? itensCriticos : [];
+  const relatorioId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  let totalOrcado = 0;
+  let temCurvaA = false;
+
+  const itensFormatados = itens.map(i => {
+    const qtd = Number(i.qtd_sugerida_compra || i.qtdSugerida || 1);
+    const preco = Number(i.preco_unitario_ult_compra || i.custo_unitario || i.precoHistorico || 0);
+    const totalItem = qtd * preco;
+    totalOrcado += totalItem;
+
+    const curva = (i.curva_abc || i.curvaAbc || 'C').toUpperCase();
+    if (curva === 'A' && (i.status_ruptura === 'RUPTURA' || (i.saldo || 0) <= 0)) {
+      temCurvaA = true;
+    }
+
+    return {
+      produtoId: i.produto_id || i.produtoId || 0,
+      produtoNome: i.descricao || i.produtoNome || 'Produto',
+      ean: i.ean || '',
+      saldo: Number(i.saldo || 0),
+      estMinimo: Number(i.est_minimo_calculado || i.estMinimo || 0),
+      qtdSugerida: qtd,
+      precoHistorico: preco,
+      curvaAbc: curva,
+      statusRuptura: i.status_ruptura || 'RUPTURA'
+    };
+  });
+
+  const statusUrgencia = temCurvaA
+    ? 'CRÍTICO - AÇÃO IMEDIATA VIA WHATSAPP'
+    : (itensFormatados.length > 10 ? 'ALTO' : 'MÉDIO');
+
+  const textoRelatorio = `
+*📋 RELATÓRIO EXECUTIVO DE REPOSIÇÃO (HORÁCIO)*
+*Total de Itens em Risco:* ${itensFormatados.length} produtos
+*Necessidade Financeira (30 dias):* R$ ${totalOrcado.toFixed(2)}
+*Nível de Urgência:* ${statusUrgencia}
+
+${itensFormatados.slice(0, 15).map(item => 
+  `- *[Curva ${item.curvaAbc}]* ${item.produtoNome} (Estoque: ${item.saldo} | Mín 30d: ${item.estMinimo}) -> *Comprar: ${item.qtdSugerida} un* (Últ. R$ ${item.precoHistorico.toFixed(2)})`
+).join('\n')}
+${itensFormatados.length > 15 ? `\n... e mais ${itensFormatados.length - 15} itens identificados.` : ''}
+`.trim();
+
+  try {
+    dbInst.prepare(`
+      INSERT INTO compras_horacio_relatorios (
+        id, tipo, titulo, fornecedor_nome, pedido_minimo, valor_total_sugerido,
+        impacto_orcamento_percent, saldo_orcamento_restante, itens_json, equivalentes_json,
+        status_urgencia, mensagem_whatsapp, whatsapp_enviado, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `).run(
+      relatorioId,
+      'Sincronizacao_Estoque',
+      `Reposição 30 Dias: ${itensFormatados.length} Itens Críticos`,
+      'Geral / Múltiplos Fornecedores',
+      0,
+      Number(totalOrcado.toFixed(2)),
+      0,
+      0,
+      JSON.stringify(itensFormatados),
+      JSON.stringify({}),
+      statusUrgencia,
+      textoRelatorio,
+      now
+    );
+  } catch (errDb) {
+    console.warn('[Horacio Agent] Aviso ao salvar compras_horacio_relatorios:', errDb.message);
+  }
+
+  return {
+    success: true,
+    relatorioId,
+    totalItens: itensFormatados.length,
+    totalOrcado30d: Number(totalOrcado.toFixed(2)),
+    relatorioTexto: textoRelatorio,
+    statusUrgencia
+  };
+}
+
 module.exports = {
   HORACIO_SYSTEM_PROMPT,
   analisarOfertasEmTempoReal,
@@ -668,5 +763,7 @@ module.exports = {
   processarMidiaMultimodal,
   dispararAlertaWhatsappAdmin,
   listarRelatorios,
-  criarCotacaoDeRelatorio
+  criarCotacaoDeRelatorio,
+  gerarRelatorioExecutivoSincronizacao
 };
+

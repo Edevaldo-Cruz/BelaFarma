@@ -1833,6 +1833,7 @@ try {
       CREATE TABLE IF NOT EXISTS compras_estoque_cache (
         produto_id INTEGER PRIMARY KEY,
         descricao TEXT NOT NULL,
+        apresentacao TEXT,
         ean TEXT,
         categoria_id INTEGER DEFAULT 0,
         curva_abc TEXT DEFAULT 'C',
@@ -1847,6 +1848,16 @@ try {
         ciclo_vida TEXT DEFAULT 'ESTAVEL',
         custo_unitario REAL DEFAULT 0,
         ultima_compra_valor REAL DEFAULT 0,
+        preco_unitario_ult_compra REAL DEFAULT 0,
+        ultima_compra_fornecedor TEXT,
+        ultima_compra_data TEXT,
+        ultima_compra_nf TEXT,
+        preco_venda_vigente REAL DEFAULT 0,
+        preco_normal REAL DEFAULT 0,
+        preco_promocional REAL DEFAULT 0,
+        inicio_promocao TEXT,
+        termino_promocao TEXT,
+        qtd_sugerida_compra REAL DEFAULT 0,
         status_ruptura TEXT DEFAULT 'NORMAL',
         margem_seguranca_aplicada REAL DEFAULT 15.0,
         dias_sem_venda INTEGER DEFAULT 0,
@@ -1863,9 +1874,49 @@ try {
     try {
       db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN est_maximo_calculado REAL DEFAULT 0');
     } catch (e) {}
+
+    // Migrações R1 - Motor de Busca e Inteligência de Medicamentos
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN apresentacao TEXT');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN preco_venda_vigente REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN preco_normal REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN preco_promocional REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN inicio_promocao TEXT');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN termino_promocao TEXT');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN preco_unitario_ult_compra REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN ultima_compra_fornecedor TEXT');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN ultima_compra_data TEXT');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN ultima_compra_nf TEXT');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN qtd_sugerida_compra REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('UPDATE compras_estoque_cache SET preco_unitario_ult_compra = ultima_compra_valor WHERE (preco_unitario_ult_compra IS NULL OR preco_unitario_ult_compra = 0) AND ultima_compra_valor > 0');
+    } catch (e) {}
+
     try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_status ON compras_estoque_cache(status_ruptura)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ean ON compras_estoque_cache(ean)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_descricao ON compras_estoque_cache(descricao)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ciclo ON compras_estoque_cache(ciclo_vida)');
     } catch(e) {}

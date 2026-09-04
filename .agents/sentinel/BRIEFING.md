@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-03T19:59:08-03:00
+# BRIEFING — 2026-09-04T09:10:30-03:00
 
 ## Mission
-Ensure definitive fix and calculation for "Última Compra" in Mineração (Central de Compras) matching Digifarma (Firebird) faithfully.
+Coordenar e monitorar a implementação do motor de busca e inteligência de estoque de medicamentos para a BelaFarma com alta performance, unificação na tabela compras_estoque_cache, cálculo de 30 dias sem ruptura e 2x no máximo, sincronização agendada resiliente e integração com o Agente Horácio.
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -10,6 +10,7 @@ Ensure definitive fix and calculation for "Última Compra" in Mineração (Centr
 - Predecessor Orchestrator: 1bde8fae-ac23-4fc6-aa56-6ac6a6dbd33b (orchestrator_2)
 - Victory Auditor: c1dca117-cc02-4b6a-b0b5-05f39bec341a (victory_auditor_2)
 - Active Agent: 760ed85a-fdca-4d22-a104-0b5825d8a97f (swe_1, teamwork_preview_swe)
+- Active Orchestrator (Motor de Busca & Inteligência): 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce (orchestrator_4)
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -17,23 +18,23 @@ Ensure definitive fix and calculation for "Última Compra" in Mineração (Centr
 - Must run progress reporting cron (`*/8 * * * *`) and liveness check cron (`*/10 * * * *`)
 
 ## User Context
-- **Last user request**: Correção definitiva da coleta e cálculo da informação de "Última Compra" na guia Mineração (Central de Compras), eliminando divergências com o Firebird Digifarma. R1-R4: NF entrada Digifarma como verdade primária (com divisão correta por embalagem), cache SQLite indexado (<5ms), recálculo automático de oportunidades e UI rica com tooltip e botão de sincronização manual.
+- **Last user request**: Motor de busca e inteligência de estoque de medicamentos para a BelaFarma (backend de alta performance, compras_estoque_cache, 30d sem ruptura, 2x máximo, sincronização 2x/dia com resiliência offline, motor de busca REST e integração Horácio).
 - **Pending clarifications**: none
-- **Delivered results**:
-  - Previous Central de Compras complete implementation delivered and verified.
-  - New fix implemented and reviewed across 3 adversarial rounds. Independent Victory Auditor spawned.
+- **Delivered results**: none for current mission (just started)
 
 ## Project Status
-- **Phase**: complete (VICTORY CONFIRMED by independent auditor victory_auditor_2)
+- **Phase**: M1 concluído (CLEAN) | M2 em ciclo de remediação rigoroso (correções de SLA e preservação de campos)
+- **Active Orchestrator**: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce (orchestrator_4)
+- **Progress Cron**: task-27 (*/8 * * * *)
+- **Liveness Cron**: task-29 (*/10 * * * *)
 
 ## Victory Audit Status
-- **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
+- **Triggered**: no
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md — Original User Request record
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md — Master Project Blueprint
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md — Authoritative User Request record
 - f:\Documentos\Desenvolvimento\BelaFarma\.agents\sentinel\BRIEFING.md — Sentinel briefing file
 - f:\Documentos\Desenvolvimento\BelaFarma\.agents\sentinel\handoff.md — Sentinel handoff file
-- f:\Documentos\Desenvolvimento\BelaFarma\.agents\victory_auditor_2\handoff.md — Victory Audit Report
+- f:\Documentos\Desenvolvimento\BelaFarma\.agents\orchestrator_4\progress.md — Orchestrator 4 progress file

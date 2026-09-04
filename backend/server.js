@@ -4111,6 +4111,39 @@ app.use('/api/files', filesEndpoints(db));
 app.use('/api/recipes', recipeEndpoints(db));
 app.use('/api/system', systemEndpoints(db));
 
+// Motor de Busca e Inteligência de Medicamentos e Estoque
+const medicamentosEndpoints = require('./medicamentos-endpoints.js');
+const medicamentosBuscaService = require('./services/medicamentos-busca.service');
+app.use('/api/medicamentos', medicamentosEndpoints(db));
+console.log('💊 Motor de Busca e Inteligência de Medicamentos inicializado em /api/medicamentos.');
+
+// Agendamento Diário (07:30 e 17:30): Sincronização e Reposição Inteligente de Medicamentos
+let ultimoHorarioMedicamentosSync = '';
+setInterval(async () => {
+  try {
+    const agora = new Date();
+    const hora = agora.getHours();
+    const minuto = agora.getMinutes();
+    const diaAtual = agora.toISOString().slice(0, 10);
+    const chaveSyncManha = `${diaAtual}_0730`;
+    const chaveSyncTarde = `${diaAtual}_1730`;
+
+    if (hora === 7 && minuto >= 30 && minuto <= 35 && ultimoHorarioMedicamentosSync !== chaveSyncManha) {
+      ultimoHorarioMedicamentosSync = chaveSyncManha;
+      console.log('[Cron Medicamentos] 🌅 Iniciando sincronização matinal de medicamentos (07:30)...');
+      await medicamentosBuscaService.sincronizarEstoqueMedicamentos(db, { notificarHoracio: true });
+    }
+
+    if (hora === 17 && minuto >= 30 && minuto <= 35 && ultimoHorarioMedicamentosSync !== chaveSyncTarde) {
+      ultimoHorarioMedicamentosSync = chaveSyncTarde;
+      console.log('[Cron Medicamentos] 🌆 Iniciando sincronização vespertina de medicamentos (17:30)...');
+      await medicamentosBuscaService.sincronizarEstoqueMedicamentos(db, { notificarHoracio: true });
+    }
+  } catch (errSync) {
+    console.error('[Cron Medicamentos] Erro no agendamento diário:', errSync.message);
+  }
+}, 60 * 1000);
+
 const muralEndpointsModule = require('./mural-endpoints.js');
 const muralObj = muralEndpointsModule(db);
 app.use('/api/mural', muralObj.router);

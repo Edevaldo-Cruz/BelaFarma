@@ -1,51 +1,52 @@
-# BRIEFING — 2026-08-29T17:16:00Z
+# BRIEFING — 2026-09-04T12:22:30Z
 
 ## Mission
-Review and adversarial stress-test the implementation of Milestone M1 (Estoque Mínimo Dinâmico & Digifarma Sync).
+Validação independente e adversarial review do Milestone M1: Schema SQLite da tabela compras_estoque_cache em backend/database.js.
 
 ## 🔒 My Identity
-- Archetype: reviewer_critic
+- Archetype: reviewer-critic
 - Roles: reviewer, critic
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m1_2
-- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Milestone: M1 (Estoque Mínimo & Digifarma Sync)
+- Original parent: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Milestone: M1 (Schema SQLite da tabela compras_estoque_cache)
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
-- Integrity review & adversarial challenge: verify against hardcoded outputs, dummy implementations, failure modes, Curve A protection, zero history behavior
+- Integrity enforcement — check for hardcoded test outputs, facades, bypassed tasks
+- Portuguese language preferred by user
 
 ## Current Parent
-- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Updated: 2026-08-29T17:16:00Z
+- Conversation ID: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Updated: 2026-09-04T12:22:30Z
 
 ## Review Scope
-- **Files to review**: `backend/services/compras-estoque.service.js`, `backend/database.js`, `backend/test_compras_estoque.js`, `backend/services/digifarma.service.js`
-- **Interface contracts**: `f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md`, `f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md`
-- **Worker report**: `f:\Documentos\Desenvolvimento\BelaFarma\.agents\worker_m1_estoque\handoff.md`
-- **Review criteria**: correctness, conformance, integrity, failure resilience, Curve A protection, zero history fallback
+- **Files to review**: backend/database.js, PROJECT.md, ORIGINAL_REQUEST.md, worker_m1/handoff.md
+- **Interface contracts**: PROJECT.md (Requisito R1), ORIGINAL_REQUEST.md (seção 2026-09-04T12:09:33Z)
+- **Review criteria**: correctness, completeness, performance (< 10ms), SQLite migration/table creation integrity, index optimization, edge cases
+
+## Key Decisions Made
+- Executados testes empíricos de DDL idempotente em banco limpo temporário e no banco de produção/desenvolvimento (`belafarma.db`).
+- Benchmark de latência realizado em 64.537 registros reais demonstrando p95 < 10ms em todos os tipos de consulta.
+- Análise adversarial do comportamento de collation BINARY vs NOCASE em índices de texto documentada.
+- Veredito emitido: APPROVE.
+
+## Artifact Index
+- `.agents/reviewer_m1_2/DISPATCH.md` — Dispatch prompt
+- `.agents/reviewer_m1_2/progress.md` — Liveness heartbeat
+- `.agents/reviewer_m1_2/BRIEFING.md` — Situational awareness
+- `.agents/reviewer_m1_2/handoff.md` — Relatório formal de revisão e veredito
 
 ## Review Checklist
-- **Items reviewed**: `backend/services/compras-estoque.service.js`, `backend/database.js`, `backend/test_compras_estoque.js`
+- **Items reviewed**: `backend/database.js`, DDL statements, 11 novas colunas, 5 índices, banco de dados `data/belafarma.db`, `test_ultimas_compras_mineracao.js`, `test_compras_estoque.js`.
 - **Verdict**: APPROVE
-- **Unverified claims**: None (all 23 test suites and 7 adversarial scenarios independently executed and passed)
+- **Unverified claims**: Nenhuma. Todas as 11 colunas, 5 índices, inicialização idempotente e tempos de busca foram empiricamente verificados.
 
 ## Attack Surface
 - **Hypotheses tested**: 
-  - Negative sales quantities, fractional sales, extreme margin percentages, negative margins
-  - Offline Firebird fallback to SQLite cache
-  - Zero history and >90 days inactive products
-  - Curve A minimum floor (>= 2 units)
-  - Atomic transactions on Firebird and bulk transactions in SQLite WAL mode
-- **Vulnerabilities found**: 0 critical, 0 major vulnerabilities
-- **Untested angles**: Firebird live latency under 100+ concurrent network requests (handled gracefully by pool and timeout mechanism)
-
-## Key Decisions Made
-- Confirmed full compliance with Milestone M1 requirements and integrity standards.
-- Issued APPROVE verdict.
-
-## Artifact Index
-- `DISPATCH.md` — dispatch instructions
-- `BRIEFING.md` — persistent working memory
-- `progress.md` — heartbeat
-- `handoff.md` — final review and challenge report
+  - Hipótese 1: Banco novo inicializado do zero conteria apenas o schema antigo. (Refutada: DDL em CREATE TABLE possui todas as 32 colunas).
+  - Hipótese 2: Migrações ALTER TABLE falhariam ao rodar repetidas vezes. (Refutada: Blocos try/catch garantem idempotência total).
+  - Hipótese 3: Buscas por descrição com LIKE excederiam 10ms. (Refutada: Full scan na tabela em memória/WAL levou ~2.9ms-4.3ms, p95 < 5ms).
+  - Hipótese 4: Regressão em testes legados de mineração de compras. (Refutada: 24/24 testes passaram).
+- **Vulnerabilities found**: Nenhuma vulnerabilidade crítica. Observação menor sobre collation do índice de descrição (`idx_cec_descricao` é BINARY padrão do SQLite, o que não acelera LIKE '%foo%', porém atende perfeitamente buscas exatas e range, com latência geral mantida sob < 10ms).
+- **Untested angles**: Comportamento sob concorrência intensa de escrita simultânea (mitigado pelo modo WAL do SQLite).

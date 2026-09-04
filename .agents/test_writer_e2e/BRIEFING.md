@@ -1,52 +1,40 @@
-# BRIEFING — 2026-08-29T17:28:00Z
+# BRIEFING — 2026-09-04T12:22:30Z
 
 ## Mission
-Projetar e implementar a infraestrutura completa de testes E2E Opaque-Box da Central de Compras da BelaFarma (Tiers 1 a 4, cobrindo R1 a R5 e F1 a F15), gerando TEST_INFRA.md, test_compras_e2e.js e TEST_READY.md.
+Projetar a infraestrutura e a suíte completa de testes automatizados E2E para o Motor de Busca e Inteligência de Medicamentos da BelaFarma (TEST_INFRA.md, backend/test_motor_busca_medicamentos.js, TEST_READY.md).
 
 ## 🔒 My Identity
-- Archetype: teamwork_preview_test_writer
+- Archetype: Test Writer
 - Roles: specialist, qa
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\test_writer_e2e
-- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Milestone: E2E Track (Central de Compras)
+- Original parent: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Milestone: Motor de Busca e Inteligência de Medicamentos - E2E Testing & Test Infra
 
 ## 🔒 Key Constraints
-- Não utilizar `alert()` em produção (usar Toasts/Modais).
-- Testar comportamento e regras reais: Score Ponderado 60/25/15, CMV Ponderado (0.65/0.35 + 15%), Fila de Aprovação Obrigatória (zero envio não autorizado), Transações Firebird atômicas, Otimização de Pedido Mínimo, Espelhos de Pedido e Orçamento.
-- Manter .agents/ apenas com metadados e documentação de engenharia; código de teste executável no root (`test_compras_e2e.js`).
-- Executar e validar 100% dos testes sem falhas.
+- Modificar apenas arquivos de teste e documentação de testes (TEST_INFRA.md, backend/test_motor_busca_medicamentos.js, TEST_READY.md, e arquivos em .agents/test_writer_e2e/).
+- NUNCA modificar código de implementação de negócio; se encontrar bug, registrar e escalar.
+- Não usar alert() em produção; preferir toast/modal; comunicação em português.
+- Usar node:assert nativo, modular, determinístico e resiliente (SQLite de teste sem depender de Firebird ativo).
+- Cobrir os 4 tiers de validação: Tier 1 (Schema e Benchmark), Tier 2 (Fórmulas e Classificação de Estoque), Tier 3 (Preço de Venda e Resiliência de Fallback), Tier 4 (Endpoints REST e Integração Agente Horácio).
 
 ## Current Parent
-- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Updated: 2026-08-29T17:28:00Z
+- Conversation ID: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Updated: 2026-09-04T12:22:30Z
 
 ## Task Summary
-- **What to build**: Infraestrutura metodológica `TEST_INFRA.md`, suíte executável `test_compras_e2e.js` cobrindo 4 Tiers com 160 casos de teste rigorosos, relatório `TEST_READY.md` e `handoff.md`.
-- **Success criteria**: 100% dos testes passando na execução `node test_compras_e2e.js`, cobrindo F1 a F15 nos Tiers 1, 2, 3 e 4 com oráculos matemáticos e comportamentais estritos. (ATINGIDO: 160 PASS / 0 FAIL).
-- **Interface contracts**: `PROJECT.md` § Interface Contracts e `ORIGINAL_REQUEST.md`.
-- **Code layout**: `PROJECT.md` § Code Layout.
+- **What to build**: Infraestrutura de testes automatizados (TEST_INFRA.md), suíte completa em backend/test_motor_busca_medicamentos.js cobrindo Tiers 1-4 com node:assert, e relatório TEST_READY.md.
+- **Success criteria**: Suíte determinística, executável via `node backend/test_motor_busca_medicamentos.js`, cobrindo 100% dos requisitos descritos no dispatch e survey.
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, explorer_survey_3/handoff.md
+- **Code layout**: Raiz para TEST_INFRA.md e TEST_READY.md; backend/ para test_motor_busca_medicamentos.js.
 
 ## Key Decisions Made
-- Implementar motor de teste customizado e autônomo em `test_compras_e2e.js` em ES Module sem dependências externas complexas para garantir execução ultrarrápida (0.05s) e determinística.
-- Estruturar os testes nos 4 Tiers:
-  - Tier 1: 75 testes funcionais (5 testes por feature F1 a F15).
-  - Tier 2: 75 testes de corner cases (5 testes de borda por feature F1 a F15).
-  - Tier 3: 5 testes de integração cruzada entre módulos (XF1 a XF5).
-  - Tier 4: 5 testes de cenários reais de aplicação em farmácia (SC1 a SC5).
-
-## Loaded Skills
-- **Source**: N/A (Standard specialist mode)
-- **Local copy**: N/A
-- **Core methodology**: Opaque-Box E2E Testing, Category-Partition, Boundary Value Analysis, Pairwise Integration, Real-World Workload Simulation.
-
-## Quality Status
-- **Build/test result**: PASS (160 testes executados, 160 passaram, 0 falhas).
-- **Lint status**: 0 violations.
-- **Tests added/modified**: `test_compras_e2e.js` (160 testes).
+- Adotada metodologia Dual Track (Track A Especificação & Cálculo; Track B Sistema, Resiliência & E2E) e arquitetura em 4 Tiers.
+- Implementado oráculo formal de especificação para regras matemáticas de 30 dias de giro, 2x no máximo, e resolução de preços promocionais, com binding dinâmico aos módulos do Worker M2 (`medicamentos-busca.service.js`) e Worker M3 (`medicamentos-endpoints.js`).
+- Validação real de SLA de performance (< 10ms) sobre a base consolidada de 64.537 produtos com `performance.now()`.
+- Criação de servidor HTTP Express efêmero em porta dinâmica (0) para validação real dos endpoints REST via `fetch` nativo.
+- 35 testes implementados com taxa de aprovação de 100.0%.
 
 ## Artifact Index
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\TEST_INFRA.md` — Metodologia e matriz de testes nos 4 Tiers.
-- `f:\Documentos\Desenvolvimento\BelaFarma\test_compras_e2e.js` — Suíte executável completa de testes E2E.
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\TEST_READY.md` — Sinalizador de prontidão da infraestrutura de testes.
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\test_writer_e2e\progress.md` — Liveness heartbeat.
-- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\test_writer_e2e\handoff.md` — Relatório final.
+- `TEST_INFRA.md`: Diretrizes da infraestrutura de testes Dual Track e 4 Tiers.
+- `backend/test_motor_busca_medicamentos.js`: Suíte de testes automatizados E2E.
+- `TEST_READY.md`: Certificação e documentação de prontidão da suíte de testes.

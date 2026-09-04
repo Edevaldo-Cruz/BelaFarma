@@ -1,57 +1,50 @@
-# BRIEFING — 2026-08-29T17:16:39Z
+# BRIEFING — 2026-09-04T12:37:35Z
 
 ## Mission
-Executar testes de estresse adversarial de segurança e concorrência na Central de Compras Milestone M2:
-1. Bypass de envio de mensagens não aprovadas (`enviarMensagemAprovada`).
-2. Concorrência massiva de ingestão e escrita SQLite WAL.
-3. Isolamento estrito de caminhos de arquivos de sessão Baileys (Windows e Linux).
+Verificar empiricamente os invariantes matemáticos e a concorrência assíncrona do Milestone M2 (est_maximo, qtd_sugerida_compra, buscarMedicamentos com Promise.all < 10ms) e emitir parecer formal APPROVE/REJECT.
 
 ## 🔒 My Identity
-- Archetype: empirical_challenger
+- Archetype: empirical-challenger
 - Roles: critic, specialist
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2
-- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Milestone: M2 (Session Isolation & Security Gate)
+- Original parent: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Milestone: M2
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code (only write test scripts in challenger folder or test files).
-- Empirical testing required — run real adversarial scripts with stress harnesses.
-- Report findings with evidence and 5-component handoff format.
+- Review-only — do NOT modify implementation code
+- Run verification code empirically; do not trust worker claims or logs
+- Test strict invariant: est_maximo_calculado === est_minimo_calculado * 2 across 1,000 random samples
+- Test invariant: qtd_sugerida_compra === Math.max(0, est_minimo_calculado - saldo) across 1,000 samples with positive, zero, negative balances
+- Test async concurrency of buscarMedicamentos via Promise.all and measure average response time (< 10ms)
+- Output formal verdict (APPROVE / REJECT) in handoff.md
 
 ## Current Parent
-- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Updated: 2026-08-29T17:16:39Z
+- Conversation ID: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Updated: 2026-09-04T12:37:35Z
 
 ## Review Scope
-- **Files to review**: `backend/baileys-compras-service.js`, `backend/services/compras-mineracao.service.js`, `backend/database.js`, `test_compras_e2e.js`
-- **Interface contracts**: `PROJECT.md` M2 contracts (`enviarMensagemAprovada`, `getComprasConnectionStatus`, `SESSION_DIR`, `processarMensagemRecebida`)
-- **Review criteria**: Trava de segurança contra bypass de envio sem aprovação humana, integridade e isolamento de caminhos de sessão, concorrência e integridade referencial SQLite WAL.
+- **Files to review**: `backend/services/medicamentos-busca.service.js`, `backend/services/compras-estoque.service.js`, `backend/test_motor_busca_medicamentos.js`
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
+- **Review criteria**: Invariantes matemáticos, concorrência assíncrona, latência média (< 10ms)
 
 ## Attack Surface
-- **Hypotheses tested**: 
-  1. Bypass de envio não autorizado (mensagens pendentes, rejeitadas, canceladas, nulas ou IDs inexistentes devem falhar): CONFIRMADO (PASS).
-  2. Prevenção de Replay Attack (itens já enviados não podem ser reenviados): CONFIRMADO (PASS).
-  3. Proteção contra injeção SQL no ID de aprovação: CONFIRMADO (PASS).
-  4. Concorrência massiva de 100 mensagens simultâneas em SQLite WAL: CONFIRMADO (PASS, 0 falhas, 0 deadlocks).
-  5. Condição de corrida com 50 mensagens concorrentes do mesmo fornecedor: CONFIRMADO (PASS, ON CONFLICT idempotente).
-  6. Leitura concorrente de dashboard sob escrita pesada contínua: CONFIRMADO (PASS).
-  7. Isolamento de pastas de sessão Baileys (Principal, Secundário e Compras) em Windows e Linux: CONFIRMADO (PASS).
-  8. Proteção contra ReDoS em textos >50.000 chars e resiliência a Unicode/Emojis: CONFIRMADO (PASS, <200ms).
-- **Vulnerabilities found**: Nenhuma vulnerabilidade encontrada. Trava de segurança, isolamento de caminhos e concorrência WAL 100% íntegros.
-- **Untested angles**: Hardware físico da VPS Raspberry Pi com Firebird real (validado via mocks/transações simuladas de Firebird e cache local SQLite WAL).
+- **Hypotheses tested**:
+  - Invariante 1 (est_maximo === est_minimo * 2): validado em 1.000 amostras (PASS).
+  - Invariante 2 (qtd_sugerida_compra === Math.max(0, min - saldo)): validado em 1.000 amostras (PASS).
+  - Concorrência assíncrona e SLA de buscarMedicamentos: testado sob 50, 100, 500 e 1.000 chamadas simultâneas via Promise.all.
+- **Vulnerabilities found**:
+  - SLA de < 10ms violado em `buscarMedicamentos` para qualquer busca com `q` (ID, EAN ou texto), com tempos médios individuais de 18ms a 65ms devido a Full Table Scan de 64.537 registros causado por `OR descricao LIKE '%...%'` e duplo `SELECT COUNT(*)`.
+  - Sob concorrência assíncrona via `Promise.all`, o tempo de resposta percebido escala para 1,66s (100 reqs) e 13,3s (1.000 reqs).
+- **Untested angles**: Endpoints HTTP Express (escopo do Milestone M3).
 
 ## Loaded Skills
-- None.
+None loaded.
 
 ## Key Decisions Made
-- Veredito: APPROVE M2 (Session Isolation & Security Gate).
-- Suíte empírica `.agents/challenger_m2_2/security_stress_m2.js` executada com 28/28 asserções adversariais bem-sucedidas.
+- Parecer formal: **REJECT** em virtude da violação do SLA de latência (< 10ms) e degradação de concorrência em `buscarMedicamentos`.
 
 ## Artifact Index
-- `.agents/challenger_m2_2/DISPATCH.md` — Mensagem de despacho
-- `.agents/challenger_m2_2/BRIEFING.md` — Memória de trabalho ativa
-- `.agents/challenger_m2_2/progress.md` — Heartbeat e progresso
-- `.agents/challenger_m2_2/security_stress_m2.js` — Script de teste de estresse de segurança (28 testes)
-- `.agents/challenger_m2_2/handoff.md` — Relatório formal de handoff (APPROVE)
-
+- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2\progress.md` — Liveness heartbeat
+- `f:\Documentos\Desenvolvimento\BelaFarma\.agents\challenger_m2_2\handoff.md` — Relatório formal com parecer REJECT e evidências empíricas
+- `f:\Documentos\Desenvolvimento\BelaFarma\scratch\test_m2_challenger2_invariants_concurrency.cjs` — Suíte de testes adversariais

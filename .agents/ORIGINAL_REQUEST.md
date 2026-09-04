@@ -122,3 +122,77 @@ Integrity mode: development
 - Ao finalizar tarefas e commits, realizar o `git push origin main` para manter o GitHub sempre atualizado.
 - O servidor de deploy foi alterado; portanto, não sugerir nem executar deploys automáticos no servidor anterior, apenas garantir o envio das atualizações para o GitHub.
 - Não utilizar `alert()` em produção. O uso de `alert()` é permitido somente para fins de teste e deve ser substituído pelos componentes de toast ou modal antes de um deploy.
+
+## 2026-09-04T12:09:33Z
+
+Criar um motor de busca e inteligência de estoque de medicamentos para a BelaFarma com foco em backend de alta performance, unificando na tabela compras_estoque_cache (SQLite) todos os dados de estoque atual, preço de venda vigente (promocional ativo ou preço normal), histórico e detalhes de última compra, cálculo de reposição para 30 dias de cobertura sem ruptura (Estoque Mínimo) e Estoque Máximo igual ao dobro do mínimo (2x mínimo). O motor deve sincronizar de forma agendada com o Digifarma (2 vezes ao dia: início da manhã e fim de tarde), operar com resiliência total via cache local quando o Firebird estiver indisponível, e atuar como a fonte única de verdade para alimentar e notificar o Agente Horácio (proativamente em rupturas e reativamente na análise de cotações).
+
+Working directory: f:\Documentos\Desenvolvimento\BelaFarma
+Integrity mode: development
+
+## Requirements
+
+### R1. Modelo de Dados Consolidado (compras_estoque_cache)
+- Consolidar na tabela compras_estoque_cache do banco SQLite (backend/belafarma.db) todos os campos essenciais por produto em uma única linha indexada:
+  - Identificação: produto_id (PK), ean, descricao, apresentacao, categoria_id, curva_abc.
+  - Estoque: saldo (estoque atual disponível em loja).
+  - Preço de Venda: preco_venda_vigente (resolvido automaticamente: preço promocional se estiver dentro do período de vigência ativo, caso contrário preço de venda normal), preco_normal, preco_promocional, inicio_promocao, termino_promocao.
+  - Última Compra: preco_unitario_ult_compra (ultima_compra_valor), ultima_compra_fornecedor, ultima_compra_data, ultima_compra_nf.
+  - Reposição & Consumo: vmd_ponderado, vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, est_minimo_calculado (30 dias sem ruptura), est_maximo_calculado (2x mínimo), qtd_sugerida_compra (defasagem para 30 dias), status_ruptura (RUPTURA, ABAIXO_MINIMO, NORMAL, EXCESSO).
+  - Índices em ean, descricao, curva_abc e status_ruptura garantindo buscas ultrarrápidas (< 10ms).
+
+### R2. Regras de Inteligência de Estoque (30 Dias Sem Ruptura & Dobro no Máximo)
+- Calcular a Venda Média Diária Ponderada (VMD_P) a partir do histórico de vendas recente (30d, 60d, 90d) acrescida de margem de segurança configurável (padrão 15%).
+- Estoque Mínimo (est_minimo_calculado): quantidade necessária para suprir 30 dias de giro da loja sem rupturas (Math.ceil(VMD_P * 30 * (1 + margem/100))).
+- Estoque Máximo (est_maximo_calculado): calculado rigorosamente como exatamente o dobro do estoque mínimo (est_minimo_calculado * 2).
+- Quantidade Sugerida de Compra: Math.max(0, est_minimo_calculado - saldo).
+- Classificação do Status: RUPTURA (saldo <= 0), ABAIXO_MINIMO (0 < saldo < mínimo), NORMAL (mínimo <= saldo <= máximo), EXCESSO (saldo > máximo).
+
+### R3. Sincronização Agendada (2x ao Dia) e Resiliência Local
+- Serviço de sincronização configurado para rodar 2 vezes ao dia de forma agendada (ex: 07h30 e 17h30), além de expor endpoint manual /api/medicamentos/sincronizar para disparo sob demanda.
+- Extrair em lote do Digifarma (Firebird): catálogo de produtos ativos, vendas dos períodos, preços promocionais e normais vigentes, e dados das últimas notas de entrada.
+- Operação resiliente com fallback total: se o Firebird/Digifarma estiver inacessível, offline ou com timeout, o motor e a busca continuam operando 100% via SQLite local sem degradação ou interrupção.
+
+### R4. Motor de Busca de Medicamentos (Serviço & Endpoints REST)
+- Criar serviço centralizado com busca instantânea retornando o objeto unificado completo do medicamento.
+- Suporte a busca flexível por termo/nome, fragmento, EAN/código de barras, ou ID Digifarma.
+- Endpoints REST:
+  - GET /api/medicamentos/busca?q={termo}&status={status}&curva={curva}&limit={limite}: busca rápida e paginada/filtrada.
+  - GET /api/medicamentos/:id: detalhe consolidado de um medicamento específico.
+  - GET /api/medicamentos/rupturas: listagem direta dos itens em ruptura ou abaixo do mínimo com quantidade necessária para 30 dias.
+
+### R5. Alimentação e Notificação do Agente Horácio
+- Fluxo Proativo: Ao concluir a sincronização diária, o motor compila os itens críticos em ruptura ou abaixo do mínimo e aciona o Agente Horácio (horacio-agent.service.js) para gerar o relatório executivo de compras do dia com sugestões de compra para 30 dias.
+- Fluxo Reativo: Atualizar o Agente Horácio e o serviço de mineração (compras-mineracao.service.js) para utilizar o motor de busca unificado como fonte única de verdade para validação instantânea de preços e estoque em cotações e ofertas do WhatsApp.
+
+## Verification Resources
+- Suíte de testes automatizados existente: backend/test_compras_estoque.js, backend/test_ultimas_compras_mineracao.js.
+- Nova suíte de testes de ponta a ponta: backend/test_motor_busca_medicamentos.js cobrindo schema, cálculo de 30d/60d, preços vigentes, velocidade de busca e integração com o Horácio.
+
+## Acceptance Criteria
+
+### Schema e Dados Consolidados
+- [ ] A tabela compras_estoque_cache contém todas as colunas especificadas (incluindo preco_venda_vigente, preco_promocional, preco_normal, ultima_compra_fornecedor, ultima_compra_data, ultima_compra_nf, est_minimo_calculado, est_maximo_calculado).
+- [ ] Consultas por ID, EAN ou termo LIKE executam em menos de 10ms utilizando os índices SQLite.
+
+### Inteligência e Regras de Reposição
+- [ ] Para qualquer produto com giro, o Estoque Mínimo reflete exatamente a projeção de 30 dias de consumo com a margem de segurança.
+- [ ] O Estoque Máximo é exatamente igual a 2x o Estoque Mínimo (est_maximo_calculado == est_minimo_calculado * 2).
+- [ ] Para produto com saldo menor que o mínimo, a quantidade necessária para 30 dias é calculada como est_minimo_calculado - saldo.
+- [ ] Produtos com saldo zerado ou negativo são marcados com status RUPTURA.
+
+### Regra de Preço de Venda Vigente
+- [ ] Se o produto possui promoção ativa e a data/hora atual está entre inicio_promocao e termino_promocao, preco_venda_vigente é igual ao preço promocional.
+- [ ] Se a promoção estiver expirada ou inexistente, preco_venda_vigente é igual ao preço normal de venda.
+
+### Sincronização e Resiliência
+- [ ] A sincronização pode ser disparada manualmente via endpoint e está agendada para 2x ao dia.
+- [ ] Quando o Firebird está desconectado/simulado como offline, o motor de busca e as rotas de API continuam respondendo com dados do cache local sem lançar erro 500.
+
+### Integração com Agente Horácio
+- [ ] O Horácio consome o motor unificado sem depender de queries diretas ao Firebird para verificar saldo ou preço de compra.
+- [ ] Relatório executivo de compras é gerado com os itens identificados em ruptura/abaixo do mínimo com necessidade de 30 dias calculada.
+
+### Testes Automatizados
+- [ ] O comando node backend/test_motor_busca_medicamentos.js executa e passa 100% de todos os testes unitários e de integração sem falhas.
+

@@ -1,50 +1,63 @@
-# BRIEFING — 2026-08-29T14:18:00-03:00
+# BRIEFING — 2026-09-04T12:36:00Z
 
 ## Mission
-Review and stress-test Milestone M2 (WhatsApp Compras & Mineração) implementation.
+Validação e auditoria crítica independente do Milestone M2 (Inteligência de Estoque e Sync Resiliente da BelaFarma).
 
 ## 🔒 My Identity
 - Archetype: reviewer-critic
 - Roles: reviewer, critic
 - Working directory: f:\Documentos\Desenvolvimento\BelaFarma\.agents\reviewer_m2_1
-- Original parent: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Milestone: M2 - WhatsApp Compras & Mineração
+- Original parent: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Milestone: M2 - Inteligência de Estoque e Sync Resiliente
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
-- Check for integrity violations (hardcoded test results, facade implementations, dummy logic)
-- Adversarial stress testing for edge cases, concurrency, resilience, regex precision
+- Check for integrity violations (hardcoded test results, facade implementations, dummy logic, self-certifying artifacts)
+- Adversarial stress testing for edge cases, concurrency, resilience, boundary conditions
 - 5-Component handoff report (Observation, Logic Chain, Caveats, Conclusion, Verification Method)
 
 ## Current Parent
-- Conversation ID: 78620ac3-2868-4b6e-896d-c2c6e6f842ea
-- Updated: 2026-08-29T14:18:00-03:00
+- Conversation ID: 43b4ed79-f1ab-4a34-b8c7-4fbc5c8b65ce
+- Updated: 2026-09-04T12:36:00Z
 
 ## Review Scope
-- **Files to review**: backend/baileys-compras-service.js, backend/services/compras-mineracao.service.js, backend/test_compras_m2.js, backend/database.js
-- **Interface contracts**: f:\Documentos\Desenvolvimento\BelaFarma\.agents\PROJECT.md, f:\Documentos\Desenvolvimento\BelaFarma\.agents\ORIGINAL_REQUEST.md
-- **Review criteria**: Correctness, Resilience, Session Isolation, Extraction Logic, Security, Integrity
+- **Files to review**:
+  - `backend/services/medicamentos-busca.service.js`
+  - `backend/services/compras-estoque.service.js`
+  - `backend/test_motor_busca_medicamentos.js`
+  - `backend/test_compras_estoque.js`
+  - `backend/test_ultimas_compras_mineracao.js`
+- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md` (seção 2026-09-04T12:09:33Z)
+- **Review criteria**:
+  - Estoque mínimo para 30 dias de giro: `Math.ceil(VMD_P * 30 * (1 + margem/100))`
+  - Estoque máximo rigorosamente igual a 2x mínimo (`est_minimo * 2`)
+  - Quantidade sugerida de reposição (`Math.max(0, est_minimo - saldo)`)
+  - Matriz de 4 status (`RUPTURA`, `ABAIXO_MINIMO`, `NORMAL`, `EXCESSO`)
+  - Resolução de preço vigente no período de promoção e expiração
+  - Resiliência offline no SQLite sem lançar erro 500
 
 ## Key Decisions Made
-- Confirmed full session isolation of Baileys Compras in `baileys-session-compras`.
-- Verified deterministic regex parser and mathematical price/bonus calculation engine.
-- Verified human-in-the-loop strict dispatch safety in `enviarMensagemAprovada`.
-- Verified 16/16 tests in `backend/test_compras_m2.js` and 160/160 tests in `test_compras_e2e.js`.
-- Verified absence of integrity violations (no dummy logic, no hardcoded facades).
-- Verdict: APPROVE.
+- Concluída auditoria adversarial e execução das 3 suítes de teste.
+- Identificada quebra no teste 4.3 de `backend/test_motor_busca_medicamentos.js` (34 PASS, 1 FAIL, exit code 1) devido à sobrescrita de fornecedor por `'Cadastro Geral Digifarma'` em `sincronizarEstoqueMedicamentos`.
+- Identificada falha silenciosa em caso de erro na transação SQLite.
+- Identificada ausência de `ciclo_vida` na cláusula `ON CONFLICT DO UPDATE SET`.
+- Parecer formal emitido: REQUEST_CHANGES.
 
 ## Artifact Index
 - DISPATCH.md — Incoming mission dispatch
 - progress.md — Heartbeat and progress tracker
-- handoff.md — Final review report
+- handoff.md — Final review report (REQUEST_CHANGES)
 
 ## Review Checklist
-- **Items reviewed**: `baileys-compras-service.js`, `services/compras-mineracao.service.js`, `database.js`, `test_compras_m2.js`, `test_compras_e2e.js`
-- **Verdict**: APPROVE
-- **Unverified claims**: None (all claims verified via direct execution and code inspection)
+- **Items reviewed**: `medicamentos-busca.service.js`, `compras-estoque.service.js`, `test_motor_busca_medicamentos.js`, `test_compras_estoque.js`, `test_ultimas_compras_mineracao.js`.
+- **Verdict**: REQUEST_CHANGES
+- **Unverified claims**: Declaração de Worker M2 de que 35/35 testes passaram em `test_motor_busca_medicamentos.js` foi desmentida pela execução real (34 PASS / 1 FAIL).
 
 ## Attack Surface
-- **Hypotheses tested**: Session directory collision, unapproved message leakage, division by zero on bonus formulas, price format anomalies, Firebird offline fallback, unhandled socket disconnections.
-- **Vulnerabilities found**: None critical. Minor improvement note: ignore `baileys-session-compras/*` in `backend/nodemon.json`.
-- **Untested angles**: Hardware-level WhatsApp multi-device authentication timeouts over high-latency 4G (mitigated by Baileys keepalive & reconnect timeouts).
+- **Hypotheses tested**: Sobrescrita de fornecedor por fallback no sync offline, integridade de transação SQLite, consistência de matriz de status com histórico zerado, retrocompatibilidade de 3 parâmetros em `compras-estoque.service.js`.
+- **Vulnerabilities found**: 
+  1. Sobrescrita de `ultima_compra_fornecedor` legítimo por valor fallback `'Cadastro Geral Digifarma'`.
+  2. Silenciamento de erro de transação com retorno `success: true`.
+  3. Ausência de update na coluna `ciclo_vida`.
+- **Untested angles**: Conectividade física com porta 3050 do Firebird em produção (testado com simulação de offline/timeout).
