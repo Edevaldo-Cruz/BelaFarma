@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e6eeb56",
-  "commitMessage": "fix(compras-mineracao): correcao de sobreposicao sync, coercao de tipos, persistencia produto_id e formatacao UI",
-  "buildTime": "03/09/2026, 20:59:46"
+  "commitHash": "d6a6e01",
+  "commitMessage": "fix(compras-mineracao): correcao de escopo estItem, fracionamento bonificado, status consistente e formatacao UI",
+  "buildTime": "03/09/2026, 21:01:47"
 }
