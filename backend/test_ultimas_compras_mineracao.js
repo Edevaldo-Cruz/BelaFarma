@@ -492,6 +492,142 @@ async function runTests() {
     db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testBackfillId);
   });
 
+  // 20. Adversarial: recalcularOfertasMineradas não quebra por escopo quando item está apenas em compras_estoque_cache
+  await asyncTest('Adversarial: recalcularOfertasMineradas com item somente em estoque_cache não quebra por ReferenceError', async () => {
+    const testScopeId = 'test-op-scope-cache-' + Date.now();
+    const testProdId = 888123;
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').run(testProdId);
+    db.prepare('DELETE FROM compras_estoque_cache WHERE produto_id = ?').run(testProdId);
+
+    db.prepare(`
+      INSERT INTO compras_estoque_cache (produto_id, descricao, ean, saldo, custo_unitario, ultima_compra_valor, atualizado_em)
+      VALUES (?, 'PRODUTO UNICO APENAS NO ESTOQUE CACHE 500MG', '7898881230001', 10, 5.0, 5.0, datetime('now'))
+    `).run(testProdId);
+
+    db.prepare(`
+      INSERT INTO compras_oportunidades_mineradas (
+        id, produto_nome, ean, produto_id, preco_ofertado, status, data_oferta, created_at
+      ) VALUES (
+        ?, 'PRODUTO UNICO APENAS NO ESTOQUE CACHE 500MG', '7898881230001', ?, 4.0, 'Disponivel', datetime('now'), datetime('now')
+      )
+    `).run(testScopeId, testProdId);
+
+    const recalcRes = await comprasMineracaoService.recalcularOfertasMineradas(db);
+    assert(recalcRes.success, 'Recálculo deve retornar sucesso');
+
+    const updated = db.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE id = ?').get(testScopeId);
+    assert(updated, 'Registro deve existir');
+    assert.strictEqual(updated.preco_ult_compra_digifarma, 5.0, `Preço esperado 5.0, obteve ${updated.preco_ult_compra_digifarma}`);
+    assert.strictEqual(updated.status, 'Aprovado_Radar', `Status esperado Aprovado_Radar, obteve ${updated.status}`);
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testScopeId);
+    db.prepare('DELETE FROM compras_estoque_cache WHERE produto_id = ?').run(testProdId);
+  });
+
+  // 21. Adversarial: recalcularOfertasMineradas com registro de cache onde ean é nulo não causa ReferenceError
+  await asyncTest('Adversarial: recalcularOfertasMineradas com item com ean nulo no cache não quebra por ReferenceError', async () => {
+    const testNoEanId = 'test-op-no-ean-recalc-' + Date.now();
+    const testProdId = 888124;
+
+    db.prepare(`
+      INSERT OR REPLACE INTO digifarma_ultimas_compras_cache (
+        produto_id, ean, descricao, preco_unitario_ult_compra, preco_total_nota,
+        quantidade, embalagem, embalagem_detalhe, data_compra, fornecedor_nome,
+        numero_nota_fiscal, fonte, atualizado_em
+      ) VALUES (?, NULL, 'PRODUTO HOSPITALAR SEM EAN RECALC', 12.00, 12.00,
+        1, 1, 'Unidade individual (R$ 12.00)', datetime('now'), 'FORN HOSPITALAR',
+        'NF 4433', 'NOTA_FISCAL', datetime('now'))
+    `).run(testProdId);
+
+    db.prepare(`
+      INSERT INTO compras_oportunidades_mineradas (
+        id, produto_nome, ean, produto_id, preco_ofertado, status, data_oferta, created_at
+      ) VALUES (
+        ?, 'PRODUTO HOSPITALAR SEM EAN RECALC', NULL, ?, 10.0, 'Disponivel', datetime('now'), datetime('now')
+      )
+    `).run(testNoEanId, testProdId);
+
+    const recalcRes = await comprasMineracaoService.recalcularOfertasMineradas(db);
+    assert(recalcRes.success, 'Recálculo deve retornar sucesso');
+
+    const updated = db.prepare('SELECT * FROM compras_oportunidades_mineradas WHERE id = ?').get(testNoEanId);
+    assert.strictEqual(updated.preco_ult_compra_digifarma, 12.00);
+    assert.strictEqual(updated.status, 'Aprovado_Radar');
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testNoEanId);
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').run(testProdId);
+  });
+
+  // 22. Adversarial: sincronizarUltimasComprasDigifarma com prCompra zero e ultFrac positivo (bonificação/amostra)
+  await asyncTest('Adversarial: sincronização trata compra bonificada (prCompra=0 e ultFrac>0) preservando precoUnitario e total', async () => {
+    const prodBonifId = 888125;
+    const mockQueryBonif = async () => [{
+      PRODUTO_ID: prodBonifId,
+      COD_BARRAS: '7898881250002',
+      PRODUTO: 'PRODUTO BONIFICADO TESTE C/10',
+      ITEM_NOTAS_PRCOMPRA: 0.00,
+      ITEM_NOTAS_EMBALAGEM: 10,
+      ITEM_NOTAS_ULT_COMPRA: 2.50,
+      ITEM_NOTAS_QUANT: 5,
+      DATA_EMISSAO: '2026-09-02 10:00:00',
+      NOTA_FISCAL: 'NF 8800',
+      FORNECEDOR: 'DISTRIBUIDORA BONIF'
+    }];
+
+    await comprasMineracaoService.sincronizarUltimasComprasDigifarma(db, {
+      dias: 90,
+      queryDigifarma: mockQueryBonif,
+      skipFirebird: false
+    });
+
+    const itemCache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').get(prodBonifId);
+    assert(itemCache, 'Item bonificado deve ser registrado no cache');
+    assert.strictEqual(itemCache.preco_unitario_ult_compra, 2.50, `Preço unitário esperado 2.50, obteve ${itemCache.preco_unitario_ult_compra}`);
+    assert.strictEqual(itemCache.preco_total_nota, 25.00, `Preço total da caixa c/10 esperado 25.00, obteve ${itemCache.preco_total_nota}`);
+
+    db.prepare('DELETE FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').run(prodBonifId);
+  });
+
+  // 23. Adversarial: listarOportunidades atualiza status para Descartado_Preco_Maior quando cache torna oferta desvantajosa
+  await asyncTest('Adversarial: listarOportunidades ajusta status para Descartado_Preco_Maior se precoOfertado >= unitário do cache', async () => {
+    const testStatusId = 'test-op-status-descarte-' + Date.now();
+    const testProdId = 188549; // Viceroy cujo unitário real é R$ 3,24
+
+    // Oferta cadastrada com status legado Aprovado_Radar (comparada com preço de caixa 38.88), mas ofertada a 3.50 (mais cara que 3.24)
+    db.prepare(`
+      INSERT OR REPLACE INTO compras_oportunidades_mineradas (
+        id, mensagem_id, distribuidora, produto_nome, ean, produto_id,
+        preco_ofertado, preco_ult_compra_digifarma, percentual_desconto,
+        status, data_oferta, created_at
+      ) VALUES (?, 'msg-stat', 'DIST STAT', 'AP.BARB VICEROY LADY CARE C/2 12UND',
+        '7898361212568', ?, 3.50, 38.88, 90.99, 'Aprovado_Radar', datetime('now'), datetime('now'))
+    `).run(testStatusId, testProdId);
+
+    const lista = comprasMineracaoService.listarOportunidades(db, { limite: 100 });
+    const op = lista.find(o => o.id === testStatusId);
+
+    assert(op, 'Oportunidade de teste deve existir');
+    assert.strictEqual(op.precoUltCompraDigifarma, 3.24);
+    assert.strictEqual(op.status, 'Descartado_Preco_Maior', `Status esperado Descartado_Preco_Maior pois 3.50 >= 3.24, mas obteve ${op.status}`);
+
+    db.prepare('DELETE FROM compras_oportunidades_mineradas WHERE id = ?').run(testStatusId);
+  });
+
+  // 24. Adversarial: buscarUltimaCompraProduto localiza por descrição exata mesmo com produtoId inexistente
+  await asyncTest('Adversarial: buscarUltimaCompraProduto encontra por descricao exata no cache se produtoId for inexistente', async () => {
+    const res = await comprasMineracaoService.buscarUltimaCompraProduto({
+      produtoId: 99999999, // ID inexistente
+      ean: null,
+      produtoNome: 'AP.BARB VICEROY LADY CARE C/2 12UND',
+      dbInstance: db,
+      options: { skipFirebird: true }
+    });
+
+    assert(res, 'Deve localizar o produto pela descrição exata');
+    assert.strictEqual(res.precoUnitario, 3.24);
+    assert.strictEqual(res.produto_id, 188549);
+  });
+
   console.log(`\n=== RESUMO DOS TESTES: ${passed} PASSOU | ${failed} FALHOU ===`);
   if (failed > 0) {
     process.exit(1);

@@ -1,17 +1,15 @@
 # Progress — SWE Light (swe_1)
 
-Last visited: 2026-09-03T23:40:00Z
+Last visited: 2026-09-04T00:00:00Z
 
 ## Iteration Status
-Current iteration: 3 / 32
+Current iteration: 4 / 32
 
 ## Open Issues Ledger
 - [implementer_1] Não foi possível conectar a uma instância ativa do Firebird na porta 192.168.1.10:3050 neste ambiente de desenvolvimento local (conexão retornou ETIMEDOUT), dependendo do fallback funcional comprovado para o cache SQLite indexado.
-- [implementer_1] Minor Robustness Risk: Se novas notas de entrada forem emitidas no Firebird durante períodos em que o servidor local estiver sem conexão com a intranet, o cache SQLite continuará servindo as últimas compras gravadas até que a sincronização seja reexecutada.
-- [implementer_1] Shallow Verification: O clique para manter o card de auditoria aberto em telas sensíveis ao toque (mobile) foi tratado via estado auditoriaAbertaId, validado sintaticamente sem emulador de toque real.
-- [implementer_1] Untested edge case: Testar a sincronização quando o servidor do Firebird (192.168.1.10:3050) estiver na mesma rede local física para validar a ingestão em tempo real de novas notas fiscais de entrada emitidas no dia.
-- [implementer_1] Untested edge case: Testar produtos sem código de barras (EAN nulo) cuja descrição no WhatsApp tenha abreviações não convencionais em relação ao cadastro do Digifarma.
-- [reviewer_1] Remaining risk: A consulta direta ao Firebird físico real precisa de verificação de latência de rede quando o servidor da loja estiver sob pico de vendas no balcão.
+- [reviewer_2] Minor Robustness Risk: Caso a rede física local sofra desconexão prolongada com a porta 3050 do Digifarma durante o expediente de compras, o sistema operará de forma transparente servindo o cache SQLite indexado (< 5ms) até o restabelecimento da conexão.
+- [reviewer_2] Remaining risk: Testar a sincronização em ambiente de produção com a carga real de milhares de notas fiscais emitidas no dia para monitorar o tempo total do endpoint POST /api/central-compras/sincronizar-ultimas-compras.
+- [reviewer_1] Shallow Verification: O clique para manter o card de auditoria aberto em telas sensíveis ao toque (mobile) foi tratado via estado auditoriaAbertaId e listener de clique externo no window, validado sintaticamente.
 
 ## Current Status
 - [x] Initialized workspace state (DISPATCH.md, BRIEFING.md, plan.md, progress.md)
@@ -20,8 +18,9 @@ Current iteration: 3 / 32
 - [x] Dispatch Review Round 1 (Iteration 2: dcbdc61c-dee7-483d-bc03-26080fca84d5)
 - [x] Receive reviewer_1 report and update open issues ledger
 - [x] Dispatch Review Round 2 (Iteration 3: a298aa65-d83b-41c1-8396-53278fa2d3a9)
-- [ ] Receive reviewer_2 report and update open issues ledger
-- [ ] Review Round 3 (teamwork_preview_reviewer)
+- [x] Receive reviewer_2 report and update open issues ledger
+- [x] Dispatch Review Round 3 (Iteration 4: a42330d6-9a44-4110-b2b2-35dd70ddae44)
+- [ ] Receive reviewer_3 report and update open issues ledger
 - [ ] Orchestrator independent verification (re-run tests)
 - [ ] Dispatch teamwork_preview_victory_auditor
 - [ ] Commit and git push origin main

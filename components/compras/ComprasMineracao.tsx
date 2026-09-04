@@ -980,12 +980,12 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
                                 {((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra) && (() => {
                                   const rawEmb = String((op as any).embalagemUltCompra || (op as any).embalagem_ult_compra);
-                                  const embText = rawEmb.startsWith('Embalagem:') ? rawEmb : `Embalagem: ${rawEmb}`;
+                                  const cleanEmb = rawEmb.replace(/^Embalagem:\s*/i, '');
                                   const pTot = (op as any).precoTotalNota || (op as any).preco_total_nota;
-                                  const needTotal = pTot && precoUlt && Math.abs(pTot - precoUlt) > 0.01 && !embText.includes('total)') && !embText.includes('R$');
+                                  const needTotal = pTot && precoUlt && Math.abs(pTot - precoUlt) > 0.01 && !cleanEmb.includes('total)') && !cleanEmb.includes('R$');
                                   return (
                                     <div className="pt-1.5 border-t border-slate-800 text-[11px] text-slate-300">
-                                      📦 {embText}{needTotal ? ` (R$ ${Number(pTot).toFixed(2)} total)` : ''}
+                                      📦 Embalagem: {cleanEmb}{needTotal ? ` (R$ ${Number(pTot).toFixed(2)} total)` : ''}
                                     </div>
                                   );
                                 })()}
@@ -1165,12 +1165,13 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                   )}
                   {(selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra) && (() => {
                     const rawEmb = String(selectedOferta.embalagemUltCompra || (selectedOferta as any).embalagem_ult_compra);
+                    const cleanEmb = rawEmb.replace(/^Embalagem:\s*/i, '');
                     const pTot = selectedOferta.precoTotalNota || (selectedOferta as any).preco_total_nota;
                     const pUlt = selectedOferta.precoUltCompraDigifarma || (selectedOferta as any).preco_ult_compra_digifarma;
-                    const needTotal = pTot && pUlt && Math.abs(pTot - pUlt) > 0.01 && !rawEmb.includes('total)') && !rawEmb.includes('R$');
+                    const needTotal = pTot && pUlt && Math.abs(pTot - pUlt) > 0.01 && !cleanEmb.includes('total)') && !cleanEmb.includes('R$');
                     return (
                       <div>
-                        📦 Embalagem: <strong className="text-slate-800 dark:text-slate-100">{rawEmb}</strong>
+                        📦 Embalagem: <strong className="text-slate-800 dark:text-slate-100">{cleanEmb}</strong>
                         {needTotal ? (
                           <span className="text-slate-500 dark:text-slate-400 font-semibold"> (R$ {Number(pTot).toFixed(2)} total)</span>
                         ) : null}

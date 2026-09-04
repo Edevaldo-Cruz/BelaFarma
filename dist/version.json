@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "08c3e9c",
-  "commitMessage": "fix(compras-mineracao): correcao adversarial de sobreposicao de precos, fallback estrito, shadowing e performance < 10ms",
-  "buildTime": "03/09/2026, 20:46:11"
+  "commitHash": "e6eeb56",
+  "commitMessage": "fix(compras-mineracao): correcao de sobreposicao sync, coercao de tipos, persistencia produto_id e formatacao UI",
+  "buildTime": "03/09/2026, 20:59:46"
 }
