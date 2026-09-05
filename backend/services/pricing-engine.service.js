@@ -320,7 +320,7 @@ async function runPricingEngine(db, customOptions = {}) {
           p.PRODUTO as DESCRICAO,
           p.PROD_SALDO as ESTOQUE_ATUAL,
           p.PROD_PRVENDA as PRECO_VENDA,
-          COALESCE(p.VALOR_ULT_COMPRA, p.PROD_CMV, p.PROD_PRCOMPRA, 0) as PRECO_CUSTO,
+          COALESCE(NULLIF(p.PROD_CMV, 0), NULLIF(p.VALOR_ULT_COMPRA, 0), p.PROD_PRCOMPRA, 0) as PRECO_CUSTO,
           p.PROD_PRPROMOCAO as PRECO_PROMOCAO
         FROM PRODUTOS p
         WHERE p.PROD_ATIVO = 'S' AND (p.PROD_SALDO > 0 OR p.PROD_PRVENDA > 0)

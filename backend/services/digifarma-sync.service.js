@@ -140,7 +140,10 @@ async function syncProdutos(db) {
         const effectivePrice = getEffectivePrice(p);
         const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
         const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
-        const custoCmv = parseFloat(p.VALOR_ULT_COMPRA || p.PROD_CMV || p.PROD_PRCOMPRA || 0);
+        const cmv = parseFloat(p.PROD_CMV || 0);
+        const pUlt = parseFloat(p.VALOR_ULT_COMPRA || 0);
+        const pCompra = parseFloat(p.PROD_PRCOMPRA || 0);
+        const custoCmv = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : pCompra);
 
         insertOrReplaceStmt.run(
           p.PRODUTO_ID,

@@ -1050,7 +1050,9 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
             }
           } catch (eNota) {}
 
-          const pUltCmv = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
+          const cmvVal = parseFloat(melhorItem.PROD_CMV) || 0;
+          const pUltVal = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
+          const pUltCmv = cmvVal > 0 ? cmvVal : pUltVal;
           if (pUltCmv > 0) {
             precoUltCompra = pUltCmv;
           } else if (precoNota !== null && precoNota > 0) {
@@ -2937,15 +2939,16 @@ async function buscarUltimaCompraProduto(produtoId, ean, produtoNome, dbInstance
 
           return formatItem(resItem);
         } else {
-          // R1: Fallback estrito: PRODUTOS.VALOR_ULT_COMPRA ou PRODUTOS.PROD_PRCOMPRA somente se nunca teve NF
+          // R1: Fallback estrito: PRODUTOS.PROD_CMV, PRODUTOS.VALOR_ULT_COMPRA ou PRODUTOS.PROD_PRCOMPRA somente se nunca teve NF
           if (!prodCadastro) {
-            const pCheck = await queryFn('SELECT FIRST 1 PRODUTO_ID, PRODUTO, COD_BARRAS, VALOR_ULT_COMPRA, PROD_PRCOMPRA FROM PRODUTOS WHERE PRODUTO_ID = ?', [pId], 2000);
+            const pCheck = await queryFn('SELECT FIRST 1 PRODUTO_ID, PRODUTO, COD_BARRAS, PROD_CMV, VALOR_ULT_COMPRA, PROD_PRCOMPRA FROM PRODUTOS WHERE PRODUTO_ID = ?', [pId], 2000);
             if (pCheck && pCheck.length > 0) prodCadastro = pCheck[0];
           }
           if (prodCadastro) {
+            const cmv = parseFloat(prodCadastro.PROD_CMV) || 0;
             const pUlt = parseFloat(prodCadastro.VALOR_ULT_COMPRA) || 0;
             const pCusto = parseFloat(prodCadastro.PROD_PRCOMPRA) || 0;
-            const fallbackPrice = pUlt > 0 ? pUlt : (pCusto > 0 ? pCusto : null);
+            const fallbackPrice = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : (pCusto > 0 ? pCusto : null));
             if (fallbackPrice && fallbackPrice > 0) {
               const resItem = {
                 produto_id: pId,
@@ -3288,7 +3291,9 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
             const prCompra = parseFloat(item.ITEM_NOTAS_PRCOMPRA) || 0;
             const emb = Math.max(1, parseInt(item.ITEM_NOTAS_EMBALAGEM, 10) || 1);
             const ultFrac = parseFloat(item.ITEM_NOTAS_ULT_COMPRA) || 0;
-            const pUltCmv = parseFloat(item.VALOR_ULT_COMPRA || item.PROD_CMV || 0);
+            const cmvVal = parseFloat(item.PROD_CMV || 0);
+            const pUltVal = parseFloat(item.VALOR_ULT_COMPRA || 0);
+            const pUltCmv = cmvVal > 0 ? cmvVal : pUltVal;
 
             const precoUnitarioCalculado = calcularPrecoUnitarioReal(prCompra, emb, ultFrac);
             const precoUnitario = pUltCmv > 0 ? pUltCmv : precoUnitarioCalculado;
