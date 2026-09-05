@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f6827ac",
-  "commitMessage": "fix(compras): corrigir SqliteError database is locked e timeout na sincronizacao de ultimas compras",
-  "buildTime": "05/09/2026, 15:33:33"
+  "commitHash": "4134e2c",
+  "commitMessage": "build: atualiza bundle dist com commit f6827ac",
+  "buildTime": "05/09/2026, 16:01:52"
 }

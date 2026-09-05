@@ -359,13 +359,23 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
       let economiaTotalDist = 0;
 
       for (const ofr of listaOfertas) {
+        // Regra de Ouro do Horácio: ignora produtos inativos nos últimos 10 meses
+        if (ofr.ativo10m === 0) continue;
+
+        // Ignora termos espúrios ou frases sem identificação de produto no catálogo
+        if (!ofr.produto_id && !ofr.ean && (!ofr.descontoPercentual || ofr.descontoPercentual <= 0)) continue;
+        if (comprasMineracaoService?.isApenasEmbalagemOuQuantidade && comprasMineracaoService.isApenasEmbalagemOuQuantidade(ofr.produtoNome)) continue;
+
         const precoOf = ofr.precoOfertado || 0;
+        if (precoOf <= 0) continue;
         let precoUlt = ofr.precoUltCompraDigifarma || 0;
 
-        // Prioriza o CMV oficial padronizado em compras_estoque_cache
+        // Prioriza o CMV oficial padronizado em compras_estoque_cache e checa atividade
         try {
-          const estItem = dbInst.prepare('SELECT saldo, est_minimo_calculado, preco_unitario_ult_compra, ultima_compra_valor FROM compras_estoque_cache WHERE produto_id = ? OR ean = ? LIMIT 1').get(ofr.produto_id || ofr.digifarma_produto_id, ofr.ean);
+          const estItem = dbInst.prepare('SELECT saldo, est_minimo_calculado, preco_unitario_ult_compra, ultima_compra_valor, ativo_10m FROM compras_estoque_cache WHERE produto_id = ? OR ean = ? LIMIT 1').get(ofr.produto_id || ofr.digifarma_produto_id, ofr.ean);
           if (estItem) {
+            // Se o item estiver categorizado como inativo nos últimos 10 meses, descarta solenemente
+            if (estItem.ativo_10m === 0) continue;
             const cmvOficial = parseFloat(estItem.preco_unitario_ult_compra || estItem.ultima_compra_valor) || 0;
             if (cmvOficial > 0) precoUlt = cmvOficial;
           }
@@ -376,15 +386,30 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         const isCurvaA = ofr.curvaAbc === 'A';
         const desconto = precoUlt > 0 && precoUlt > precoOf ? ((precoUlt - precoOf) / precoUlt) * 100 : (ofr.descontoPercentual || 0);
 
-        // Só inclui se for ruptura ou tiver desconto positivo
+        // Não sugere compra com preço abusivo (> 15% acima da última compra/CMV registrado)
+        if (precoUlt > 0 && precoOf > precoUlt * 1.15) continue;
+
+        // Só inclui se for ruptura real de item com giro ou tiver desconto positivo
         if (saldo > estMin && desconto <= 0) continue;
+        if (desconto <= 0 && (!saldo || saldo <= 0) && estMin <= 0 && !isCurvaA) continue;
+        if (ofr.justificativa?.badge === 'Sem Vantagem' && desconto <= 0) continue;
 
         const qtd = calcularQuantidadeSugerida(15, 0.5, saldo, estMin, isCurvaA && desconto >= 20);
         const subtotal = qtd * precoOf;
         const econItem = precoUlt > precoOf ? (precoUlt - precoOf) * qtd : 0;
 
+        let badgeMotivo = ofr.justificativa?.badge || (saldo <= 0 ? '🚨 Ruptura' : '📉 Desconto');
+        if (desconto > 0 && saldo <= estMin) {
+          badgeMotivo = '🚨 Ruptura + Desconto';
+        } else if (desconto > 0) {
+          badgeMotivo = '📉 Desconto';
+        } else if (saldo <= 0) {
+          badgeMotivo = '🚨 Ruptura Total (Saldo 0)';
+        }
+
         itensSugeridos.push({
           id: ofr.id,
+          produtoId: ofr.produto_id || ofr.produtoId || null,
           mensagemId: ofr.mensagemId || ofr.mensagem_id,
           telefone: ofr.telefone,
           distribuidora: ofr.distribuidora || distribuidor,
@@ -392,10 +417,11 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
           ean: ofr.ean,
           produtoNome: ofr.produtoNome,
           tipo: classificarTipoMedicamento(ofr.produtoNome),
+          precoUltCompra: precoUlt,
           precoHistorico: precoUlt,
           precoOfertado: precoOf,
           qtdSugerida: qtd,
-          motivo: ofr.justificativa?.badge || (saldo <= 0 ? '🚨 Ruptura' : '📉 Desconto'),
+          motivo: badgeMotivo,
           economiaEstimadaValor: econItem,
           economiaEstimadaPct: desconto,
           curvaAbc: ofr.curvaAbc || 'C'
@@ -445,6 +471,10 @@ https://app.drogariabelafarma.com.br
 
       const relatorioId = crypto.randomUUID();
       const now = new Date().toISOString();
+
+      try {
+        dbInst.prepare("DELETE FROM compras_horacio_relatorios WHERE fornecedor_nome = ? AND tipo IN ('Consolidado_Corte', 'Sob_Demanda')").run(distribuidor);
+      } catch (eDel) {}
 
       dbInst.prepare(`
         INSERT INTO compras_horacio_relatorios (
@@ -612,15 +642,32 @@ function listarRelatorios(db = null, limite = 20) {
   try {
     const rows = dbInst.prepare(`
       SELECT * FROM compras_horacio_relatorios
+      WHERE tipo IN ('Consolidado_Corte', 'Sob_Demanda', 'Sincronizacao_Estoque')
       ORDER BY created_at DESC
       LIMIT ?
-    `).all(limite);
+    `).all(limite * 2);
 
-    return rows.map(r => ({
-      ...r,
-      itens: r.itens_json ? JSON.parse(r.itens_json) : [],
-      equivalentes: r.equivalentes_json ? JSON.parse(r.equivalentes_json) : {}
-    }));
+    const vistos = new Set();
+    const relatoriosValidos = [];
+
+    for (const r of rows) {
+      const itens = r.itens_json ? JSON.parse(r.itens_json) : [];
+      if (!Array.isArray(itens) || itens.length === 0) continue;
+
+      const chaveFornecedor = (r.fornecedor_nome || r.titulo || '').trim().toLowerCase();
+      if (chaveFornecedor && vistos.has(chaveFornecedor)) continue;
+      vistos.add(chaveFornecedor);
+
+      relatoriosValidos.push({
+        ...r,
+        itens,
+        equivalentes: r.equivalentes_json ? JSON.parse(r.equivalentes_json) : {}
+      });
+
+      if (relatoriosValidos.length >= limite) break;
+    }
+
+    return relatoriosValidos;
   } catch (err) {
     console.error('[HoracioAgent] Erro ao listar relatórios:', err);
     return [];

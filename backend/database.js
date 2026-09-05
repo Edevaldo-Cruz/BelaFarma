@@ -1942,6 +1942,14 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ciclo ON compras_estoque_cache(ciclo_vida)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ativo_10m ON compras_estoque_cache(ativo_10m)');
+      db.exec(`
+        UPDATE compras_estoque_cache 
+        SET ativo_10m = CASE 
+          WHEN (saldo > 0) OR (vendas_10m > 0) OR (entradas_10m > 0) OR (vendas_30d > 0) OR (vendas_31_60d > 0) OR (vendas_61_90d > 0) 
+          THEN 1 ELSE 0 
+        END
+        WHERE ativo_10m IS NULL OR (ativo_10m = 1 AND (saldo <= 0 OR saldo IS NULL) AND (vendas_10m = 0 OR vendas_10m IS NULL) AND (entradas_10m = 0 OR entradas_10m IS NULL) AND (vendas_30d = 0 OR vendas_30d IS NULL))
+      `);
     } catch(e) {}
     console.log('✅ Central de Compras: Tabela compras_estoque_cache criada/verificada!');
 

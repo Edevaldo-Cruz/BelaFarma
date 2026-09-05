@@ -282,6 +282,13 @@ function isApenasEmbalagemOuQuantidade(str) {
   const formasPuras = /^(?:COMPRIMIDOS?|C[AÁ]PSULAS?|GOTAS?|XAROPE|AMPOLAS?|FRASCOS?|POMADA|CREME|GEL|DISPLAY|ENVELOPE|SACH[EÊ]T?|CAIXA|UNIDADES?|BLISTER|CARTELA|GEN|GENERICO|SIMILAR|REF)$/i;
   if (formasPuras.test(s)) return true;
 
+  // Frases conversacionais e jargões de mensagens de fornecedor (ex: "Vc compra", "Compre 10", "Leve 5", etc.)
+  if (/^(?:VC\b|VOC[EÊ]\b|COMPRE\b|COMPRA\b|COMPRANDO\b|LEVE\b|GANHE\b|PAGUE\b|PAGANDO\b|ACIMA\b|A PARTIR\b|FRETE\b|PEDIDO\b|M[IÍ]NIMO\b|FECHAMENTO\b|TOTAL\b|SUBTOTAL\b|CONDI[CÇ]|PRAZO\b|BOLETO\b|PIX\b|AVISTA\b|DESCONTO\b|TABELA\b|PROMO[CÇ][AÃ]O\b|OFERTAS?\b|AVISO\b|ATEN[CÇ]|IMPORTANTE\b|REPASSANDO\b|SEGUE\b|BOM DIA\b|BOA TARDE\b|BOA NOITE\b|OL[AÁ]\b|FATURAMENTO\b)/i.test(s)) {
+    if (!/(?:MG|G|ML|MCG|COMP|CAPS|CPS|CPR|GOTAS|XPE|DRG)\b/i.test(s)) {
+      return true;
+    }
+  }
+
   // Se não contiver nenhuma palavra com >= 3 letras que represente produto real
   const words = s.replace(/[^A-Z0-9]/g, ' ')
     .split(/\s+/)
@@ -433,7 +440,7 @@ function extrairLinhasDeOferta(texto) {
         }
       }
 
-      if (nomeProduto.length >= 4 && !isApenasEmbalagemOuQuantidade(nomeProduto) && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|ol[áa]|aten[çc][ãa]o)/i.test(nomeProduto)) {
+      if (nomeProduto.length >= 4 && !isApenasEmbalagemOuQuantidade(nomeProduto) && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|boa noite|ol[áa]|aten[çc][ãa]o|vc\b|voc[eê]\b|compre\b|compra\b|comprando\b|leve\b|ganhe\b|pague\b|pagando\b|promo[çc]|ofertas?\b|descontos?\b|repassando|aviso|importante)/i.test(nomeProduto)) {
         ofertas.push({
           produtoNome: nomeProduto,
           ean,
@@ -449,7 +456,7 @@ function extrairLinhasDeOferta(texto) {
         .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
         .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
         .trim();
-      if (possivelTitulo.length >= 4 && !isApenasEmbalagemOuQuantidade(possivelTitulo) && !/^(total|pedido|faturamento|fechamento|condi[çc]|prazo|boleto|bom dia|boa tarde|ol[áa]|aten[çc]|ofertas?|tabela|destaques?)/i.test(possivelTitulo)) {
+      if (possivelTitulo.length >= 4 && !isApenasEmbalagemOuQuantidade(possivelTitulo) && !/^(total|pedido|faturamento|fechamento|condi[çc]|prazo|boleto|bom dia|boa tarde|boa noite|ol[áa]|aten[çc]|ofertas?|tabela|destaques?|vc\b|voc[eê]\b|compre\b|compra\b|leve\b|ganhe\b|pague\b|promo[çc]|repassando|aviso|importante)/i.test(possivelTitulo)) {
         ultimoContextoProduto = possivelTitulo;
       }
     }
@@ -743,12 +750,15 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
   }
 
   const palavras = termos.palavras || [];
-  if (palavras.length > 0 && desc.includes(palavras[0])) {
+  const descTokens = new Set(desc.replace(/[^A-Z0-9]/g, ' ').split(/\s+/).filter(Boolean));
+  const hasWord = (w) => descTokens.has(w) || (w.length >= 5 && desc.includes(w));
+
+  if (palavras.length > 0 && hasWord(palavras[0])) {
     score += 40;
   }
 
   for (let i = 1; i < palavras.length; i++) {
-    if (desc.includes(palavras[i])) {
+    if (hasWord(palavras[i])) {
       score += 20;
     }
   }
@@ -2060,29 +2070,28 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       let estoqueMinimo = parseFloat(r.estoque_minimo) || 0;
       let emRuptura = Boolean(r.em_ruptura);
 
-      // Se estoque não estiver gravado na linha da oportunidade, busca no cache via índices
-      if (!r.estoque_atual && !r.estoque_minimo) {
-        try {
-          let pCache = null;
-          if (stmtEstoqueId && pIdResolvido) {
-            pCache = stmtEstoqueId.get(String(pIdResolvido));
+      try {
+        let pCache = null;
+        if (stmtEstoqueId && pIdResolvido) {
+          pCache = stmtEstoqueId.get(String(pIdResolvido));
+        }
+        if (!pCache && stmtEstoqueEan && r.ean) {
+          pCache = stmtEstoqueEan.get(r.ean);
+        }
+        if (!pCache && stmtEstoqueDesc && r.produto_nome) {
+          pCache = stmtEstoqueDesc.get(r.produto_nome);
+        }
+        if (pCache) {
+          estoqueAtual = pCache.saldo || 0;
+          estoqueMinimo = pCache.est_minimo_calculado || pCache.est_minimo_digifarma || 0;
+          emRuptura = estoqueAtual <= 0 || (estoqueMinimo > 0 && estoqueAtual < estoqueMinimo);
+          if (pCache.ativo_10m !== undefined && pCache.ativo_10m !== null) {
+            ativo10m = Number(pCache.ativo_10m);
           }
-          if (!pCache && stmtEstoqueEan && r.ean) {
-            pCache = stmtEstoqueEan.get(r.ean);
-          }
-          if (!pCache && stmtEstoqueDesc && r.produto_nome) {
-            pCache = stmtEstoqueDesc.get(r.produto_nome);
-          }
-          if (pCache) {
-            estoqueAtual = pCache.saldo || 0;
-            estoqueMinimo = pCache.est_minimo_calculado || pCache.est_minimo_digifarma || 0;
-            emRuptura = estoqueAtual <= 0 || (estoqueMinimo > 0 && estoqueAtual < estoqueMinimo);
-            if (pCache.ativo_10m !== undefined && pCache.ativo_10m !== null) {
-              ativo10m = Number(pCache.ativo_10m);
-            }
-          }
-        } catch (e) {}
-      }
+        } else {
+          ativo10m = (pIdResolvido || r.ean) ? 1 : 0;
+        }
+      } catch (e) {}
 
     // Integração com Grupo de Produtos Equivalentes (Estoque Consolidado de todas as marcas)
     let grupoEquiv = null;
