@@ -1215,6 +1215,41 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
 
   const isOfertaValida = precoInferior && precoOfertado > 0;
 
+  // Verificação de elegibilidade dos últimos 10 meses (300 dias)
+  let ativo10m = 1;
+  if (db && (produtoId || ean || descricaoEncontrada)) {
+    try {
+      let row = null;
+      if (produtoId) {
+        row = db.prepare('SELECT ativo_10m, saldo, vendas_10m, entradas_10m FROM compras_estoque_cache WHERE produto_id = ?').get(produtoId);
+      }
+      if (!row && ean) {
+        row = db.prepare('SELECT ativo_10m, saldo, vendas_10m, entradas_10m FROM compras_estoque_cache WHERE ean = ?').get(ean);
+      }
+      if (!row && descricaoEncontrada) {
+        row = db.prepare('SELECT ativo_10m, saldo, vendas_10m, entradas_10m FROM compras_estoque_cache WHERE descricao = ?').get(descricaoEncontrada);
+      }
+      if (row) {
+        if (row.ativo_10m !== undefined && row.ativo_10m !== null) {
+          ativo10m = Number(row.ativo_10m);
+        } else {
+          ativo10m = (Number(row.saldo) > 0 || Number(row.vendas_10m) > 0 || Number(row.entradas_10m) > 0) ? 1 : 0;
+        }
+      }
+    } catch(e) {}
+  }
+
+  if (ativo10m === 0) {
+    return {
+      invalido: true,
+      ignoradoPorInatividade: true,
+      motivo: 'Produto sem estoque e sem movimentação nos últimos 10 meses',
+      produtoNome,
+      ean,
+      produtoId
+    };
+  }
+
   return {
     produtoId,
     descricaoDigifarma: descricaoEncontrada,
@@ -1235,7 +1270,8 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     estoqueAtual,
     estMinimo,
     emRuptura,
-    grupoEquivalente
+    grupoEquivalente,
+    ativo10m: 1
   };
 }
 
@@ -1963,9 +1999,9 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     stmtCacheId = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
     stmtCacheEan = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
     stmtCacheDesc = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
-    stmtEstoqueId = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1');
-    stmtEstoqueEan = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE ean = ? LIMIT 1');
-    stmtEstoqueDesc = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma FROM compras_estoque_cache WHERE descricao = ? LIMIT 1');
+    stmtEstoqueId = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma, ativo_10m FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1');
+    stmtEstoqueEan = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma, ativo_10m FROM compras_estoque_cache WHERE ean = ? LIMIT 1');
+    stmtEstoqueDesc = db.prepare('SELECT saldo, est_minimo_calculado, est_minimo_digifarma, ativo_10m FROM compras_estoque_cache WHERE descricao = ? LIMIT 1');
   } catch (ePrep) {}
 
   const items = rows
@@ -1980,6 +2016,7 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       let embUlt = r.embalagem_ult_compra || null;
       let pTotal = r.preco_total_nota ? parseFloat(r.preco_total_nota) : null;
       let pIdResolvido = r.produto_id || r.digifarma_produto_id || null;
+      let ativo10m = 1;
 
       // Enriquecimento e validação em alta velocidade com cache digifarma_ultimas_compras_cache (< 0.05ms)
       try {
@@ -2038,6 +2075,9 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
             estoqueAtual = pCache.saldo || 0;
             estoqueMinimo = pCache.est_minimo_calculado || pCache.est_minimo_digifarma || 0;
             emRuptura = estoqueAtual <= 0 || (estoqueMinimo > 0 && estoqueAtual < estoqueMinimo);
+            if (pCache.ativo_10m !== undefined && pCache.ativo_10m !== null) {
+              ativo10m = Number(pCache.ativo_10m);
+            }
           }
         } catch (e) {}
       }
@@ -2159,18 +2199,24 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
         cor: justificativaCor,
         texto: justificativaTexto
       },
-      scoreRelevancia
+      scoreRelevancia,
+      ativo10m
     };
   });
 
-  // Se ordenação por relevância foi solicitada
-  if (filtros.ordenacao === 'relevancia' || !filtros.ordenacao) {
-    items.sort((a, b) => b.scoreRelevancia - a.scoreRelevancia);
-  } else if (filtros.ordenacao === 'desconto') {
-    items.sort((a, b) => b.descontoPercentual - a.descontoPercentual);
+  let filteredItems = items;
+  if (filtros.apenasAtivos10m !== false) {
+    filteredItems = items.filter(i => i.ativo10m !== 0);
   }
 
-  return items;
+  // Se ordenação por relevância foi solicitada
+  if (filtros.ordenacao === 'relevancia' || !filtros.ordenacao) {
+    filteredItems.sort((a, b) => b.scoreRelevancia - a.scoreRelevancia);
+  } else if (filtros.ordenacao === 'desconto') {
+    filteredItems.sort((a, b) => b.descontoPercentual - a.descontoPercentual);
+  }
+
+  return filteredItems;
 }
 
 /**

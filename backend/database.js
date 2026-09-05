@@ -1390,6 +1390,13 @@ try {
       console.log('Default iFood fee (6.5%) inserted.');
     }
 
+    // Inserir valor padrão para histórico ativo do Horácio (10 meses) se não existir
+    const existingHoracioMeses = db.prepare("SELECT * FROM system_settings WHERE key = 'horacio_meses_historico_ativo'").get();
+    if (!existingHoracioMeses) {
+      db.prepare("INSERT INTO system_settings (key, value, updated_at) VALUES ('horacio_meses_historico_ativo', '10', ?)").run(new Date().toISOString());
+      console.log('Default Horacio active history setting (10 months) inserted.');
+    }
+
     console.log('✅ Sistema Foguete Amarelo: Todas as tabelas criadas com sucesso!');
 
     // ========================================================================
@@ -1914,11 +1921,25 @@ try {
     } catch (e) {}
 
     try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN ativo_10m INTEGER DEFAULT 1');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN vendas_10m REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN entradas_10m REAL DEFAULT 0');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN ultima_movimentacao TEXT');
+    } catch (e) {}
+
+    try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_status ON compras_estoque_cache(status_ruptura)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ean ON compras_estoque_cache(ean)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_descricao ON compras_estoque_cache(descricao)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ciclo ON compras_estoque_cache(ciclo_vida)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ativo_10m ON compras_estoque_cache(ativo_10m)');
     } catch(e) {}
     console.log('✅ Central de Compras: Tabela compras_estoque_cache criada/verificada!');
 

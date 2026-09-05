@@ -14,6 +14,28 @@ const { queryDigifarma } = require('./digifarma.service');
 const db = require('../database');
 
 /**
+ * Obtém a quantidade de meses configurada para considerar um produto ativo no Horácio (padrão: 10 meses).
+ * @returns {number}
+ */
+function obterMesesHistoricoAtivo() {
+  try {
+    const row = db.prepare("SELECT value FROM system_settings WHERE key = 'horacio_meses_historico_ativo'").get();
+    const val = Number(row?.value);
+    return !isNaN(val) && val > 0 ? val : 10;
+  } catch (e) {
+    return 10;
+  }
+}
+
+/**
+ * Converte os meses de histórico em dias aproximados (padrão: 300 dias para 10 meses).
+ * @returns {number}
+ */
+function obterDiasHistoricoAtivo() {
+  return Math.round(obterMesesHistoricoAtivo() * 30);
+}
+
+/**
  * Formata um objeto Date para o padrão TIMESTAMP do Firebird (YYYY-MM-DD HH:MM:SS)
  * @param {Date} date 
  * @returns {string}
@@ -296,6 +318,7 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
 
   let prodData = null;
   let fromCache = false;
+  const diasHistorico = Math.round(obterMesesHistoricoAtivo() * 30);
 
   try {
     const sql = `
@@ -312,7 +335,9 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
         p.PROD_ATIVO,
         COALESCE(v30.QTD_30D, 0) as VENDAS_30D,
         COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D,
-        COALESCE(v90.QTD_61_90D, 0) as VENDAS_61_90D
+        COALESCE(v90.QTD_61_90D, 0) as VENDAS_61_90D,
+        COALESCE(v10m.QTD_10M, 0) as VENDAS_10M,
+        COALESCE(e10m.QTD_ENTRADA_10M, 0) as ENTRADAS_10M
       FROM PRODUTOS p
       LEFT JOIN (
         SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_30D
@@ -340,6 +365,23 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
           AND v.VENDA_DATA_HORA < CAST('NOW' AS TIMESTAMP) - 60
         GROUP BY iv.PRODUTO_ID
       ) v90 ON p.PRODUTO_ID = v90.PRODUTO_ID
+      LEFT JOIN (
+        SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_10M
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - ${diasHistorico}
+        GROUP BY iv.PRODUTO_ID
+      ) v10m ON p.PRODUTO_ID = v10m.PRODUTO_ID
+      LEFT JOIN (
+        SELECT i.PRODUTO_ID, SUM(i.ITEM_NOTAS_QUANT) as QTD_ENTRADA_10M
+        FROM ITEM_NOTAS i
+        JOIN CAB_NOTAS c ON i.CAB_NOTA_ID = c.CAB_NOTA_ID
+        WHERE c.ENTRADA_SAIDA = 'E'
+          AND (c.CANCELAMENTO = 'N' OR c.CANCELAMENTO IS NULL)
+          AND c.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - ${diasHistorico}
+        GROUP BY i.PRODUTO_ID
+      ) e10m ON p.PRODUTO_ID = e10m.PRODUTO_ID
       WHERE p.PRODUTO_ID = ?
     `;
 
@@ -370,7 +412,10 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
           PROD_ATIVO: 'S',
           VENDAS_30D: cached.vendas_30d,
           VENDAS_31_60D: cached.vendas_31_60d,
-          VENDAS_61_90D: cached.vendas_61_90d || 0
+          VENDAS_61_90D: cached.vendas_61_90d || 0,
+          VENDAS_10M: cached.vendas_10m || (cached.vendas_30d + cached.vendas_31_60d + (cached.vendas_61_90d || 0)),
+          ENTRADAS_10M: cached.entradas_10m || 0,
+          ATIVO_10M: cached.ativo_10m !== undefined ? cached.ativo_10m : 1
         };
         curvaAbc = cached.curva_abc || curvaAbc;
       }
@@ -386,12 +431,18 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
   const vendas30d = Number(prodData.VENDAS_30D || 0);
   const vendas31_60d = Number(prodData.VENDAS_31_60D || 0);
   const vendas61_90d = Number(prodData.VENDAS_61_90D || 0);
+  const vendas10m = Number(prodData.VENDAS_10M || 0);
+  const entradas10m = Number(prodData.ENTRADAS_10M || 0);
   const ativo = String(prodData.PROD_ATIVO || 'S').toUpperCase() === 'S';
   const saldo = Number(prodData.SALDO || 0);
   const estMinimoDigifarma = Number(prodData.EST_MINIMO_DIGIFARMA || 0);
   const custoUnitario = Number(prodData.CUSTO_UNITARIO || 0);
   const ultimaCompraValor = Number(prodData.ULTIMA_COMPRA_VALOR || 0);
   const descricaoCompleta = `${(prodData.DESCRICAO || '').trim()} ${(prodData.APRESENTACAO || '').trim()}`.trim();
+
+  // Elegibilidade de 10 meses: Saldo > 0 OU Vendas 10m > 0 OU Entradas 10m > 0
+  const isAtivo10m = (saldo > 0) || (vendas10m > 0) || (entradas10m > 0) || (vendas30d > 0) || (vendas31_60d > 0) || (vendas61_90d > 0);
+  const ativo10m = isAtivo10m ? 1 : 0;
 
   const calculo = calcularDemandaPonderada(vendas30d, vendas31_60d, vendas61_90d, margemSegurancaPercent, {
     curvaAbc,
@@ -411,11 +462,13 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
         est_minimo_calculado, est_maximo_calculado, est_minimo_digifarma, vmd_ponderado,
         vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
         status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
+        ativo_10m, vendas_10m, entradas_10m,
         sincronizado_em, atualizado_em
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
+        ?, ?, ?,
         ?, ?, ?,
         (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
         datetime('now', 'localtime')
@@ -440,6 +493,9 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
       statusRuptura,
       calculo.margemSegurancaPercent,
       options.diasSemVenda || 0,
+      ativo10m,
+      vendas10m,
+      entradas10m,
       pId
     );
   } catch (eSqlite) {
@@ -604,7 +660,8 @@ async function sincronizarLoteEstoqueMinimoDigifarma(listaAtualizacoes = []) {
  */
 async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options = {}) {
   const inicio = Date.now();
-  console.log(`[Compras Estoque] 🔄 Iniciando recálculo global de Estoque Mínimo (Margem: ${margemSegurancaPercent}%)...`);
+  const diasHistorico = Math.round(obterMesesHistoricoAtivo() * 30);
+  console.log(`[Compras Estoque] 🔄 Iniciando recálculo global de Estoque Mínimo (Margem: ${margemSegurancaPercent}%, Janela Ativa: ${diasHistorico}d / ${obterMesesHistoricoAtivo()} meses)...`);
 
   const sql = `
     SELECT 
@@ -620,7 +677,9 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       p.PROD_ATIVO,
       COALESCE(v30.QTD_30D, 0) as VENDAS_30D,
       COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D,
-      COALESCE(v90.QTD_61_90D, 0) as VENDAS_61_90D
+      COALESCE(v90.QTD_61_90D, 0) as VENDAS_61_90D,
+      COALESCE(v10m.QTD_10M, 0) as VENDAS_10M,
+      COALESCE(e10m.QTD_ENTRADA_10M, 0) as ENTRADAS_10M
     FROM PRODUTOS p
     LEFT JOIN (
       SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_30D
@@ -648,6 +707,23 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         AND v.VENDA_DATA_HORA < CAST('NOW' AS TIMESTAMP) - 60
       GROUP BY iv.PRODUTO_ID
     ) v90 ON p.PRODUTO_ID = v90.PRODUTO_ID
+    LEFT JOIN (
+      SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) as QTD_10M
+      FROM ITEM_VENDAS iv
+      JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+      WHERE v.CANCELADO <> 'S'
+        AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - ${diasHistorico}
+      GROUP BY iv.PRODUTO_ID
+    ) v10m ON p.PRODUTO_ID = v10m.PRODUTO_ID
+    LEFT JOIN (
+      SELECT i.PRODUTO_ID, SUM(i.ITEM_NOTAS_QUANT) as QTD_ENTRADA_10M
+      FROM ITEM_NOTAS i
+      JOIN CAB_NOTAS c ON i.CAB_NOTA_ID = c.CAB_NOTA_ID
+      WHERE c.ENTRADA_SAIDA = 'E'
+        AND (c.CANCELAMENTO = 'N' OR c.CANCELAMENTO IS NULL)
+        AND c.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - ${diasHistorico}
+      GROUP BY i.PRODUTO_ID
+    ) e10m ON p.PRODUTO_ID = e10m.PRODUTO_ID
     WHERE p.PROD_ATIVO = 'S'
   `;
 
@@ -679,7 +755,10 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
           PROD_ATIVO: 'S',
           VENDAS_30D: cp.vendas_30d,
           VENDAS_31_60D: cp.vendas_31_60d,
-          VENDAS_61_90D: cp.vendas_61_90d || 0
+          VENDAS_61_90D: cp.vendas_61_90d || 0,
+          VENDAS_10M: cp.vendas_10m || (cp.vendas_30d + cp.vendas_31_60d + (cp.vendas_61_90d || 0)),
+          ENTRADAS_10M: cp.entradas_10m || 0,
+          ATIVO_10M: cp.ativo_10m !== undefined ? cp.ativo_10m : 1
         }));
       }
     } catch (eCache) {
@@ -745,12 +824,18 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     const v30 = Number(p.VENDAS_30D || 0);
     const v60 = Number(p.VENDAS_31_60D || 0);
     const v90 = Number(p.VENDAS_61_90D || 0);
+    const v10m = Number(p.VENDAS_10M || 0);
+    const e10m = Number(p.ENTRADAS_10M || 0);
     const saldo = Number(p.SALDO || 0);
     const estMinimoDigifarma = Number(p.EST_MINIMO_DIGIFARMA || 0);
     const custo = Number(p.CUSTO_UNITARIO || 0);
     const ultCompra = Number(p.ULTIMA_COMPRA_VALOR || 0);
     const curva = curvaMap.get(String(pId)) || 'C';
     const descricaoCompleta = `${(p.DESCRICAO || '').trim()} ${(p.APRESENTACAO || '').trim()}`.trim();
+
+    // Critério de Atividade 10 Meses: Saldo > 0 OU Vendas 10m > 0 OU Entradas 10m > 0
+    const isAtivo10m = (saldo > 0) || (v10m > 0) || (e10m > 0) || (v30 > 0) || (v60 > 0) || (v90 > 0);
+    const ativo10m = isAtivo10m ? 1 : 0;
 
     const calculo = calcularDemandaPonderada(v30, v60, v90, margemSegurancaPercent, {
       curvaAbc: curva,
@@ -782,6 +867,9 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       vendas_30d: v30,
       vendas_31_60d: v60,
       vendas_61_90d: v90,
+      vendas_10m: v10m,
+      entradas_10m: e10m,
+      ativo_10m: ativo10m,
       ciclo_vida: calculo.cicloVida,
       custo_unitario: custo,
       ultima_compra_valor: ultCompra,
@@ -797,12 +885,14 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       est_minimo_calculado, est_maximo_calculado, est_minimo_digifarma, vmd_ponderado,
       vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
       status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
+      ativo_10m, vendas_10m, entradas_10m,
       sincronizado_em, atualizado_em
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, 0,
+      ?, ?, ?,
       (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
       datetime('now', 'localtime')
     )
@@ -829,6 +919,9 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         item.ultima_compra_valor,
         item.status_ruptura,
         item.margem_seguranca_aplicada,
+        item.ativo_10m,
+        item.vendas_10m,
+        item.entradas_10m,
         item.produto_id
       );
     }
@@ -872,6 +965,11 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
 async function listarProdutosAbaixoDoMinimo(filtros = {}) {
   let whereClauses = [];
   const params = [];
+
+  // Filtro de atividade nos últimos 10 meses (padrão true)
+  if (filtros.apenasAtivos10m !== false) {
+    whereClauses.push('(ativo_10m = 1 OR ativo_10m IS NULL)');
+  }
 
   // Filtro de status
   if (filtros.apenasRuptura) {
@@ -947,7 +1045,8 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
         END
       ) as valorTotalReposicao
     FROM compras_estoque_cache
-  `).get();
+    ${whereSql}
+  `).get(...params);
 
   // Consulta dos itens paginados
   const rows = db.prepare(`
@@ -965,6 +1064,9 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       vendas_30d as vendas30d,
       vendas_31_60d as vendas31_60d,
       vendas_61_90d as vendas61_90d,
+      vendas_10m as vendas10m,
+      entradas_10m as entradas10m,
+      ativo_10m as ativo10m,
       ciclo_vida as cicloVida,
       custo_unitario as custoUnitario,
       ultima_compra_valor as ultimaCompraValor,
@@ -997,6 +1099,9 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       estMaximoCalculado: estMax,
       cicloVida: r.cicloVida || 'ESTAVEL',
       vendas61_90d: Number(r.vendas61_90d) || 0,
+      vendas10m: Number(r.vendas10m) || 0,
+      entradas10m: Number(r.entradas10m) || 0,
+      ativo10m: r.ativo10m !== undefined ? r.ativo10m : 1,
       pedidoMinimo: sugerido,
       sugeridoReposicao: sugerido
     };
@@ -1038,6 +1143,7 @@ function obterResumoEstoqueMinimo() {
       MAX(atualizado_em) as ultimaAtualizacao,
       MAX(sincronizado_em) as ultimaSincronizacao
     FROM compras_estoque_cache
+    WHERE (ativo_10m = 1 OR ativo_10m IS NULL)
   `).get();
 
   return {
