@@ -319,6 +319,52 @@ function extrairLinhasDeOferta(texto) {
       continue;
     }
 
+    // Verificação de Linha de Faixa Escalonada / Quantidade Mínima (ex: "• 1 un. → R$ 8,29", "• 6 un. → R$ 7,69", "30 un: 1,75")
+    const tierRegex = /^[^0-9a-zÀ-ÿ]*(?:(?:a\s+partir\s+de|acima\s+de|m[íi]n(?:imo)?)\s*:?\s*)?(\d+)(?:\s*(?:a|-)\s*\d+)?\s*(?:\+)?\s*(?:unidades?|un|cx|caixas?|fr|frascos?|display|pct)?\.?\s*(?:[.:\-=~>\u2190-\u21FF]+|a|por|cada|\s*(?=R?\$))\s*(?:R\$\s*)?([\d]{1,4}[,\.]\d{2})/i;
+    const tierMatch = tierRegex.exec(trimmed);
+    if (tierMatch && ultimoContextoProduto) {
+      const cleanContexto = ultimoContextoProduto.trim();
+      const resto = trimmed.replace(tierRegex, '').replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+/gu, '').trim();
+      if (!resto || isApenasEmbalagemOuQuantidade(resto)) {
+        const qtdMin = parseInt(tierMatch[1], 10);
+        const precoTier = parsePriceValue(tierMatch[2]);
+        if (qtdMin > 0 && precoTier > 0) {
+          const ultimaOferta = ofertas.length > 0 ? ofertas[ofertas.length - 1] : null;
+          if (ultimaOferta && ultimaOferta.produtoNome.trim() === cleanContexto) {
+            if (!ultimaOferta.faixasPreco) {
+              ultimaOferta.faixasPreco = [];
+              if (ultimaOferta.precoOfertado > 0) {
+                ultimaOferta.faixasPreco.push({
+                  qtdMinima: ultimaOferta.qtdMinima || 1,
+                  preco: ultimaOferta.precoOfertado
+                });
+              }
+            }
+            if (!ultimaOferta.faixasPreco.some(f => f.qtdMinima === qtdMin)) {
+              ultimaOferta.faixasPreco.push({ qtdMinima: qtdMin, preco: precoTier });
+              ultimaOferta.faixasPreco.sort((a, b) => a.qtdMinima - b.qtdMinima);
+              const menorFaixa = ultimaOferta.faixasPreco[0];
+              ultimaOferta.precoOfertado = menorFaixa.preco;
+              ultimaOferta.qtdMinima = menorFaixa.qtdMinima;
+            }
+            continue;
+          } else {
+            ofertas.push({
+              produtoNome: cleanContexto,
+              ean: null,
+              precoBruto: precoTier,
+              precoOfertado: precoTier,
+              qtdMinima: qtdMin,
+              bonificacao: null,
+              faixasPreco: [{ qtdMinima: qtdMin, preco: precoTier }],
+              linhaRaw: trimmed
+            });
+            continue;
+          }
+        }
+      }
+    }
+
     // 1. Indicadores explícitos de preço (R$, por, cada, un)
     let matchedRegex = null;
     let priceMatch = null;
@@ -418,14 +464,15 @@ function extrairLinhasDeOferta(texto) {
         .replace(/\b(789\d{10}|\d{13})\b/g, '')
         .replace(/(?:compre\s*\d+\s*(?:ganhe|leve)\s*\d+|\d+\s*\+\s*\d+|leve\s*\d+\s*pague\s*\d+|pague\s*\d+\s*leve\s*\d+)/gi, '')
         .replace(/\d{1,2}(?:[\.,]\d+)?\s*%\s*(?:de\s*desc(?:onto)?|off)/gi, '')
-        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
-        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
+        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#\u2190-\u21FF]+/gu, '')
+        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+$/gu, '')
+        .replace(/\b(?:un|unidades?|cx|cxs|caixas?|fr|frascos?)\b[.:\->→=~]*$/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
 
       // Se a linha for apenas embalagem/unidade (ex: "C30", "C/30", "C2"):
       if (isApenasEmbalagemOuQuantidade(nomeProduto)) {
-        if (ultimoContextoProduto) {
+        if (ultimoContextoProduto && !/^(?:un|unidades?|cx|caixa|fr|frasco)\.?$/i.test(nomeProduto.trim())) {
           // Herda o medicamento pai da linha anterior (ex: "LOSARTANA 50MG" + "C30" => "LOSARTANA 50MG C/ 30")
           nomeProduto = `${ultimoContextoProduto} ${nomeProduto}`;
         } else {
@@ -446,6 +493,8 @@ function extrairLinhasDeOferta(texto) {
           ean,
           precoBruto: Number(precoBruto.toFixed(2)),
           precoOfertado: Number(precoLiquido.toFixed(2)),
+          qtdMinima: 1,
+          faixasPreco: [{ qtdMinima: 1, preco: Number(precoLiquido.toFixed(2)) }],
           bonificacao,
           linhaRaw: trimmed
         });
@@ -453,8 +502,9 @@ function extrairLinhasDeOferta(texto) {
     } else {
       // Linha sem preço: pode ser o título de um medicamento pai! (Ex: "LOSARTANA 50MG" ou "FLUCONAZOL 150MG")
       const possivelTitulo = trimmed
-        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
-        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
+        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#\u2190-\u21FF]+/gu, '')
+        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+$/gu, '')
+        .replace(/\b(?:un|unidades?|cx|cxs|caixas?|fr|frascos?)\b[.:\->→=~]*$/gi, '')
         .trim();
       if (possivelTitulo.length >= 4 && !isApenasEmbalagemOuQuantidade(possivelTitulo) && !/^(total|pedido|faturamento|fechamento|condi[çc]|prazo|boleto|bom dia|boa tarde|boa noite|ol[áa]|aten[çc]|ofertas?|tabela|destaques?|vc\b|voc[eê]\b|compre\b|compra\b|leve\b|ganhe\b|pague\b|promo[çc]|repassando|aviso|importante)/i.test(possivelTitulo)) {
         ultimoContextoProduto = possivelTitulo;
@@ -532,6 +582,8 @@ REGRAS:
 3. Não inclua moedas (R$) ou indicadores (por, cada) no nome do produto ou no preço.
 4. Distribuidora/Representante/Prazos/Pedido Mínimo: Extraia se for informado no texto.
 
+    5. Escalonamento de Preço / Faixas de Quantidade: Quando um produto tiver faixas de preço por quantidade mínima (ex: "1 un -> 8,29", "6 un -> 7,69", "60 un -> 7,19" ou "a partir de 10 un: 5,00"): extraia no array "faixasPreco": [{"qtdMinima": 1, "preco": 8.29}, ...]. Em "precoOfertado", coloque o preço base (menor quantidade, ex: 1 un) e NUNCA coloque as faixas ("un. ->") no "produtoNome".
+
 RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
 {
   "distribuidora": "nome ou null",
@@ -542,7 +594,13 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
     {
       "produtoNome": "Nome limpo com concentração (mas sem preço no nome)",
       "ean": "código de barras numérico se houver ou null",
-      "precoOfertado": 16.50,
+      "precoOfertado": 8.29,
+      "qtdMinima": 1,
+      "faixasPreco": [
+        { "qtdMinima": 1, "preco": 8.29 },
+        { "qtdMinima": 6, "preco": 7.69 },
+        { "qtdMinima": 60, "preco": 7.19 }
+      ],
       "bonificacao": "descrição da bonificação ou desconto, ou null"
     }
   ]
@@ -571,12 +629,31 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
       pedidoMinimoCondicoes: '',
       categorias: [],
       catalogoProdutos: (dadosIA.ofertas || []).map(o => o.produtoNome),
-      ofertas: (dadosIA.ofertas || []).map(o => ({
-        produtoNome: o.produtoNome,
-        ean: o.ean || null,
-        precoOfertado: parseFloat(o.precoOfertado) || 0,
-        bonificacao: o.bonificacao || null
-      })).filter(o => o.precoOfertado > 0)
+      ofertas: (dadosIA.ofertas || []).map(o => {
+        const precoBase = parseFloat(o.precoOfertado) || 0;
+        let faixas = Array.isArray(o.faixasPreco) ? o.faixasPreco.map(f => ({
+          qtdMinima: parseInt(f.qtdMinima, 10) || 1,
+          preco: parseFloat(f.preco) || 0
+        })).filter(f => f.qtdMinima > 0 && f.preco > 0) : [];
+
+        if (faixas.length > 0) {
+          faixas.sort((a, b) => a.qtdMinima - b.qtdMinima);
+        } else if (precoBase > 0) {
+          const qMin = parseInt(o.qtdMinima, 10) || 1;
+          faixas = [{ qtdMinima: qMin, preco: precoBase }];
+        }
+
+        const menorFaixa = faixas.length > 0 ? faixas[0] : null;
+
+        return {
+          produtoNome: (o.produtoNome || '').replace(/[\u2190-\u21FF]/g, '').trim(),
+          ean: o.ean || null,
+          precoOfertado: menorFaixa ? menorFaixa.preco : precoBase,
+          qtdMinima: menorFaixa ? menorFaixa.qtdMinima : (parseInt(o.qtdMinima, 10) || 1),
+          faixasPreco: faixas,
+          bonificacao: o.bonificacao || null
+        };
+      }).filter(o => o.precoOfertado > 0)
     };
   } catch (err) {
     const errStr = (err.message || '').toLowerCase();
@@ -1521,6 +1598,14 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         fields.push('produto_id');
         values.push(validacao.produtoId || null);
       }
+      if (colNames.has('qtd_minima')) {
+        fields.push('qtd_minima');
+        values.push(ofr.qtdMinima || 1);
+      }
+      if (colNames.has('faixas_preco')) {
+        fields.push('faixas_preco');
+        values.push(ofr.faixasPreco ? JSON.stringify(ofr.faixasPreco) : null);
+      }
 
       const placeholders = fields.map(() => '?').join(', ');
       dbInst.prepare(`
@@ -1532,6 +1617,8 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         id: ofertaId,
         produtoNome: ofr.produtoNome,
         precoOfertado: ofr.precoOfertado,
+        qtdMinima: ofr.qtdMinima || 1,
+        faixasPreco: ofr.faixasPreco || null,
         precoUltimaCompra: validacao.precoUltCompra,
         percentualEconomia: validacao.percentualEconomia,
         vantajosa: validacao.vantajosa,
@@ -2157,6 +2244,26 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       scoreRelevancia = 0;
     }
 
+    let faixasPreco = null;
+    if (r.faixas_preco) {
+      try {
+        const parsed = JSON.parse(r.faixas_preco);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          faixasPreco = parsed.map(f => {
+            const p = parseFloat(f.preco) || 0;
+            const q = parseInt(f.qtdMinima, 10) || 1;
+            const desc = precoUltCompra && precoUltCompra > p ? ((precoUltCompra - p) / precoUltCompra) * 100 : 0;
+            return {
+              qtdMinima: q,
+              preco: p,
+              descontoPercentual: Math.round(desc * 10) / 10
+            };
+          });
+        }
+      } catch (e) {}
+    }
+    const qtdMinima = parseInt(r.qtd_minima, 10) || 1;
+
     return {
       id: r.id,
       produtoId: pIdResolvido,
@@ -2174,6 +2281,10 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       ean: r.ean,
       precoOfertado,
       preco_ofertado: precoOfertado,
+      qtdMinima,
+      qtd_minima: qtdMinima,
+      faixasPreco,
+      faixas_preco: faixasPreco,
       precoUltCompraDigifarma: precoUltCompra,
       preco_ult_compra_digifarma: precoUltCompra,
       ultimoFornecedor: ultForn,

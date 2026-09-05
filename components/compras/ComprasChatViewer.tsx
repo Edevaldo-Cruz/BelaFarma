@@ -16,7 +16,8 @@ import {
   Edit3,
   Clock,
   X,
-  DollarSign
+  DollarSign,
+  Tag
 } from 'lucide-react';
 import { OportunidadeMinerada, User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -175,27 +176,44 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
       ? Number((oportunidade as any).preco_ult_compra_digifarma) 
       : null;
 
-  const linkWhatsAppWeb = telefoneLimpo
-    ? `https://wa.me/${telefoneLimpo.startsWith('55') ? telefoneLimpo : '55' + telefoneLimpo}?text=${encodeURIComponent(`Olá! Gostaria de confirmar a oferta do item: *${produtoNome}* por R$ ${precoOfertadoNum.toFixed(2)}.`)}`
+  const faixasDisponiveis = (oportunidade.faixasPreco && Array.isArray(oportunidade.faixasPreco) && oportunidade.faixasPreco.length > 0)
+    ? oportunidade.faixasPreco
     : null;
 
-  // Função para destacar o trecho do produto dentro do texto da mensagem
+  const [faixaAtiva, setFaixaAtiva] = React.useState<{ qtdMinima: number; preco: number } | null>(
+    faixasDisponiveis ? faixasDisponiveis[0] : null
+  );
+
+  const precoExibicao = faixaAtiva ? faixaAtiva.preco : precoOfertadoNum;
+  const qtdExibicao = faixaAtiva ? faixaAtiva.qtdMinima : (oportunidade.qtdMinima || 1);
+  const descontoExibicao = (precoUltCompraNum && precoUltCompraNum > precoExibicao)
+    ? ((precoUltCompraNum - precoExibicao) / precoUltCompraNum) * 100
+    : (oportunidade.economiaPercentual || 0);
+
+  const linkWhatsAppWeb = telefoneLimpo
+    ? `https://wa.me/${telefoneLimpo.startsWith('55') ? telefoneLimpo : '55' + telefoneLimpo}?text=${encodeURIComponent(`Olá! Gostaria de confirmar a oferta do item: *${produtoNome}* (faixa ${qtdExibicao}+ un por R$ ${precoExibicao.toFixed(2)}).`)}`
+    : null;
+
+  // Função para destacar o trecho do produto e suas faixas dentro do texto da mensagem
   const renderizarTextoComDestaque = (texto: string) => {
     if (!texto) return null;
     
-    // Divide o texto por linhas
     const linhas = texto.split('\n');
+    let blocoProdutoAtivo = false;
+
     return linhas.map((linha, idx) => {
-      // Verifica se a linha contém o nome do produto ou palavras-chave
       const termos = produtoNome.toLowerCase().split(/\s+/).filter(t => t.length > 3);
       const linhaLower = linha.toLowerCase();
-      const contemProduto = termos.some(termo => linhaLower.includes(termo));
+      const contemProduto = termos.length > 0 && termos.some(termo => linhaLower.includes(termo));
+      
+      const isLinhaFaixa = /^[^0-9a-zÀ-ÿ]*(?:(?:a\s+partir\s+de|acima\s+de|m[íi]n(?:imo)?)\s*:?\s*)?(\d+).*(?:[.:\-=~>\u2190-\u21FF]+|a|por|cada|\s*(?=R?\$))\s*(?:R\$\s*)?([\d]{1,4}[,\.]\d{2})/i.test(linha);
 
       if (contemProduto) {
+        blocoProdutoAtivo = true;
         return (
           <div 
             key={idx} 
-            className="my-1.5 p-2 rounded-xl bg-amber-200/90 dark:bg-amber-950/80 border-l-4 border-amber-500 text-slate-900 dark:text-amber-100 font-bold shadow-sm transition-all"
+            className="my-1.5 p-2.5 rounded-2xl bg-amber-200/90 dark:bg-amber-950/80 border-l-4 border-amber-500 text-slate-900 dark:text-amber-100 font-bold shadow-sm transition-all"
           >
             <div className="flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400 uppercase tracking-widest font-black mb-0.5">
               <Sparkles className="w-3 h-3" />
@@ -204,6 +222,24 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
             <span>{linha}</span>
           </div>
         );
+      }
+
+      if (blocoProdutoAtivo && isLinhaFaixa) {
+        return (
+          <div 
+            key={idx} 
+            className="ml-4 my-1 p-2 rounded-xl bg-amber-100/80 dark:bg-amber-900/40 border-l-2 border-amber-400 text-slate-800 dark:text-amber-200 text-xs font-semibold shadow-xs flex items-center gap-2"
+          >
+            <span className="px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-800 text-[10px] font-black uppercase text-amber-900 dark:text-amber-100">
+              Faixa
+            </span>
+            <span>{linha}</span>
+          </div>
+        );
+      }
+
+      if (linha.trim().length > 0 && !isLinhaFaixa) {
+        blocoProdutoAtivo = false;
       }
 
       return (
@@ -321,13 +357,42 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
           </div>
         </div>
 
-        {/* Preços e Ação de Cotar */}
-        <div className="flex items-center gap-4">
+        {/* Preços, Faixas e Ação de Cotar */}
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+          {faixasDisponiveis && faixasDisponiveis.length > 1 && (
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300 dark:border-slate-700">
+              <span className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 px-1.5 flex items-center gap-1">
+                <Tag className="w-3 h-3 text-amber-500" />
+                Faixas:
+              </span>
+              {faixasDisponiveis.map((f, i) => {
+                const isSel = faixaAtiva?.qtdMinima === f.qtdMinima;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setFaixaAtiva(f)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      isSel
+                        ? 'bg-emerald-600 text-white shadow-sm scale-105'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-300/60 dark:hover:bg-slate-700'
+                    }`}
+                    title={`Preço R$ ${f.preco.toFixed(2)} para pedido mínimo de ${f.qtdMinima} unidades`}
+                  >
+                    {f.qtdMinima}+ un: <span className="font-black">R$ {f.preco.toFixed(2)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">Preço Ofertado</span>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+              {faixaAtiva ? `Preço (${qtdExibicao}+ un)` : 'Preço Ofertado'}
+            </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
-                R$ {precoOfertadoNum.toFixed(2)}
+                R$ {precoExibicao.toFixed(2)}
               </span>
               {precoUltCompraNum && (
                 <span className="text-xs text-slate-400 line-through">
@@ -337,19 +402,30 @@ export const ComprasChatViewer: React.FC<ComprasChatViewerProps> = ({
             </div>
           </div>
 
-          {(oportunidade.economiaPercentual || 0) > 0 && (
+          {descontoExibicao > 0 && (
             <div className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-xs font-black border border-emerald-300 dark:border-emerald-800">
-              -{oportunidade.economiaPercentual?.toFixed(1)}%
+              -{descontoExibicao.toFixed(1)}%
             </div>
           )}
 
           {onCriarCotacao && (
             <button
-              onClick={() => onCriarCotacao(oportunidade)}
+              onClick={() => {
+                const itemCotar = {
+                  ...oportunidade,
+                  precoOfertado: precoExibicao,
+                  precoLiquidoEfetivo: precoExibicao,
+                  qtdMinima: qtdExibicao,
+                  quantidade: qtdExibicao,
+                  economiaPercentual: descontoExibicao
+                };
+                onCriarCotacao(itemCotar);
+              }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer active:scale-95"
+              title={`Adicionar ${qtdExibicao} un de ${produtoNome} à Cotação`}
             >
               <ShoppingBag className="w-3.5 h-3.5" />
-              <span>Adicionar à Cotação</span>
+              <span>Adicionar à Cotação ({qtdExibicao} un)</span>
             </button>
           )}
         </div>

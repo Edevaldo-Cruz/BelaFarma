@@ -2042,6 +2042,8 @@ try {
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN embalagem_ult_compra TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_total_nota REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN produto_id INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN qtd_minima INTEGER DEFAULT 1'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN faixas_preco TEXT'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_com_prod_id ON compras_oportunidades_mineradas(produto_id)'); } catch(e) {}
 
     // Cache de Últimas Compras do Digifarma (Firebird -> SQLite) para consulta ultra rápida (< 5ms)

@@ -27,7 +27,8 @@ import {
   Send,
   LineChart as LineChartIcon,
   BarChart3,
-  Calendar
+  Calendar,
+  Tag
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -427,11 +428,12 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
 
   const handleCriarCotacaoComOferta = (op: OportunidadeMinerada) => {
     if (onNavigateToTab) {
+      const qtd = (op as any).quantidade || op.qtdMinima || 10;
       onNavigateToTab('cotacoes', [{
         produtoId: 0,
         descricao: (op as any).produto_nome || op.produtoNome,
         ean: op.ean || '',
-        quantidade: 10,
+        quantidade: qtd,
         precoUnitarioEstimado: (op as any).preco_ofertado || op.precoLiquidoEfetivo || op.precoOfertado
       }]);
     }
@@ -659,7 +661,9 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                   representante: it.representante,
                                   telefone: it.telefone,
                                   ean: it.ean,
-                                  dataOferta: relatorioSelecionado?.created_at
+                                  dataOferta: relatorioSelecionado?.created_at,
+                                  faixasPreco: it.faixasPreco || null,
+                                  qtdMinima: it.qtdMinima || 1
                                 };
                                 setChatOportunidadeSelecionada(opMock);
                               };
@@ -925,6 +929,17 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                           <span className="inline-block mt-0.5 px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-black">
                             🎁 {op.bonificacaoTexto}
                           </span>
+                        )}
+                        {op.faixasPreco && op.faixasPreco.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setChatOportunidadeSelecionada(op)}
+                            className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-black border border-amber-300/80 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                            title="Oferta escalonada: clique para ver e escolher as faixas de quantidade mínima"
+                          >
+                            <Tag className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                            <span>{op.faixasPreco.length} Faixas ({op.faixasPreco.map(f => `${f.qtdMinima}un`).join('/')})</span>
+                          </button>
                         )}
                       </td>
 

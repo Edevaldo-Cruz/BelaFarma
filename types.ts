@@ -971,6 +971,12 @@ export interface OportunidadeMinerada {
   estoqueAtual?: number;
   estoqueMinimo?: number;
   emRuptura?: boolean;
+  qtdMinima?: number;
+  faixasPreco?: Array<{
+    qtdMinima: number;
+    preco: number;
+    descontoPercentual?: number;
+  }> | null;
   economiaValor?: number;
   scoreRelevancia?: number;
   grupoEquivalente?: GrupoEquivalenteResumo | null;

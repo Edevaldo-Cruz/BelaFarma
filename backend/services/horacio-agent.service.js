@@ -146,6 +146,81 @@ function calcularQuantidadeSugerida(vendas30d, vmd, saldoAtual, estMinimo, isSup
   return Math.max(qtdFinal, 1);
 }
 
+/**
+ * Avalia as faixas de preço escalonadas por quantidade mínima para determinar a melhor faixa viável.
+ * 
+ * Regra:
+ * 1. Calcula necessidade de compra para reposição base.
+ * 2. Se a quantidade necessária já atinge ou supera uma faixa de volume, adota o preço menor dessa faixa.
+ * 3. Se a quantidade necessária estiver próxima de uma faixa superior com desconto maior:
+ *    - Calcula a autonomia em dias se comprar a quantidade mínima daquela faixa:
+ *      diasDuracao = (saldoAtual + faixa.qtdMinima) / consumoDiario
+ *    - Teto seguro de giro:
+ *      - Curva A ou B com super desconto (>= 20%): até 60 dias de giro.
+ *      - Reposição normal / Curva B normal: até 45 dias de giro.
+ *      - Curva C: até 30 dias de giro (evita estoque parado).
+ *    - Se diasDuracao <= tetoSeguro E o desconto for financeiramente vantajoso (>= 5% extra em relação à faixa anterior):
+ *      O Horácio recomenda a faixa superior!
+ * 4. Se uma faixa superior violar o teto seguro (ex: 60 un para um item que dura 1 ano), descarta essa faixa.
+ */
+function avaliarFaixasPrecoEscalonada(faixas, consumoDiario, saldoAtual, precoHistorico, curvaAbc = 'C', qtdBaseSugerida = 1) {
+  if (!Array.isArray(faixas) || faixas.length === 0) {
+    return null;
+  }
+
+  // Ordena faixas por quantidade mínima crescente
+  const faixasOrdenadas = faixas
+    .map(f => ({
+      qtdMinima: parseInt(f.qtdMinima, 10) || 1,
+      preco: parseFloat(f.preco) || 0
+    }))
+    .filter(f => f.qtdMinima > 0 && f.preco > 0)
+    .sort((a, b) => a.qtdMinima - b.qtdMinima);
+
+  if (faixasOrdenadas.length === 0) return null;
+
+  const isCurvaA = curvaAbc === 'A';
+  const isCurvaB = curvaAbc === 'B';
+  const tetoDiasGiro = (isCurvaA || isCurvaB) ? 60 : 30;
+
+  // Faixa padrão: a menor faixa
+  let melhorFaixa = faixasOrdenadas[0];
+  let qtdRecomendada = Math.max(qtdBaseSugerida, melhorFaixa.qtdMinima);
+  let justificativaFaixa = null;
+
+  for (const faixa of faixasOrdenadas) {
+    const duracaoEstoqueDias = consumoDiario > 0 ? Math.round((saldoAtual + faixa.qtdMinima) / consumoDiario) : 999;
+    const descFaixa = precoHistorico && precoHistorico > faixa.preco 
+      ? ((precoHistorico - faixa.preco) / precoHistorico) * 100 
+      : 0;
+
+    // Se a quantidade base já atende ou supera a quantidade mínima da faixa
+    if (qtdBaseSugerida >= faixa.qtdMinima) {
+      melhorFaixa = faixa;
+      qtdRecomendada = qtdBaseSugerida;
+      justificativaFaixa = `Atende faixa de ${faixa.qtdMinima}+ un (R$ ${faixa.preco.toFixed(2)}) com consumo planejado.`;
+      continue;
+    }
+
+    // Se estiver abaixo da quantidade mínima da faixa, avalia se compensa subir para a faixa
+    const podeAtingirFaixa = duracaoEstoqueDias <= tetoDiasGiro;
+    const descontoCompensa = descFaixa >= 10 || (melhorFaixa && faixa.preco < melhorFaixa.preco * 0.95);
+
+    if (podeAtingirFaixa && descontoCompensa) {
+      melhorFaixa = faixa;
+      qtdRecomendada = faixa.qtdMinima;
+      justificativaFaixa = `Ajustado para ${faixa.qtdMinima} un para garantir R$ ${faixa.preco.toFixed(2)} (${descFaixa.toFixed(1)}% desc). Autonomia: ~${duracaoEstoqueDias} dias.`;
+    }
+  }
+
+  return {
+    faixaEscolhida: melhorFaixa,
+    qtdSugerida: qtdRecomendada,
+    precoOfertado: melhorFaixa.preco,
+    justificativaFaixa
+  };
+}
+
 // ──────────────────────────────────────────────────────────
 // NÚCLEO OPERACIONAL DO AGENTE HORÁCIO
 // ──────────────────────────────────────────────────────────
@@ -193,8 +268,25 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
     const precoUltCompra = (dadosEstoque && (dadosEstoque.preco_unitario_ult_compra || dadosEstoque.ultima_compra_valor))
       ? parseFloat(dadosEstoque.preco_unitario_ult_compra || dadosEstoque.ultima_compra_valor)
       : (validacao.precoUltCompra || null);
-    const descontoPct = precoUltCompra && precoUltCompra > dadosOferta.precoOfertado
-      ? ((precoUltCompra - dadosOferta.precoOfertado) / precoUltCompra) * 100
+
+    // Avaliação de Faixas de Preço Escalonadas (Volume Pricing)
+    let faixas = dadosOferta.faixasPreco || dadosOferta.faixas_preco;
+    if (typeof faixas === 'string') {
+      try { faixas = JSON.parse(faixas); } catch (e) { faixas = null; }
+    }
+    let avaliacaoFaixa = null;
+    let precoEfetivo = dadosOferta.precoOfertado;
+    if (Array.isArray(faixas) && faixas.length > 0) {
+      const consumoCalc = vmd > 0 ? vmd : (vendas30d > 0 ? vendas30d / 30 : 0.5);
+      const qtdBase = calcularQuantidadeSugerida(vendas30d, vmd, saldoAtual, estMinimo, false);
+      avaliacaoFaixa = avaliarFaixasPrecoEscalonada(faixas, consumoCalc, saldoAtual, precoUltCompra, curvaAbc, qtdBase);
+      if (avaliacaoFaixa) {
+        precoEfetivo = avaliacaoFaixa.precoOfertado;
+      }
+    }
+
+    const descontoPct = precoUltCompra && precoUltCompra > precoEfetivo
+      ? ((precoUltCompra - precoEfetivo) / precoUltCompra) * 100
       : (validacao.percentualDesconto || 0);
 
     // 3. Regras de Classificação de Urgência e Oportunidade
@@ -214,7 +306,7 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
     }
 
     // Horácio só interrompe o Administrador em tempo real se for CRÍTICO
-    if (!isSuperDesconto && !isRupturaCritica) {
+    if (!isSuperDesconto && !isRupturaCritica && !avaliacaoFaixa) {
       return null; // Oportunidade normal: fica guardada para a consolidação de corte (11h / 16h)
     }
 
@@ -247,9 +339,12 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
       : `📅 Estoque atual dura até ${dataPrevisaoEsgotamento} (${diasDuracaoEstoque} dias restantes)`;
 
     // 5. Cálculo de Quantidade Sugerida e Economia
-    const qtdSugerida = calcularQuantidadeSugerida(vendas30d, vmd, saldoAtual, estMinimo, isSuperDesconto);
-    const totalSugerido = qtdSugerida * dadosOferta.precoOfertado;
-    const economiaPorUnidade = precoUltCompra && precoUltCompra > dadosOferta.precoOfertado ? (precoUltCompra - dadosOferta.precoOfertado) : 0;
+    const qtdSugerida = avaliacaoFaixa 
+      ? avaliacaoFaixa.qtdSugerida 
+      : calcularQuantidadeSugerida(vendas30d, vmd, saldoAtual, estMinimo, isSuperDesconto);
+    const precoFinalItem = avaliacaoFaixa ? avaliacaoFaixa.precoOfertado : dadosOferta.precoOfertado;
+    const totalSugerido = qtdSugerida * precoFinalItem;
+    const economiaPorUnidade = precoUltCompra && precoUltCompra > precoFinalItem ? (precoUltCompra - precoFinalItem) : 0;
     const economiaTotal = economiaPorUnidade * qtdSugerida;
 
     // 6. Impacto Orçamentário
@@ -411,7 +506,7 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         if (!ofr.produto_id && !ofr.ean && (!ofr.descontoPercentual || ofr.descontoPercentual <= 0)) continue;
         if (comprasMineracaoService?.isApenasEmbalagemOuQuantidade && comprasMineracaoService.isApenasEmbalagemOuQuantidade(ofr.produtoNome)) continue;
 
-        const precoOf = ofr.precoOfertado || 0;
+        let precoOf = ofr.precoOfertado || 0;
         if (precoOf <= 0) continue;
         let precoUlt = ofr.precoUltCompraDigifarma || 0;
 
@@ -430,6 +525,24 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         const estMin = ofr.estoqueMinimo || 0;
         const isCurvaA = ofr.curvaAbc === 'A';
         const isCurvaB = ofr.curvaAbc === 'B';
+
+        // Avaliação de Faixas de Preço Escalonadas (Volume Pricing)
+        let faixas = ofr.faixasPreco || ofr.faixas_preco;
+        if (typeof faixas === 'string') {
+          try { faixas = JSON.parse(faixas); } catch (e) { faixas = null; }
+        }
+        let avaliacaoFaixa = null;
+        const vmdItem = ofr.vmdPonderado || 0.5;
+        const consumoDiario = vmdItem > 0 ? vmdItem : 0.5;
+
+        if (Array.isArray(faixas) && faixas.length > 0) {
+          const qtdBasePrevia = calcularQuantidadeSugerida(15, vmdItem, saldo, estMin, false);
+          avaliacaoFaixa = avaliarFaixasPrecoEscalonada(faixas, consumoDiario, saldo, precoUlt, ofr.curvaAbc || 'C', qtdBasePrevia);
+          if (avaliacaoFaixa) {
+            precoOf = avaliacaoFaixa.precoOfertado;
+          }
+        }
+
         const desconto = precoUlt > 0 && precoUlt > precoOf ? ((precoUlt - precoOf) / precoUlt) * 100 : (ofr.descontoPercentual || 0);
 
         // Não sugere compra com preço abusivo (> 15% acima da última compra/CMV registrado)
@@ -439,8 +552,8 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
 
         // REGRA DE OURO ALINHADA NO GRILL-ME:
         // Se o saldo atual (incluindo equivalentes) já cobre o estoque mínimo:
-        // Horácio SÓ sugere compra se for EXTREMAMENTE VANTAJOSO (desconto >= 25% em Curva A ou B)!
-        if (saldo >= estMin && !isExtremamenteVantajoso) {
+        // Horácio SÓ sugere compra se for EXTREMAMENTE VANTAJOSO (desconto >= 25% em Curva A ou B) OU atender faixa de volume vantajosa!
+        if (saldo >= estMin && !isExtremamenteVantajoso && !avaliacaoFaixa) {
           continue;
         }
 
@@ -448,8 +561,6 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         if (desconto <= 0 && (!saldo || saldo <= 0) && estMin <= 0 && !isCurvaA) continue;
         if (ofr.justificativa?.badge === 'Sem Vantagem' && desconto <= 0) continue;
 
-        const vmdItem = ofr.vmdPonderado || 0.5;
-        const consumoDiario = vmdItem > 0 ? vmdItem : 0.5;
         const diasRestantes = consumoDiario > 0 ? Math.round(saldo / consumoDiario) : (saldo > 0 ? 999 : 0);
         let dataPrevisao = null;
         if (diasRestantes === 0) {
@@ -464,12 +575,16 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         }
         const previsaoTexto = diasRestantes === 0 ? 'Ruptura (0d)' : `${diasRestantes}d (até ${dataPrevisao})`;
 
-        const qtd = calcularQuantidadeSugerida(15, vmdItem, saldo, estMin, isExtremamenteVantajoso);
+        const qtd = avaliacaoFaixa 
+          ? avaliacaoFaixa.qtdSugerida 
+          : calcularQuantidadeSugerida(15, vmdItem, saldo, estMin, isExtremamenteVantajoso);
         const subtotal = qtd * precoOf;
         const econItem = precoUlt > precoOf ? (precoUlt - precoOf) * qtd : 0;
 
         let badgeMotivo = ofr.justificativa?.badge || (saldo <= 0 ? '🚨 Ruptura' : '📉 Desconto');
-        if (isExtremamenteVantajoso && saldo >= estMin) {
+        if (avaliacaoFaixa?.justificativaFaixa) {
+          badgeMotivo = `🎯 Mínimo Escalonado: ${avaliacaoFaixa.justificativaFaixa}`;
+        } else if (isExtremamenteVantajoso && saldo >= estMin) {
           badgeMotivo = `🔥 Compra Estratégica (${desconto.toFixed(1)}% OFF Curva ${ofr.curvaAbc || 'A'})`;
         } else if (desconto > 0 && saldo <= estMin) {
           badgeMotivo = '🚨 Ruptura + Desconto';
@@ -493,6 +608,8 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
           precoHistorico: precoUlt,
           precoOfertado: precoOf,
           qtdSugerida: qtd,
+          qtdMinima: avaliacaoFaixa ? avaliacaoFaixa.faixaEscolhida.qtdMinima : (ofr.qtdMinima || 1),
+          faixasPreco: faixas || null,
           motivo: badgeMotivo,
           diasDuracaoEstoque: diasRestantes,
           dataPrevisaoEsgotamento: dataPrevisao,
@@ -902,6 +1019,8 @@ module.exports = {
   dispararAlertaWhatsappAdmin,
   listarRelatorios,
   criarCotacaoDeRelatorio,
-  gerarRelatorioExecutivoSincronizacao
+  gerarRelatorioExecutivoSincronizacao,
+  avaliarFaixasPrecoEscalonada,
+  calcularQuantidadeSugerida
 };
 
