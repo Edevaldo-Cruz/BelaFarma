@@ -129,12 +129,19 @@ function calcularQuantidadeSugerida(vendas30d, vmd, saldoAtual, estMinimo, isSup
     return 2;
   }
 
-  // Super Desconto (>= 20% em Curva A): projeta compra para até 60 dias
-  // Reposição Normal: projeta compra para 30 dias
-  const diasProjecao = isSuperDesconto ? 60 : 30;
-  const necessidade = Math.ceil(consumoDiario * diasProjecao);
-  const defasagem = necessidade - saldoAtual;
+  // Super Desconto (Extremamente Vantajoso: >= 25% em Curva A ou B):
+  // Projeta compra limitada rigorosamente a até 60 dias de giro
+  if (isSuperDesconto) {
+    const teto60d = Math.max(1, Math.ceil(consumoDiario * 60));
+    const defasagem = (teto60d + estMinimo) - saldoAtual;
+    const loteOportunidade = Math.ceil(consumoDiario * 30);
+    const qtd = defasagem > 0 ? Math.min(defasagem, teto60d) : loteOportunidade;
+    return Math.max(1, Math.min(qtd, teto60d));
+  }
 
+  // Reposição Normal (para 30 dias de giro)
+  const necessidade = Math.ceil(consumoDiario * 30);
+  const defasagem = necessidade - saldoAtual;
   const qtdFinal = defasagem > 0 ? defasagem : Math.ceil(consumoDiario * 15);
   return Math.max(qtdFinal, 1);
 }
@@ -161,7 +168,8 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
       dadosOferta.produtoNome,
       dadosOferta.ean,
       dadosOferta.precoOfertado,
-      dbInst
+      dbInst,
+      { produtoId: dadosOferta.produtoId || dadosOferta.digifarma_produto_id }
     );
 
     if (validacao.invalido) return null;
@@ -189,11 +197,21 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
       ? ((precoUltCompra - dadosOferta.precoOfertado) / precoUltCompra) * 100
       : (validacao.percentualDesconto || 0);
 
-    // 3. Regras de Classificação de Urgência
+    // 3. Regras de Classificação de Urgência e Oportunidade
     const isCurvaA = curvaAbc === 'A';
-    const isSuperDesconto = (isCurvaA && descontoPct >= 20) || (descontoPct >= 30);
+    const isCurvaB = curvaAbc === 'B';
+    // Regra Alinhada: Extremamente vantajoso quando desconto >= 25% em Curva A ou B
+    const isExtremamenteVantajoso = (isCurvaA || isCurvaB) && descontoPct >= 25;
+    const isSuperDesconto = isExtremamenteVantajoso;
     const isRupturaCritica = validacao.emRuptura && saldoAtual <= 0;
     const isRupturaIminente = validacao.emRuptura && saldoAtual > 0;
+
+    // REGRA DE OURO ALINHADA NO GRILL-ME:
+    // Se o saldo atual (consolidado dos equivalentes) já cobre o estoque mínimo:
+    // Horácio SÓ sugere compra se for EXTREMAMENTE VANTAJOSO (desconto >= 25% em Curva A ou B)!
+    if (saldoAtual >= estMinimo && !isExtremamenteVantajoso) {
+      return null;
+    }
 
     // Horácio só interrompe o Administrador em tempo real se for CRÍTICO
     if (!isSuperDesconto && !isRupturaCritica) {
@@ -204,12 +222,29 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
       : isSuperDesconto ? 'CRÍTICO - AÇÃO IMEDIATA VIA WHATSAPP'
       : 'MÉDIO';
 
-    // 4. Verificação de Equivalentes no Estoque
+    // 4. Verificação de Equivalentes e Previsão de Duração de Estoque
     let equivalentesTexto = 'Nenhum substituto registrado.';
     let grupoEquiv = validacao.grupoEquivalente;
     if (grupoEquiv) {
       equivalentesTexto = `${dadosOferta.produtoNome}: Estoque ${saldoAtual} un | Grupo ${grupoEquiv.nomeGrupo} possui ${grupoEquiv.saldoTotal} un consolidadas em ${grupoEquiv.quantidadeProdutos} marcas.`;
     }
+
+    const consumoDiario = vmd > 0 ? vmd : (vendas30d > 0 ? (vendas30d / 30) : 0);
+    const diasDuracaoEstoque = consumoDiario > 0 ? Math.round(saldoAtual / consumoDiario) : (saldoAtual > 0 ? 999 : 0);
+    let dataPrevisaoEsgotamento = null;
+    if (diasDuracaoEstoque === 0) {
+      dataPrevisaoEsgotamento = 'Ruptura (Hoje)';
+    } else if (diasDuracaoEstoque >= 365) {
+      dataPrevisaoEsgotamento = '+1 ano';
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() + diasDuracaoEstoque);
+      const pad = (n) => String(n).padStart(2, '0');
+      dataPrevisaoEsgotamento = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    }
+    const previsaoTexto = diasDuracaoEstoque === 0 
+      ? '🚨 Estoque ESGOTADO (Ruptura Imediata)' 
+      : `📅 Estoque atual dura até ${dataPrevisaoEsgotamento} (${diasDuracaoEstoque} dias restantes)`;
 
     // 5. Cálculo de Quantidade Sugerida e Economia
     const qtdSugerida = calcularQuantidadeSugerida(vendas30d, vmd, saldoAtual, estMinimo, isSuperDesconto);
@@ -225,9 +260,13 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
 
     // 7. Montagem do Relatório Executivo Estruturado
     const tipoMed = classificarTipoMedicamento(dadosOferta.produtoNome);
-    const motivo = isSuperDesconto && isRupturaCritica ? '🚨 Ruptura + Super Promoção Curva A'
-      : isSuperDesconto ? `💰 Disruptura Curva A (${descontoPct.toFixed(1)}% abaixo)`
+    let motivo = isSuperDesconto && isRupturaCritica ? '🚨 Ruptura + Super Promoção Curva A/B'
+      : isSuperDesconto ? `🔥 Oportunidade Curva ${curvaAbc} (${descontoPct.toFixed(1)}% OFF)`
       : `🚨 Ruptura Total (Saldo 0)`;
+
+    if (saldoAtual >= estMinimo && isExtremamenteVantajoso) {
+      motivo = `🔥 Compra Estratégica Acima do Mínimo (${descontoPct.toFixed(1)}% OFF em Curva ${curvaAbc})`;
+    }
 
     const itens = [{
       produtoNome: dadosOferta.produtoNome,
@@ -236,6 +275,9 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
       precoOfertado: dadosOferta.precoOfertado,
       qtdSugerida,
       motivo,
+      diasDuracaoEstoque,
+      dataPrevisaoEsgotamento,
+      previsaoTexto,
       economiaEstimadaValor: economiaTotal,
       economiaEstimadaPct: descontoPct,
       curvaAbc
@@ -254,6 +296,9 @@ async function analisarOfertasEmTempoReal(dadosOferta, db = null) {
 
 *Produto / Apresentação | Tipo | Histórico | Ofertado | Qtd | Motivo | Economia*
 • *${dadosOferta.produtoNome}* [${tipoMed}] | Hist: R$ ${(precoUltCompra || 0).toFixed(2)} | *Hoje: R$ ${dadosOferta.precoOfertado.toFixed(2)}* | Sug: *${qtdSugerida} un* | ${motivo} | *Econ: R$ ${economiaTotal.toFixed(2)} (${descontoPct.toFixed(1)}%)*
+
+*PREVISÃO DO ESTOQUE ATUAL:*
+* ${previsaoTexto}
 
 *EQUIVALENTES VERIFICADOS NO ESTOQUE:*
 * ${equivalentesTexto}
@@ -384,22 +429,49 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         const saldo = ofr.estoqueAtual || 0;
         const estMin = ofr.estoqueMinimo || 0;
         const isCurvaA = ofr.curvaAbc === 'A';
+        const isCurvaB = ofr.curvaAbc === 'B';
         const desconto = precoUlt > 0 && precoUlt > precoOf ? ((precoUlt - precoOf) / precoUlt) * 100 : (ofr.descontoPercentual || 0);
 
         // Não sugere compra com preço abusivo (> 15% acima da última compra/CMV registrado)
         if (precoUlt > 0 && precoOf > precoUlt * 1.15) continue;
 
+        const isExtremamenteVantajoso = (isCurvaA || isCurvaB) && desconto >= 25;
+
+        // REGRA DE OURO ALINHADA NO GRILL-ME:
+        // Se o saldo atual (incluindo equivalentes) já cobre o estoque mínimo:
+        // Horácio SÓ sugere compra se for EXTREMAMENTE VANTAJOSO (desconto >= 25% em Curva A ou B)!
+        if (saldo >= estMin && !isExtremamenteVantajoso) {
+          continue;
+        }
+
         // Só inclui se for ruptura real de item com giro ou tiver desconto positivo
-        if (saldo > estMin && desconto <= 0) continue;
         if (desconto <= 0 && (!saldo || saldo <= 0) && estMin <= 0 && !isCurvaA) continue;
         if (ofr.justificativa?.badge === 'Sem Vantagem' && desconto <= 0) continue;
 
-        const qtd = calcularQuantidadeSugerida(15, 0.5, saldo, estMin, isCurvaA && desconto >= 20);
+        const vmdItem = ofr.vmdPonderado || 0.5;
+        const consumoDiario = vmdItem > 0 ? vmdItem : 0.5;
+        const diasRestantes = consumoDiario > 0 ? Math.round(saldo / consumoDiario) : (saldo > 0 ? 999 : 0);
+        let dataPrevisao = null;
+        if (diasRestantes === 0) {
+          dataPrevisao = 'Ruptura (Hoje)';
+        } else if (diasRestantes >= 365) {
+          dataPrevisao = '+1 ano';
+        } else {
+          const d = new Date();
+          d.setDate(d.getDate() + diasRestantes);
+          const pad = (n) => String(n).padStart(2, '0');
+          dataPrevisao = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+        }
+        const previsaoTexto = diasRestantes === 0 ? 'Ruptura (0d)' : `${diasRestantes}d (até ${dataPrevisao})`;
+
+        const qtd = calcularQuantidadeSugerida(15, vmdItem, saldo, estMin, isExtremamenteVantajoso);
         const subtotal = qtd * precoOf;
         const econItem = precoUlt > precoOf ? (precoUlt - precoOf) * qtd : 0;
 
         let badgeMotivo = ofr.justificativa?.badge || (saldo <= 0 ? '🚨 Ruptura' : '📉 Desconto');
-        if (desconto > 0 && saldo <= estMin) {
+        if (isExtremamenteVantajoso && saldo >= estMin) {
+          badgeMotivo = `🔥 Compra Estratégica (${desconto.toFixed(1)}% OFF Curva ${ofr.curvaAbc || 'A'})`;
+        } else if (desconto > 0 && saldo <= estMin) {
           badgeMotivo = '🚨 Ruptura + Desconto';
         } else if (desconto > 0) {
           badgeMotivo = '📉 Desconto';
@@ -422,6 +494,9 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
           precoOfertado: precoOf,
           qtdSugerida: qtd,
           motivo: badgeMotivo,
+          diasDuracaoEstoque: diasRestantes,
+          dataPrevisaoEsgotamento: dataPrevisao,
+          previsaoTexto,
           economiaEstimadaValor: econItem,
           economiaEstimadaPct: desconto,
           curvaAbc: ofr.curvaAbc || 'C'
@@ -450,7 +525,8 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         : `Teto flexível / Disponível`;
 
       let tabelaLinhas = itensSugeridos.map(i => {
-        return `• *${i.produtoNome}* [${i.tipo}] | Hist: R$ ${i.precoHistorico.toFixed(2)} | *Hoje: R$ ${i.precoOfertado.toFixed(2)}* | Sug: *${i.qtdSugerida} un* | ${i.motivo} | *Econ: R$ ${i.economiaEstimadaValor.toFixed(2)}*`;
+        const prev = i.previsaoTexto ? ` | Estq: ${i.previsaoTexto}` : '';
+        return `• *${i.produtoNome}* [${i.tipo}] | Hist: R$ ${i.precoHistorico.toFixed(2)} | *Hoje: R$ ${i.precoOfertado.toFixed(2)}* | Sug: *${i.qtdSugerida} un* | ${i.motivo}${prev} | *Econ: R$ ${i.economiaEstimadaValor.toFixed(2)}*`;
       }).join('\n');
 
       const mensagemFormatada = `

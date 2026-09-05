@@ -901,7 +901,7 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
       if (!cacheRow && ean) {
         cacheRow = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1').get(String(ean));
       }
-      if (!cacheRow && produtoNome) {
+      if (!cacheRow && !targetProdutoId && produtoNome) {
         const itemExato = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? LIMIT 1').get(produtoNome);
         if (itemExato) {
           cacheRow = itemExato;

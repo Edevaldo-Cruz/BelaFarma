@@ -937,6 +937,12 @@ export interface EstoqueMinimoProduto {
   ultimaCompraData?: string;
   sincronizadoDigifarma?: number;
   sugeridoReposicao: number;
+  saldoEquivalentes?: number;
+  grupoEquivalenteNome?: string;
+  grupoEquivalenteId?: string;
+  estMinimoConsolidado?: number;
+  diasDuracaoEstoque?: number;
+  dataPrevisaoEsgotamento?: string;
   atualizadoEm?: string;
 }
 

@@ -12,6 +12,10 @@
 
 const { queryDigifarma } = require('./digifarma.service');
 const db = require('../database');
+let equivService = null;
+try {
+  equivService = require('./compras-equivalentes.service');
+} catch (e) {}
 
 /**
  * Obtém a quantidade de meses configurada para considerar um produto ativo no Horácio (padrão: 10 meses).
@@ -1082,15 +1086,81 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset);
 
+  // Consulta metadados de grupos equivalentes para o lote atual de produtos
+  const produtoIds = rows.map(r => r.produtoId);
+  let equivalentesMap = {};
+  try {
+    if (equivService && typeof equivService.obterConsolidadoParaProdutos === 'function') {
+      equivalentesMap = equivService.obterConsolidadoParaProdutos(produtoIds, db);
+    }
+  } catch (e) {
+    console.warn('[Compras-Estoque] Falha ao consultar equivalentes em lote:', e.message);
+  }
+
   const mappedRows = rows.map(r => {
     const estMin = Number(r.estMinimoCalculado) || 0;
     const estMax = Number(r.estMaximoCalculado) || (estMin > 0 ? estMin * 2 : 0);
     const saldo = Number(r.saldo) || 0;
-    
-    // Sugestão de Reposição para 30 dias: defasagem para o estoque mínimo
+    const vmd = Number(r.vmdPonderado) || 0;
+
+    const grupoData = equivalentesMap[r.produtoId] || null;
+
+    let saldoEquivalentes = saldo;
+    let grupoEquivalenteNome = null;
+    let grupoEquivalenteId = null;
+    let estMinimoConsolidado = estMin;
+    let vmdConsolidado = vmd;
+    let diasDuracaoEstoque = 0;
+    let dataPrevisaoEsgotamento = null;
     let sugerido = 0;
-    if (saldo < estMin || saldo <= 0) {
-      sugerido = Math.max(0, estMin - saldo);
+
+    if (grupoData) {
+      saldoEquivalentes = Number(grupoData.saldoTotal) || 0;
+      grupoEquivalenteNome = grupoData.nomeGrupo;
+      grupoEquivalenteId = grupoData.grupoId;
+      estMinimoConsolidado = Number(grupoData.estMinimoTotal) || estMin;
+      vmdConsolidado = Number(grupoData.vmdTotal) || vmd;
+
+      // Previsão consolidada do grupo
+      diasDuracaoEstoque = grupoData.diasDuracaoEstoque !== undefined
+        ? grupoData.diasDuracaoEstoque
+        : (saldoEquivalentes <= 0 ? 0 : (vmdConsolidado > 0 ? Math.round(saldoEquivalentes / vmdConsolidado) : 999));
+      dataPrevisaoEsgotamento = grupoData.dataPrevisaoEsgotamento || null;
+
+      // REGRA DE OURO DOS EQUIVALENTES:
+      // A soma dos saldos do grupo não pode passar do estoque mínimo.
+      // Se o saldo consolidado do grupo já atinge ou supera o estoque mínimo do grupo,
+      // NENHUM produto equivalente gera necessidade de reposição (sugerido = 0).
+      if (saldoEquivalentes >= estMinimoConsolidado) {
+        sugerido = 0;
+      } else {
+        // Se estiver abaixo do mínimo do grupo, a defasagem total é (estMinimoConsolidado - saldoEquivalentes)
+        // A compra sugerida somada ao saldo do grupo não pode ultrapassar o estoque mínimo.
+        sugerido = Math.max(0, estMinimoConsolidado - saldoEquivalentes);
+      }
+    } else {
+      // Produto sem grupo equivalente vinculado: usa cálculo individual
+      if (saldo <= 0) {
+        diasDuracaoEstoque = 0;
+        dataPrevisaoEsgotamento = 'Ruptura (Hoje)';
+      } else if (vmd > 0) {
+        diasDuracaoEstoque = Math.round(saldo / vmd);
+        if (diasDuracaoEstoque >= 365) {
+          dataPrevisaoEsgotamento = '+1 ano';
+        } else {
+          const d = new Date();
+          d.setDate(d.getDate() + diasDuracaoEstoque);
+          const pad = (n) => String(n).padStart(2, '0');
+          dataPrevisaoEsgotamento = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+        }
+      } else {
+        diasDuracaoEstoque = 999;
+        dataPrevisaoEsgotamento = '+1 ano';
+      }
+
+      if (saldo < estMin || saldo <= 0) {
+        sugerido = Math.max(0, estMin - saldo);
+      }
     }
 
     return {
@@ -1103,7 +1173,13 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       entradas10m: Number(r.entradas10m) || 0,
       ativo10m: r.ativo10m !== undefined ? r.ativo10m : 1,
       pedidoMinimo: sugerido,
-      sugeridoReposicao: sugerido
+      sugeridoReposicao: sugerido,
+      saldoEquivalentes,
+      grupoEquivalenteNome,
+      grupoEquivalenteId,
+      estMinimoConsolidado,
+      diasDuracaoEstoque,
+      dataPrevisaoEsgotamento
     };
   });
 

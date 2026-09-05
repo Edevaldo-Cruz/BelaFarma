@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4134e2c",
-  "commitMessage": "build: atualiza bundle dist com commit f6827ac",
-  "buildTime": "05/09/2026, 16:01:52"
+  "commitHash": "a869665",
+  "commitMessage": "fix(compras): filtrar jargoes, rejeitar acrescimos abusivos e deduplicar relatorios do Horacio",
+  "buildTime": "05/09/2026, 18:09:44"
 }

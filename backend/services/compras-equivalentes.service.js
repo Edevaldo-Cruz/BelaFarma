@@ -128,10 +128,12 @@ function obterEstoqueConsolidadoGrupo(grupoId, dbInstance) {
 
   let saldoTotal = 0;
   let estMinimoTotal = 0;
+  let vmdTotal = 0;
   let comprasValidas = [];
 
   for (const p of produtos) {
     saldoTotal += Number(p.saldo || 0);
+    vmdTotal += Number(p.vmd_ponderado || 0);
     // Para produtos equivalentes intercambiáveis, o estoque mínimo do grupo reflete o giro conjunto
     estMinimoTotal = Math.max(estMinimoTotal, Number(p.est_minimo || 0));
     if (p.ultima_compra_valor && Number(p.ultima_compra_valor) > 0) {
@@ -142,6 +144,28 @@ function obterEstoqueConsolidadoGrupo(grupoId, dbInstance) {
   // Se o grupo tem um estoque mínimo explicitamente configurado, respeita
   if (grupo.est_minimo_grupo && Number(grupo.est_minimo_grupo) > 0) {
     estMinimoTotal = Number(grupo.est_minimo_grupo);
+  }
+
+  vmdTotal = Number(vmdTotal.toFixed(4));
+  let diasDuracaoEstoque = 0;
+  if (saldoTotal <= 0) {
+    diasDuracaoEstoque = 0;
+  } else if (vmdTotal > 0) {
+    diasDuracaoEstoque = Math.round(saldoTotal / vmdTotal);
+  } else {
+    diasDuracaoEstoque = 999;
+  }
+
+  let dataPrevisaoEsgotamento = null;
+  if (diasDuracaoEstoque === 0) {
+    dataPrevisaoEsgotamento = 'Ruptura (Hoje)';
+  } else if (diasDuracaoEstoque >= 365) {
+    dataPrevisaoEsgotamento = '+1 ano';
+  } else {
+    const d = new Date();
+    d.setDate(d.getDate() + diasDuracaoEstoque);
+    const pad = (n) => String(n).padStart(2, '0');
+    dataPrevisaoEsgotamento = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   }
 
   const menorUltimaCompra = comprasValidas.length > 0 ? Math.min(...comprasValidas) : 0;
@@ -160,12 +184,55 @@ function obterEstoqueConsolidadoGrupo(grupoId, dbInstance) {
     formaFarmaceutica: grupo.forma_farmaceutica,
     saldoTotal,
     estMinimoTotal,
+    vmdTotal,
+    diasDuracaoEstoque,
+    dataPrevisaoEsgotamento,
     emRuptura,
     menorUltimaCompra,
     mediaUltimaCompra,
     quantidadeProdutos: produtos.length,
     produtos
   };
+}
+
+/**
+ * Consulta o estoque consolidado em lote para uma lista de produtos.
+ * Retorna um objeto chave-valor mapeado por produtoId.
+ * @param {Array<number>} produtoIds
+ * @param {Object} dbInstance
+ * @returns {Record<number, Object>}
+ */
+function obterConsolidadoParaProdutos(produtoIds = [], dbInstance) {
+  const db = getDb(dbInstance);
+  if (!db || !Array.isArray(produtoIds) || produtoIds.length === 0) return {};
+
+  const placeholders = produtoIds.map(() => '?').join(',');
+  const vinculos = db.prepare(`
+    SELECT produto_id, grupo_id 
+    FROM compras_produtos_equivalentes 
+    WHERE produto_id IN (${placeholders})
+  `).all(...produtoIds);
+
+  if (vinculos.length === 0) return {};
+
+  const gruposCarregados = new Map();
+  const resultado = {};
+
+  for (const v of vinculos) {
+    let grupoData = gruposCarregados.get(v.grupo_id);
+    if (!grupoData) {
+      grupoData = obterEstoqueConsolidadoGrupo(v.grupo_id, db);
+      if (grupoData) {
+        gruposCarregados.set(v.grupo_id, grupoData);
+      }
+    }
+
+    if (grupoData) {
+      resultado[v.produto_id] = grupoData;
+    }
+  }
+
+  return resultado;
 }
 
 /**
@@ -485,5 +552,6 @@ module.exports = {
   salvarGrupoManual,
   vincularProdutoAoGrupo,
   desvincularProdutoDoGrupo,
-  removerGrupoEquivalente
+  removerGrupoEquivalente,
+  obterConsolidadoParaProdutos
 };
