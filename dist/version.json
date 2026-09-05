@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "6804665",
-  "commitMessage": "fix(compras): priorizar PROD_CMV do Digifarma sobre VALOR_ULT_COMPRA na sincronizacao e avaliacao de custos",
-  "buildTime": "05/09/2026, 14:00:03"
+  "commitHash": "f6827ac",
+  "commitMessage": "fix(compras): corrigir SqliteError database is locked e timeout na sincronizacao de ultimas compras",
+  "buildTime": "05/09/2026, 15:33:33"
 }
