@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "2d294c9",
-  "commitMessage": "feat: integracao de equivalentes no estoque minimo, previsao de duracao e compras de oportunidade no horacio",
-  "buildTime": "05/09/2026, 18:37:50"
+  "commitHash": "3deec5a",
+  "commitMessage": "feat: suporte a ofertas escalonadas por quantidade minima e avaliacao de giro no horacio",
+  "buildTime": "05/09/2026, 18:59:33"
 }
