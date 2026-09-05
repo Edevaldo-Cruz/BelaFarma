@@ -3087,122 +3087,140 @@ function recalcularOfertasMineradas(dbInstance) {
 
   const updateStmt = db.prepare(updateSql);
 
-  const runUpdates = db.transaction((ofertas) => {
-    for (const ofr of ofertas) {
-      const precoOfertado = parseFloat(ofr.preco_ofertado) || 0;
-      let precoUlt = null;
-      let ultForn = ofr.ultimo_fornecedor || null;
-      let dataUlt = ofr.data_ult_compra || null;
-      let nfUlt = ofr.nota_fiscal_ult_compra || null;
-      let embUlt = ofr.embalagem_ult_compra || null;
-      let precoTotal = ofr.preco_total_nota || null;
+  // Prepara as consultas uma única vez fora do loop para máxima performance
+  const stmtCacheById = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? LIMIT 1');
+  const stmtCacheByEan = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1');
+  const stmtCacheByDesc = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
+  const stmtCacheLike = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 30');
 
-      // 1. Tenta buscar no cache especializado digifarma_ultimas_compras_cache
-      let cache = null;
-      let estItem = null;
+  const stmtEstoqueById = db.prepare('SELECT * FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1');
+  const stmtEstoqueByEan = db.prepare('SELECT * FROM compras_estoque_cache WHERE ean = ? LIMIT 1');
+  const stmtEstoqueByDesc = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao = ? LIMIT 1');
+  const stmtEstoqueLike = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 20');
+
+  const updatesToApply = [];
+
+  for (const ofr of rows) {
+    const precoOfertado = parseFloat(ofr.preco_ofertado) || 0;
+    let precoUlt = null;
+    let ultForn = ofr.ultimo_fornecedor || null;
+    let dataUlt = ofr.data_ult_compra || null;
+    let nfUlt = ofr.nota_fiscal_ult_compra || null;
+    let embUlt = ofr.embalagem_ult_compra || null;
+    let precoTotal = ofr.preco_total_nota || null;
+
+    // 1. Tenta buscar no cache especializado digifarma_ultimas_compras_cache
+    let cache = null;
+    let estItem = null;
+    if (ofr.digifarma_produto_id || ofr.produto_id) {
+      cache = stmtCacheById.get(String(ofr.digifarma_produto_id || ofr.produto_id));
+    }
+    if (!cache && ofr.ean) {
+      cache = stmtCacheByEan.get(ofr.ean);
+    }
+    if (!cache && ofr.produto_nome) {
+      const itemExato = stmtCacheByDesc.get(ofr.produto_nome);
+      if (itemExato) {
+        cache = itemExato;
+      } else if (!ofr.digifarma_produto_id && !ofr.produto_id && !ofr.ean) {
+        const termos = extrairTermosBuscaProduto(ofr.produto_nome);
+        if (termos.palavras.length > 0) {
+          const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termos.palavras[0];
+          const candidates = stmtCacheLike.all('%' + termoBusca + '%');
+          let best = null, bestScore = -1;
+          for (const c of candidates) {
+            const sc = pontuarCorrespondencia(c, termos);
+            if (sc > bestScore) { bestScore = sc; best = c; }
+          }
+          if (best && bestScore > 0) cache = best;
+        }
+      }
+    }
+
+    if (cache) {
+      precoUlt = parseFloat(cache.preco_unitario_ult_compra) || null;
+      if (cache.fornecedor_nome) ultForn = cache.fornecedor_nome;
+      if (cache.data_compra) dataUlt = cache.data_compra;
+      if (cache.numero_nota_fiscal) nfUlt = cache.numero_nota_fiscal;
+      if (cache.embalagem_detalhe) embUlt = cache.embalagem_detalhe;
+      if (cache.preco_total_nota) precoTotal = parseFloat(cache.preco_total_nota);
+    } else {
+      // Fallback para compras_estoque_cache
       if (ofr.digifarma_produto_id || ofr.produto_id) {
-        cache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? LIMIT 1').get(String(ofr.digifarma_produto_id || ofr.produto_id));
+        estItem = stmtEstoqueById.get(String(ofr.digifarma_produto_id || ofr.produto_id));
       }
-      if (!cache && ofr.ean) {
-        cache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1').get(ofr.ean);
+      if (!estItem && ofr.ean) {
+        estItem = stmtEstoqueByEan.get(ofr.ean);
       }
-      if (!cache && ofr.produto_nome) {
-        const itemExato = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1').get(ofr.produto_nome);
+      if (!estItem && ofr.produto_nome) {
+        const itemExato = stmtEstoqueByDesc.get(ofr.produto_nome);
         if (itemExato) {
-          cache = itemExato;
+          estItem = itemExato;
         } else if (!ofr.digifarma_produto_id && !ofr.produto_id && !ofr.ean) {
           const termos = extrairTermosBuscaProduto(ofr.produto_nome);
           if (termos.palavras.length > 0) {
-            const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termos.palavras[0];
-            const candidates = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 30').all('%' + termoBusca + '%');
-            let best = null, bestScore = -1;
-            for (const c of candidates) {
+            const cands = stmtEstoqueLike.all('%' + termos.palavras[0] + '%');
+            let bItem = null, bScore = -1;
+            for (const c of cands) {
               const sc = pontuarCorrespondencia(c, termos);
-              if (sc > bestScore) { bestScore = sc; best = c; }
+              if (sc > bScore) { bScore = sc; bItem = c; }
             }
-            if (best && bestScore > 0) cache = best;
+            if (bItem && bScore > 0) estItem = bItem;
           }
         }
       }
+      if (estItem) {
+        precoUlt = parseFloat(estItem.ultima_compra_valor || estItem.custo_unitario) || null;
+        precoTotal = precoUlt;
+      }
+    }
 
-      if (cache) {
-        precoUlt = parseFloat(cache.preco_unitario_ult_compra) || null;
-        if (cache.fornecedor_nome) ultForn = cache.fornecedor_nome;
-        if (cache.data_compra) dataUlt = cache.data_compra;
-        if (cache.numero_nota_fiscal) nfUlt = cache.numero_nota_fiscal;
-        if (cache.embalagem_detalhe) embUlt = cache.embalagem_detalhe;
-        if (cache.preco_total_nota) precoTotal = parseFloat(cache.preco_total_nota);
+    if (precoUlt && precoUlt > 0) {
+      precoUlt = Math.round(parseFloat(precoUlt) * 100) / 100;
+      let desc = 0;
+      let novoStatus = 'Aprovado_Radar';
+      if (precoOfertado > 0 && precoOfertado < precoUlt) {
+        desc = ((precoUlt - precoOfertado) / precoUlt) * 100;
+        novoStatus = 'Aprovado_Radar';
       } else {
-        // Fallback para compras_estoque_cache
-        if (ofr.digifarma_produto_id || ofr.produto_id) {
-          estItem = db.prepare('SELECT * FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1').get(String(ofr.digifarma_produto_id || ofr.produto_id));
-        }
-        if (!estItem && ofr.ean) {
-          estItem = db.prepare('SELECT * FROM compras_estoque_cache WHERE ean = ? LIMIT 1').get(ofr.ean);
-        }
-        if (!estItem && ofr.produto_nome) {
-          const itemExato = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao = ? LIMIT 1').get(ofr.produto_nome);
-          if (itemExato) {
-            estItem = itemExato;
-          } else if (!ofr.digifarma_produto_id && !ofr.produto_id && !ofr.ean) {
-            const termos = extrairTermosBuscaProduto(ofr.produto_nome);
-            if (termos.palavras.length > 0) {
-              const cands = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 20').all('%' + termos.palavras[0] + '%');
-              let bItem = null, bScore = -1;
-              for (const c of cands) {
-                const sc = pontuarCorrespondencia(c, termos);
-                if (sc > bScore) { bScore = sc; bItem = c; }
-              }
-              if (bItem && bScore > 0) estItem = bItem;
-            }
-          }
-        }
-        if (estItem) {
-          precoUlt = parseFloat(estItem.ultima_compra_valor || estItem.custo_unitario) || null;
-          precoTotal = precoUlt;
-        }
-      }
-
-      if (precoUlt && precoUlt > 0) {
-        precoUlt = Math.round(parseFloat(precoUlt) * 100) / 100;
-        let desc = 0;
-        let novoStatus = 'Aprovado_Radar';
-        if (precoOfertado > 0 && precoOfertado < precoUlt) {
-          desc = ((precoUlt - precoOfertado) / precoUlt) * 100;
-          novoStatus = 'Aprovado_Radar';
+        if (precoOfertado >= precoUlt && precoUlt > 0) {
+          desc = -(((precoOfertado - precoUlt) / precoUlt) * 100);
         } else {
-          if (precoOfertado >= precoUlt && precoUlt > 0) {
-            desc = -(((precoOfertado - precoUlt) / precoUlt) * 100);
-          } else {
-            desc = 0;
-          }
-          novoStatus = 'Descartado_Preco_Maior';
+          desc = 0;
         }
-        desc = Math.round(desc * 100) / 100;
-
-        const updateParams = [
-          precoUlt,
-          ultForn,
-          dataUlt,
-          nfUlt,
-          desc,
-          novoStatus
-        ];
-        if (hasEmb) updateParams.push(embUlt);
-        if (hasTotal) updateParams.push(precoTotal);
-        const resolvedProdId = cache?.produto_id || estItem?.produto_id || ofr.produto_id || ofr.digifarma_produto_id || null;
-        const resolvedEan = cache?.ean || estItem?.ean || ofr.ean || null;
-        if (hasProdId) updateParams.push(resolvedProdId);
-        updateParams.push(resolvedEan);
-        updateParams.push(ofr.id);
-
-        updateStmt.run(...updateParams);
-        totalRecalculadas++;
+        novoStatus = 'Descartado_Preco_Maior';
       }
+      desc = Math.round(desc * 100) / 100;
+
+      const updateParams = [
+        precoUlt,
+        ultForn,
+        dataUlt,
+        nfUlt,
+        desc,
+        novoStatus
+      ];
+      if (hasEmb) updateParams.push(embUlt);
+      if (hasTotal) updateParams.push(precoTotal);
+      const resolvedProdId = cache?.produto_id || estItem?.produto_id || ofr.produto_id || ofr.digifarma_produto_id || null;
+      const resolvedEan = cache?.ean || estItem?.ean || ofr.ean || null;
+      if (hasProdId) updateParams.push(resolvedProdId);
+      updateParams.push(resolvedEan);
+      updateParams.push(ofr.id);
+
+      updatesToApply.push(updateParams);
+    }
+  }
+
+  // Executa os updates em lote rápido dentro de uma transação curta (apenas escritas!)
+  const runUpdatesBatch = db.transaction((updates) => {
+    for (const params of updates) {
+      updateStmt.run(...params);
+      totalRecalculadas++;
     }
   });
 
-  runUpdates(rows);
+  runUpdatesBatch(updatesToApply);
 
   return {
     success: true,
@@ -3378,7 +3396,12 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
   }
 
   // Recalcula as oportunidades mineradas com o cache atualizado (R3)
-  const recalcRes = recalcularOfertasMineradas(db);
+  let recalcRes = { totalRecalculadas: 0 };
+  try {
+    recalcRes = recalcularOfertasMineradas(db) || { totalRecalculadas: 0 };
+  } catch (err) {
+    console.warn('[Sync Últimas Compras] Aviso: Falha ao recalcular ofertas:', err.message);
+  }
 
   return {
     success: true,

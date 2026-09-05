@@ -12,6 +12,8 @@ try {
   
   // Ativa o modo WAL para melhor concorrência
   db.pragma('journal_mode = WAL');
+  // Evita 'database is locked' configurando timeout de espera para transações concorrentes
+  db.pragma('busy_timeout = 30000');
 
   // Função para criar as tabelas
   const createTables = () => {
