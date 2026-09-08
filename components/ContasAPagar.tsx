@@ -93,6 +93,16 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       }
     };
     fetchSettings();
+
+    const handleProvisionsUpdated = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setPaidProvisionsDates(e.detail);
+      } else {
+        fetchSettings();
+      }
+    };
+    window.addEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
+    return () => window.removeEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
   }, []);
 
   // Verifica o Budget para o Mês Selecionado
@@ -396,6 +406,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: JSON.stringify(newDates) })
         });
+        window.dispatchEvent(new CustomEvent('belafarma_provisions_updated', { detail: newDates }));
       } catch (e) {
         console.error(e);
       }

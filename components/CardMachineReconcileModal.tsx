@@ -74,43 +74,49 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     reserva: false,
   });
 
+  const [paidDates, setPaidDates] = useState<string[]>([]);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [includeOlderPending, setIncludeOlderPending] = useState<boolean>(false);
+
+  const fetchPaidDates = async () => {
+    try {
+      const res = await fetch('/api/settings/paid_provisions_dates');
+      if (res.ok) {
+        const d = await res.json();
+        if (d && d.value) {
+          try {
+            const parsed = JSON.parse(d.value);
+            if (Array.isArray(parsed)) {
+              setPaidDates(parsed);
+              return parsed;
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar status de provisões pagas:', err);
+    }
+    return [];
+  };
 
   useEffect(() => {
     if (isOpen) {
       fetchPendingItems(false);
-      const hoje = new Date().toISOString().slice(0, 10);
-      try {
-        const saved = localStorage.getItem(`belafarma_provisions_confirmed_${hoje}`);
-        if (saved) {
-          setConfirmedProvisions(JSON.parse(saved));
-        } else {
-          setConfirmedProvisions({ prolabore: false, impostos: false, reserva: false });
-        }
-      } catch (e) {}
+      fetchPaidDates();
     }
   }, [isOpen]);
 
-  const handleToggleProvision = (key: 'prolabore' | 'impostos' | 'reserva') => {
-    setConfirmedProvisions(prev => {
-      const updated = { ...prev, [key]: !prev[key] };
-      const hoje = new Date().toISOString().slice(0, 10);
-      localStorage.setItem(`belafarma_provisions_confirmed_${hoje}`, JSON.stringify(updated));
-      
-      const nomes = {
-        prolabore: 'Pró-Labore (12%)',
-        impostos: 'Impostos / DAS (4%)',
-        reserva: 'Reserva de Emergência (1%)'
-      };
-      if (updated[key]) {
-        addToast(`✅ Provisão de ${nomes[key]} marcada como separada na caixinha!`, 'success');
+  useEffect(() => {
+    const handleProvisionsUpdated = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setPaidDates(e.detail);
       } else {
-        addToast(`Separação de ${nomes[key]} desfeita.`, 'info');
+        fetchPaidDates();
       }
-      return updated;
-    });
-  };
+    };
+    window.addEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
+    return () => window.removeEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
+  }, []);
 
   const fetchPendingItems = async (fetchAll: boolean = false) => {
     setLoading(true);
@@ -368,6 +374,105 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       liquidoAposProvisoes: Number((gross - prolabore - impostos - reserva).toFixed(2))
     };
   }, [totalsSummary.totalGross]);
+
+  // Datas das vendas dos repasses exibidos (para vincular às provisões dos fechamentos de caixa)
+  const targetSaleDates = useMemo(() => {
+    const dates = Array.from(new Set(displayedItems.map(i => i.sale_date).filter(Boolean)));
+    if (dates.length > 0) return dates.sort();
+
+    const expected = Array.from(new Set(displayedItems.map(i => i.expected_payment_date).filter(Boolean)));
+    if (expected.length > 0) return expected.sort();
+
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return [d.toISOString().slice(0, 10)];
+  }, [displayedItems]);
+
+  // Sincroniza os botões do modal com os registros persistidos de provisão
+  useEffect(() => {
+    if (targetSaleDates.length === 0) return;
+    const isProlabore = targetSaleDates.every(d => paidDates.includes(`prolabore-${d}`));
+    const isTax = targetSaleDates.every(d => paidDates.includes(`tax-${d}`));
+    const isReserve = targetSaleDates.every(d => paidDates.includes(`reserve-${d}`));
+
+    setConfirmedProvisions({
+      prolabore: isProlabore,
+      impostos: isTax,
+      reserva: isReserve
+    });
+  }, [targetSaleDates, paidDates]);
+
+  // Alterna e salva o status de provisão diretamente no banco e notifica a guia de Caixinhas
+  const handleToggleProvision = async (key: 'prolabore' | 'impostos' | 'reserva') => {
+    const prefix = key === 'prolabore' ? 'prolabore' : key === 'impostos' ? 'tax' : 'reserve';
+    const isCurrentlyConfirmed = confirmedProvisions[key];
+
+    // Busca a lista mais recente do servidor para evitar sobrescrita
+    let currentPaid = [...paidDates];
+    try {
+      const res = await fetch('/api/settings/paid_provisions_dates');
+      if (res.ok) {
+        const d = await res.json();
+        if (d && d.value) {
+          try {
+            const parsed = JSON.parse(d.value);
+            if (Array.isArray(parsed)) currentPaid = parsed;
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+
+    let updated = [...currentPaid];
+    const keysToToggle = targetSaleDates.map(d => `${prefix}-${d}`);
+
+    if (isCurrentlyConfirmed) {
+      updated = updated.filter(k => !keysToToggle.includes(k));
+    } else {
+      keysToToggle.forEach(k => {
+        if (!updated.includes(k)) updated.push(k);
+      });
+    }
+
+    setPaidDates(updated);
+    setConfirmedProvisions(prev => ({ ...prev, [key]: !isCurrentlyConfirmed }));
+
+    try {
+      const res = await fetch('/api/settings/paid_provisions_dates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: JSON.stringify(updated) })
+      });
+      if (!res.ok) throw new Error('Falha ao salvar no servidor');
+
+      const hoje = new Date().toISOString().slice(0, 10);
+      try {
+        localStorage.setItem(`belafarma_provisions_confirmed_${hoje}`, JSON.stringify({
+          ...confirmedProvisions,
+          [key]: !isCurrentlyConfirmed
+        }));
+      } catch (e) {}
+
+      // Dispara evento global para o painel de Caixinhas de Provisão atualizar imediatamente
+      window.dispatchEvent(new CustomEvent('belafarma_provisions_updated', { detail: updated }));
+
+      const nomes = {
+        prolabore: 'Pró-Labore (12%)',
+        impostos: 'Impostos / DAS (4%)',
+        reserva: 'Reserva de Emergência (1%)'
+      };
+
+      if (!isCurrentlyConfirmed) {
+        addToast(`✅ Provisão de ${nomes[key]} separada na caixinha e sincronizada no Financeiro!`, 'success');
+      } else {
+        addToast(`Separação de ${nomes[key]} desfeita e atualizada no Financeiro.`, 'info');
+      }
+
+      if (onReconcileSuccess) onReconcileSuccess();
+    } catch (err: any) {
+      console.error('Erro ao sincronizar provisões:', err);
+      addToast('Erro ao sincronizar provisão com o servidor.', 'error');
+    }
+  };
 
   // Conciliação de um grupo de Bandeira + Modalidade (somando M1 e M2)
   const handleReconcileGroup = async (group: GroupedBrandItem) => {

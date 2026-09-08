@@ -8,7 +8,9 @@ import {
   CheckCircle2, 
   Clock, 
   Layers,
-  Info
+  Info,
+  RefreshCw,
+  Filter
 } from 'lucide-react';
 import { CashClosingRecord, FixedAccount } from '../types';
 import { useToast } from './ToastContext';
@@ -27,23 +29,38 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [paidProvisionsDates, setPaidProvisionsDates] = useState<string[]>([]);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [filterMode, setFilterMode] = useState<'provisioned' | 'all' | 'pending'>('provisioned');
 
   // Busca configurações de datas de provisões pagas
-  useEffect(() => {
-    const fetchPaidDates = async () => {
-      try {
-        const res = await fetch('/api/settings/paid_provisions_dates');
-        if (res.ok) {
-          const d = await res.json();
-          if (d && d.value) {
-            try { setPaidProvisionsDates(JSON.parse(d.value)); } catch(e) {}
-          }
+  const fetchPaidDates = async () => {
+    try {
+      const res = await fetch('/api/settings/paid_provisions_dates');
+      if (res.ok) {
+        const d = await res.json();
+        if (d && d.value) {
+          try {
+            const parsed = JSON.parse(d.value);
+            if (Array.isArray(parsed)) setPaidProvisionsDates(parsed);
+          } catch(e) {}
         }
-      } catch (err) {
-        console.error('Erro ao buscar status de provisões pagas:', err);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar status de provisões pagas:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPaidDates();
+
+    const handleProvisionsUpdated = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setPaidProvisionsDates(e.detail);
+      } else {
+        fetchPaidDates();
       }
     };
-    fetchPaidDates();
+    window.addEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
+    return () => window.removeEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
   }, []);
 
   // Data de início oficial das provisões das caixinhas (ignora fechamentos anteriores a 31/08/2026)
@@ -103,6 +120,40 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     };
   }, [monthClosings, paidProvisionsDates, prolaboreTotal, taxTotal, reserveTotal, grandTotalProvisions]);
 
+  const isClosingProvisioned = (date: string) => {
+    return (
+      paidProvisionsDates.includes(`prolabore-${date}`) ||
+      paidProvisionsDates.includes(`tax-${date}`) ||
+      paidProvisionsDates.includes(`reserve-${date}`)
+    );
+  };
+
+  const isClosingFullyProvisioned = (date: string) => {
+    return (
+      paidProvisionsDates.includes(`prolabore-${date}`) &&
+      paidProvisionsDates.includes(`tax-${date}`) &&
+      paidProvisionsDates.includes(`reserve-${date}`)
+    );
+  };
+
+  const provisionedClosingsCount = useMemo(() => {
+    return monthClosings.filter(c => isClosingProvisioned(c.date)).length;
+  }, [monthClosings, paidProvisionsDates]);
+
+  const pendingClosingsCount = useMemo(() => {
+    return monthClosings.filter(c => !isClosingFullyProvisioned(c.date)).length;
+  }, [monthClosings, paidProvisionsDates]);
+
+  const displayedClosings = useMemo(() => {
+    if (filterMode === 'provisioned') {
+      return monthClosings.filter(c => isClosingProvisioned(c.date));
+    }
+    if (filterMode === 'pending') {
+      return monthClosings.filter(c => !isClosingFullyProvisioned(c.date));
+    }
+    return monthClosings;
+  }, [monthClosings, filterMode, paidProvisionsDates]);
+
   // Alternar status de pagamento de uma provisão diária específica
   const handleToggleProvision = async (provisionKey: string) => {
     if (isUpdating) return;
@@ -127,6 +178,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       });
 
       if (!res.ok) throw new Error('Falha ao salvar status da provisão');
+
+      window.dispatchEvent(new CustomEvent('belafarma_provisions_updated', { detail: newDates }));
+
       addToast(
         isPaid ? 'Provisão marcada como pendente' : 'Provisão marcada como reservada/paga com sucesso!', 
         'success'
@@ -182,6 +236,15 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
+
+          <button
+            onClick={fetchPaidDates}
+            disabled={isUpdating}
+            className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all border border-slate-200 hover:border-emerald-200"
+            title="Atualizar dados de provisões"
+          >
+            <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </header>
 
@@ -294,24 +357,95 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
       {/* Tabela Analítica Dia a Dia */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <h2 className="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
               <CalendarIcon className="w-4 h-4 text-slate-500" /> Detalhamento Diário das Provisões
             </h2>
-            <p className="text-xs text-slate-400 font-medium">
-              Clique nos botões de status para marcar cada provisão diária como reservada/paga.
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              {filterMode === 'provisioned' 
+                ? 'Exibindo apenas os fechamentos que foram marcados como provisionados nas caixinhas (o restante foi ignorado).'
+                : filterMode === 'pending'
+                  ? 'Exibindo apenas os fechamentos que possuem provisões pendentes a reservar.'
+                  : 'Exibindo todos os fechamentos registrados do mês.'}
             </p>
           </div>
-          <span className="text-xs font-bold text-slate-500 px-3 py-1 bg-slate-50 rounded-lg border border-slate-200 self-start sm:self-auto">
-            {monthClosings.length} {monthClosings.length === 1 ? 'Dia com Fechamento' : 'Dias com Fechamentos'}
-          </span>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setFilterMode('provisioned')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-xs ${
+                filterMode === 'provisioned'
+                  ? 'bg-emerald-600 text-white shadow-emerald-600/30 ring-2 ring-emerald-600/20'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Apenas Provisionados ({provisionedClosingsCount})
+            </button>
+            <button
+              onClick={() => setFilterMode('all')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-xs ${
+                filterMode === 'all'
+                  ? 'bg-slate-900 text-white shadow-slate-900/30 ring-2 ring-slate-900/20'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Todos ({monthClosings.length})
+            </button>
+            <button
+              onClick={() => setFilterMode('pending')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-xs ${
+                filterMode === 'pending'
+                  ? 'bg-amber-600 text-white shadow-amber-600/30 ring-2 ring-amber-600/20'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Pendentes ({pendingClosingsCount})
+            </button>
+          </div>
         </div>
 
         {monthClosings.length === 0 ? (
           <div className="p-12 text-center text-slate-400">
             <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p className="font-bold text-sm">Nenhum fechamento de caixa registrado para este mês.</p>
+          </div>
+        ) : displayedClosings.length === 0 ? (
+          <div className="p-12 text-center text-slate-500 space-y-3">
+            {filterMode === 'provisioned' ? (
+              <>
+                <ShieldCheck className="w-12 h-12 mx-auto text-emerald-500 opacity-70" />
+                <div>
+                  <p className="font-black text-base text-slate-800">Nenhum fechamento marcado como provisionado neste mês</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                    Os fechamentos sem provisão marcada foram ignorados por este filtro. Quando você confirmar a separação no Modal de Pendências ou registrar em "Todos", eles aparecerão listados aqui.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className="px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm inline-flex items-center gap-2"
+                >
+                  <Layers className="w-3.5 h-3.5" /> Ver todos os {monthClosings.length} fechamentos
+                </button>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500 opacity-70" />
+                <div>
+                  <p className="font-black text-base text-slate-800">Todas as provisões deste mês já foram separadas!</p>
+                  <p className="text-xs text-slate-400 mt-1">Não há fechamentos pendentes de provisão para o período selecionado.</p>
+                </div>
+                <button
+                  onClick={() => setFilterMode('provisioned')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm inline-flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Ver fechamentos provisionados
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -323,11 +457,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                   <th className="px-6 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center">Pró-labore (12%)</th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center">Impostos (4%)</th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center">Reserva (1%)</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Total Dia (17%)</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Total Provisionado (Dia)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {monthClosings.map(c => {
+                {displayedClosings.map(c => {
                   const sales = Number(c.totalSales) || 0;
                   const valProlabore = sales * 0.12;
                   const valTax = sales * 0.04;
@@ -338,13 +472,38 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                   const isTaxPaid = paidProvisionsDates.includes(`tax-${c.date}`);
                   const isReservePaid = paidProvisionsDates.includes(`reserve-${c.date}`);
 
+                  const valDayProvisioned = 
+                    (isProlaborePaid ? valProlabore : 0) +
+                    (isTaxPaid ? valTax : 0) +
+                    (isReservePaid ? valReserve : 0);
+
                   const dateFormatted = c.date.split('-').reverse().join('/');
+                  const isFullyPaid = isProlaborePaid && isTaxPaid && isReservePaid;
+                  const isAnyPaid = isProlaborePaid || isTaxPaid || isReservePaid;
 
                   return (
-                    <tr key={c.id || c.date} className="hover:bg-slate-50/60 transition-colors">
+                    <tr 
+                      key={c.id || c.date} 
+                      className={`transition-colors ${
+                        isFullyPaid 
+                          ? 'bg-emerald-50/25 hover:bg-emerald-50/50' 
+                          : isAnyPaid 
+                            ? 'bg-slate-50/70 hover:bg-slate-100/70' 
+                            : 'hover:bg-slate-50/60'
+                      }`}
+                    >
                       {/* Data */}
                       <td className="px-6 py-4 font-bold text-slate-900 text-sm whitespace-nowrap">
-                        {dateFormatted}
+                        <div className="flex items-center gap-2">
+                          {isFullyPaid ? (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs" title="100% Provisionado" />
+                          ) : isAnyPaid ? (
+                            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Parcialmente Provisionado" />
+                          ) : (
+                            <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" title="Pendente" />
+                          )}
+                          <span>{dateFormatted}</span>
+                        </div>
                       </td>
 
                       {/* Faturamento */}
@@ -362,11 +521,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                               ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
                               : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                           }`}
-                          title="Clique para alternar entre Pago e Pendente"
+                          title="Clique para alternar entre Separado e Pendente"
                         >
                           {isProlaborePaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-emerald-600" />}
                           <span>{formatBRL(valProlabore)}</span>
-                          <span className="text-[10px] opacity-75 font-medium">({isProlaborePaid ? 'Pago' : 'Pendente'})</span>
+                          <span className="text-[10px] opacity-75 font-medium">({isProlaborePaid ? 'Separado' : 'Pendente'})</span>
                         </button>
                       </td>
 
@@ -380,11 +539,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                               ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
                               : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
                           }`}
-                          title="Clique para alternar entre Pago e Pendente"
+                          title="Clique para alternar entre Separado e Pendente"
                         >
                           {isTaxPaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-blue-600" />}
                           <span>{formatBRL(valTax)}</span>
-                          <span className="text-[10px] opacity-75 font-medium">({isTaxPaid ? 'Pago' : 'Pendente'})</span>
+                          <span className="text-[10px] opacity-75 font-medium">({isTaxPaid ? 'Separado' : 'Pendente'})</span>
                         </button>
                       </td>
 
@@ -398,17 +557,26 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                               ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
                               : 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
                           }`}
-                          title="Clique para alternar entre Pago e Pendente"
+                          title="Clique para alternar entre Separado e Pendente"
                         >
                           {isReservePaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-purple-600" />}
                           <span>{formatBRL(valReserve)}</span>
-                          <span className="text-[10px] opacity-75 font-medium">({isReservePaid ? 'Pago' : 'Pendente'})</span>
+                          <span className="text-[10px] opacity-75 font-medium">({isReservePaid ? 'Separado' : 'Pendente'})</span>
                         </button>
                       </td>
 
                       {/* Total Dia */}
-                      <td className="px-6 py-4 text-right font-black text-slate-900 text-sm whitespace-nowrap">
-                        {formatBRL(valDayTotal)}
+                      <td className="px-6 py-4 text-right whitespace-nowrap">
+                        <span className={`font-black text-sm block ${valDayProvisioned > 0 ? 'text-emerald-700' : 'text-slate-700'}`}>
+                          {formatBRL(valDayProvisioned > 0 ? valDayProvisioned : valDayTotal)}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium block">
+                          {valDayProvisioned === valDayTotal 
+                            ? '100% provisionado' 
+                            : valDayProvisioned > 0 
+                              ? `de ${formatBRL(valDayTotal)} calculado` 
+                              : 'a provisionar'}
+                        </span>
                       </td>
                     </tr>
                   );
