@@ -17,6 +17,7 @@ import {
 import { Boleto, BoletoStatus, Order, MonthlyLimit, User, FixedAccountPayment, CashClosingRecord } from '../types';
 import { BoletoForm } from './BoletoForm';
 import { useToast } from './ToastContext';
+import { getLocalDateKey } from '../utils';
 
 interface ContasAPagarProps {
   user: User;
@@ -214,9 +215,11 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       cashClosings.forEach(c => {
         if (!c.date || !c.totalSales || c.totalSales <= 0) return;
         
-        const closingDate = new Date(c.date + 'T00:00:00');
-        const minDate = new Date('2026-08-31T00:00:00');
-        if (closingDate < minDate) return;
+        const dateKey = getLocalDateKey(c.date);
+        if (dateKey < '2026-08-31') return;
+
+        const [y, m, d] = dateKey.split('-').map(Number);
+        const closingDate = new Date(y, m - 1, d);
 
         const dueD = new Date(closingDate);
         dueD.setDate(dueD.getDate() + 1);
@@ -226,16 +229,16 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
         const dueDateStr = `${yDue}-${String(mDue + 1).padStart(2, '0')}-${dDue}`;
 
         if (yDue === selectedYear && mDue === selectedMonth) {
-          const dateBr = c.date.split('-').reverse().join('/');
+          const dateBr = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
           const salesVal = Number(c.totalSales) || 0;
           
           const valProlabore = salesVal * 0.12;
           const valTax = salesVal * 0.04;
           const valReserve = salesVal * 0.01;
 
-          const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${c.date}`);
-          const isTaxPaid = paidProvisionsDates.includes(`tax-${c.date}`);
-          const isReservePaid = paidProvisionsDates.includes(`reserve-${c.date}`);
+          const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
+          const isTaxPaid = paidProvisionsDates.includes(`tax-${dateKey}`) || paidProvisionsDates.includes(`tax-${c.date}`);
+          const isReservePaid = paidProvisionsDates.includes(`reserve-${dateKey}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
 
           const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 

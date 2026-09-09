@@ -17,6 +17,30 @@ export const formatDateInBrazil = (dateString: string): string => {
   }
 };
 
+/**
+ * Converte com segurança uma data de fechamento ou timestamp ISO para a chave local 'YYYY-MM-DD',
+ * respeitando o fuso horário local (evita que fechamentos noturnos após as 21h em Brasília rolem para o dia seguinte em UTC).
+ */
+export const getLocalDateKey = (rawDate: string): string => {
+  if (!rawDate) return '';
+  if (rawDate.length === 10 && !rawDate.includes('T')) return rawDate;
+  const d = new Date(rawDate);
+  if (isNaN(d.getTime())) return rawDate.split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+export const formatLocalDatePtBR = (rawDate: string): string => {
+  if (!rawDate) return '';
+  const key = getLocalDateKey(rawDate);
+  const parts = key.split('-');
+  if (parts.length !== 3) return rawDate;
+  const [y, m, d] = parts;
+  return `${d}/${m}/${y}`;
+};
+
 export const getDayFromDate = (dateString: string): number => {
     if (!dateString) return 0;
     if (dateString.includes('T')) {

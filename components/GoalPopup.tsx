@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Target, TrendingUp, AlertTriangle, Trophy, X, DollarSign } from 'lucide-react';
 import { CashClosingRecord, MonthlyLimit } from '../types';
+import { getLocalDateKey } from '../utils';
 
 interface GoalPopupProps {
   cashClosings: CashClosingRecord[];
@@ -92,7 +93,7 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   // Filtra fechamentos do mês atual
   const monthClosings = cashClosings.filter(c => {
     if (!c.date) return false;
-    const datePart = c.date.split('T')[0];
+    const datePart = getLocalDateKey(c.date);
     const [yearStr, monthStr] = datePart.split('-');
     return parseInt(yearStr) === currentYear && (parseInt(monthStr) - 1) === currentMonth;
   });
@@ -103,11 +104,8 @@ export const GoalPopup: React.FC<GoalPopupProps> = ({ cashClosings, onClose }) =
   // Vendas de ontem
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yyyy = yesterday.getFullYear();
-  const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
-  const dd = String(yesterday.getDate()).padStart(2, '0');
-  const yesterdayStr = `${yyyy}-${mm}-${dd}`;
-  const yesterdayClosing = cashClosings.find(c => c.date && c.date.split('T')[0] === yesterdayStr);
+  const yesterdayStr = getLocalDateKey(yesterday.toISOString());
+  const yesterdayClosing = cashClosings.find(c => c.date && getLocalDateKey(c.date) === yesterdayStr);
   const yesterdaySales = yesterdayClosing ? (yesterdayClosing.totalSales || 0) : 0;
   
   const hitGoalYesterday = yesterdaySales >= dailyGoal;

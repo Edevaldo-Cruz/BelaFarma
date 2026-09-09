@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CardMachineReceivable, CardBrand, CashClosingRecord } from '../types';
 import { useToast } from './ToastContext';
+import { getLocalDateKey } from '../utils';
 
 interface CardMachineReconcileModalProps {
   isOpen: boolean;
@@ -169,13 +170,13 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
-    const [y, m, d] = dateStr.split('T')[0].split('-');
+    const [y, m, d] = getLocalDateKey(dateStr).split('-');
     return `${d}/${m}/${y}`;
   };
 
   const formatDateShort = (dateStr: string) => {
     if (!dateStr) return '';
-    const clean = dateStr.split('T')[0];
+    const clean = getLocalDateKey(dateStr);
     const parts = clean.split('-');
     if (parts.length !== 3) return dateStr;
     const [, m, d] = parts;
@@ -184,7 +185,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
 
   const getShortWeekday = (dateStr: string) => {
     if (!dateStr) return '';
-    const clean = dateStr.split('T')[0];
+    const clean = getLocalDateKey(dateStr);
     const parts = clean.split('-');
     if (parts.length !== 3) return '';
     const [y, m, d] = parts;
@@ -195,7 +196,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
 
   const formatFriendlyDate = (dateStr: string) => {
     if (!dateStr) return '';
-    const clean = dateStr.split('T')[0];
+    const clean = getLocalDateKey(dateStr);
     const parts = clean.split('-');
     if (parts.length !== 3) return dateStr;
     const [y, m, d] = parts;
@@ -208,7 +209,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   // Retorna true se já passou do 2º dia útil após a data de referência (ex: fechamento ou venda)
   const isDatePastSecondDay = (dateStr: string): boolean => {
     if (!dateStr) return true;
-    const cleanDate = dateStr.split('T')[0];
+    const cleanDate = getLocalDateKey(dateStr);
     const parts = cleanDate.split('-');
     if (parts.length !== 3) return true;
     const [y, m, d] = parts.map(Number);
@@ -432,13 +433,13 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     // 1. Tenta buscar fechamentos que coincidam com as datas de venda dos repasses (ex: ontem ou fim de semana)
     const matched = internalClosings.filter(c => {
       if (!c.date) return false;
-      const dateOnly = c.date.split('T')[0];
+      const dateOnly = getLocalDateKey(c.date);
       return targetSaleDates.includes(dateOnly);
     });
 
     if (matched.length > 0) {
       const total = matched.reduce((sum, c) => sum + (Number(c.totalSales) || 0), 0);
-      const matchedDateKeys = Array.from(new Set(matched.map(c => c.date.split('T')[0]))).sort();
+      const matchedDateKeys = Array.from(new Set(matched.map(c => getLocalDateKey(c.date)))).sort();
       const formatted = matchedDateKeys.map(d => formatDate(d)).join(', ');
       return {
         referenceClosingSales: Number(total.toFixed(2)),
@@ -450,8 +451,8 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     // 2. Fallback: Fechamento do dia anterior (ontem)
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().slice(0, 10);
-    const yesterdayClosing = internalClosings.find(c => c.date && c.date.split('T')[0] === yesterdayStr);
+    const yesterdayStr = getLocalDateKey(yesterday.toISOString());
+    const yesterdayClosing = internalClosings.find(c => c.date && getLocalDateKey(c.date) === yesterdayStr);
     if (yesterdayClosing) {
       return {
         referenceClosingSales: Number((Number(yesterdayClosing.totalSales) || 0).toFixed(2)),
@@ -463,7 +464,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     // 3. Fallback: Fechamento mais recente cadastrado
     const sorted = [...internalClosings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     if (sorted.length > 0 && sorted[0].date) {
-      const latestDateStr = sorted[0].date.split('T')[0];
+      const latestDateStr = getLocalDateKey(sorted[0].date);
       return {
         referenceClosingSales: Number((Number(sorted[0].totalSales) || 0).toFixed(2)),
         referenceClosingDatesFormatted: formatDate(latestDateStr),

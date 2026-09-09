@@ -16,6 +16,8 @@ import {
 import { CashClosingRecord, FixedAccount } from '../types';
 import { useToast } from './ToastContext';
 
+import { getLocalDateKey } from '../utils';
+
 interface ProvisionsPanelProps {
   cashClosings: CashClosingRecord[];
   fixedAccounts?: FixedAccount[];
@@ -25,14 +27,13 @@ const formatBRL = (val: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
 const getDateKey = (rawDate: string): string => {
-  if (!rawDate) return '';
-  return rawDate.split('T')[0];
+  return getLocalDateKey(rawDate);
 };
 
 // Retorna true se já passou do 2º dia útil após a data de fechamento
 const isDatePastSecondDay = (rawDate: string): boolean => {
   if (!rawDate) return true;
-  const cleanDate = rawDate.split('T')[0];
+  const cleanDate = getLocalDateKey(rawDate);
   const parts = cleanDate.split('-');
   if (parts.length !== 3) return true;
   const [y, m, d] = parts.map(Number);
@@ -61,12 +62,12 @@ const isDatePastSecondDay = (rawDate: string): boolean => {
 
 const formatClosingDate = (rawDate: string): { dateFormatted: string; weekday: string } => {
   if (!rawDate) return { dateFormatted: '--/--/----', weekday: '' };
-  const dateOnly = rawDate.split('T')[0];
+  const dateOnly = getLocalDateKey(rawDate);
   const parts = dateOnly.split('-');
   if (parts.length !== 3) return { dateFormatted: rawDate, weekday: '' };
-  const [y, m, d] = parts;
-  const dateFormatted = `${d}/${m}/${y}`;
-  const dt = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+  const [y, m, d] = parts.map(Number);
+  const dateFormatted = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+  const dt = new Date(y, m - 1, d);
   const weekdays = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
   const weekday = weekdays[dt.getDay()] || '';
   return { dateFormatted, weekday };
@@ -336,6 +337,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               {monthClosings.length} {monthClosings.length === 1 ? 'fechamento registrado' : 'fechamentos registrados'}
             </p>
+            {selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear() && (
+              <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-tight">
+                * Calculado sobre fechamentos concluídos (as vendas do dia atual entram ao fechar o caixa).
+              </p>
+            )}
           </div>
         </div>
 

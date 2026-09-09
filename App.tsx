@@ -81,7 +81,7 @@ import {
   Delivery,
 } from "./types";
 import { Loader2 } from "lucide-react";
-import { trackViewUsage, calculateWeeklyBudgetsCascade } from "./utils";
+import { trackViewUsage, calculateWeeklyBudgetsCascade, getLocalDateKey } from "./utils";
 
 const LOGOUT_TIME = 15 * 60 * 1000;
 
@@ -352,7 +352,7 @@ const App: React.FC = () => {
               const datesToMatch = pendingSaleDates.length > 0 ? pendingSaleDates : targetDates;
 
               let refSales = closings
-                .filter((c: any) => c.date && datesToMatch.includes(c.date.split('T')[0]))
+                .filter((c: any) => c.date && datesToMatch.includes(getLocalDateKey(c.date)))
                 .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
 
               if (refSales === 0 && closings.length > 0) {
@@ -362,7 +362,7 @@ const App: React.FC = () => {
 
               const isDatePastSecondDay = (dateStr: string): boolean => {
                 if (!dateStr) return true;
-                const clean = dateStr.split('T')[0];
+                const clean = getLocalDateKey(dateStr);
                 const parts = clean.split('-');
                 if (parts.length !== 3) return true;
                 const [y, m, d] = parts.map(Number);
