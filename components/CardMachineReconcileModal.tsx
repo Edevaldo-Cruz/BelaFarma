@@ -18,7 +18,7 @@ import {
   Check,
   Percent
 } from 'lucide-react';
-import { CardMachineReceivable, CardBrand } from '../types';
+import { CardMachineReceivable, CardBrand, CashClosingRecord } from '../types';
 import { useToast } from './ToastContext';
 
 interface CardMachineReconcileModalProps {
@@ -27,6 +27,7 @@ interface CardMachineReconcileModalProps {
   onNavigateToFullView?: () => void;
   userName?: string;
   onReconcileSuccess?: () => void;
+  cashClosings?: CashClosingRecord[];
 }
 
 interface GroupedBrandItem {
@@ -47,9 +48,24 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   onClose,
   onNavigateToFullView,
   userName = 'Edevaldo',
-  onReconcileSuccess
+  onReconcileSuccess,
+  cashClosings
 }) => {
   const { addToast } = useToast();
+  const [internalClosings, setInternalClosings] = useState<CashClosingRecord[]>(cashClosings || []);
+
+  useEffect(() => {
+    if (cashClosings && cashClosings.length > 0) {
+      setInternalClosings(cashClosings);
+    } else if (isOpen) {
+      fetch('/api/cash-closings')
+        .then(res => res.ok ? res.json() : [])
+        .then(data => {
+          if (Array.isArray(data) && data.length > 0) setInternalClosings(data);
+        })
+        .catch(err => console.error('Erro ao buscar fechamentos de caixa:', err));
+    }
+  }, [cashClosings, isOpen]);
   const [pendingItems, setPendingItems] = useState<CardMachineReceivable[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -360,21 +376,6 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     };
   }, [displayedItems]);
 
-  // Provisões calculadas sobre o total bruto dos recebíveis exibidos
-  const provisions = useMemo(() => {
-    const gross = totalsSummary.totalGross;
-    const prolabore = gross * 0.12;
-    const impostos = gross * 0.04;
-    const reserva = gross * 0.01;
-    return {
-      prolabore: Number(prolabore.toFixed(2)),
-      impostos: Number(impostos.toFixed(2)),
-      reserva: Number(reserva.toFixed(2)),
-      total: Number((prolabore + impostos + reserva).toFixed(2)),
-      liquidoAposProvisoes: Number((gross - prolabore - impostos - reserva).toFixed(2))
-    };
-  }, [totalsSummary.totalGross]);
-
   // Datas das vendas dos repasses exibidos (para vincular às provisões dos fechamentos de caixa)
   const targetSaleDates = useMemo(() => {
     const dates = Array.from(new Set(displayedItems.map(i => i.sale_date).filter(Boolean)));
@@ -388,19 +389,97 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     return [d.toISOString().slice(0, 10)];
   }, [displayedItems]);
 
+  // Identifica os fechamentos de caixa correspondentes aos repasses ou do dia anterior
+  const { referenceClosingSales, referenceClosingDatesFormatted, effectiveProvisionDates } = useMemo(() => {
+    if (!internalClosings || internalClosings.length === 0) {
+      return {
+        referenceClosingSales: 0,
+        referenceClosingDatesFormatted: '',
+        effectiveProvisionDates: targetSaleDates
+      };
+    }
+
+    // 1. Tenta buscar fechamentos que coincidam com as datas de venda dos repasses (ex: ontem ou fim de semana)
+    const matched = internalClosings.filter(c => {
+      if (!c.date) return false;
+      const dateOnly = c.date.split('T')[0];
+      return targetSaleDates.includes(dateOnly);
+    });
+
+    if (matched.length > 0) {
+      const total = matched.reduce((sum, c) => sum + (Number(c.totalSales) || 0), 0);
+      const matchedDateKeys = Array.from(new Set(matched.map(c => c.date.split('T')[0]))).sort();
+      const formatted = matchedDateKeys.map(d => formatDate(d)).join(', ');
+      return {
+        referenceClosingSales: Number(total.toFixed(2)),
+        referenceClosingDatesFormatted: formatted,
+        effectiveProvisionDates: matchedDateKeys
+      };
+    }
+
+    // 2. Fallback: Fechamento do dia anterior (ontem)
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    const yesterdayClosing = internalClosings.find(c => c.date && c.date.split('T')[0] === yesterdayStr);
+    if (yesterdayClosing) {
+      return {
+        referenceClosingSales: Number((Number(yesterdayClosing.totalSales) || 0).toFixed(2)),
+        referenceClosingDatesFormatted: formatDate(yesterdayStr),
+        effectiveProvisionDates: [yesterdayStr]
+      };
+    }
+
+    // 3. Fallback: Fechamento mais recente cadastrado
+    const sorted = [...internalClosings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (sorted.length > 0 && sorted[0].date) {
+      const latestDateStr = sorted[0].date.split('T')[0];
+      return {
+        referenceClosingSales: Number((Number(sorted[0].totalSales) || 0).toFixed(2)),
+        referenceClosingDatesFormatted: formatDate(latestDateStr),
+        effectiveProvisionDates: [latestDateStr]
+      };
+    }
+
+    return {
+      referenceClosingSales: 0,
+      referenceClosingDatesFormatted: '',
+      effectiveProvisionDates: targetSaleDates
+    };
+  }, [internalClosings, targetSaleDates]);
+
+  // Base de cálculo das provisões: Faturamento do Fechamento do dia anterior (ou repasses caso não haja fechamento)
+  const provisionBaseValue = referenceClosingSales > 0 ? referenceClosingSales : totalsSummary.totalGross;
+
+  // Provisões calculadas sobre o fechamento do dia anterior (Regra BelaFarma: 12% Pró-labore, 4% DAS, 1% Reserva)
+  const provisions = useMemo(() => {
+    const base = provisionBaseValue;
+    const prolabore = base * 0.12;
+    const impostos = base * 0.04;
+    const reserva = base * 0.01;
+    return {
+      base,
+      prolabore: Number(prolabore.toFixed(2)),
+      impostos: Number(impostos.toFixed(2)),
+      reserva: Number(reserva.toFixed(2)),
+      total: Number((prolabore + impostos + reserva).toFixed(2)),
+      liquidoAposProvisoes: Number((totalsSummary.totalGross - prolabore - impostos - reserva).toFixed(2))
+    };
+  }, [provisionBaseValue, totalsSummary.totalGross]);
+
   // Sincroniza os botões do modal com os registros persistidos de provisão
   useEffect(() => {
-    if (targetSaleDates.length === 0) return;
-    const isProlabore = targetSaleDates.every(d => paidDates.includes(`prolabore-${d}`));
-    const isTax = targetSaleDates.every(d => paidDates.includes(`tax-${d}`));
-    const isReserve = targetSaleDates.every(d => paidDates.includes(`reserve-${d}`));
+    if (effectiveProvisionDates.length === 0) return;
+    const isProlabore = effectiveProvisionDates.every(d => paidDates.includes(`prolabore-${d}`));
+    const isTax = effectiveProvisionDates.every(d => paidDates.includes(`tax-${d}`));
+    const isReserve = effectiveProvisionDates.every(d => paidDates.includes(`reserve-${d}`));
 
     setConfirmedProvisions({
       prolabore: isProlabore,
       impostos: isTax,
       reserva: isReserve
     });
-  }, [targetSaleDates, paidDates]);
+  }, [effectiveProvisionDates, paidDates]);
 
   // Alterna e salva o status de provisão diretamente no banco e notifica a guia de Caixinhas
   const handleToggleProvision = async (key: 'prolabore' | 'impostos' | 'reserva') => {
@@ -423,7 +502,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     } catch (e) {}
 
     let updated = [...currentPaid];
-    const keysToToggle = targetSaleDates.map(d => `${prefix}-${d}`);
+    const keysToToggle = effectiveProvisionDates.map(d => `${prefix}-${d}`);
 
     if (isCurrentlyConfirmed) {
       updated = updated.filter(k => !keysToToggle.includes(k));
@@ -662,7 +741,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                   {/* Cabeçalho do Banner com Total em Grande Destaque */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
                     <div className="flex items-center space-x-3">
-                      <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                      <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
                         <Percent className="w-6 h-6" />
                       </div>
                       <div>
@@ -675,19 +754,40 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Ao cair o repasse no banco {expectedDatesSummaryText ? `(previsto: ${expectedDatesSummaryText})` : ''}, separe imediatamente os valores nas caixinhas para manter reservas e tributos em dia.
+                          Calculadas sobre o faturamento do <strong>fechamento anterior {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>. Ao cair o repasse na conta {expectedDatesSummaryText ? `(${expectedDatesSummaryText})` : ''}, separe nas caixinhas.
                         </p>
                       </div>
                     </div>
 
-                    {/* Card de Destaque Máximo do Total Bruto */}
-                    <div className="bg-emerald-950/70 border-2 border-emerald-500/50 rounded-2xl px-5 py-3.5 flex sm:flex-col justify-between items-end min-w-[220px] shadow-lg shadow-emerald-950/50">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
-                        Total Bruto dos Repasses
-                      </span>
-                      <span className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight mt-0.5">
-                        {formatCurrency(totalsSummary.totalGross)}
-                      </span>
+                    {/* Cards de Destaque: Base do Fechamento + Repasses de Cartão */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
+                      {/* Card Base de Fechamento */}
+                      <div className="bg-indigo-950/70 border-2 border-indigo-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[210px] shadow-lg shadow-indigo-950/50">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
+                          {referenceClosingDatesFormatted 
+                            ? `Fechamento (${referenceClosingDatesFormatted})` 
+                            : 'Fechamento de Caixa'}
+                        </span>
+                        <span className="text-2xl sm:text-3xl font-black text-indigo-200 tracking-tight mt-0.5">
+                          {formatCurrency(provisionBaseValue)}
+                        </span>
+                        <span className="text-[10px] text-indigo-400 font-medium">
+                          Base das Provisões
+                        </span>
+                      </div>
+
+                      {/* Card Repasses a Conferir */}
+                      <div className="bg-emerald-950/70 border-2 border-emerald-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[190px] shadow-lg shadow-emerald-950/50">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                          Repasses a Conferir
+                        </span>
+                        <span className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight mt-0.5">
+                          {formatCurrency(totalsSummary.totalGross)}
+                        </span>
+                        <span className="text-[10px] text-emerald-400/80 font-medium">
+                          Valor Bruto em Cartão
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -711,7 +811,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                         {formatCurrency(provisions.prolabore)}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Caixinha Pró-Labore
+                        12% do fechamento ({formatCurrency(provisionBaseValue)})
                       </p>
                       <div className="pt-3 mt-2 border-t border-slate-700/60">
                         <button
@@ -755,7 +855,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                         {formatCurrency(provisions.impostos)}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Caixinha Tributos
+                        4% do fechamento ({formatCurrency(provisionBaseValue)})
                       </p>
                       <div className="pt-3 mt-2 border-t border-slate-700/60">
                         <button
@@ -799,7 +899,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                         {formatCurrency(provisions.reserva)}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Caixinha Reserva
+                        1% do fechamento ({formatCurrency(provisionBaseValue)})
                       </p>
                       <div className="pt-3 mt-2 border-t border-slate-700/60">
                         <button
@@ -824,6 +924,16 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Resumo Total das Provisões Obrigatórias */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-xs">
+                    <span className="text-slate-300 font-medium">
+                      Total Obrigatório a Separar Hoje (17% do faturamento de {formatCurrency(provisionBaseValue)}):
+                    </span>
+                    <span className="font-black text-emerald-300 text-base">
+                      {formatCurrency(provisions.total)}
+                    </span>
                   </div>
                 </div>
               )}

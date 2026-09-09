@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9f4cf53",
-  "commitMessage": "feat: sincronizar provisoes do modal de maquininha com painel de caixinhas e filtro de apenas provisionados",
-  "buildTime": "09/09/2026, 12:30:33"
+  "commitHash": "32de6b1",
+  "commitMessage": "fix: formatacao legivel de data com dia da semana na tabela de provisoes",
+  "buildTime": "09/09/2026, 12:40:59"
 }

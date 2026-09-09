@@ -347,9 +347,18 @@ const App: React.FC = () => {
                 targetDates = [formatIsoDate(dPrev)];
               }
 
-              const refSales = closings
-                .filter((c: any) => targetDates.includes(c.date))
+              // Considera as datas de venda dos repasses pendentes ou as datas padrão calculadas
+              const pendingSaleDates = Array.from(new Set(pending.map((p: any) => p.sale_date).filter(Boolean)));
+              const datesToMatch = pendingSaleDates.length > 0 ? pendingSaleDates : targetDates;
+
+              let refSales = closings
+                .filter((c: any) => c.date && datesToMatch.includes(c.date.split('T')[0]))
                 .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
+
+              if (refSales === 0 && closings.length > 0) {
+                const sortedClosings = [...closings].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                refSales = Number(sortedClosings[0]?.totalSales) || 0;
+              }
 
               const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
@@ -1324,6 +1333,7 @@ const App: React.FC = () => {
           handleNavigate('card-machines');
         }}
         userName={user?.name}
+        cashClosings={cashClosings}
         onReconcileSuccess={() => {
           fetchData();
         }}
