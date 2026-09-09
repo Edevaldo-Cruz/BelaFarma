@@ -205,6 +205,36 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     return `${d}/${m}/${y} (${weekday})`;
   };
 
+  // Retorna true se já passou do 2º dia útil após a data de referência (ex: fechamento ou venda)
+  const isDatePastSecondDay = (dateStr: string): boolean => {
+    if (!dateStr) return true;
+    const cleanDate = dateStr.split('T')[0];
+    const parts = cleanDate.split('-');
+    if (parts.length !== 3) return true;
+    const [y, m, d] = parts.map(Number);
+
+    const fromDate = new Date(y, m - 1, d);
+    fromDate.setHours(0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (fromDate >= today) return false;
+
+    let businessDays = 0;
+    const cur = new Date(fromDate);
+    while (cur < today) {
+      cur.setDate(cur.getDate() + 1);
+      const day = cur.getDay(); // 0 = Domingo, 6 = Sábado
+      if (day !== 0 && day !== 6) {
+        businessDays++;
+      }
+    }
+
+    // 1º dia útil = 1, 2º dia útil = 2. Depois do 2º dia = businessDays > 2
+    return businessDays > 2;
+  };
+
   const formatCategoryName = (modality: string) => {
     const m = (modality || '').trim();
     const mLower = m.toLowerCase();
@@ -481,6 +511,25 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     });
   }, [effectiveProvisionDates, paidDates]);
 
+  // Verifica se as provisões já passaram do 2º dia útil após o fechamento/venda
+  const isProvisionsPastSecondDay = useMemo(() => {
+    if (effectiveProvisionDates.length === 0) return false;
+    return effectiveProvisionDates.every(d => isDatePastSecondDay(d));
+  }, [effectiveProvisionDates]);
+
+  // Se passou do 2º dia e não foi feita a provisão, descarta e não exibe mais
+  const shouldShowProvisionsBanner = useMemo(() => {
+    if (totalsSummary.totalGross <= 0 && provisionBaseValue <= 0) return false;
+
+    // Se já passou do 2º dia útil, descarta se nenhuma provisão foi feita
+    if (isProvisionsPastSecondDay) {
+      const anyConfirmed = confirmedProvisions.prolabore || confirmedProvisions.impostos || confirmedProvisions.reserva;
+      if (!anyConfirmed) return false;
+    }
+
+    return true;
+  }, [totalsSummary.totalGross, provisionBaseValue, isProvisionsPastSecondDay, confirmedProvisions]);
+
   // Alterna e salva o status de provisão diretamente no banco e notifica a guia de Caixinhas
   const handleToggleProvision = async (key: 'prolabore' | 'impostos' | 'reserva') => {
     const prefix = key === 'prolabore' ? 'prolabore' : key === 'impostos' ? 'tax' : 'reserve';
@@ -736,7 +785,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
           ) : (
             <>
               {/* BANNER DE PROVISÕES DAS CAIXINHAS COM DESTAQUE DO TOTAL BRUTO DE REPASSE */}
-              {totalsSummary.totalGross > 0 && (
+              {shouldShowProvisionsBanner && (
                 <div className="bg-slate-900 dark:bg-slate-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-800 space-y-4">
                   {/* Cabeçalho do Banner com Total em Grande Destaque */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
@@ -794,136 +843,142 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                   {/* 3 Caixinhas de Provisão com Botões Individuais de Confirmação */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     {/* 1. Pró-Labore (12%) */}
-                    <div className={`p-4 rounded-2xl border transition-all ${
-                      confirmedProvisions.prolabore 
-                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
-                        : 'bg-slate-800/80 border-slate-700/80'
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-300">
-                          Pró-Labore
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                          12%
-                        </span>
+                    {(!isProvisionsPastSecondDay || confirmedProvisions.prolabore) && (
+                      <div className={`p-4 rounded-2xl border transition-all ${
+                        confirmedProvisions.prolabore 
+                          ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
+                          : 'bg-slate-800/80 border-slate-700/80'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-purple-300">
+                            Pró-Labore
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            12%
+                          </span>
+                        </div>
+                        <div className="mt-2 text-2xl font-black text-white">
+                          {formatCurrency(provisions.prolabore)}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          12% do fechamento ({formatCurrency(provisionBaseValue)})
+                        </p>
+                        <div className="pt-3 mt-2 border-t border-slate-700/60">
+                          <button
+                            onClick={() => handleToggleProvision('prolabore')}
+                            className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                              confirmedProvisions.prolabore
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                                : 'bg-slate-700 hover:bg-purple-600 text-slate-200 hover:text-white'
+                            }`}
+                          >
+                            {confirmedProvisions.prolabore ? (
+                              <>
+                                <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                                <span>Separado na Caixinha ✅</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Confirmar Separação</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-2 text-2xl font-black text-white">
-                        {formatCurrency(provisions.prolabore)}
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        12% do fechamento ({formatCurrency(provisionBaseValue)})
-                      </p>
-                      <div className="pt-3 mt-2 border-t border-slate-700/60">
-                        <button
-                          onClick={() => handleToggleProvision('prolabore')}
-                          className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                            confirmedProvisions.prolabore
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
-                              : 'bg-slate-700 hover:bg-purple-600 text-slate-200 hover:text-white'
-                          }`}
-                        >
-                          {confirmedProvisions.prolabore ? (
-                            <>
-                              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                              <span>Separado na Caixinha ✅</span>
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Confirmar Separação</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
+                    )}
 
                     {/* 2. Impostos / DAS (4%) */}
-                    <div className={`p-4 rounded-2xl border transition-all ${
-                      confirmedProvisions.impostos 
-                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
-                        : 'bg-slate-800/80 border-slate-700/80'
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-rose-300">
-                          Impostos / DAS
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          4%
-                        </span>
+                    {(!isProvisionsPastSecondDay || confirmedProvisions.impostos) && (
+                      <div className={`p-4 rounded-2xl border transition-all ${
+                        confirmedProvisions.impostos 
+                          ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
+                          : 'bg-slate-800/80 border-slate-700/80'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-rose-300">
+                            Impostos / DAS
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            4%
+                          </span>
+                        </div>
+                        <div className="mt-2 text-2xl font-black text-white">
+                          {formatCurrency(provisions.impostos)}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          4% do fechamento ({formatCurrency(provisionBaseValue)})
+                        </p>
+                        <div className="pt-3 mt-2 border-t border-slate-700/60">
+                          <button
+                            onClick={() => handleToggleProvision('impostos')}
+                            className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                              confirmedProvisions.impostos
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                                : 'bg-slate-700 hover:bg-rose-600 text-slate-200 hover:text-white'
+                            }`}
+                          >
+                            {confirmedProvisions.impostos ? (
+                              <>
+                                <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                                <span>Separado na Caixinha ✅</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Confirmar Separação</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-2 text-2xl font-black text-white">
-                        {formatCurrency(provisions.impostos)}
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        4% do fechamento ({formatCurrency(provisionBaseValue)})
-                      </p>
-                      <div className="pt-3 mt-2 border-t border-slate-700/60">
-                        <button
-                          onClick={() => handleToggleProvision('impostos')}
-                          className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                            confirmedProvisions.impostos
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
-                              : 'bg-slate-700 hover:bg-rose-600 text-slate-200 hover:text-white'
-                          }`}
-                        >
-                          {confirmedProvisions.impostos ? (
-                            <>
-                              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                              <span>Separado na Caixinha ✅</span>
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Confirmar Separação</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
+                    )}
 
                     {/* 3. Reserva Emergência (1%) */}
-                    <div className={`p-4 rounded-2xl border transition-all ${
-                      confirmedProvisions.reserva 
-                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
-                        : 'bg-slate-800/80 border-slate-700/80'
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-sky-300">
-                          Reserva Emergência
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                          1%
-                        </span>
+                    {(!isProvisionsPastSecondDay || confirmedProvisions.reserva) && (
+                      <div className={`p-4 rounded-2xl border transition-all ${
+                        confirmedProvisions.reserva 
+                          ? 'bg-emerald-950/30 border-emerald-500/50 shadow-inner' 
+                          : 'bg-slate-800/80 border-slate-700/80'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-sky-300">
+                            Reserva Emergência
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                            1%
+                          </span>
+                        </div>
+                        <div className="mt-2 text-2xl font-black text-white">
+                          {formatCurrency(provisions.reserva)}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          1% do fechamento ({formatCurrency(provisionBaseValue)})
+                        </p>
+                        <div className="pt-3 mt-2 border-t border-slate-700/60">
+                          <button
+                            onClick={() => handleToggleProvision('reserva')}
+                            className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                              confirmedProvisions.reserva
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                                : 'bg-slate-700 hover:bg-sky-600 text-slate-200 hover:text-white'
+                            }`}
+                          >
+                            {confirmedProvisions.reserva ? (
+                              <>
+                                <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                                <span>Separado na Caixinha ✅</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Confirmar Separação</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-2 text-2xl font-black text-white">
-                        {formatCurrency(provisions.reserva)}
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        1% do fechamento ({formatCurrency(provisionBaseValue)})
-                      </p>
-                      <div className="pt-3 mt-2 border-t border-slate-700/60">
-                        <button
-                          onClick={() => handleToggleProvision('reserva')}
-                          className={`w-full py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                            confirmedProvisions.reserva
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
-                              : 'bg-slate-700 hover:bg-sky-600 text-slate-200 hover:text-white'
-                          }`}
-                        >
-                          {confirmedProvisions.reserva ? (
-                            <>
-                              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                              <span>Separado na Caixinha ✅</span>
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Confirmar Separação</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Resumo Total das Provisões Obrigatórias */}

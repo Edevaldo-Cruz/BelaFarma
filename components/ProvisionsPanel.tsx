@@ -10,7 +10,8 @@ import {
   Layers,
   Info,
   RefreshCw,
-  Filter
+  Filter,
+  XCircle
 } from 'lucide-react';
 import { CashClosingRecord, FixedAccount } from '../types';
 import { useToast } from './ToastContext';
@@ -26,6 +27,36 @@ const formatBRL = (val: number) =>
 const getDateKey = (rawDate: string): string => {
   if (!rawDate) return '';
   return rawDate.split('T')[0];
+};
+
+// Retorna true se já passou do 2º dia útil após a data de fechamento
+const isDatePastSecondDay = (rawDate: string): boolean => {
+  if (!rawDate) return true;
+  const cleanDate = rawDate.split('T')[0];
+  const parts = cleanDate.split('-');
+  if (parts.length !== 3) return true;
+  const [y, m, d] = parts.map(Number);
+
+  const fromDate = new Date(y, m - 1, d);
+  fromDate.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (fromDate >= today) return false;
+
+  let businessDays = 0;
+  const cur = new Date(fromDate);
+  while (cur < today) {
+    cur.setDate(cur.getDate() + 1);
+    const day = cur.getDay(); // 0 = Domingo, 6 = Sábado
+    if (day !== 0 && day !== 6) {
+      businessDays++;
+    }
+  }
+
+  // 1º dia útil = 1, 2º dia útil = 2. Depois do 2º dia útil = businessDays > 2
+  return businessDays > 2;
 };
 
 const formatClosingDate = (rawDate: string): { dateFormatted: string; weekday: string } => {
@@ -108,37 +139,54 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   const reserveTotal = totalMonthSales * 0.01;
   const grandTotalProvisions = prolaboreTotal + taxTotal + reserveTotal;
 
-  // Totais Pagos / Separados
+  // Totais Pagos / Separados (desconsiderando pendências descartadas após o 2º dia útil)
   const paidStats = useMemo(() => {
     let paidProlabore = 0;
+    let pendingProlabore = 0;
     let paidTax = 0;
+    let pendingTax = 0;
     let paidReserve = 0;
+    let pendingReserve = 0;
 
     monthClosings.forEach(c => {
       const sales = Number(c.totalSales) || 0;
       const key = getDateKey(c.date);
-      if (paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${c.date}`)) {
+      const isPast2ndDay = isDatePastSecondDay(c.date);
+
+      const pPaid = paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
+      const tPaid = paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${c.date}`);
+      const rPaid = paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
+
+      if (pPaid) {
         paidProlabore += sales * 0.12;
+      } else if (!isPast2ndDay) {
+        pendingProlabore += sales * 0.12;
       }
-      if (paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${c.date}`)) {
+
+      if (tPaid) {
         paidTax += sales * 0.04;
+      } else if (!isPast2ndDay) {
+        pendingTax += sales * 0.04;
       }
-      if (paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${c.date}`)) {
+
+      if (rPaid) {
         paidReserve += sales * 0.01;
+      } else if (!isPast2ndDay) {
+        pendingReserve += sales * 0.01;
       }
     });
 
     return {
       paidProlabore,
-      pendingProlabore: Math.max(0, prolaboreTotal - paidProlabore),
+      pendingProlabore,
       paidTax,
-      pendingTax: Math.max(0, taxTotal - paidTax),
+      pendingTax,
       paidReserve,
-      pendingReserve: Math.max(0, reserveTotal - paidReserve),
+      pendingReserve,
       totalPaid: paidProlabore + paidTax + paidReserve,
-      totalPending: Math.max(0, grandTotalProvisions - (paidProlabore + paidTax + paidReserve))
+      totalPending: pendingProlabore + pendingTax + pendingReserve
     };
-  }, [monthClosings, paidProvisionsDates, prolaboreTotal, taxTotal, reserveTotal, grandTotalProvisions]);
+  }, [monthClosings, paidProvisionsDates]);
 
   const isClosingProvisioned = (date: string) => {
     const key = getDateKey(date);
@@ -165,7 +213,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   }, [monthClosings, paidProvisionsDates]);
 
   const pendingClosingsCount = useMemo(() => {
-    return monthClosings.filter(c => !isClosingFullyProvisioned(c.date)).length;
+    return monthClosings.filter(c => !isClosingFullyProvisioned(c.date) && !isDatePastSecondDay(c.date)).length;
   }, [monthClosings, paidProvisionsDates]);
 
   const displayedClosings = useMemo(() => {
@@ -173,7 +221,8 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       return monthClosings.filter(c => isClosingProvisioned(c.date));
     }
     if (filterMode === 'pending') {
-      return monthClosings.filter(c => !isClosingFullyProvisioned(c.date));
+      // Se não foi provisionado e já passou do 2º dia útil, descarta e não exibe!
+      return monthClosings.filter(c => !isClosingFullyProvisioned(c.date) && !isDatePastSecondDay(c.date));
     }
     return monthClosings;
   }, [monthClosings, filterMode, paidProvisionsDates]);
@@ -506,6 +555,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
                   const isFullyPaid = isProlaborePaid && isTaxPaid && isReservePaid;
                   const isAnyPaid = isProlaborePaid || isTaxPaid || isReservePaid;
+                  const isPast2ndDay = isDatePastSecondDay(c.date);
 
                   return (
                     <tr 
@@ -515,7 +565,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                           ? 'bg-emerald-50/25 hover:bg-emerald-50/50' 
                           : isAnyPaid 
                             ? 'bg-slate-50/70 hover:bg-slate-100/70' 
-                            : 'hover:bg-slate-50/60'
+                            : isPast2ndDay
+                              ? 'opacity-65 hover:bg-slate-50/40'
+                              : 'hover:bg-slate-50/60'
                       }`}
                     >
                       {/* Data */}
@@ -525,8 +577,10 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs" title="100% Provisionado" />
                           ) : isAnyPaid ? (
                             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" title="Parcialmente Provisionado" />
+                          ) : isPast2ndDay ? (
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" title="Descartado (> 2 dias sem provisão)" />
                           ) : (
-                            <span className="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0" title="Pendente" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" title="Pendente para Separação" />
                           )}
                           <div>
                             <span className="font-black text-slate-900 text-sm block leading-tight">
@@ -548,56 +602,101 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
                       {/* Pró-labore (12%) */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleProvision(`prolabore-${dateKey}`)}
-                          disabled={isUpdating}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
-                            isProlaborePaid
-                              ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                              : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                          }`}
-                          title="Clique para alternar entre Separado e Pendente"
-                        >
-                          {isProlaborePaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-emerald-600" />}
-                          <span>{formatBRL(valProlabore)}</span>
-                          <span className="text-[10px] opacity-75 font-medium">({isProlaborePaid ? 'Separado' : 'Pendente'})</span>
-                        </button>
+                        {isProlaborePaid ? (
+                          <button
+                            onClick={() => handleToggleProvision(`prolabore-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{formatBRL(valProlabore)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Separado)</span>
+                          </button>
+                        ) : isPast2ndDay ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" title="Não provisionado no prazo de 2 dias (descartado)">
+                            <XCircle className="w-3 h-3 text-slate-400" />
+                            <span className="line-through opacity-70">{formatBRL(valProlabore)}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Descartado</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleProvision(`prolabore-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{formatBRL(valProlabore)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
+                          </button>
+                        )}
                       </td>
 
                       {/* Impostos (4%) */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleProvision(`tax-${dateKey}`)}
-                          disabled={isUpdating}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
-                            isTaxPaid
-                              ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                              : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
-                          }`}
-                          title="Clique para alternar entre Separado e Pendente"
-                        >
-                          {isTaxPaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-blue-600" />}
-                          <span>{formatBRL(valTax)}</span>
-                          <span className="text-[10px] opacity-75 font-medium">({isTaxPaid ? 'Separado' : 'Pendente'})</span>
-                        </button>
+                        {isTaxPaid ? (
+                          <button
+                            onClick={() => handleToggleProvision(`tax-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{formatBRL(valTax)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Separado)</span>
+                          </button>
+                        ) : isPast2ndDay ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" title="Não provisionado no prazo de 2 dias (descartado)">
+                            <XCircle className="w-3 h-3 text-slate-400" />
+                            <span className="line-through opacity-70">{formatBRL(valTax)}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Descartado</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleProvision(`tax-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-blue-600" />
+                            <span>{formatBRL(valTax)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
+                          </button>
+                        )}
                       </td>
 
                       {/* Reserva (1%) */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleProvision(`reserve-${dateKey}`)}
-                          disabled={isUpdating}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
-                            isReservePaid
-                              ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
-                              : 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
-                          }`}
-                          title="Clique para alternar entre Separado e Pendente"
-                        >
-                          {isReservePaid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5 text-purple-600" />}
-                          <span>{formatBRL(valReserve)}</span>
-                          <span className="text-[10px] opacity-75 font-medium">({isReservePaid ? 'Separado' : 'Pendente'})</span>
-                        </button>
+                        {isReservePaid ? (
+                          <button
+                            onClick={() => handleToggleProvision(`reserve-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-purple-600 text-white border-purple-600 hover:bg-purple-700"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{formatBRL(valReserve)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Separado)</span>
+                          </button>
+                        ) : isPast2ndDay ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" title="Não provisionado no prazo de 2 dias (descartado)">
+                            <XCircle className="w-3 h-3 text-slate-400" />
+                            <span className="line-through opacity-70">{formatBRL(valReserve)}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Descartado</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleProvision(`reserve-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-purple-600" />
+                            <span>{formatBRL(valReserve)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
+                          </button>
+                        )}
                       </td>
 
                       {/* Total Dia */}

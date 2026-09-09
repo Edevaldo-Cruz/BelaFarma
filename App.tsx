@@ -360,9 +360,54 @@ const App: React.FC = () => {
                 refSales = Number(sortedClosings[0]?.totalSales) || 0;
               }
 
+              const isDatePastSecondDay = (dateStr: string): boolean => {
+                if (!dateStr) return true;
+                const clean = dateStr.split('T')[0];
+                const parts = clean.split('-');
+                if (parts.length !== 3) return true;
+                const [y, m, d] = parts.map(Number);
+                const fromDate = new Date(y, m - 1, d);
+                fromDate.setHours(0, 0, 0, 0);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (fromDate >= today) return false;
+
+                let bDays = 0;
+                const cur = new Date(fromDate);
+                while (cur < today) {
+                  cur.setDate(cur.getDate() + 1);
+                  const day = cur.getDay();
+                  if (day !== 0 && day !== 6) bDays++;
+                }
+                return bDays > 2;
+              };
+
+              // Verifica se as datas de referência já passaram do 2º dia útil
+              const isExpired = datesToMatch.length > 0 && datesToMatch.every((d: string) => isDatePastSecondDay(d));
+
+              // Verifica se alguma das provisões já foi realizada
+              let hasAnyProvisionPaid = false;
+              try {
+                const resPaid = await fetch('/api/settings/paid_provisions_dates');
+                if (resPaid.ok) {
+                  const dataPaid = await resPaid.json();
+                  const paidArr = dataPaid?.value ? JSON.parse(dataPaid.value) : [];
+                  if (Array.isArray(paidArr)) {
+                    hasAnyProvisionPaid = datesToMatch.some((d: string) => 
+                      paidArr.includes(`prolabore-${d}`) || 
+                      paidArr.includes(`tax-${d}`) || 
+                      paidArr.includes(`reserve-${d}`)
+                    );
+                  }
+                }
+              } catch(e) {}
+
+              // Se não foi feito e já passou do 2º dia útil, descarta e não exibe provisões
+              const canShowProvisions = refSales > 0 && (!isExpired || hasAnyProvisionPaid);
+
               const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
-              if (refSales > 0) {
+              if (canShowProvisions) {
                 const valProlabore = refSales * 0.12;
                 const valTax = refSales * 0.04;
                 const valReserve = refSales * 0.01;
