@@ -23,6 +23,24 @@ interface ProvisionsPanelProps {
 const formatBRL = (val: number) => 
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
+const getDateKey = (rawDate: string): string => {
+  if (!rawDate) return '';
+  return rawDate.split('T')[0];
+};
+
+const formatClosingDate = (rawDate: string): { dateFormatted: string; weekday: string } => {
+  if (!rawDate) return { dateFormatted: '--/--/----', weekday: '' };
+  const dateOnly = rawDate.split('T')[0];
+  const parts = dateOnly.split('-');
+  if (parts.length !== 3) return { dateFormatted: rawDate, weekday: '' };
+  const [y, m, d] = parts;
+  const dateFormatted = `${d}/${m}/${y}`;
+  const dt = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+  const weekdays = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+  const weekday = weekdays[dt.getDay()] || '';
+  return { dateFormatted, weekday };
+};
+
 export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }) => {
   const { addToast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -71,8 +89,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     return cashClosings
       .filter(c => {
         if (!c.date) return false;
-        if (c.date < PROVISION_START_DATE) return false;
-        const [y, m] = c.date.split('-');
+        const dateOnly = getDateKey(c.date);
+        if (dateOnly < PROVISION_START_DATE) return false;
+        const [y, m] = dateOnly.split('-');
         return parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth;
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -97,13 +116,14 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
     monthClosings.forEach(c => {
       const sales = Number(c.totalSales) || 0;
-      if (paidProvisionsDates.includes(`prolabore-${c.date}`)) {
+      const key = getDateKey(c.date);
+      if (paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${c.date}`)) {
         paidProlabore += sales * 0.12;
       }
-      if (paidProvisionsDates.includes(`tax-${c.date}`)) {
+      if (paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${c.date}`)) {
         paidTax += sales * 0.04;
       }
-      if (paidProvisionsDates.includes(`reserve-${c.date}`)) {
+      if (paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${c.date}`)) {
         paidReserve += sales * 0.01;
       }
     });
@@ -121,7 +141,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   }, [monthClosings, paidProvisionsDates, prolaboreTotal, taxTotal, reserveTotal, grandTotalProvisions]);
 
   const isClosingProvisioned = (date: string) => {
+    const key = getDateKey(date);
     return (
+      paidProvisionsDates.includes(`prolabore-${key}`) ||
+      paidProvisionsDates.includes(`tax-${key}`) ||
+      paidProvisionsDates.includes(`reserve-${key}`) ||
       paidProvisionsDates.includes(`prolabore-${date}`) ||
       paidProvisionsDates.includes(`tax-${date}`) ||
       paidProvisionsDates.includes(`reserve-${date}`)
@@ -129,11 +153,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   };
 
   const isClosingFullyProvisioned = (date: string) => {
-    return (
-      paidProvisionsDates.includes(`prolabore-${date}`) &&
-      paidProvisionsDates.includes(`tax-${date}`) &&
-      paidProvisionsDates.includes(`reserve-${date}`)
-    );
+    const key = getDateKey(date);
+    const p = paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${date}`);
+    const t = paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${date}`);
+    const r = paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${date}`);
+    return p && t && r;
   };
 
   const provisionedClosingsCount = useMemo(() => {
@@ -468,16 +492,18 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                   const valReserve = sales * 0.01;
                   const valDayTotal = valProlabore + valTax + valReserve;
 
-                  const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${c.date}`);
-                  const isTaxPaid = paidProvisionsDates.includes(`tax-${c.date}`);
-                  const isReservePaid = paidProvisionsDates.includes(`reserve-${c.date}`);
+                  const dateKey = getDateKey(c.date);
+                  const { dateFormatted, weekday } = formatClosingDate(c.date);
+
+                  const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
+                  const isTaxPaid = paidProvisionsDates.includes(`tax-${dateKey}`) || paidProvisionsDates.includes(`tax-${c.date}`);
+                  const isReservePaid = paidProvisionsDates.includes(`reserve-${dateKey}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
 
                   const valDayProvisioned = 
                     (isProlaborePaid ? valProlabore : 0) +
                     (isTaxPaid ? valTax : 0) +
                     (isReservePaid ? valReserve : 0);
 
-                  const dateFormatted = c.date.split('-').reverse().join('/');
                   const isFullyPaid = isProlaborePaid && isTaxPaid && isReservePaid;
                   const isAnyPaid = isProlaborePaid || isTaxPaid || isReservePaid;
 
@@ -493,16 +519,25 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       }`}
                     >
                       {/* Data */}
-                      <td className="px-6 py-4 font-bold text-slate-900 text-sm whitespace-nowrap">
-                        <div className="flex items-center gap-2">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
                           {isFullyPaid ? (
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs" title="100% Provisionado" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs" title="100% Provisionado" />
                           ) : isAnyPaid ? (
-                            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Parcialmente Provisionado" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" title="Parcialmente Provisionado" />
                           ) : (
-                            <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" title="Pendente" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0" title="Pendente" />
                           )}
-                          <span>{dateFormatted}</span>
+                          <div>
+                            <span className="font-black text-slate-900 text-sm block leading-tight">
+                              {dateFormatted}
+                            </span>
+                            {weekday && (
+                              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
+                                {weekday}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 
@@ -514,7 +549,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       {/* Pró-labore (12%) */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
                         <button
-                          onClick={() => handleToggleProvision(`prolabore-${c.date}`)}
+                          onClick={() => handleToggleProvision(`prolabore-${dateKey}`)}
                           disabled={isUpdating}
                           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
                             isProlaborePaid
@@ -532,7 +567,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       {/* Impostos (4%) */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
                         <button
-                          onClick={() => handleToggleProvision(`tax-${c.date}`)}
+                          onClick={() => handleToggleProvision(`tax-${dateKey}`)}
                           disabled={isUpdating}
                           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
                             isTaxPaid
@@ -550,7 +585,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       {/* Reserva (1%) */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
                         <button
-                          onClick={() => handleToggleProvision(`reserve-${c.date}`)}
+                          onClick={() => handleToggleProvision(`reserve-${dateKey}`)}
                           disabled={isUpdating}
                           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs ${
                             isReservePaid

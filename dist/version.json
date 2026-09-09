@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "80e4ffc",
-  "commitMessage": "build: atualiza bundle dist com ultimas alteracoes e limpa cache",
-  "buildTime": "08/09/2026, 15:56:18"
+  "commitHash": "9f4cf53",
+  "commitMessage": "feat: sincronizar provisoes do modal de maquininha com painel de caixinhas e filtro de apenas provisionados",
+  "buildTime": "09/09/2026, 12:30:33"
 }
