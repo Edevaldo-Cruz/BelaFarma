@@ -74,6 +74,20 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
   if (!isOpen) return null;
 
+  const handleColarTexto = async () => {
+    try {
+      const clipboardText = await navigator.clipboard.readText();
+      if (clipboardText && clipboardText.trim()) {
+        setTexto(clipboardText.trim());
+        addToast('📋 Texto colado da área de transferência!', 'success');
+      } else {
+        addToast('A área de transferência está vazia.', 'info');
+      }
+    } catch (err: any) {
+      addToast('Não foi possível ler a área de transferência automaticamente. Cole usando Ctrl+V.', 'warning');
+    }
+  };
+
   const handleCarregarExemplo = () => {
     setTexto(TEXTO_EXEMPLO);
     addToast('Exemplo carregado na área de texto.', 'info');
@@ -86,6 +100,176 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     setFornecedorFiltro('TODOS');
   };
 
+  // Parser local embutido para execução instantânea sem depender de rede
+  const executarComparativoLocal = (textoParaProcessar: string) => {
+    const PALAVRAS_NAO_FORNECEDOR = new Set([
+      'COMP', 'COMPRIMIDO', 'COMPRIMIDOS', 'CAPS', 'CAPSULA', 'CAPSULAS', 'CPR', 'CPS',
+      'COLIRIO', 'COLÍRIO', 'GOTAS', 'GTS', 'CREME', 'POMADA', 'GEL',
+      'XAROPE', 'XPE', 'SUSP', 'SUSPENSAO', 'SUSPENSÃO', 'SOL', 'SOLUCAO', 'SOLUÇÃO',
+      'OFT', 'OFTALMICO', 'VAG', 'VAGINAL', 'DERM', 'DERMATOLOGICO',
+      'INJETAVEL', 'AMPOLA', 'SPRAY', 'AEROSOL', 'ENEMA', 'SUPOSITORIO'
+    ]);
+
+    const ehFornecedor = (linha: string) => {
+      const t = linha.trim();
+      if (!t || t.length < 2 || t.length > 40 || /\d/.test(t) || /R\$|[\,\.]\d{2}/.test(t)) return false;
+      if (/^(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|REP|REPRESENTANTE|EMPRESA)\s*[:\-_]/i.test(t)) return true;
+      const partes = t.toUpperCase().split(/\s+/);
+      for (const p of partes) {
+        if (PALAVRAS_NAO_FORNECEDOR.has(p)) return false;
+      }
+      return partes.length <= 4 && !/[,\.]$/.test(t);
+    };
+
+    const parseNum = (val: string) => {
+      if (!val) return 0;
+      let c = String(val).replace(/R\$/gi, '').replace(/\s*(?:min|cx|un|und|reais|pct|p\s*\d+).*$/i, '').trim();
+      if (c.includes(',') && c.includes('.')) c = c.replace(/\./g, '').replace(',', '.');
+      else if (c.includes(',')) c = c.replace(',', '.');
+      const n = parseFloat(c);
+      return isNaN(n) ? 0 : n;
+    };
+
+    const normalizarNome = (nome: string) => {
+      if (!nome) return '';
+      return String(nome)
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+        .replace(/\bHIDRO\b/g, 'HIDROCLOROTIAZIDA')
+        .replace(/\bDIENOGESTE\b/g, 'DIENOGEST')
+        .replace(/\bACU\s*FRESH\b/g, 'ACUFRESH')
+        .replace(/\bCARMELOSE\b/g, 'ACUFRESH CARMELOSE')
+        .replace(/\b(UNICHEM|PHARLAB|MEDQUIMICA|MEDLEY|GEOLAB|EUROFARMA|MULTILAB|BRASTERAPICA|FORTLIFE|VITAMEDIC|GREENPHARMA|TEUTO|NEO QUIMICA|NEOQUIMICA|BIOLAB|NATIVITA|GLEN|BIOSINTETICA|LEGRAND|ARTE NATIVA|MUNDIAL)\b/g, '')
+        .replace(/^[0-9\.\-\_\s]{2,10}(?=[A-Z])/g, '')
+        .replace(/[:\-–—=]+$/, '')
+        .replace(/\b(COMPRIMIDOS|COMPRIMIDO|COMP|CPR|CPS|CAPSULAS|CAPSULA|CAPS|DRAGEAS|DRG)\b/g, '')
+        .replace(/\b(CX|CX\.|CAIXA|COM)\b/g, 'C/')
+        .replace(/\bC\/\s*/g, 'C/')
+        .replace(/\bBLX\d+\b/g, '')
+        .replace(/(\d+)\s*(MG|ML|G|MCG)\b/g, '$1$2')
+        .replace(/C\/\s*(\d+)/g, 'C/$1')
+        .replace(/[^\w\d\/]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const linhas = textoParaProcessar.split(/\r?\n/);
+    const fornecedoresMap = new Map<string, any[]>();
+    let fornecedorAtual = 'FORNECEDOR';
+    let produtoPendente = '';
+
+    for (let i = 0; i < linhas.length; i++) {
+      const raw = linhas[i].trim();
+      if (!raw || raw.length < 2 || /^[=\-_*#]{3,}$/.test(raw)) continue;
+
+      if (ehFornecedor(raw)) {
+        fornecedorAtual = raw.replace(/^(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|REP|REPRESENTANTE|EMPRESA)\s*[:\-_]?\s*/i, '').replace(/[\*#_:]/g, '').trim().toUpperCase();
+        if (!fornecedoresMap.has(fornecedorAtual)) fornecedoresMap.set(fornecedorAtual, []);
+        produtoPendente = '';
+        continue;
+      }
+
+      let linhaTratada = raw.replace(/(\d+),(\d{1,4},\d{2})\b/, '$1 $2');
+      const regexPreco = /(?:R\$\s*)?(\d{1,4}[,\.]\d{2})\b/g;
+      const matches: { index: number; match: string; valor: number }[] = [];
+      let m;
+      while ((m = regexPreco.exec(linhaTratada)) !== null) {
+        const val = parseNum(m[1]);
+        if (val > 0.40) matches.push({ index: m.index, match: m[0], valor: val });
+      }
+
+      if (matches.length > 0) {
+        let precoEscolhido = matches[0].valor;
+        if (matches.length > 1) precoEscolhido = Math.min(...matches.map(p => p.valor));
+
+        let nomeProduto = '';
+        if (produtoPendente && /^(?:\d+[\s:]*)+/.test(linhaTratada)) {
+          nomeProduto = produtoPendente;
+        } else {
+          nomeProduto = linhaTratada.slice(0, matches[0].index).replace(/[\*\-–—:\|]/g, ' ').trim();
+          if (!nomeProduto && matches.length > 0) nomeProduto = linhaTratada.replace(matches[0].match, '').trim();
+        }
+
+        nomeProduto = nomeProduto.replace(/^[0-9\.\)\-\s]+/, '').replace(/[:\-–—=]+$/, '').replace(/\s+/g, ' ').trim();
+        if (nomeProduto && nomeProduto.length >= 3) {
+          if (!fornecedoresMap.has(fornecedorAtual)) fornecedoresMap.set(fornecedorAtual, []);
+          fornecedoresMap.get(fornecedorAtual)!.push({
+            fornecedor: fornecedorAtual,
+            produtoOriginal: nomeProduto,
+            produtoNormalizado: normalizarNome(nomeProduto),
+            preco: precoEscolhido
+          });
+        }
+      } else if (raw.length >= 4 && !/^(?:obs|frete|prazo|pedido|condicoes)/i.test(raw)) {
+        produtoPendente = raw;
+      }
+    }
+
+    // Agrupa por produto e calcula menores preços
+    const grupos = new Map<string, any>();
+    for (const [forn, itens] of fornecedoresMap.entries()) {
+      for (const item of itens) {
+        const k = item.produtoNormalizado || normalizarNome(item.produtoOriginal);
+        if (!grupos.has(k)) {
+          grupos.set(k, { produtoNormalizado: k, produtoExibicao: item.produtoOriginal, ofertas: [] });
+        }
+        grupos.get(k)!.ofertas.push(item);
+      }
+    }
+
+    const vencedoresPorFornecedor = new Map<string, any[]>();
+    const itensComparados: any[] = [];
+    let economiaTotal = 0;
+
+    for (const [k, g] of grupos.entries()) {
+      const ordenados = [...g.ofertas].sort((a, b) => a.preco - b.preco);
+      const melhor = ordenados[0];
+      const segundo = ordenados.length > 1 ? ordenados[1] : null;
+
+      let concorrenteInfo = '';
+      if (segundo && segundo.preco > melhor.preco) {
+        const econ = segundo.preco - melhor.preco;
+        const pct = (econ / segundo.preco) * 100;
+        economiaTotal += econ;
+        concorrenteInfo = `Melhor preço vs ${segundo.fornecedor} (R$ ${segundo.preco.toFixed(2)}) | -${pct.toFixed(1)}%`;
+      } else {
+        concorrenteInfo = `Cotado em ${melhor.fornecedor}`;
+      }
+
+      const itemRes = {
+        produto: g.produtoExibicao,
+        produtoNormalizado: k,
+        vencedor: melhor.fornecedor,
+        menorPreco: melhor.preco,
+        concorrenteInfo
+      };
+
+      itensComparados.push(itemRes);
+      if (!vencedoresPorFornecedor.has(melhor.fornecedor)) {
+        vencedoresPorFornecedor.set(melhor.fornecedor, []);
+      }
+      vencedoresPorFornecedor.get(melhor.fornecedor)!.push(itemRes);
+    }
+
+    const fornecedoresResumo = Array.from(vencedoresPorFornecedor.entries()).map(([fornecedor, produtos]) => ({
+      fornecedor,
+      totalItens: produtos.length,
+      produtos
+    }));
+
+    return {
+      success: true,
+      estatisticas: {
+        totalFornecedores: fornecedoresMap.size,
+        totalOfertas: Array.from(fornecedoresMap.values()).reduce((acc, l) => acc + l.length, 0),
+        totalProdutosUnicos: itensComparados.length,
+        economiaTotalEstimada: economiaTotal
+      },
+      fornecedoresEncontrados: Array.from(fornecedoresMap.keys()),
+      itensComparados,
+      fornecedoresResumo
+    };
+  };
+
   const handleProcessar = async () => {
     if (!texto.trim()) {
       addToast('Cole o texto com as cotações para comparar.', 'warning');
@@ -94,6 +278,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
     try {
       setProcessando(true);
+      // Tenta via backend
       const res = await fetch('/api/central-compras/cotacoes/comparar-texto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -104,15 +289,23 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
         })
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setResultado(data);
-        addToast(`✅ Cotações analisadas! ${data.fornecedoresEncontrados?.length || 0} fornecedores separados.`, 'success');
-      } else {
-        addToast('Aviso: ' + (data.mensagem || data.error || 'Nenhum dado extraído.'), 'warning');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.fornecedoresResumo?.length > 0) {
+          setResultado(data);
+          addToast(`✅ Cotações analisadas! ${data.fornecedoresEncontrados?.length || 0} fornecedores separados.`, 'success');
+          return;
+        }
       }
+      // Se a resposta do servidor não veio como esperado, aciona o motor local nativo imediatamente
+      const dataLocal = executarComparativoLocal(texto);
+      setResultado(dataLocal);
+      addToast(`✅ Cotações processadas localmente! ${dataLocal.fornecedoresEncontrados?.length || 0} fornecedores separados.`, 'success');
     } catch (err: any) {
-      addToast('Erro ao processar cotações: ' + err.message, 'error');
+      // Fallback seguro se houver falha de rede/proxy
+      const dataLocal = executarComparativoLocal(texto);
+      setResultado(dataLocal);
+      addToast(`✅ Processado com o motor inteligente local (${dataLocal.fornecedoresEncontrados?.length || 0} fornecedores).`, 'info');
     } finally {
       setProcessando(false);
     }
@@ -329,6 +522,18 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
               </label>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleColarTexto}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-[11px] font-black text-slate-800 dark:text-slate-200 transition-all cursor-pointer shadow-sm"
+                  title="Colar texto direto da sua área de transferência"
+                >
+                  <Copy className="w-3.5 h-3.5 text-red-500" />
+                  Colar Texto
+                </button>
+
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+
                 <button
                   type="button"
                   onClick={handleCarregarExemplo}

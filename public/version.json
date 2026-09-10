@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "459b563",
-  "commitMessage": "fix(compras): calibrar reconhecimento de fornecedores por representantes e apresentacoes farmaceuticas",
-  "buildTime": "10/09/2026, 19:26:16"
+  "commitHash": "b624ae2",
+  "commitMessage": "feat(compras): adicionar tabelas separadas por fornecedor, inputs de quantidade e gerador de texto limpo para pedidos",
+  "buildTime": "10/09/2026, 19:33:26"
 }
