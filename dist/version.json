@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "43f9bdf",
-  "commitMessage": "fix(provisions): basear provisão apenas no último fechamento se não tiver sido provisionado",
-  "buildTime": "10/09/2026, 13:34:37"
+  "commitHash": "4233cd0",
+  "commitMessage": "feat(compras): corrigir preco zerado com A Cotar, validade dinamica de ofertas e auditoria de combos no Horacio",
+  "buildTime": "10/09/2026, 16:45:22"
 }

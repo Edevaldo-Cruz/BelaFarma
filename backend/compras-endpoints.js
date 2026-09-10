@@ -22,6 +22,7 @@ const comprasCotacoesService = require('./services/compras-cotacoes.service');
 const comprasAprovacaoService = require('./services/compras-aprovacao.service');
 const comprasPedidosService = require('./services/compras-pedidos.service');
 const comprasEquivalentesService = require('./services/compras-equivalentes.service');
+const comprasComparadorService = require('./services/compras-comparador-cotacoes.service');
 
 // Serviço WhatsApp Baileys Compras
 let baileysComprasService = null;
@@ -643,6 +644,25 @@ module.exports = (db) => {
       const resultado = comprasCotacoesService.otimizarPedidoMinimo(cotacao);
       res.json({ success: true, data: resultado });
     } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/cotacoes/comparar-texto', async (req, res) => {
+    try {
+      const { texto, usarIA, quantidades } = req.body;
+      if (!texto || !String(texto).trim()) {
+        return res.status(400).json({ success: false, error: 'Texto da cotação é obrigatório.' });
+      }
+
+      const resultado = await comprasComparadorService.compararCotacoesTexto(texto, {
+        usarIA: usarIA === true,
+        quantidades: quantidades || {}
+      });
+
+      res.json(resultado);
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /cotacoes/comparar-texto:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
