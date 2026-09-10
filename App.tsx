@@ -347,18 +347,19 @@ const App: React.FC = () => {
                 targetDates = [formatIsoDate(dPrev)];
               }
 
-              // Considera as datas de venda dos repasses pendentes ou as datas padrão calculadas
-              const pendingSaleDates = Array.from(new Set(pending.map((p: any) => p.sale_date).filter(Boolean)));
-              const datesToMatch = pendingSaleDates.length > 0 ? pendingSaleDates : targetDates;
+              // Base de faturamento: ESTRITAMENTE o fechamento do dia anterior (ontem) ou mais recente
+              const sortedClosings = [...closings].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              
+              const yesterday = new Date(now);
+              yesterday.setDate(yesterday.getDate() - 1);
+              const yesterdayStr = getLocalDateKey(yesterday.toISOString());
+              const yesterdayClosing = sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) === yesterdayStr);
 
-              let refSales = closings
-                .filter((c: any) => c.date && datesToMatch.includes(getLocalDateKey(c.date)))
-                .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
+              const todayKey = getLocalDateKey(now.toISOString());
+              const referenceClosing = yesterdayClosing || sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) < todayKey) || sortedClosings[0];
 
-              if (refSales === 0 && closings.length > 0) {
-                const sortedClosings = [...closings].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                refSales = Number(sortedClosings[0]?.totalSales) || 0;
-              }
+              const refSales = Number(referenceClosing?.totalSales) || 0;
+              const refClosingDate = referenceClosing?.date ? getLocalDateKey(referenceClosing.date) : yesterdayStr;
 
               const isDatePastSecondDay = (dateStr: string): boolean => {
                 if (!dateStr) return true;
@@ -382,28 +383,27 @@ const App: React.FC = () => {
                 return bDays > 2;
               };
 
-              // Verifica se as datas de referência já passaram do 2º dia útil
-              const isExpired = datesToMatch.length > 0 && datesToMatch.every((d: string) => isDatePastSecondDay(d));
+              // Verifica se a data do fechamento de referência já passou de 2 dias úteis
+              const isExpired = isDatePastSecondDay(refClosingDate);
 
-              // Verifica se alguma das provisões já foi realizada
-              let hasAnyProvisionPaid = false;
+              // Verifica se as provisões já foram totalmente realizadas para este fechamento
+              let isFullyPaid = false;
               try {
                 const resPaid = await fetch('/api/settings/paid_provisions_dates');
                 if (resPaid.ok) {
                   const dataPaid = await resPaid.json();
                   const paidArr = dataPaid?.value ? JSON.parse(dataPaid.value) : [];
                   if (Array.isArray(paidArr)) {
-                    hasAnyProvisionPaid = datesToMatch.some((d: string) => 
-                      paidArr.includes(`prolabore-${d}`) || 
-                      paidArr.includes(`tax-${d}`) || 
-                      paidArr.includes(`reserve-${d}`)
-                    );
+                    const pPaid = paidArr.includes(`prolabore-${refClosingDate}`);
+                    const tPaid = paidArr.includes(`tax-${refClosingDate}`);
+                    const rPaid = paidArr.includes(`reserve-${refClosingDate}`);
+                    isFullyPaid = pPaid && tPaid && rPaid;
                   }
                 }
               } catch(e) {}
 
-              // Se não foi feito e já passou do 2º dia útil, descarta e não exibe provisões
-              const canShowProvisions = refSales > 0 && (!isExpired || hasAnyProvisionPaid);
+              // Se não passou de 2 dias e ainda não foi totalmente pago, exibe provisões do fechamento anterior
+              const canShowProvisions = refSales > 0 && !isExpired && !isFullyPaid;
 
               const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
@@ -414,7 +414,7 @@ const App: React.FC = () => {
                 const valTotal = valProlabore + valTax + valReserve;
 
                 addToast(
-                  `💳 ${pending.length} repasse(s) ${isMonday ? 'do Fim de Semana' : 'de ontem'} a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões de hoje (Pró-labore: ${formatBRL(valProlabore)}, Impostos: ${formatBRL(valTax)}, Reserva: ${formatBRL(valReserve)})!`,
+                  `💳 ${pending.length} repasse(s) a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões sobre o fechamento anterior (${formatBRL(refSales)}): Pró-labore ${formatBRL(valProlabore)}, Impostos ${formatBRL(valTax)}, Reserva ${formatBRL(valReserve)}!`,
                   "info"
                 );
               } else {

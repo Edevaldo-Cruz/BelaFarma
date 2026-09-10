@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "053b6f2",
-  "commitMessage": "feat: descartar e ocultar provisoes nao realizadas apos o segundo dia",
-  "buildTime": "09/09/2026, 17:21:12"
+  "commitHash": "ecf5f95",
+  "commitMessage": "fix(finance): sincronizar datas locais de fechamento e conciliar faturamento com vendas",
+  "buildTime": "10/09/2026, 10:47:21"
 }
