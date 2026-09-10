@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   Sparkles,
@@ -12,7 +12,9 @@ import {
   Send,
   AlertCircle,
   PlusCircle,
-  HelpCircle
+  Filter,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -23,21 +25,27 @@ interface ComparadorCotacoesTextoModalProps {
   onCriarCotacaoOficial?: (itens: any[]) => void;
 }
 
-const TEXTO_EXEMPLO = `SANTA CRUZ:
-1. Dipirona 500mg cx 100 - R$ 12,50
-2. Amoxicilina 500mg 21caps - R$ 10,90
-3. Dorflex c/ 36 comp - R$ 18,90
-4. Losartana Potassica 50mg c/ 30 - R$ 4,50
+const TEXTO_EXEMPLO = `SILAS 
+Lamotrigina 100mg 6,79
+Melatonina gotas 8,52
+Megafix 20g 8,99
+Betaistina 16 7,91
 
-PANPHARMA:
-- Dipirona 500mg c/ 100: R$ 11,80
-- Amoxicilina 500mg 21caps: R$ 11,50
-- Omeprazol 20mg c/ 28: R$ 6,20
-- Losartana Potassica 50mg c/ 30: R$ 4,10
+FELIPE
+LAMOTRIGINA 100MG 30CP UNICHEM 7,48
+CETOPROFENO 150MG 10CPS MEDLEY 4,86
+BILASTINA 20MG 15CPR 15,16
 
-DISTRIBUIDORA GAM:
-Dorflex c/ 36 - 17,95
-Omeprazol 20mg c/ 28 - 6,50`;
+FRAN
+rosuvastatina 20 5,98
+Aciclovir 200 8,89
+Dienogest 13,15
+
+GUILHERME
+hidro 25 0,99
+Dienogest 12,45
+Fluconazol c/ 2 1,18
+Acetilcisteina 600 8,99`;
 
 export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModalProps> = ({
   isOpen,
@@ -50,8 +58,17 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
   const [usarIA, setUsarIA] = useState(false);
   const [processando, setProcessando] = useState(false);
   const [resultado, setResultado] = useState<any | null>(null);
-  const [abaResultado, setAbaResultado] = useState<'texto' | 'tabela'>('texto');
+  
+  // Controle de quantidades por produtoNormalizado
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
+  
+  // Fornecedor ativo para visualização na tabela ('TODOS' ou nome específico)
+  const [fornecedorFiltro, setFornecedorFiltro] = useState<string>('TODOS');
+  
+  // Opção: copiar apenas os itens que tiveram quantidade > 0 preenchida
+  const [apenasComQuantidade, setApenasComQuantidade] = useState(false);
+
+  // Estados de feedback de cópia
   const [copiadoGeral, setCopiadoGeral] = useState(false);
   const [copiadoFornecedor, setCopiadoFornecedor] = useState<Record<string, boolean>>({});
 
@@ -66,9 +83,10 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     setTexto('');
     setResultado(null);
     setQuantidades({});
+    setFornecedorFiltro('TODOS');
   };
 
-  const handleProcessar = async (quantidadesAtuais = quantidades) => {
+  const handleProcessar = async () => {
     if (!texto.trim()) {
       addToast('Cole o texto com as cotações para comparar.', 'warning');
       return;
@@ -82,14 +100,14 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
         body: JSON.stringify({
           texto,
           usarIA,
-          quantidades: quantidadesAtuais
+          quantidades
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
         setResultado(data);
-        addToast('✅ Cotações analisadas! Menores preços separados.', 'success');
+        addToast(`✅ Cotações analisadas! ${data.fornecedoresEncontrados?.length || 0} fornecedores separados.`, 'success');
       } else {
         addToast('Aviso: ' + (data.mensagem || data.error || 'Nenhum dado extraído.'), 'warning');
       }
@@ -102,32 +120,148 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
   const handleMudarQuantidade = (chave: string, val: string) => {
     const num = val === '' ? 0 : parseInt(val, 10);
-    const novasQtds = {
-      ...quantidades,
-      [chave]: isNaN(num) ? 0 : num
-    };
-    setQuantidades(novasQtds);
-    // Atualiza o texto gerado com a nova quantidade informada
-    if (resultado) {
-      handleProcessar(novasQtds);
-    }
+    setQuantidades(prev => ({
+      ...prev,
+      [chave]: isNaN(num) || num < 0 ? 0 : num
+    }));
   };
 
-  const handleCopiarTexto = (textoParaCopiar: string, fornecedorKey?: string) => {
-    if (!textoParaCopiar) return;
-    navigator.clipboard.writeText(textoParaCopiar).then(() => {
-      if (fornecedorKey) {
-        setCopiadoFornecedor(prev => ({ ...prev, [fornecedorKey]: true }));
-        setTimeout(() => {
-          setCopiadoFornecedor(prev => ({ ...prev, [fornecedorKey]: false }));
-        }, 2000);
-      } else {
-        setCopiadoGeral(true);
-        setTimeout(() => setCopiadoGeral(false), 2000);
+  // Calcula totais individuais por fornecedor
+  const metricasFornecedores = useMemo(() => {
+    if (!resultado || !resultado.fornecedoresResumo) return {};
+
+    const mapa: Record<string, { totalItens: number; itensComQtd: number; valorTotal: number; unidadesTotal: number }> = {};
+    let geralValor = 0;
+    let geralUnidades = 0;
+    let geralItensComQtd = 0;
+
+    for (const bloco of resultado.fornecedoresResumo) {
+      let valorFornecedor = 0;
+      let unidadesFornecedor = 0;
+      let itensComQtd = 0;
+
+      for (const prod of (bloco.produtos || [])) {
+        const qtd = quantidades[prod.produtoNormalizado] || 0;
+        if (qtd > 0) {
+          itensComQtd++;
+          unidadesFornecedor += qtd;
+          valorFornecedor += qtd * prod.menorPreco;
+        }
       }
-      addToast('📋 Texto copiado para a área de transferência!', 'success');
-    }).catch(() => {
-      addToast('Falha ao copiar automaticamente. Selecione e copie manualmente.', 'error');
+
+      mapa[bloco.fornecedor] = {
+        totalItens: (bloco.produtos || []).length,
+        itensComQtd,
+        valorTotal: valorFornecedor,
+        unidadesTotal: unidadesFornecedor
+      };
+
+      geralValor += valorFornecedor;
+      geralUnidades += unidadesFornecedor;
+      geralItensComQtd += itensComQtd;
+    }
+
+    return {
+      porFornecedor: mapa,
+      geral: {
+        valorTotal: geralValor,
+        unidadesTotal: geralUnidades,
+        itensComQtd: geralItensComQtd
+      }
+    };
+  }, [resultado, quantidades]);
+
+  /**
+   * Gera o texto LIMPO por fornecedor:
+   * Apenas Produto | Quantidade | Preço Unitário | Subtotal e Totalizadores.
+   */
+  const gerarTextoLimpoFornecedor = (fornecedorNome: string, apenasComQtd = apenasComQuantidade) => {
+    if (!resultado || !resultado.fornecedoresResumo) return '';
+    const bloco = resultado.fornecedoresResumo.find((f: any) => f.fornecedor === fornecedorNome);
+    if (!bloco) return '';
+
+    let produtosParaListar = bloco.produtos || [];
+    if (apenasComQtd) {
+      produtosParaListar = produtosParaListar.filter((p: any) => (quantidades[p.produtoNormalizado] || 0) > 0);
+    }
+
+    if (produtosParaListar.length === 0) {
+      return `PEDIDO DE COMPRA - ${fornecedorNome}\n(Nenhum produto com quantidade preenchida)`;
+    }
+
+    let textoOut = `==================================================\n`;
+    textoOut += `PEDIDO DE COMPRA - ${fornecedorNome}\n`;
+    textoOut += `==================================================\n`;
+
+    let totalGeralFornecedor = 0;
+    let totalUnidadesFornecedor = 0;
+
+    produtosParaListar.forEach((item: any, idx: number) => {
+      const num = String(idx + 1).padStart(2, '0');
+      const qtd = quantidades[item.produtoNormalizado] || 0;
+      const precoUnit = item.menorPreco;
+      const subtotal = qtd * precoUnit;
+
+      totalGeralFornecedor += subtotal;
+      totalUnidadesFornecedor += qtd;
+
+      const unitFormatado = precoUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const subtotalFormatado = subtotal > 0
+        ? subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+        : 'R$ 0,00';
+
+      const qtdTexto = qtd > 0 ? String(qtd).padStart(4, ' ') : '____';
+
+      textoOut += `${num}. ${item.produto} | Qtd: ${qtdTexto} | Unit: ${unitFormatado} | Total: ${subtotalFormatado}\n`;
+    });
+
+    textoOut += `--------------------------------------------------\n`;
+    textoOut += `Itens no pedido: ${produtosParaListar.length}\n`;
+    if (totalUnidadesFornecedor > 0) {
+      textoOut += `Total de unidades: ${totalUnidadesFornecedor}\n`;
+    }
+    textoOut += `VALOR TOTAL DO PEDIDO: ${totalGeralFornecedor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
+    textoOut += `==================================================\n`;
+
+    return textoOut;
+  };
+
+  /**
+   * Gera o texto LIMPO consolidado de TODOS os fornecedores.
+   */
+  const gerarTextoLimpoConsolidado = (apenasComQtd = apenasComQuantidade) => {
+    if (!resultado || !resultado.fornecedoresResumo) return '';
+    const blocos = resultado.fornecedoresResumo.map((f: any) => gerarTextoLimpoFornecedor(f.fornecedor, apenasComQtd));
+    
+    let textoTotal = blocos.join('\n\n');
+    const metricas = metricasFornecedores.geral;
+    if (metricas && metricas.valorTotal > 0) {
+      textoTotal += `\n\n==================================================\n`;
+      textoTotal += `RESUMO GERAL CONSOLIDADO DE COMPRAS\n`;
+      textoTotal += `Total de itens pedidos: ${metricas.itensComQtd}\n`;
+      textoTotal += `Total geral de unidades: ${metricas.unidadesTotal}\n`;
+      textoTotal += `VALOR TOTAL GERAL: ${metricas.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
+      textoTotal += `==================================================\n`;
+    }
+
+    return textoTotal;
+  };
+
+  const handleCopiarFornecedor = (fornecedorNome: string) => {
+    const textoLimpo = gerarTextoLimpoFornecedor(fornecedorNome);
+    navigator.clipboard.writeText(textoLimpo).then(() => {
+      setCopiadoFornecedor(prev => ({ ...prev, [fornecedorNome]: true }));
+      setTimeout(() => setCopiadoFornecedor(prev => ({ ...prev, [fornecedorNome]: false })), 2000);
+      addToast(`📋 Pedido limpo de ${fornecedorNome} copiado com sucesso!`, 'success');
+    });
+  };
+
+  const handleCopiarTudo = () => {
+    const textoLimpo = gerarTextoLimpoConsolidado();
+    navigator.clipboard.writeText(textoLimpo).then(() => {
+      setCopiadoGeral(true);
+      setTimeout(() => setCopiadoGeral(false), 2000);
+      addToast('📋 Todos os pedidos consolidados copiados!', 'success');
     });
   };
 
@@ -145,12 +279,19 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     }
   };
 
+  // Fornecedores a exibir com base no filtro
+  const blocosExibicao = useMemo(() => {
+    if (!resultado || !resultado.fornecedoresResumo) return [];
+    if (fornecedorFiltro === 'TODOS') return resultado.fornecedoresResumo;
+    return resultado.fornecedoresResumo.filter((b: any) => b.fornecedor === fornecedorFiltro);
+  }, [resultado, fornecedorFiltro]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-6xl max-h-[94vh] flex flex-col overflow-hidden">
         
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 md:px-7 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+        {/* Topo / Header */}
+        <div className="flex items-center justify-between p-4 md:px-7 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-gradient-to-br from-red-500 to-orange-500 text-white rounded-2xl shadow-md">
               <FileText className="w-5 h-5" />
@@ -159,11 +300,11 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 Comparador de Cotações em Texto
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
-                  Menor Preço Automático
+                  Tabelas por Fornecedor & Pedidos Limpos
                 </span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Cole as cotações recebidas dos seus fornecedores. O sistema separa os itens com o menor preço e devolve o texto pronto para preencher as quantidades.
+                Digite as quantidades diretamente nas tabelas de cada fornecedor e gere textos limpos com unitário, subtotal e total geral.
               </p>
             </div>
           </div>
@@ -176,15 +317,15 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
           </button>
         </div>
 
-        {/* Corpo do Modal com Scroll */}
-        <div className="flex-1 overflow-y-auto p-5 md:p-7 space-y-6 custom-scrollbar">
+        {/* Corpo com Scroll */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
           
-          {/* Seção 1: Entrada do Texto */}
-          <div className="space-y-3">
+          {/* Caixa de Entrada de Texto (Retrátil se já houver resultados) */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <label className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-red-500" />
-                Texto da Cotação (Cole aqui o texto dos fornecedores)
+                Texto da Cotação (Cole aqui o texto recebido de todos os representantes)
               </label>
 
               <div className="flex items-center gap-2">
@@ -210,19 +351,16 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
               </div>
             </div>
 
-            <div className="relative">
-              <textarea
-                value={texto}
-                onChange={e => setTexto(e.target.value)}
-                placeholder="Exemplo:&#10;&#10;DISTRIBUIDORA SANTA CRUZ:&#10;Dipirona 500mg cx 100 - R$ 12,50&#10;Amoxicilina 500mg c/ 21 - R$ 10,90&#10;&#10;PANPHARMA:&#10;Dipirona 500mg c/ 100: R$ 11,80&#10;Amoxicilina 500mg c/ 21: R$ 11,50"
-                rows={7}
-                className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-800 dark:text-slate-200 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all resize-y shadow-inner"
-              />
-            </div>
+            <textarea
+              value={texto}
+              onChange={e => setTexto(e.target.value)}
+              placeholder="Cole aqui o texto da cotação com os nomes dos representantes (ex: SILAS, FELIPE, FRAN, GUILHERME) e seus produtos/preços..."
+              rows={resultado ? 4 : 7}
+              className="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all resize-y shadow-inner"
+            />
 
-            {/* Ações e Alternadores */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={usarIA}
@@ -231,293 +369,323 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                 />
                 <span className="flex items-center gap-1 font-bold">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  Modo Avançado com IA (para textos altamente informais)
+                  Modo com IA (opcional)
                 </span>
               </label>
 
               <button
                 type="button"
-                onClick={() => handleProcessar()}
+                onClick={handleProcessar}
                 disabled={processando || !texto.trim()}
-                className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
               >
                 {processando ? (
                   <>
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Separando Melhores Preços...
+                    Separando Fornecedores...
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    Comparar e Separar Melhores Preços
+                    {resultado ? 'Reanalisar Texto' : 'Comparar e Separar Fornecedores'}
                   </>
                 )}
               </button>
             </div>
           </div>
 
-          {/* Seção 2: Resultados */}
+          {/* Área de Tabelas por Fornecedor */}
           {resultado && resultado.success && (
-            <div className="space-y-5 pt-4 border-t border-slate-200 dark:border-slate-800 animate-in fade-in duration-300">
+            <div className="space-y-6 animate-in fade-in duration-300">
               
-              {/* Badges de Resumo Estatístico */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
-                    <Building2 className="w-3 h-3 text-red-500" /> Fornecedores
+              {/* Barra de Ações Rápidas & Total Geral Consolidado */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900 text-white shadow-md">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Totalizador Consolidado de Todas as Compras
                   </span>
-                  <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
-                    {resultado.estatisticas?.totalFornecedores || 0}
+                  <div className="flex flex-wrap items-baseline gap-4">
+                    <span className="text-2xl font-black text-emerald-400">
+                      {(metricasFornecedores.geral?.valorTotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
+                    <span className="text-xs text-slate-300 font-bold">
+                      {metricasFornecedores.geral?.unidadesTotal || 0} unidades em {metricasFornecedores.geral?.itensComQtd || 0} itens selecionados
+                    </span>
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
-                    <Package className="w-3 h-3 text-blue-500" /> Produtos Únicos
-                  </span>
-                  <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
-                    {resultado.estatisticas?.totalProdutosUnicos || 0}
-                  </div>
-                </div>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <label className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold cursor-pointer select-none border border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={apenasComQuantidade}
+                      onChange={e => setApenasComQuantidade(e.target.checked)}
+                      className="rounded text-red-600 focus:ring-red-500 h-4 w-4"
+                    />
+                    <span>Copiar apenas itens com Qtd {'>'} 0</span>
+                  </label>
 
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
-                    <Layers className="w-3 h-3 text-amber-500" /> Ofertas Lidas
-                  </span>
-                  <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
-                    {resultado.estatisticas?.totalOfertas || 0}
-                  </div>
-                </div>
+                  <button
+                    onClick={handleCopiarTudo}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-md"
+                  >
+                    {copiadoGeral ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
+                    {copiadoGeral ? 'Copiado!' : 'Copiar Todos os Pedidos'}
+                  </button>
 
-                <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60">
-                  <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                    <TrendingDown className="w-3 h-3" /> Economia Est.
-                  </span>
-                  <div className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
-                    {(Number(resultado.estatisticas?.economiaTotalEstimada) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </div>
+                  {onCriarCotacaoOficial && (
+                    <button
+                      onClick={handleEnviarParaCotacaoOficial}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-black transition-all cursor-pointer border border-slate-700"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                      Cotação ERP
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Seletor de Visualização (Texto para Pedido vs Tabela) */}
-              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setAbaResultado('texto')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
-                      abaResultado === 'texto'
-                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    📝 Texto Pronto para Pedido
-                  </button>
+              {/* Filtro por Abas de Fornecedor */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  onClick={() => setFornecedorFiltro('TODOS')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black uppercase transition-all cursor-pointer shrink-0 ${
+                    fornecedorFiltro === 'TODOS'
+                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Todos os Fornecedores ({resultado.fornecedoresResumo?.length || 0})
+                </button>
 
-                  <button
-                    onClick={() => setAbaResultado('tabela')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
-                      abaResultado === 'tabela'
-                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    📊 Comparativo em Tabela
-                  </button>
-                </div>
-
-                {onCriarCotacaoOficial && (
-                  <button
-                    type="button"
-                    onClick={handleEnviarParaCotacaoOficial}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:hover:bg-red-900 text-red-700 dark:text-red-300 text-xs font-black transition-all cursor-pointer"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    Salvar como Cotação no BelaFarma
-                  </button>
-                )}
-              </div>
-
-              {/* Visão 1: Texto Pronto para Pedido */}
-              {abaResultado === 'texto' && (
-                <div className="space-y-6">
-                  {/* Bloco Geral com Botão Copiar Tudo */}
-                  <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 font-mono text-xs border border-slate-800 shadow-md space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                      <span className="text-[11px] font-bold text-slate-400">
-                        Texto Completo Estruturado com Campos de Quantidade
+                {resultado.fornecedoresResumo?.map((bloco: any) => {
+                  const isSelected = fornecedorFiltro === bloco.fornecedor;
+                  const m = metricasFornecedores.porFornecedor?.[bloco.fornecedor];
+                  return (
+                    <button
+                      key={bloco.fornecedor}
+                      onClick={() => setFornecedorFiltro(bloco.fornecedor)}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black uppercase transition-all cursor-pointer shrink-0 border ${
+                        isSelected
+                          ? 'border-red-500 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 shadow-sm'
+                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:border-slate-300'
+                      }`}
+                    >
+                      <Building2 className="w-3.5 h-3.5 text-red-500" />
+                      <span>{bloco.fornecedor}</span>
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 font-bold">
+                        {bloco.totalItens} itens
                       </span>
-                      <button
-                        onClick={() => handleCopiarTexto(resultado.textoFormatado)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95"
-                      >
-                        {copiadoGeral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        {copiadoGeral ? 'Copiado!' : 'Copiar Texto Completo'}
-                      </button>
-                    </div>
+                      {m && m.valorTotal > 0 && (
+                        <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
+                          {m.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
 
-                    <pre className="whitespace-pre-wrap leading-relaxed overflow-x-auto max-h-72 p-2 bg-slate-950/60 rounded-xl text-slate-300">
-                      {resultado.textoFormatado}
-                    </pre>
-                  </div>
+              {/* Lista de Tabelas Separadas por Fornecedor */}
+              <div className="space-y-6">
+                {blocosExibicao.map((bloco: any) => {
+                  const m = metricasFornecedores.porFornecedor?.[bloco.fornecedor] || {
+                    totalItens: bloco.totalItens,
+                    itensComQtd: 0,
+                    valorTotal: 0,
+                    unidadesTotal: 0
+                  };
 
-                  {/* Cartões Individuais por Fornecedor (Com inputs de quantidade) */}
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Separado por Fornecedor Vencedor (Permite preencher quantidades na tela):
-                    </h4>
-
-                    {resultado.fornecedoresResumo?.map((bloco: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-                          <div className="flex items-center gap-2">
-                            <span className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-red-500 font-black">
-                              <Building2 className="w-4 h-4" />
+                  return (
+                    <div
+                      key={bloco.fornecedor}
+                      className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden"
+                    >
+                      {/* Cabeçalho da Tabela do Fornecedor */}
+                      <div className="p-4 md:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <span className="p-2.5 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 font-black">
+                            <Building2 className="w-5 h-5" />
+                          </span>
+                          <div>
+                            <h4 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                              {bloco.fornecedor}
+                              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                {bloco.totalItens} itens com o menor preço
+                              </span>
+                            </h4>
+                            <span className="text-xs text-slate-400 font-medium">
+                              {m.itensComQtd} itens com quantidade preenchida ({m.unidadesTotal} unidades)
                             </span>
-                            <div>
-                              <h5 className="text-sm font-black text-slate-900 dark:text-white">
-                                {bloco.fornecedor}
-                              </h5>
-                              <span className="text-xs text-slate-400">
-                                {bloco.totalItens} {bloco.totalItens === 1 ? 'item com o menor preço' : 'itens com o menor preço'}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {m.valorTotal > 0 && (
+                            <div className="text-right sm:mr-2">
+                              <span className="text-[10px] font-black uppercase text-slate-400 block">
+                                Subtotal deste Fornecedor
+                              </span>
+                              <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                                {m.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </span>
                             </div>
-                          </div>
+                          )}
 
                           <button
-                            onClick={() => handleCopiarTexto(bloco.textoIndividual, bloco.fornecedor)}
-                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-700 dark:text-slate-300 hover:text-red-600 text-xs font-black transition-all cursor-pointer active:scale-95"
+                            onClick={() => handleCopiarFornecedor(bloco.fornecedor)}
+                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-sm"
                           >
-                            {copiadoFornecedor[bloco.fornecedor] ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                            {copiadoFornecedor[bloco.fornecedor] ? 'Copiado!' : `Copiar Pedido de ${bloco.fornecedor}`}
+                            {copiadoFornecedor[bloco.fornecedor] ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                            {copiadoFornecedor[bloco.fornecedor] ? 'Copiado!' : `Copiar Pedido Limpo de ${bloco.fornecedor}`}
                           </button>
                         </div>
+                      </div>
 
-                        {/* Itens do Fornecedor com input de Quantidade */}
-                        <div className="space-y-2">
-                          {bloco.produtos?.map((prod: any, pIdx: number) => {
-                            const qtdAtual = quantidades[prod.produtoNormalizado] || '';
-                            return (
-                              <div
-                                key={pIdx}
-                                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800/80 text-xs"
-                              >
-                                <div className="space-y-0.5 flex-1">
-                                  <div className="font-black text-slate-800 dark:text-slate-200">
-                                    {prod.produto}
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 font-medium">
-                                    {prod.concorrenteInfo}
-                                  </div>
-                                </div>
+                      {/* Tabela Interativa de Produtos */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100/70 dark:bg-slate-800/30 text-slate-500 dark:text-slate-400 font-black uppercase border-b border-slate-200 dark:border-slate-800">
+                              <th className="py-3 px-4 w-12 text-center">#</th>
+                              <th className="py-3 px-4">Produto</th>
+                              <th className="py-3 px-4 text-right w-28">Preço Unit.</th>
+                              <th className="py-3 px-4 text-center w-32">Quantidade</th>
+                              <th className="py-3 px-4 text-right w-32">Subtotal</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-300">
+                            {bloco.produtos?.map((prod: any, pIdx: number) => {
+                              const qtdAtual = quantidades[prod.produtoNormalizado] || 0;
+                              const subtotal = qtdAtual * prod.menorPreco;
+                              const temQtd = qtdAtual > 0;
 
-                                <div className="flex items-center gap-4 shrink-0">
-                                  <div className="text-right">
-                                    <div className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                                      {(Number(prod.menorPreco) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              return (
+                                <tr
+                                  key={pIdx}
+                                  className={`transition-colors ${
+                                    temQtd
+                                      ? 'bg-emerald-50/40 dark:bg-emerald-950/20'
+                                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                                  }`}
+                                >
+                                  <td className="py-3 px-4 text-center font-bold text-slate-400">
+                                    {String(pIdx + 1).padStart(2, '0')}
+                                  </td>
+                                  
+                                  <td className="py-3 px-4">
+                                    <div className="font-bold text-slate-900 dark:text-white">
+                                      {prod.produto}
                                     </div>
-                                    <span className="text-[10px] text-slate-400">unitário</span>
-                                  </div>
+                                    <div className="text-[11px] text-slate-400 font-medium">
+                                      {prod.concorrenteInfo}
+                                    </div>
+                                  </td>
 
-                                  <div className="flex items-center gap-1.5">
-                                    <label className="text-[11px] font-bold text-slate-500">Qtd:</label>
+                                  <td className="py-3 px-4 text-right font-black text-slate-900 dark:text-white text-xs">
+                                    {prod.menorPreco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </td>
+
+                                  <td className="py-3 px-4 text-center">
                                     <input
                                       type="number"
-                                      min="1"
-                                      placeholder="____"
-                                      value={qtdAtual}
+                                      min="0"
+                                      placeholder="0"
+                                      value={qtdAtual === 0 ? '' : qtdAtual}
                                       onChange={e => handleMudarQuantidade(prod.produtoNormalizado, e.target.value)}
-                                      className="w-16 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-slate-800 dark:text-slate-100 text-xs focus:ring-1 focus:ring-red-500 focus:outline-none"
+                                      className={`w-24 px-3 py-1.5 rounded-xl border text-center font-black text-xs transition-all focus:outline-none focus:ring-2 focus:ring-red-500/20 ${
+                                        temQtd
+                                          ? 'border-emerald-500 bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 ring-2 ring-emerald-500/10'
+                                          : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200'
+                                      }`}
                                     />
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                  </td>
+
+                                  <td className="py-3 px-4 text-right font-black text-xs">
+                                    {subtotal > 0 ? (
+                                      <span className="text-emerald-600 dark:text-emerald-400 text-sm">
+                                        {subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 dark:text-slate-600">-</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Rodapé da Tabela do Fornecedor com Totalizador */}
+                      <div className="p-4 md:px-6 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400 font-bold">
+                          <span>Total de itens no fornecedor: <b>{bloco.totalItens}</b></span>
+                          <span>•</span>
+                          <span>Com quantidade preenchida: <b className="text-emerald-600 dark:text-emerald-400">{m.itensComQtd}</b></span>
+                          <span>•</span>
+                          <span>Unidades: <b>{m.unidadesTotal}</b></span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-slate-600 dark:text-slate-300">
+                            Total {bloco.fornecedor}:
+                          </span>
+                          <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                            {m.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                          <button
+                            onClick={() => handleCopiarFornecedor(bloco.fornecedor)}
+                            className="ml-2 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black uppercase transition-all cursor-pointer"
+                          >
+                            {copiadoFornecedor[bloco.fornecedor] ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            Copiar Pedido Limpo
+                          </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    </div>
+                  );
+                })}
+              </div>
 
-              {/* Visão 2: Comparativo em Tabela */}
-              {abaResultado === 'tabela' && (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 font-black uppercase border-b border-slate-200 dark:border-slate-800">
-                          <th className="p-3.5">Produto</th>
-                          <th className="p-3.5">Melhor Fornecedor</th>
-                          <th className="p-3.5 text-right">Menor Preço</th>
-                          <th className="p-3.5">Todas as Ofertas</th>
-                          <th className="p-3.5 text-right">Economia</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-300">
-                        {resultado.itensComparados?.map((item: any, iIdx: number) => (
-                          <tr key={iIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                            <td className="p-3.5 font-bold text-slate-900 dark:text-white">
-                              {item.produto}
-                            </td>
-                            <td className="p-3.5">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-black text-[11px]">
-                                <Check className="w-3 h-3" />
-                                {item.vencedor}
-                              </span>
-                            </td>
-                            <td className="p-3.5 text-right font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                              {(Number(item.menorPreco) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </td>
-                            <td className="p-3.5">
-                              <div className="flex flex-wrap gap-1.5">
-                                {item.todasOfertas?.map((of: any, oIdx: number) => (
-                                  <span
-                                    key={oIdx}
-                                    className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                                      of.isVencedor
-                                        ? 'bg-emerald-500/10 text-emerald-600 font-bold'
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                                    }`}
-                                  >
-                                    {of.fornecedor}: {(Number(of.preco) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="p-3.5 text-right">
-                              {item.economiaUnitario > 0 ? (
-                                <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                  -{(Number(item.economiaPercentual) || 0).toFixed(1)}%
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+              {/* Pré-visualização do Texto Limpo que será enviado */}
+              <div className="p-5 rounded-3xl bg-slate-900 text-slate-100 font-mono text-xs border border-slate-800 shadow-md space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <span className="text-[11px] font-bold text-slate-400 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-emerald-400" />
+                    Prévia do Texto Limpo para WhatsApp (Apenas Produto, Quantidade, Unitário e Totais)
+                  </span>
+
+                  <button
+                    onClick={handleCopiarTudo}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95"
+                  >
+                    {copiadoGeral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiadoGeral ? 'Copiado!' : 'Copiar Texto Completo Limpo'}
+                  </button>
                 </div>
-              )}
+
+                <pre className="whitespace-pre-wrap leading-relaxed overflow-x-auto max-h-64 p-3 bg-slate-950 rounded-xl text-emerald-300 font-mono text-[11px]">
+                  {gerarTextoLimpoConsolidado()}
+                </pre>
+              </div>
+
             </div>
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer do Modal */}
         <div className="p-4 md:px-7 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between text-xs text-slate-400 font-medium">
-          <span>Dica: Você pode copiar o texto completo ou apenas os itens de cada fornecedor específico para enviar pelo WhatsApp.</span>
+          <span>O texto copiado contém apenas o produto, a quantidade digitada, o preço unitário e os totalizadores.</span>
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold transition-all cursor-pointer"
+            className="px-5 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-black transition-all cursor-pointer"
           >
             Fechar
           </button>
         </div>
+
       </div>
     </div>
   );

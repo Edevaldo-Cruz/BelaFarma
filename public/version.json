@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "39b845a",
-  "commitMessage": "feat(compras): adicionar comparador de cotacoes em texto por menor preco e gerador de pedidos",
-  "buildTime": "10/09/2026, 18:53:16"
+  "commitHash": "459b563",
+  "commitMessage": "fix(compras): calibrar reconhecimento de fornecedores por representantes e apresentacoes farmaceuticas",
+  "buildTime": "10/09/2026, 19:26:16"
 }
