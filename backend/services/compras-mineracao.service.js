@@ -302,6 +302,101 @@ function isApenasEmbalagemOuQuantidade(str) {
 }
 
 /**
+ * Extrai a validade da oferta informada pelo fornecedor na mensagem de WhatsApp.
+ * Suporta formatos explícitos (DD/MM, DD/MM/YYYY), dias da semana, termos relativos ("até amanhã", "por X dias").
+ * Retorna { validadeOferta: 'YYYY-MM-DD' | null, validadeTexto: string | null }
+ */
+function extrairValidadeDaMensagem(texto, dataReferencia = new Date()) {
+  if (!texto || typeof texto !== 'string') return { validadeOferta: null, validadeTexto: null };
+
+  const ref = dataReferencia instanceof Date && !isNaN(dataReferencia) ? new Date(dataReferencia) : new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const formatYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  // 1. Data fixa: "válido até 15/09", "promoção até 15/09/2026", "validade: 20/09"
+  const dateRegex = /\b(?:v[áa]lid[ao]\s+at[ée]|promo[çc][ãa]o\s+at[ée]|at[ée]\s+o\s+dia|vig[êe]ncia\s+at[ée]|validade\s*:?)\s*(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?/i;
+  const mDate = dateRegex.exec(texto);
+  if (mDate) {
+    const dia = parseInt(mDate[1], 10);
+    const mes = parseInt(mDate[2], 10);
+    let ano = mDate[3] ? parseInt(mDate[3], 10) : ref.getFullYear();
+    if (ano < 100) ano += 2000;
+    if (mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+      const dAlvo = new Date(ano, mes - 1, dia, 23, 59, 59);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mDate[0].trim()
+      };
+    }
+  }
+
+  // 2. Dia da semana: "válido até sexta-feira", "promoção até quarta"
+  const weekRegex = /\b(?:v[áa]lid[ao]\s+at[ée]|promo[çc][ãa]o\s+at[ée]|at[ée])\s*(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)(?:-feira)?/i;
+  const mWeek = weekRegex.exec(texto);
+  if (mWeek) {
+    const mapaDias = {
+      domingo: 0, segunda: 1, terca: 2, terça: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6, sábado: 6
+    };
+    const diaAlvo = mapaDias[mWeek[1].toLowerCase()];
+    if (diaAlvo !== undefined) {
+      const dAlvo = new Date(ref);
+      let diff = diaAlvo - dAlvo.getDay();
+      if (diff <= 0) diff += 7; // Próximo dia da semana correspondente
+      dAlvo.setDate(dAlvo.getDate() + diff);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mWeek[0].trim()
+      };
+    }
+  }
+
+  // 3. Relativo amanhã: "válido até amanhã", "válido amanhã", "somente hoje e amanhã"
+  const amanhãRegex = /\b(?:v[áa]lid[ao]\s+(?:at[ée]\s+)?amanh[ãa]|somente\s+hoje\s+e\s+amanh[ãa]|at[ée]\s+amanh[ãa])/i;
+  const mAmanhã = amanhãRegex.exec(texto);
+  if (mAmanhã) {
+    const dAlvo = new Date(ref);
+    dAlvo.setDate(dAlvo.getDate() + 1);
+    return {
+      validadeOferta: formatYMD(dAlvo),
+      validadeTexto: mAmanhã[0].trim()
+    };
+  }
+
+  // 4. Quantidade de dias: "válido por 3 dias"
+  const diasRegex = /\b(?:v[áa]lid[ao]\s+por\s+(\d+)\s+dias?)/i;
+  const mDias = diasRegex.exec(texto);
+  if (mDias) {
+    const qtdDias = parseInt(mDias[1], 10);
+    if (qtdDias > 0 && qtdDias <= 60) {
+      const dAlvo = new Date(ref);
+      dAlvo.setDate(dAlvo.getDate() + qtdDias);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mDias[0].trim()
+      };
+    }
+  }
+
+  // 5. Quantidade de horas: "válido por 48 horas"
+  const horasRegex = /\b(?:v[áa]lid[ao]\s+por\s+(\d+)\s+horas?)/i;
+  const mHoras = horasRegex.exec(texto);
+  if (mHoras) {
+    const qtdHoras = parseInt(mHoras[1], 10);
+    const dias = Math.ceil(qtdHoras / 24);
+    if (dias > 0 && dias <= 60) {
+      const dAlvo = new Date(ref);
+      dAlvo.setDate(dAlvo.getDate() + dias);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mHoras[0].trim()
+      };
+    }
+  }
+
+  return { validadeOferta: null, validadeTexto: null };
+}
+
+/**
  * Identifica ofertas de produtos individuais em linhas de texto
  */
 function extrairLinhasDeOferta(texto) {
@@ -309,10 +404,27 @@ function extrairLinhasDeOferta(texto) {
   const ofertas = [];
   const linhas = texto.split(/\r?\n/);
   let ultimoContextoProduto = null;
+  let comboAtual = null;
 
   for (const linha of linhas) {
     const trimmed = linha.trim();
     if (!trimmed || trimmed.length < 3) continue;
+
+    // Detecta cabeçalhos de combos / pacotes / kits promocionais
+    const mCombo = /^(?:COMBO|PACOTE|KIT|OFERTA\s+COMBINADA)\b[\s:]*(.*)/i.exec(trimmed);
+    if (mCombo && !/(?:R\$|[\d]{1,4}[,\.]\d{2})/i.test(trimmed)) {
+      const nomeDet = mCombo[1] ? mCombo[1].trim() : '';
+      comboAtual = {
+        id: 'combo_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+        nome: (trimmed.length < 50 ? trimmed : 'Combo ' + nomeDet).replace(/[*_#~]/g, '').trim()
+      };
+      continue;
+    }
+
+    // Se encontrar separador de seção ou termos de saída do combo
+    if (comboAtual && /^(?:CONDI[CÇ][ÕO]ES|PRAZOS?|PEDIDO\s+M[IÍ]NIMO|OUTRAS\s+OFERTAS|TABELA)\b/i.test(trimmed)) {
+      comboAtual = null;
+    }
 
     // Ignora linhas que são de condições de pagamento ou pedido mínimo
     if (/\b(?:pedido\s+m[íi]nimo|faturamento\s+m[íi]nimo|condi[çc][õo]es|prazos?|boletos?|frete)\b/i.test(trimmed)) {
@@ -496,6 +608,9 @@ function extrairLinhasDeOferta(texto) {
           qtdMinima: 1,
           faixasPreco: [{ qtdMinima: 1, preco: Number(precoLiquido.toFixed(2)) }],
           bonificacao,
+          isCombo: comboAtual ? true : false,
+          comboId: comboAtual ? comboAtual.id : null,
+          comboNome: comboAtual ? comboAtual.nome : null,
           linhaRaw: trimmed
         });
       }
@@ -512,6 +627,24 @@ function extrairLinhasDeOferta(texto) {
     }
   }
 
+  // Agrupa os itens de cada combo para que cada oferta conheça os produtos vinculados ao seu pacote
+  const comboMap = {};
+  for (const ofr of ofertas) {
+    if (ofr.isCombo && ofr.comboId) {
+      if (!comboMap[ofr.comboId]) comboMap[ofr.comboId] = [];
+      comboMap[ofr.comboId].push({
+        produtoNome: ofr.produtoNome,
+        qtdMinima: ofr.qtdMinima || 1,
+        precoOfertado: ofr.precoOfertado
+      });
+    }
+  }
+  for (const ofr of ofertas) {
+    if (ofr.isCombo && ofr.comboId && comboMap[ofr.comboId]) {
+      ofr.comboDados = comboMap[ofr.comboId];
+    }
+  }
+
   return ofertas;
 }
 
@@ -522,6 +655,7 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
   const norm = normalizeText(texto);
   const prazos = extrairPrazos(norm);
   const pedidoMinimo = extrairPedidoMinimo(norm);
+  const { validadeOferta, validadeTexto } = extrairValidadeDaMensagem(texto);
   const { distribuidora, laboratorios } = extrairDistribuidoraELaboratorios(norm);
   const representanteNome = extrairNomeRepresentante(
     norm,
@@ -553,6 +687,8 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
     representante: representanteNome,
     distribuidora: distribuidora || remetenteInfo.distribuidora || null,
     telefone: remetenteInfo.telefone || remetenteInfo.phone || null,
+    validadeOferta,
+    validadeTexto,
     prazosPagamento: prazos,
     pedidoMinimoValor: pedidoMinimo.valor,
     pedidoMinimoCondicoes: pedidoMinimo.condicoes,
@@ -581,13 +717,16 @@ REGRAS:
 2. Preço: Extraia APENAS o preço ofertado. O preço deve ser um número decimal (float, com ponto). Ignore preços sem sentido ou produtos sem preço.
 3. Não inclua moedas (R$) ou indicadores (por, cada) no nome do produto ou no preço.
 4. Distribuidora/Representante/Prazos/Pedido Mínimo: Extraia se for informado no texto.
-
-    5. Escalonamento de Preço / Faixas de Quantidade: Quando um produto tiver faixas de preço por quantidade mínima (ex: "1 un -> 8,29", "6 un -> 7,69", "60 un -> 7,19" ou "a partir de 10 un: 5,00"): extraia no array "faixasPreco": [{"qtdMinima": 1, "preco": 8.29}, ...]. Em "precoOfertado", coloque o preço base (menor quantidade, ex: 1 un) e NUNCA coloque as faixas ("un. ->") no "produtoNome".
+5. Escalonamento de Preço / Faixas de Quantidade: Quando um produto tiver faixas de preço por quantidade mínima (ex: "1 un -> 8,29", "6 un -> 7,69", "60 un -> 7,19" ou "a partir de 10 un: 5,00"): extraia no array "faixasPreco": [{"qtdMinima": 1, "preco": 8.29}, ...]. Em "precoOfertado", coloque o preço base (menor quantidade, ex: 1 un) e NUNCA coloque as faixas ("un. ->") no "produtoNome".
+6. Validade da Oferta: Se o representante informou prazo de validade (ex: "válido até 15/09", "promoção até sexta", "válido por 3 dias", "válido até amanhã"), extraia em "validadeOferta" a data limite no formato YYYY-MM-DD (calculando a data futura correspondente) e em "validadeTexto" a frase original de validade. Se não informou, retorne null.
+7. Combos e Pacotes Promocionais: Se a mensagem contiver ofertas amarradas em combo/pacote/kit (ex: "COMBO 1: 10 un de X a 5,00 + 5 un de Y a 12,00", "Pacote Neo Química: ..."), defina "isCombo": true, forneça o "comboNome" e um "comboId" para cada produto que integra o combo. Se for oferta avulsa/normal, coloque "isCombo": false e comboId: null.
 
 RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
 {
   "distribuidora": "nome ou null",
   "representante": "nome ou null",
+  "validadeOferta": "YYYY-MM-DD ou null",
+  "validadeTexto": "frase original da validade ou null",
   "prazosPagamento": ["prazo1", "prazo2"],
   "pedidoMinimoValor": 0.0,
   "ofertas": [
@@ -596,6 +735,9 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
       "ean": "código de barras numérico se houver ou null",
       "precoOfertado": 8.29,
       "qtdMinima": 1,
+      "isCombo": false,
+      "comboId": null,
+      "comboNome": null,
       "faixasPreco": [
         { "qtdMinima": 1, "preco": 8.29 },
         { "qtdMinima": 6, "preco": 7.69 },
@@ -620,40 +762,69 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
     const jsonStr = (respostaIA || '').replace(/```json\n?/g, '').replace(/```/g, '').trim();
     const dadosIA = JSON.parse(jsonStr);
 
+    const validadeRegexFallback = extrairValidadeDaMensagem(texto);
+    const validadeFinal = dadosIA.validadeOferta || validadeRegexFallback.validadeOferta || null;
+    const validadeTextoFinal = dadosIA.validadeTexto || validadeRegexFallback.validadeTexto || null;
+
+    const ofertasFormatadas = (dadosIA.ofertas || []).map(o => {
+      const precoBase = parseFloat(o.precoOfertado) || 0;
+      let faixas = Array.isArray(o.faixasPreco) ? o.faixasPreco.map(f => ({
+        qtdMinima: parseInt(f.qtdMinima, 10) || 1,
+        preco: parseFloat(f.preco) || 0
+      })).filter(f => f.qtdMinima > 0 && f.preco > 0) : [];
+
+      if (faixas.length > 0) {
+        faixas.sort((a, b) => a.qtdMinima - b.qtdMinima);
+      } else if (precoBase > 0) {
+        const qMin = parseInt(o.qtdMinima, 10) || 1;
+        faixas = [{ qtdMinima: qMin, preco: precoBase }];
+      }
+
+      const menorFaixa = faixas.length > 0 ? faixas[0] : null;
+
+      return {
+        produtoNome: (o.produtoNome || '').replace(/[\u2190-\u21FF]/g, '').trim(),
+        ean: o.ean || null,
+        precoOfertado: menorFaixa ? menorFaixa.preco : precoBase,
+        qtdMinima: menorFaixa ? menorFaixa.qtdMinima : (parseInt(o.qtdMinima, 10) || 1),
+        isCombo: Boolean(o.isCombo),
+        comboId: o.comboId || (o.isCombo && o.comboNome ? 'combo_' + Buffer.from(o.comboNome).toString('hex').slice(0, 8) : null),
+        comboNome: o.comboNome || null,
+        faixasPreco: faixas,
+        bonificacao: o.bonificacao || null
+      };
+    }).filter(o => o.precoOfertado > 0);
+
+    // Agrupa os itens de cada combo em comboDados
+    const comboMap = {};
+    for (const ofr of ofertasFormatadas) {
+      if (ofr.isCombo && ofr.comboId) {
+        if (!comboMap[ofr.comboId]) comboMap[ofr.comboId] = [];
+        comboMap[ofr.comboId].push({
+          produtoNome: ofr.produtoNome,
+          qtdMinima: ofr.qtdMinima || 1,
+          precoOfertado: ofr.precoOfertado
+        });
+      }
+    }
+    for (const ofr of ofertasFormatadas) {
+      if (ofr.isCombo && ofr.comboId && comboMap[ofr.comboId]) {
+        ofr.comboDados = comboMap[ofr.comboId];
+      }
+    }
+
     return {
       representante: dadosIA.representante || remetenteInfo.pushName || null,
       distribuidora: dadosIA.distribuidora || remetenteInfo.distribuidora || null,
       telefone: remetenteInfo.telefone || remetenteInfo.phone || null,
+      validadeOferta: validadeFinal,
+      validadeTexto: validadeTextoFinal,
       prazosPagamento: Array.isArray(dadosIA.prazosPagamento) ? dadosIA.prazosPagamento : [],
       pedidoMinimoValor: parseFloat(dadosIA.pedidoMinimoValor) || 0,
       pedidoMinimoCondicoes: '',
       categorias: [],
-      catalogoProdutos: (dadosIA.ofertas || []).map(o => o.produtoNome),
-      ofertas: (dadosIA.ofertas || []).map(o => {
-        const precoBase = parseFloat(o.precoOfertado) || 0;
-        let faixas = Array.isArray(o.faixasPreco) ? o.faixasPreco.map(f => ({
-          qtdMinima: parseInt(f.qtdMinima, 10) || 1,
-          preco: parseFloat(f.preco) || 0
-        })).filter(f => f.qtdMinima > 0 && f.preco > 0) : [];
-
-        if (faixas.length > 0) {
-          faixas.sort((a, b) => a.qtdMinima - b.qtdMinima);
-        } else if (precoBase > 0) {
-          const qMin = parseInt(o.qtdMinima, 10) || 1;
-          faixas = [{ qtdMinima: qMin, preco: precoBase }];
-        }
-
-        const menorFaixa = faixas.length > 0 ? faixas[0] : null;
-
-        return {
-          produtoNome: (o.produtoNome || '').replace(/[\u2190-\u21FF]/g, '').trim(),
-          ean: o.ean || null,
-          precoOfertado: menorFaixa ? menorFaixa.preco : precoBase,
-          qtdMinima: menorFaixa ? menorFaixa.qtdMinima : (parseInt(o.qtdMinima, 10) || 1),
-          faixasPreco: faixas,
-          bonificacao: o.bonificacao || null
-        };
-      }).filter(o => o.precoOfertado > 0)
+      catalogoProdutos: ofertasFormatadas.map(o => o.produtoNome),
+      ofertas: ofertasFormatadas
     };
   } catch (err) {
     const errStr = (err.message || '').toLowerCase();
@@ -1606,6 +1777,30 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         fields.push('faixas_preco');
         values.push(ofr.faixasPreco ? JSON.stringify(ofr.faixasPreco) : null);
       }
+      if (colNames.has('validade_oferta')) {
+        fields.push('validade_oferta');
+        values.push(extracao.validadeOferta || null);
+      }
+      if (colNames.has('validade_texto')) {
+        fields.push('validade_texto');
+        values.push(extracao.validadeTexto || null);
+      }
+      if (colNames.has('is_combo')) {
+        fields.push('is_combo');
+        values.push(ofr.isCombo ? 1 : 0);
+      }
+      if (colNames.has('combo_id')) {
+        fields.push('combo_id');
+        values.push(ofr.comboId || null);
+      }
+      if (colNames.has('combo_nome')) {
+        fields.push('combo_nome');
+        values.push(ofr.comboNome || null);
+      }
+      if (colNames.has('combo_dados')) {
+        fields.push('combo_dados');
+        values.push(ofr.comboDados ? JSON.stringify(ofr.comboDados) : null);
+      }
 
       const placeholders = fields.map(() => '?').join(', ');
       dbInst.prepare(`
@@ -1627,6 +1822,12 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         notaFiscalUltCompra: validacao.notaFiscalUltCompra,
         embalagemUltCompra: validacao.embalagemUltCompra,
         precoTotalNota: validacao.precoTotalNota,
+        isCombo: ofr.isCombo || false,
+        comboId: ofr.comboId || null,
+        comboNome: ofr.comboNome || null,
+        comboDados: ofr.comboDados || null,
+        validadeOferta: extracao.validadeOferta || null,
+        validadeTexto: extracao.validadeTexto || null,
         status: statusOferta
       });
     } catch (dbErr) {
@@ -2072,10 +2273,18 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     sql += ` AND percentual_desconto > 0`;
   }
 
-  // Por padrão, exibe apenas ofertas capturadas no dia corrente
+  // Filtro de validade dinâmica: se houver validade definida pelo representante, respeita até a data limite.
+  // Caso contrário, aplica a validade padrão de 1 dia civil (hoje).
   if (filtros.apenasHoje !== false) {
-    sql += ` AND (DATE(data_oferta, 'localtime') = DATE('now', 'localtime') OR DATE(created_at, 'localtime') = DATE('now', 'localtime'))`;
+    sql += ` AND (
+      (validade_oferta IS NOT NULL AND validade_oferta != '' AND DATE(validade_oferta) >= DATE('now', 'localtime'))
+      OR
+      ((validade_oferta IS NULL OR validade_oferta = '') AND (DATE(data_oferta, 'localtime') = DATE('now', 'localtime') OR DATE(created_at, 'localtime') = DATE('now', 'localtime')))
+    )`;
   }
+
+  // Preço ofertado sempre válido (> 0)
+  sql += ` AND preco_ofertado > 0`;
 
   if (filtros.busca) {
     sql += ` AND (produto_nome LIKE ? OR distribuidora LIKE ? OR representante LIKE ?)`;
@@ -2299,6 +2508,11 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       economiaValor,
       condicoesPagamento: r.condicoes_pagamento,
       validadeOferta: r.validade_oferta,
+      validadeTexto: r.validade_texto || null,
+      isCombo: Boolean(r.is_combo),
+      comboId: r.combo_id || null,
+      comboNome: r.combo_nome || null,
+      comboDados: r.combo_dados ? (typeof r.combo_dados === 'string' ? JSON.parse(r.combo_dados) : r.combo_dados) : null,
       status: statusEfetivo,
       dataOferta: r.data_oferta,
       createdAt: r.created_at,

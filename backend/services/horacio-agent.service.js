@@ -221,6 +221,149 @@ function avaliarFaixasPrecoEscalonada(faixas, consumoDiario, saldoAtual, precoHi
   };
 }
 
+/**
+ * Realiza a auditoria executiva de um combo/pacote promocional.
+ * Compara cada item do pacote contra o histórico de CMV (Digifarma).
+ * Detecta se a distribuidora embutiu sobrepreço em produtos secundários para compensar o desconto.
+ * 
+ * @param {Array<{ produtoNome: string, qtdMinima?: number, precoOfertado: number, ean?: string, produtoId?: number }>} comboItens
+ * @param {object} db Instância do banco SQLite
+ * @param {string} [comboNome]
+ * @returns {object} Auditoria com veredito do Horácio
+ */
+function avaliarAuditoriaCombo(comboItens = [], db = null, comboNome = 'Combo Promocional') {
+  const dbInst = getDb(db);
+  if (!Array.isArray(comboItens) || comboItens.length === 0) {
+    return {
+      valido: false,
+      comboNome,
+      veredito: 'Combo sem itens identificados',
+      recomendado: false
+    };
+  }
+
+  let stmtCacheId = null, stmtCacheEan = null, stmtCacheDesc = null, stmtEstoqueId = null;
+  try {
+    if (dbInst) {
+      stmtCacheId = dbInst.prepare('SELECT preco_unitario_ult_compra, descricao FROM digifarma_ultimas_compras_cache WHERE produto_id = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
+      stmtCacheEan = dbInst.prepare('SELECT preco_unitario_ult_compra, descricao FROM digifarma_ultimas_compras_cache WHERE ean = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
+      stmtCacheDesc = dbInst.prepare('SELECT preco_unitario_ult_compra, descricao FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 1');
+      stmtEstoqueId = dbInst.prepare('SELECT preco_unitario_ult_compra, ultima_compra_valor, descricao FROM compras_estoque_cache WHERE produto_id = ? OR ean = ? LIMIT 1');
+    }
+  } catch (e) {}
+
+  let totalOfertado = 0;
+  let totalHistoricoCMV = 0;
+  let temItemSemCMV = false;
+  const itensAuditados = [];
+
+  for (const it of comboItens) {
+    const qtd = Number(it.qtdMinima || it.qtd || 1);
+    const precoOf = parseFloat(it.precoOfertado || it.preco || 0);
+
+    let precoCMV = null;
+    try {
+      if (it.produtoId && stmtCacheId) {
+        const row = stmtCacheId.get(it.produtoId);
+        if (row?.preco_unitario_ult_compra > 0) precoCMV = row.preco_unitario_ult_compra;
+      }
+      if (!precoCMV && it.ean && stmtCacheEan) {
+        const row = stmtCacheEan.get(it.ean);
+        if (row?.preco_unitario_ult_compra > 0) precoCMV = row.preco_unitario_ult_compra;
+      }
+      if (!precoCMV && it.produtoNome && stmtCacheDesc) {
+        const row = stmtCacheDesc.get(`%${it.produtoNome.slice(0, 15)}%`);
+        if (row?.preco_unitario_ult_compra > 0) precoCMV = row.preco_unitario_ult_compra;
+      }
+      if (!precoCMV && (it.produtoId || it.ean) && stmtEstoqueId) {
+        const row = stmtEstoqueId.get(it.produtoId || 0, it.ean || '');
+        const c = parseFloat(row?.preco_unitario_ult_compra || row?.ultima_compra_valor);
+        if (c > 0) precoCMV = c;
+      }
+    } catch(e) {}
+
+    if (!precoCMV || precoCMV <= 0) {
+      precoCMV = precoOf; // Sem histórico prévio: assume neutro
+      temItemSemCMV = true;
+    }
+
+    const subtotalOf = qtd * precoOf;
+    const subtotalCMV = qtd * precoCMV;
+    totalOfertado += subtotalOf;
+    totalHistoricoCMV += subtotalCMV;
+
+    const diffUnit = precoOf - precoCMV;
+    const diffPct = precoCMV > 0 ? ((precoOf - precoCMV) / precoCMV) * 100 : 0;
+    const isSobrepreco = precoOf > (precoCMV * 1.02); // Mais de 2% acima do CMV histórico
+    const isDesconto = precoOf < (precoCMV * 0.98); // Mais de 2% abaixo do CMV
+
+    itensAuditados.push({
+      produtoNome: it.produtoNome,
+      qtd,
+      precoOfertado: precoOf,
+      precoCMV,
+      subtotalOfertado: Number(subtotalOf.toFixed(2)),
+      subtotalCMV: Number(subtotalCMV.toFixed(2)),
+      diffUnit: Number(diffUnit.toFixed(2)),
+      diffPct: Number(diffPct.toFixed(1)),
+      isSobrepreco,
+      isDesconto,
+      situacao: isSobrepreco ? 'SOBREPRECO' : (isDesconto ? 'DESCONTO' : 'NEUTRO')
+    });
+  }
+
+  const economiaLiquidaValor = totalHistoricoCMV - totalOfertado;
+  const economiaLiquidaPct = totalHistoricoCMV > 0 ? (economiaLiquidaValor / totalHistoricoCMV) * 100 : 0;
+  const itensComSobrepreco = itensAuditados.filter(i => i.isSobrepreco);
+
+  let status = 'TOTALMENTE_VANTAJOSO';
+  let veredito = '✅ Combo Vantajoso';
+  let detalhe = '';
+  let recomendado = true;
+
+  if (economiaLiquidaValor <= 0) {
+    status = 'DESFAVORAVEL';
+    veredito = '❌ Desconto Compensado / Falsa Promoção';
+    detalhe = `O custo total do pacote (R$ ${totalOfertado.toFixed(2)}) é superior ou igual ao CMV histórico (R$ ${totalHistoricoCMV.toFixed(2)}). O fornecedor aumentou outros itens para compensar o desconto!`;
+    recomendado = false;
+  } else if (itensComSobrepreco.length > 0) {
+    const nomesSobrepreco = itensComSobrepreco.map(i => `${i.produtoNome} (+${i.diffPct}%)`).join(', ');
+    if (economiaLiquidaPct >= 15) {
+      status = 'PARCIALMENTE_COMPENSADO';
+      veredito = '⚠️ Vantajoso com Ressalva (Compensação Parcial)';
+      detalhe = `Atenção: Houve sobrepreço em: ${nomesSobrepreco}. Porém, a economia global líquida do combo ainda é vantajosa (${economiaLiquidaPct.toFixed(1)}% OFF, R$ ${economiaLiquidaValor.toFixed(2)}).`;
+      recomendado = true;
+    } else {
+      status = 'COMPENSADO_DESFAVORAVEL';
+      veredito = '⚠️ Desconto Compensado / Não Recomendado';
+      detalhe = `O fornecedor deu desconto em chamariz, mas embutiu sobrepreço em: ${nomesSobrepreco}. A economia real de apenas ${economiaLiquidaPct.toFixed(1)}% não compensa a amarração dos itens encarecidos.`;
+      recomendado = false;
+    }
+  } else {
+    status = 'TOTALMENTE_VANTAJOSO';
+    veredito = '✅ Combo 100% Vantajoso';
+    detalhe = `Nenhum produto está com sobrepreço. Economia real garantida de R$ ${economiaLiquidaValor.toFixed(2)} (${economiaLiquidaPct.toFixed(1)}% de desconto líquido).`;
+    recomendado = true;
+  }
+
+  return {
+    valido: true,
+    comboNome,
+    totalItens: comboItens.length,
+    totalOfertado: Number(totalOfertado.toFixed(2)),
+    totalHistoricoCMV: Number(totalHistoricoCMV.toFixed(2)),
+    economiaLiquidaValor: Number(economiaLiquidaValor.toFixed(2)),
+    economiaLiquidaPct: Number(economiaLiquidaPct.toFixed(1)),
+    itensAuditados,
+    itensComSobreprecoCount: itensComSobrepreco.length,
+    temCompensacao: itensComSobrepreco.length > 0,
+    status,
+    veredito,
+    detalhe,
+    recomendado
+  };
+}
+
 // ──────────────────────────────────────────────────────────
 // NÚCLEO OPERACIONAL DO AGENTE HORÁCIO
 // ──────────────────────────────────────────────────────────
@@ -581,8 +724,22 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
         const subtotal = qtd * precoOf;
         const econItem = precoUlt > precoOf ? (precoUlt - precoOf) * qtd : 0;
 
+        // Avaliação de Auditoria de Combos Promocionais
+        let auditoriaCombo = null;
+        if (ofr.isCombo && Array.isArray(ofr.comboDados) && ofr.comboDados.length > 0) {
+          auditoriaCombo = avaliarAuditoriaCombo(ofr.comboDados, dbInst, ofr.comboNome || 'Combo Promocional');
+          // Regra Alinhada no Grill-Me: só recomenda compras de combo se o saldo global for comprovadamente vantajoso!
+          if (!auditoriaCombo.recomendado) {
+            continue;
+          }
+        }
+
         let badgeMotivo = ofr.justificativa?.badge || (saldo <= 0 ? '🚨 Ruptura' : '📉 Desconto');
-        if (avaliacaoFaixa?.justificativaFaixa) {
+        if (auditoriaCombo) {
+          badgeMotivo = auditoriaCombo.temCompensacao
+            ? `📦 Combo (${auditoriaCombo.economiaLiquidaPct}% líq - Cuidado com sobrepreço)`
+            : `📦 Combo Vantajoso (${auditoriaCombo.economiaLiquidaPct}% líq)`;
+        } else if (avaliacaoFaixa?.justificativaFaixa) {
           badgeMotivo = `🎯 Mínimo Escalonado: ${avaliacaoFaixa.justificativaFaixa}`;
         } else if (isExtremamenteVantajoso && saldo >= estMin) {
           badgeMotivo = `🔥 Compra Estratégica (${desconto.toFixed(1)}% OFF Curva ${ofr.curvaAbc || 'A'})`;
@@ -610,6 +767,11 @@ async function executarConsolidacaoHorarioCorte(db = null, options = {}) {
           qtdSugerida: qtd,
           qtdMinima: avaliacaoFaixa ? avaliacaoFaixa.faixaEscolhida.qtdMinima : (ofr.qtdMinima || 1),
           faixasPreco: faixas || null,
+          isCombo: Boolean(ofr.isCombo),
+          comboId: ofr.comboId || null,
+          comboNome: ofr.comboNome || null,
+          comboDados: ofr.comboDados || null,
+          auditoriaCombo: auditoriaCombo || null,
           motivo: badgeMotivo,
           diasDuracaoEstoque: diasRestantes,
           dataPrevisaoEsgotamento: dataPrevisao,
@@ -833,15 +995,35 @@ function listarRelatorios(db = null, limite = 20) {
   if (!dbInst) return [];
 
   try {
+    // Alinhado no Grill-Me: validade de 1 dia civil (apenas relatórios gerados hoje)
     const rows = dbInst.prepare(`
       SELECT * FROM compras_horacio_relatorios
       WHERE tipo IN ('Consolidado_Corte', 'Sob_Demanda', 'Sincronizacao_Estoque')
+        AND DATE(created_at, 'localtime') = DATE('now', 'localtime')
       ORDER BY created_at DESC
       LIMIT ?
-    `).all(limite * 2);
+    `).all(limite * 4);
 
     const vistos = new Set();
     const relatoriosValidos = [];
+
+    // Prepared statement para verificar se produtos de reposição possuem ofertas ativas vigentes
+    let stmtOfertaAtiva = null;
+    try {
+      stmtOfertaAtiva = dbInst.prepare(`
+        SELECT preco_ofertado, distribuidora, percentual_desconto, validade_oferta, is_combo, combo_nome, combo_dados
+        FROM compras_oportunidades_mineradas
+        WHERE (produto_id = ? OR ean = ? OR produto_nome LIKE ?)
+          AND preco_ofertado > 0
+          AND (
+            (validade_oferta IS NOT NULL AND validade_oferta != '' AND DATE(validade_oferta) >= DATE('now', 'localtime'))
+            OR
+            ((validade_oferta IS NULL OR validade_oferta = '') AND (DATE(data_oferta, 'localtime') = DATE('now', 'localtime') OR DATE(created_at, 'localtime') = DATE('now', 'localtime')))
+          )
+        ORDER BY percentual_desconto DESC, preco_ofertado ASC
+        LIMIT 1
+      `);
+    } catch(e) {}
 
     for (const r of rows) {
       const itens = r.itens_json ? JSON.parse(r.itens_json) : [];
@@ -851,9 +1033,53 @@ function listarRelatorios(db = null, limite = 20) {
       if (chaveFornecedor && vistos.has(chaveFornecedor)) continue;
       vistos.add(chaveFornecedor);
 
+      const isReposicaoEstoque = r.tipo === 'Sincronizacao_Estoque' || chaveFornecedor.includes('geral');
+
+      // Se for relatório de reposição de estoque, enriquece cada item
+      const itensTratados = itens.map((it, idx) => {
+        if (isReposicaoEstoque) {
+          let melhorOferta = null;
+          if (stmtOfertaAtiva) {
+            try {
+              melhorOferta = stmtOfertaAtiva.get(it.produtoId || 0, it.ean || '', `%${(it.produtoNome || '').slice(0, 15)}%`);
+            } catch(e) {}
+          }
+
+          if (melhorOferta && melhorOferta.preco_ofertado > 0) {
+            const precoOf = Number(melhorOferta.preco_ofertado);
+            const precoHist = Number(it.precoHistorico || it.precoUltCompra || 0);
+            const econ = precoHist > precoOf ? precoHist - precoOf : 0;
+            return {
+              ...it,
+              id: it.id || `rep_${idx}`,
+              precoOfertado: precoOf,
+              distribuidora: melhorOferta.distribuidora,
+              temOfertaAtiva: true,
+              economiaEstimadaValor: econ * (it.qtdSugerida || 1),
+              economiaEstimadaPct: precoHist > 0 ? ((precoHist - precoOf) / precoHist) * 100 : 0,
+              isCombo: Boolean(melhorOferta.is_combo),
+              comboNome: melhorOferta.combo_nome,
+              comboDados: melhorOferta.combo_dados ? (typeof melhorOferta.combo_dados === 'string' ? JSON.parse(melhorOferta.combo_dados) : melhorOferta.combo_dados) : null,
+              motivo: `🎯 Oferta Ativa: ${melhorOferta.distribuidora}`
+            };
+          } else {
+            return {
+              ...it,
+              id: it.id || `rep_${idx}`,
+              precoOfertado: null, // explicitamente null para NUNCA exibir R$ 0,00!
+              temOfertaAtiva: false,
+              status: 'A Cotar',
+              motivo: (it.saldo || 0) <= 0 ? '🚨 Ruptura (A Cotar)' : '📉 Abaixo do Mínimo (A Cotar)'
+            };
+          }
+        }
+        return it;
+      });
+
       relatoriosValidos.push({
         ...r,
-        itens,
+        isReposicaoEstoque,
+        itens: itensTratados,
         equivalentes: r.equivalentes_json ? JSON.parse(r.equivalentes_json) : {}
       });
 
@@ -976,6 +1202,7 @@ ${itensFormatados.length > 15 ? `\n... e mais ${itensFormatados.length - 15} ite
 `.trim();
 
   try {
+    dbInst.prepare("DELETE FROM compras_horacio_relatorios WHERE tipo = 'Sincronizacao_Estoque'").run();
     dbInst.prepare(`
       INSERT INTO compras_horacio_relatorios (
         id, tipo, titulo, fornecedor_nome, pedido_minimo, valor_total_sugerido,
@@ -1021,6 +1248,7 @@ module.exports = {
   criarCotacaoDeRelatorio,
   gerarRelatorioExecutivoSincronizacao,
   avaliarFaixasPrecoEscalonada,
-  calcularQuantidadeSugerida
+  calcularQuantidadeSugerida,
+  avaliarAuditoriaCombo
 };
 

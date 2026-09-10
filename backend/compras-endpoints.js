@@ -426,23 +426,26 @@ module.exports = (db) => {
 
   router.get('/radar/oportunidades', async (req, res) => {
     try {
-      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
+      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto, apenas_hoje } = req.query;
+      const apenasHojeBool = apenas_hoje === undefined ? true : (apenas_hoje === 'true' || apenas_hoje === '1');
       let oportunidades = comprasMineracaoService.listarOportunidades(db, {
         status: status || null,
         fornecedorId: fornecedor_id || null,
         busca: busca || null,
         apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+        apenasHoje: apenasHojeBool,
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
 
-      if (oportunidades.length === 0 && !busca && !fornecedor_id) {
-        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 14 });
+      if (oportunidades.length === 0 && !busca && !fornecedor_id && req.query.auto_minerar === 'true') {
+        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 1 });
         oportunidades = comprasMineracaoService.listarOportunidades(db, {
           status: status || null,
           fornecedorId: fornecedor_id || null,
           busca: busca || null,
           apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+          apenasHoje: apenasHojeBool,
           limite: limite ? parseInt(limite, 10) : 50,
           offset: offset ? parseInt(offset, 10) : 0
         });

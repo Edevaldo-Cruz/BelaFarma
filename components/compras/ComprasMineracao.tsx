@@ -28,7 +28,9 @@ import {
   LineChart as LineChartIcon,
   BarChart3,
   Calendar,
-  Tag
+  Tag,
+  Package,
+  AlertTriangle
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -96,6 +98,9 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
   
   // Modal de Produtos Equivalentes da Oferta
   const [modalEquivOferta, setModalEquivOferta] = useState<any | null>(null);
+
+  // Modal de Auditoria de Combos do Horácio
+  const [modalAuditoriaCombo, setModalAuditoriaCombo] = useState<any | null>(null);
 
   // Modal de Mineração Manual / Colar Texto
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -567,22 +572,38 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
               </div>
             ) : (
               <div>
-                {/* Seletor de Relatórios do Horácio se houver múltiplos */}
+                {/* Seletor de Relatórios do Horácio */}
                 {relatoriosHoracio.length > 1 && (
                   <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
-                    {relatoriosHoracio.map((rel) => (
-                      <button
-                        key={rel.id}
-                        onClick={() => setRelatorioSelecionado(rel)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                          relatorioSelecionado?.id === rel.id
-                            ? 'bg-indigo-600 text-white shadow-md'
-                            : 'bg-slate-800/80 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {rel.fornecedor_nome || 'Consolidação'} ({rel.itens?.length || 0} itens)
-                      </button>
-                    ))}
+                    {relatoriosHoracio.map((rel) => {
+                      const isRep = rel.isReposicaoEstoque || rel.tipo === 'Sincronizacao_Estoque' || (rel.fornecedor_nome && rel.fornecedor_nome.includes('Geral'));
+                      const isSelected = relatorioSelecionado?.id === rel.id;
+                      return (
+                        <button
+                          key={rel.id}
+                          onClick={() => setRelatorioSelecionado(rel)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                            isSelected
+                              ? isRep
+                                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                                : 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                              : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {isRep ? (
+                            <>
+                              <Layers className="w-3.5 h-3.5 text-amber-300" />
+                              <span>📋 Reposição de Estoque ({rel.itens?.length || 0} itens)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Briefcase className="w-3.5 h-3.5 text-indigo-300" />
+                              <span>{rel.fornecedor_nome || 'Consolidação'} ({rel.itens?.length || 0} itens)</span>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -688,6 +709,34 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                       <span className="group-hover:underline truncate">{it.produtoNome}</span>
                                       <MessageSquare className="w-3.5 h-3.5 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
                                     </button>
+                                    {it.isCombo && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setModalAuditoriaCombo(it.auditoriaCombo || {
+                                            valido: true,
+                                            comboNome: it.comboNome || 'Combo Promocional',
+                                            totalItens: it.comboDados?.length || 1,
+                                            itensAuditados: it.comboDados || [],
+                                            veredito: '📦 Combo Promocional',
+                                            detalhe: 'Produtos vinculados a este pacote promocional'
+                                          });
+                                        }}
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 mt-1 rounded-md text-[10px] font-black cursor-pointer transition-all border ${
+                                          it.auditoriaCombo?.temCompensacao
+                                            ? 'bg-amber-950/80 border-amber-600/80 text-amber-300 hover:bg-amber-900'
+                                            : 'bg-indigo-950/80 border-indigo-600/80 text-indigo-300 hover:bg-indigo-900'
+                                        }`}
+                                        title="Clique para ver a auditoria de preços e CMV deste combo"
+                                      >
+                                        <Package className="w-3 h-3 text-indigo-400" />
+                                        <span>{it.comboNome || 'Combo Promocional'}</span>
+                                        {it.auditoriaCombo?.temCompensacao && (
+                                          <AlertTriangle className="w-3 h-3 text-amber-400 ml-0.5" title="Contém itens com sobrepreço compensado" />
+                                        )}
+                                      </button>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-2">
                                     <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-bold">
@@ -698,7 +747,13 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                     R$ {precoUlt > 0 ? precoUlt.toFixed(2) : '-'}
                                   </td>
                                   <td className="py-2.5 px-2 font-black text-emerald-400">
-                                    R$ {precoOf.toFixed(2)}
+                                    {precoOf > 0 ? (
+                                      `R$ ${precoOf.toFixed(2)}`
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-[10px]">
+                                        <Clock className="w-2.5 h-2.5" /> A Cotar
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="py-2.5 px-2 text-center whitespace-nowrap">
                                     {!temComparacao ? (
@@ -732,7 +787,7 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                                     {it.motivo}
                                   </td>
                                   <td className="py-2.5 px-3 text-right font-black text-emerald-400">
-                                    R$ {it.economiaEstimadaValor ? it.economiaEstimadaValor.toFixed(2) : '0.00'}
+                                    {it.economiaEstimadaValor && precoOf > 0 ? `R$ ${it.economiaEstimadaValor.toFixed(2)}` : '-'}
                                   </td>
                                   <td className="py-2.5 px-2 text-right whitespace-nowrap">
                                     <div className="flex items-center justify-end gap-1.5">
@@ -917,6 +972,27 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                               <span>Equivalentes: {op.grupoEquivalente.saldoTotal} un ({op.grupoEquivalente.quantidadeProdutos} marcas)</span>
                             </button>
                           )}
+                          {((op as any).isCombo || op.isCombo) && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setModalAuditoriaCombo((op as any).auditoriaCombo || {
+                                  valido: true,
+                                  comboNome: (op as any).comboNome || 'Combo Promocional',
+                                  totalItens: (op as any).comboDados?.length || 1,
+                                  itensAuditados: (op as any).comboDados || [],
+                                  veredito: '📦 Combo Promocional',
+                                  detalhe: 'Produtos vinculados a este pacote promocional'
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                              title="Clique para ver os produtos que compõem este combo"
+                            >
+                              <Package className="w-3 h-3 text-indigo-500" />
+                              <span>Combo: {(op as any).comboNome || 'Pacote Promocional'}</span>
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -925,6 +1001,17 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
                         <span className="text-sm font-black text-slate-900 dark:text-slate-100 block">
                           R$ {precoOf?.toFixed(2)}
                         </span>
+                        {((op as any).validadeOferta || (op as any).validade_oferta) ? (
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
+                            <Calendar className="w-3 h-3 text-sky-500" />
+                            Válido até {formatarData((op as any).validadeOferta || (op as any).validade_oferta)}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                            <Zap className="w-3 h-3 text-amber-500" />
+                            Oferta de hoje
+                          </span>
+                        )}
                         {op.bonificacaoTexto && (
                           <span className="inline-block mt-0.5 px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-black">
                             🎁 {op.bonificacaoTexto}
@@ -1547,6 +1634,178 @@ export const ComprasMineracao: React.FC<ComprasMineracaoProps> = ({
               <button
                 onClick={() => setModalEquivOferta(null)}
                 className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Auditoria Executiva de Combo do Horácio */}
+      {modalAuditoriaCombo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-2xl p-6 rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-2xl ${
+                  modalAuditoriaCombo.temCompensacao 
+                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
+                    : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+                }`}>
+                  <Package className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    {modalAuditoriaCombo.comboNome || 'Combo Promocional'}
+                    {modalAuditoriaCombo.temCompensacao && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-black border border-amber-500/30">
+                        Compensação Detectada
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Auditoria de preço pacote vs última compra (CMV Digifarma)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalAuditoriaCombo(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Veredito do Horácio */}
+            <div className={`p-4 rounded-2xl border ${
+              modalAuditoriaCombo.recomendado
+                ? modalAuditoriaCombo.temCompensacao
+                  ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/60'
+                  : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/60'
+                : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60'
+            }`}>
+              <div className="flex items-start gap-2.5">
+                {modalAuditoriaCombo.recomendado ? (
+                  modalAuditoriaCombo.temCompensacao ? (
+                    <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                  )
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <h4 className={`text-sm font-black ${
+                    modalAuditoriaCombo.recomendado 
+                      ? (modalAuditoriaCombo.temCompensacao ? 'text-amber-800 dark:text-amber-300' : 'text-emerald-800 dark:text-emerald-300')
+                      : 'text-rose-800 dark:text-rose-300'
+                  }`}>
+                    {modalAuditoriaCombo.veredito || 'Veredito do Horácio'}
+                  </h4>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
+                    {modalAuditoriaCombo.detalhe || 'Auditoria comparativa entre preço ofertado do pacote e CMV dos itens.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Cards de Resumo Financeiro */}
+            {modalAuditoriaCombo.totalOfertado !== undefined && (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custo Total Combo</span>
+                  <span className="text-sm font-black text-slate-900 dark:text-white mt-0.5 block">
+                    R$ {Number(modalAuditoriaCombo.totalOfertado || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custo Últ. Compra (CMV)</span>
+                  <span className="text-sm font-black text-slate-700 dark:text-slate-300 mt-0.5 block">
+                    R$ {Number(modalAuditoriaCombo.totalHistoricoCMV || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Economia Líquida Real</span>
+                  <span className={`text-sm font-black mt-0.5 block ${
+                    Number(modalAuditoriaCombo.economiaLiquidaValor || 0) > 0 ? 'text-emerald-500' : 'text-rose-500'
+                  }`}>
+                    {Number(modalAuditoriaCombo.economiaLiquidaValor || 0) > 0 ? '+' : ''}
+                    R$ {Number(modalAuditoriaCombo.economiaLiquidaValor || 0).toFixed(2)} ({Number(modalAuditoriaCombo.economiaLiquidaPct || 0).toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Tabela com os Itens do Combo */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-2.5 px-3">Produto no Pacote</th>
+                    <th className="py-2.5 px-2 text-center">Qtd Mín.</th>
+                    <th className="py-2.5 px-2">Preço Oferta</th>
+                    <th className="py-2.5 px-2">Últ. CMV</th>
+                    <th className="py-2.5 px-2 text-center">Variação</th>
+                    <th className="py-2.5 px-3 text-right">Situação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-200">
+                  {(modalAuditoriaCombo.itensAuditados || []).map((it: any, i: number) => {
+                    const precoOf = Number(it.precoOfertado || it.preco || 0);
+                    const precoCMV = Number(it.precoCMV || 0);
+                    const diffPct = Number(it.diffPct || 0);
+                    const isSobre = it.isSobrepreco || (precoCMV > 0 && precoOf > precoCMV);
+
+                    return (
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-2.5 px-3 font-medium">
+                          {it.produtoNome}
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-bold text-amber-500">
+                          {it.qtd || it.qtdMinima || 1} un
+                        </td>
+                        <td className="py-2.5 px-2 font-black text-slate-900 dark:text-slate-100">
+                          R$ {precoOf.toFixed(2)}
+                        </td>
+                        <td className="py-2.5 px-2 text-slate-500 dark:text-slate-400">
+                          {precoCMV > 0 ? `R$ ${precoCMV.toFixed(2)}` : '-'}
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-bold">
+                          {precoCMV > 0 ? (
+                            isSobre ? (
+                              <span className="text-rose-500 text-[11px]">+{Math.abs(diffPct).toFixed(1)}%</span>
+                            ) : diffPct < 0 ? (
+                              <span className="text-emerald-500 text-[11px]">-{Math.abs(diffPct).toFixed(1)}%</span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">0.0%</span>
+                            )
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {isSobre ? (
+                            <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-[10px] font-black border border-rose-500/30">
+                              ⚠️ Sobrepreço
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black border border-emerald-500/30">
+                              📉 Desconto
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setModalAuditoriaCombo(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs"
               >
                 Fechar
               </button>
