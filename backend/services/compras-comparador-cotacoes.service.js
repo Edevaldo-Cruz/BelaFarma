@@ -37,6 +37,46 @@ function formatMoney(num) {
   return (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Lista de palavras que indicam forma farmacêutica ou produto e nunca são nomes isolados de fornecedores
+const PALAVRAS_NAO_FORNECEDOR = new Set([
+  'COMP', 'COMPRIMIDO', 'COMPRIMIDOS', 'CAPS', 'CAPSULA', 'CAPSULAS', 'CPR', 'CPS',
+  'COLIRIO', 'COLÍRIO', 'GOTAS', 'GTS', 'CREME', 'POMADA', 'GEL',
+  'XAROPE', 'XPE', 'SUSP', 'SUSPENSAO', 'SUSPENSÃO', 'SOL', 'SOLUCAO', 'SOLUÇÃO',
+  'OFT', 'OFTALMICO', 'VAG', 'VAGINAL', 'DERM', 'DERMATOLOGICO',
+  'INJETAVEL', 'AMPOLA', 'SPRAY', 'AEROSOL', 'ENEMA', 'SUPOSITORIO',
+  'GENERICO', 'GENÉRICO', 'SIMILAR', 'REFERENCIA', 'REFERÊNCIA'
+]);
+
+function ehCabecalhoFornecedor(linha) {
+  const trimmed = linha.trim();
+  if (!trimmed || trimmed.length < 2 || trimmed.length > 40) return false;
+
+  // Se tiver números, raramente é apenas o nome do fornecedor/representante
+  if (/\d/.test(trimmed)) return false;
+
+  // Se tiver indicação de preço
+  if (/R\$|[\,\.]\d{2}/.test(trimmed)) return false;
+
+  // Prefixos explícitos
+  if (/^(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|REP|REPRESENTANTE|EMPRESA)\s*[:\-_]/i.test(trimmed)) {
+    return true;
+  }
+
+  // Palavras de produtos/formas farmacêuticas
+  const partes = trimmed.toUpperCase().split(/\s+/);
+  for (const p of partes) {
+    if (PALAVRAS_NAO_FORNECEDOR.has(p)) return false;
+  }
+
+  // Se for de 1 a 4 palavras (ex: SILAS, FELIPE, FRAN, GUILHERME, PANPHARMA, SANTA CRUZ)
+  // E não terminar com ponto ou vírgula
+  if (partes.length <= 4 && !/[,\.]$/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Normaliza o nome do produto para fins de agrupamento e comparação entre fornecedores.
  */
@@ -46,14 +86,22 @@ function normalizarNomeProduto(nome) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // remove acentos
     .toUpperCase()
-    .replace(/^[0-9\.\-\_\s]{2,10}(?=[A-Z])/g, '') // remove códigos de produto no início (ex: 01234 - DIPIRONA)
-    .replace(/[:\-–—=]+$/, '') // remove pontuação residual no final
-    .replace(/\b(COMPRIMIDOS|COMPRIMIDO|COMP|CPS|CAPSULAS|CAPSULA|CAPS|DRAGEAS|DRG)\b/g, '') // remove formas farmacêuticas redundantes para matching
+    // Sinônimos comuns de farmácia
+    .replace(/\bHIDRO\b/g, 'HIDROCLOROTIAZIDA')
+    .replace(/\bDIENOGESTE\b/g, 'DIENOGEST')
+    .replace(/\bACU\s*FRESH\b/g, 'ACUFRESH')
+    .replace(/\bCARMELOSE\b/g, 'ACUFRESH CARMELOSE')
+    // Remove marcas de laboratórios secundárias para cruzar genéricos equivalentes
+    .replace(/\b(UNICHEM|PHARLAB|MEDQUIMICA|MEDLEY|GEOLAB|EUROFARMA|MULTILAB|BRASTERAPICA|FORTLIFE|VITAMEDIC|GREENPHARMA|TEUTO|NEO QUIMICA|NEOQUIMICA|BIOLAB|NATIVITA|GLEN|BIOSINTETICA|LEGRAND|ARTE NATIVA|MUNDIAL)\b/g, '')
+    .replace(/^[0-9\.\-\_\s]{2,10}(?=[A-Z])/g, '') // remove códigos no início
+    .replace(/[:\-–—=]+$/, '') // remove pontuação no final
+    .replace(/\b(COMPRIMIDOS|COMPRIMIDO|COMP|CPR|CPS|CAPSULAS|CAPSULA|CAPS|DRAGEAS|DRG)\b/g, '')
     .replace(/\b(CX|CX\.|CAIXA|COM)\b/g, 'C/')
     .replace(/\bC\/\s*/g, 'C/')
-    .replace(/(\d+)\s*(MG|ML|G|MCG)\b/g, '$1$2') // unifica 500 MG -> 500MG
-    .replace(/C\/\s*(\d+)/g, 'C/$1') // unifica C/ 100 -> C/100
-    .replace(/[^\w\d\/]/g, ' ') // remove caracteres especiais exceto barra
+    .replace(/\bBLX\d+\b/g, '')
+    .replace(/(\d+)\s*(MG|ML|G|MCG)\b/g, '$1$2')
+    .replace(/C\/\s*(\d+)/g, 'C/$1')
+    .replace(/[^\w\d\/]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return str;
@@ -61,135 +109,91 @@ function normalizarNomeProduto(nome) {
 
 /**
  * Parser heurístico e local de texto com múltiplos fornecedores.
- * Suporta formatos de cabeçalhos, marcadores ou blocos por fornecedor.
  */
 function parsearTextoLocal(texto) {
   const linhas = String(texto || '').split(/\r?\n/);
-  const fornecedoresMap = new Map(); // fornecedor -> Array de { produtoOriginal, produtoNormalizado, preco }
-  
-  let fornecedorAtual = 'Fornecedor Principal';
-  let encontrouPrimeiroFornecedor = false;
-
-  // Nomes de distribuidoras comuns para identificação rápida
-  const distribuidoresConhecidos = [
-    'SANTA CRUZ', 'PANPHARMA', 'PROFARMA', 'GAM', 'DISLAB', 'VALE OURO', 
-    'ONCOPROD', 'DIMED', 'AGLON', 'SERVIMED', 'EMEFARMA', 'RIO DROGAS', 
-    'MILLENIUM', 'MEDICAMENTAL', 'DROGACENTER', 'CATARINENSE', 'GENESIO'
-  ];
+  const fornecedoresMap = new Map();
+  let fornecedorAtual = 'FORNECEDOR';
+  let produtoPendente = '';
 
   for (let i = 0; i < linhas.length; i++) {
     const rawLinha = linhas[i].trim();
-    if (!rawLinha || rawLinha.length < 3) continue;
+    if (!rawLinha || rawLinha.length < 2) continue;
 
-    // Ignora linhas puramente decorativas (ex: ======, --------)
+    // Ignora linhas decorativas
     if (/^[=\-_*#]{3,}$/.test(rawLinha)) continue;
 
-    // 1. Verifica se a linha indica a troca de fornecedor
-    let novoFornecedorDetectado = null;
+    // 1. Identifica se a linha é cabeçalho de Fornecedor / Representante
+    if (ehCabecalhoFornecedor(rawLinha)) {
+      fornecedorAtual = rawLinha
+        .replace(/^(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|REP|REPRESENTANTE|EMPRESA)\s*[:\-_]?\s*/i, '')
+        .replace(/[\*#_:]/g, '')
+        .trim()
+        .toUpperCase();
 
-    // Verifica se a linha contém exatamente ou predominantemente o nome de um distribuidor conhecido
-    for (const dist of distribuidoresConhecidos) {
-      const distRegex = new RegExp(`(?:^|[^A-Z0-9])${dist}(?:$|[^A-Z0-9]|:)`, 'i');
-      // Apenas se a linha não tiver preço explícito nela
-      if (distRegex.test(rawLinha) && !/(?:R\$|\d+[\,\.]\d{2})/i.test(rawLinha)) {
-        novoFornecedorDetectado = dist;
-        break;
-      }
-    }
-
-    // Se não for conhecido, testa se parece um cabeçalho de fornecedor
-    if (!novoFornecedorDetectado) {
-      if (
-        /^(?:(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|DISTRIBUIDOR)\s*[:\-_]|🏢|🏬|📦)/i.test(rawLinha) &&
-        !/(?:R\$|\d+[\,\.]\d{2})/i.test(rawLinha)
-      ) {
-        novoFornecedorDetectado = rawLinha
-          .replace(/^(?:(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|DISTRIBUIDOR)\s*[:\-_]|🏢|🏬|📦)[\s\-_:]*/i, '')
-          .replace(/[\*#_]/g, '')
-          .trim();
-      } else if (
-        rawLinha.endsWith(':') && 
-        rawLinha.length <= 40 && 
-        !/(?:R\$|\d+[\,\.]\d{2})/i.test(rawLinha) &&
-        !/^(?:obs|observacao|condicoes|prazo|minimo|frete|pedido)/i.test(rawLinha)
-      ) {
-        novoFornecedorDetectado = rawLinha.replace(/[:\*#_]/g, '').trim();
-      }
-    }
-
-    if (novoFornecedorDetectado && novoFornecedorDetectado.length >= 2) {
-      fornecedorAtual = novoFornecedorDetectado.toUpperCase();
-      encontrouPrimeiroFornecedor = true;
       if (!fornecedoresMap.has(fornecedorAtual)) {
         fornecedoresMap.set(fornecedorAtual, []);
       }
+      produtoPendente = '';
       continue;
     }
 
-    // 2. Tenta extrair produto e preço da linha
-    // Padrões de preço:
-    // a) R$ 12,50 ou R$12,50
-    // b) - 12,50 ou : 12,50 ou = 12,50
-    // c) por 12,50 ou a 12,50 ou cada 12,50
-    // d) Preço no final da linha: "Dipirona 500mg 100 comp 12,50"
-    let precoEncontrado = null;
-    let nomeProduto = '';
+    // 2. Corrige linhas grudadas como "Betaistina 16,7,92" -> "Betaistina 16 7,92"
+    let linhaTratada = rawLinha.replace(/(\d+),(\d{1,4},\d{2})\b/, '$1 $2');
 
-    // Regex 1: Indicador explícito de moeda anywhere (R$, por, cada, a, un:)
-    const regexMoeda = /(?:R\$\s*|POR\s+|CADA\s+|A\s+R\$\s*|UN\s*[:\-\s]\s*|UNIDADE\s*[:\-\s]\s*)([\d]{1,4}[,\.]\d{2})/i;
-    let match = regexMoeda.exec(rawLinha);
-
-    if (match) {
-      precoEncontrado = parsePrice(match[1]);
-      nomeProduto = rawLinha.replace(match[0], ' ').replace(/[\*\-_\|\.]/g, ' ').trim();
-    } else {
-      // Regex 2: Separador com traço, dois pontos, pipe, reticências seguido de preço
-      const regexSeparador = /[\:\-–—\=\|\.]\s*([\d]{1,4}[,\.]\d{2})(?!\s*(?:mg|ml|g|mcg|%))/i;
-      match = regexSeparador.exec(rawLinha);
-      if (match) {
-        precoEncontrado = parsePrice(match[1]);
-        nomeProduto = rawLinha.slice(0, match.index).replace(/[\*\-_\|\.]/g, ' ').trim();
-      } else {
-        // Regex 3: Preço no início da linha (ex: "12,50 - Dipirona 500mg" ou "R$ 12,50 Dipirona")
-        const regexInicio = /^(?:R\$\s*)?([\d]{1,4}[,\.]\d{2})\s*[\:\-–—\=\|\s]\s*(.+)$/i;
-        match = regexInicio.exec(rawLinha);
-        if (match && parsePrice(match[1]) > 0.40) {
-          precoEncontrado = parsePrice(match[1]);
-          nomeProduto = match[2].trim();
-        } else {
-          // Regex 4: Número no final da linha (com sufixos como un, cx, fr, pct ou parênteses)
-          const regexFinal = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|und|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
-          match = regexFinal.exec(rawLinha);
-          if (match) {
-            const val = parsePrice(match[1]);
-            if (val > 0.40) { // Ignora se for provável dosagem baixa
-              precoEncontrado = val;
-              nomeProduto = rawLinha.slice(0, match.index).replace(/[\*\-_\|\.]/g, ' ').trim();
-            }
-          }
-        }
+    // 3. Procura preços na linha
+    const regexPrecoGeral = /(?:R\$\s*)?(\d{1,4}[,\.]\d{2})\b/g;
+    const matchesPreco = [];
+    let m;
+    while ((m = regexPrecoGeral.exec(linhaTratada)) !== null) {
+      const val = parsePrice(m[1]);
+      if (val > 0.40) {
+        matchesPreco.push({ index: m.index, match: m[0], valor: val });
       }
     }
 
-    // Se encontrou preço e nome válido do produto
-    if (precoEncontrado && precoEncontrado > 0 && nomeProduto && nomeProduto.length >= 3) {
-      // Limpeza do nome
+    if (matchesPreco.length > 0) {
+      // Pega o melhor/menor preço se houver subitens na mesma linha
+      let precoEscolhido = matchesPreco[0].valor;
+      if (matchesPreco.length > 1) {
+        precoEscolhido = Math.min(...matchesPreco.map(p => p.valor));
+      }
+
+      let nomeProduto = '';
+      if (produtoPendente && /^(?:\d+[\s:]*)+/.test(linhaTratada)) {
+        nomeProduto = produtoPendente;
+      } else {
+        const primeiroMatch = matchesPreco[0];
+        nomeProduto = linhaTratada.slice(0, primeiroMatch.index).replace(/[\*\-–—:\|]/g, ' ').trim();
+        if (!nomeProduto && matchesPreco.length > 0) {
+          nomeProduto = linhaTratada.replace(matchesPreco[0].match, '').trim();
+        }
+      }
+
+      // Limpeza de prefixos numéricos de lista (ex: "1. ", "02 - ")
       nomeProduto = nomeProduto
-        .replace(/^[0-9\.\)\-\s]+/, '') // remove numeração de lista "1. " ou "01 - "
-        .replace(/[:\-–—=]+$/, '') // remove dois pontos, traço final
+        .replace(/^[0-9\.\)\-\s]+/, '')
+        .replace(/[:\-–—=]+$/, '')
         .replace(/\s+/g, ' ')
         .trim();
 
-      if (!fornecedoresMap.has(fornecedorAtual)) {
-        fornecedoresMap.set(fornecedorAtual, []);
-      }
+      if (nomeProduto && nomeProduto.length >= 3) {
+        if (!fornecedoresMap.has(fornecedorAtual)) {
+          fornecedoresMap.set(fornecedorAtual, []);
+        }
 
-      fornecedoresMap.get(fornecedorAtual).push({
-        fornecedor: fornecedorAtual,
-        produtoOriginal: nomeProduto,
-        produtoNormalizado: normalizarNomeProduto(nomeProduto),
-        preco: precoEncontrado
-      });
+        fornecedoresMap.get(fornecedorAtual).push({
+          fornecedor: fornecedorAtual,
+          produtoOriginal: nomeProduto,
+          produtoNormalizado: normalizarNomeProduto(nomeProduto),
+          preco: precoEscolhido
+        });
+      }
+    } else {
+      // Linha sem preço: armazena como nome pendente se a próxima linha tiver o preço (ex: Carmelose colírio ou Clotrimazol vag)
+      if (rawLinha.length >= 4 && !/^(?:obs|frete|prazo|pedido|condicoes)/i.test(rawLinha)) {
+        produtoPendente = rawLinha;
+      }
     }
   }
 

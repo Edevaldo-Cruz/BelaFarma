@@ -655,10 +655,19 @@ module.exports = (db) => {
         return res.status(400).json({ success: false, error: 'Texto da cotação é obrigatório.' });
       }
 
+      console.log('──────────────────────────────────────────────────────────');
+      console.log('[Comparador-Texto] 📥 Novo texto recebido para comparação:');
+      console.log(texto);
+      console.log('──────────────────────────────────────────────────────────');
+
       const resultado = await comprasComparadorService.compararCotacoesTexto(texto, {
         usarIA: usarIA === true,
         quantidades: quantidades || {}
       });
+
+      console.log('[Comparador-Texto] 📤 Fornecedores detectados:', resultado.fornecedoresEncontrados);
+      console.log('[Comparador-Texto] 📤 Total produtos comparados:', resultado.itensComparados?.length);
+      console.log('[Comparador-Texto] 📤 Fornecedores vencedores resumo:', (resultado.fornecedoresResumo || []).map(f => `${f.fornecedor} (${f.totalItens} itens)`));
 
       res.json(resultado);
     } catch (err) {
