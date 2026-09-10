@@ -72,8 +72,6 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
   const [copiadoGeral, setCopiadoGeral] = useState(false);
   const [copiadoFornecedor, setCopiadoFornecedor] = useState<Record<string, boolean>>({});
 
-  if (!isOpen) return null;
-
   const handleColarTexto = async () => {
     try {
       const clipboardText = await navigator.clipboard.readText();
@@ -478,6 +476,8 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     if (fornecedorFiltro === 'TODOS') return resultado.fornecedoresResumo;
     return resultado.fornecedoresResumo.filter((b: any) => b.fornecedor === fornecedorFiltro);
   }, [resultado, fornecedorFiltro]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-200">

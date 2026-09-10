@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "b624ae2",
-  "commitMessage": "feat(compras): adicionar tabelas separadas por fornecedor, inputs de quantidade e gerador de texto limpo para pedidos",
-  "buildTime": "10/09/2026, 19:33:26"
+  "commitHash": "6805a5a",
+  "commitMessage": "fix(compras): adicionar botao Colar Texto com clipboard e motor local de fallback instantaneo",
+  "buildTime": "10/09/2026, 19:38:25"
 }
