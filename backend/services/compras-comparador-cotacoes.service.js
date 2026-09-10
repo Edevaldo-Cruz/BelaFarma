@@ -135,29 +135,37 @@ function parsearTextoLocal(texto) {
     let precoEncontrado = null;
     let nomeProduto = '';
 
-    // Regex 1: Indicador explícito de moeda
-    const regexMoeda = /(?:R\$\s*|POR\s+|CADA\s+|A\s+)([\d]{1,4}[,\.]\d{2})/i;
+    // Regex 1: Indicador explícito de moeda anywhere (R$, por, cada, a, un:)
+    const regexMoeda = /(?:R\$\s*|POR\s+|CADA\s+|A\s+R\$\s*|UN\s*[:\-\s]\s*|UNIDADE\s*[:\-\s]\s*)([\d]{1,4}[,\.]\d{2})/i;
     let match = regexMoeda.exec(rawLinha);
 
     if (match) {
       precoEncontrado = parsePrice(match[1]);
-      nomeProduto = rawLinha.replace(match[0], ' ').replace(/[\*\-]/g, ' ').trim();
+      nomeProduto = rawLinha.replace(match[0], ' ').replace(/[\*\-_\|\.]/g, ' ').trim();
     } else {
-      // Regex 2: Traço ou dois pontos seguido de número decimal
-      const regexSeparador = /[\:\-–—\=]\s*([\d]{1,4}[,\.]\d{2})(?!\s*(?:mg|ml|g|mcg|%))/i;
+      // Regex 2: Separador com traço, dois pontos, pipe, reticências seguido de preço
+      const regexSeparador = /[\:\-–—\=\|\.]\s*([\d]{1,4}[,\.]\d{2})(?!\s*(?:mg|ml|g|mcg|%))/i;
       match = regexSeparador.exec(rawLinha);
       if (match) {
         precoEncontrado = parsePrice(match[1]);
-        nomeProduto = rawLinha.slice(0, match.index).replace(/[\*\-]/g, ' ').trim();
+        nomeProduto = rawLinha.slice(0, match.index).replace(/[\*\-_\|\.]/g, ' ').trim();
       } else {
-        // Regex 3: Número no final da linha (evitando dosagens como 0,5mg ou 0,15%)
-        const regexFinal = /(?:^|\s)([\d]{1,4}[,\.]\d{2})\s*$/i;
-        match = regexFinal.exec(rawLinha);
-        if (match) {
-          const val = parsePrice(match[1]);
-          if (val > 0.40) { // Ignora se for provável dosagem baixa
-            precoEncontrado = val;
-            nomeProduto = rawLinha.slice(0, match.index).replace(/[\*\-]/g, ' ').trim();
+        // Regex 3: Preço no início da linha (ex: "12,50 - Dipirona 500mg" ou "R$ 12,50 Dipirona")
+        const regexInicio = /^(?:R\$\s*)?([\d]{1,4}[,\.]\d{2})\s*[\:\-–—\=\|\s]\s*(.+)$/i;
+        match = regexInicio.exec(rawLinha);
+        if (match && parsePrice(match[1]) > 0.40) {
+          precoEncontrado = parsePrice(match[1]);
+          nomeProduto = match[2].trim();
+        } else {
+          // Regex 4: Número no final da linha (com sufixos como un, cx, fr, pct ou parênteses)
+          const regexFinal = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|und|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
+          match = regexFinal.exec(rawLinha);
+          if (match) {
+            const val = parsePrice(match[1]);
+            if (val > 0.40) { // Ignora se for provável dosagem baixa
+              precoEncontrado = val;
+              nomeProduto = rawLinha.slice(0, match.index).replace(/[\*\-_\|\.]/g, ' ').trim();
+            }
           }
         }
       }

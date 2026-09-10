@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4233cd0",
-  "commitMessage": "feat(compras): corrigir preco zerado com A Cotar, validade dinamica de ofertas e auditoria de combos no Horacio",
-  "buildTime": "10/09/2026, 16:45:22"
+  "commitHash": "39b845a",
+  "commitMessage": "feat(compras): adicionar comparador de cotacoes em texto por menor preco e gerador de pedidos",
+  "buildTime": "10/09/2026, 18:53:16"
 }
