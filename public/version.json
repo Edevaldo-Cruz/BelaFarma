@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ecf5f95",
-  "commitMessage": "fix(finance): sincronizar datas locais de fechamento e conciliar faturamento com vendas",
-  "buildTime": "10/09/2026, 10:47:21"
+  "commitHash": "bb15e31",
+  "commitMessage": "fix(provisions): calcular provisão estritamente sobre fechamento de ontem e expirar da modal após 2 dias",
+  "buildTime": "10/09/2026, 10:58:38"
 }

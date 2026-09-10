@@ -418,51 +418,23 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     }
 
     const sorted = [...internalClosings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const latestClosing = sorted[0];
 
-    // 1. Busca prioritariamente o fechamento do dia anterior (ontem)
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = getLocalDateKey(yesterday.toISOString());
-    const yesterdayClosing = sorted.find(c => c.date && getLocalDateKey(c.date) === yesterdayStr);
-
-    if (yesterdayClosing) {
-      const sales = Number(yesterdayClosing.totalSales) || 0;
+    if (!latestClosing || !latestClosing.date) {
       return {
-        referenceClosingSales: Number(sales.toFixed(2)),
-        referenceClosingDatesFormatted: formatDate(yesterdayStr),
-        effectiveProvisionDates: [yesterdayStr]
+        referenceClosingSales: 0,
+        referenceClosingDatesFormatted: '',
+        effectiveProvisionDates: []
       };
     }
 
-    // 2. Se ontem não teve fechamento (ex: domingo ou feriado), busca o fechamento concluído mais recente antes de hoje
-    const todayStr = getLocalDateKey(new Date().toISOString());
-    const latestPastClosing = sorted.find(c => c.date && getLocalDateKey(c.date) < todayStr);
-
-    if (latestPastClosing) {
-      const dateKey = getLocalDateKey(latestPastClosing.date);
-      const sales = Number(latestPastClosing.totalSales) || 0;
-      return {
-        referenceClosingSales: Number(sales.toFixed(2)),
-        referenceClosingDatesFormatted: formatDate(dateKey),
-        effectiveProvisionDates: [dateKey]
-      };
-    }
-
-    // 3. Fallback: fechamento mais recente
-    if (sorted[0]?.date) {
-      const dateKey = getLocalDateKey(sorted[0].date);
-      const sales = Number(sorted[0].totalSales) || 0;
-      return {
-        referenceClosingSales: Number(sales.toFixed(2)),
-        referenceClosingDatesFormatted: formatDate(dateKey),
-        effectiveProvisionDates: [dateKey]
-      };
-    }
+    const dateKey = getLocalDateKey(latestClosing.date);
+    const sales = Number(latestClosing.totalSales) || 0;
 
     return {
-      referenceClosingSales: 0,
-      referenceClosingDatesFormatted: '',
-      effectiveProvisionDates: []
+      referenceClosingSales: Number(sales.toFixed(2)),
+      referenceClosingDatesFormatted: formatDate(dateKey),
+      effectiveProvisionDates: [dateKey]
     };
   }, [internalClosings]);
 
@@ -499,24 +471,40 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     });
   }, [effectiveProvisionDates, paidDates]);
 
+  // Verifica se o fechamento já teve todas as provisões feitas
+  const isAlreadyProvisioned = useMemo(() => {
+    if (effectiveProvisionDates.length === 0) return false;
+    return effectiveProvisionDates.every(d => {
+      const p = paidDates.includes(`prolabore-${d}`);
+      const t = paidDates.includes(`tax-${d}`);
+      const r = paidDates.includes(`reserve-${d}`);
+      return p && t && r;
+    });
+  }, [effectiveProvisionDates, paidDates]);
+
   // Verifica se a provisão já passou de 2 dias após a data de fechamento
   const isProvisionsPastSecondDay = useMemo(() => {
     if (effectiveProvisionDates.length === 0) return false;
     return effectiveProvisionDates.every(d => isDatePastSecondDay(d));
   }, [effectiveProvisionDates]);
 
-  // Regra BelaFarma: A provisão fica disponível na modal por dois dias. Após o 2º dia, descarta e SOME da modal.
+  // Regra BelaFarma: Pedir apenas o último fechamento se não tiver tido feito provisão.
+  // Fica disponível na modal por dois dias e depois some.
   const shouldShowProvisionsBanner = useMemo(() => {
     if (provisionBaseValue <= 0) return false;
 
-    // Se já passou de 2 dias após a data do fechamento:
-    // A provisão expira e SOME completamente da modal!
+    // Se já passou de 2 dias após a data do fechamento: descarta e SOME completamente da modal!
     if (isProvisionsPastSecondDay) {
       return false;
     }
 
+    // Se já teve todas as provisões feitas: NÃO PEDE (some da modal)!
+    if (isAlreadyProvisioned) {
+      return false;
+    }
+
     return true;
-  }, [provisionBaseValue, isProvisionsPastSecondDay]);
+  }, [provisionBaseValue, isProvisionsPastSecondDay, isAlreadyProvisioned]);
 
   // Alterna e salva o status de provisão diretamente no banco e notifica a guia de Caixinhas
   const handleToggleProvision = async (key: 'prolabore' | 'impostos' | 'reserva') => {
@@ -791,7 +779,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Calculadas sobre o faturamento do <strong>fechamento do dia anterior {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>. Fica disponível por 2 dias.
+                          Calculadas sobre o faturamento do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>. Fica disponível por 2 dias se não tiver sido provisionado.
                         </p>
                       </div>
                     </div>
@@ -802,14 +790,14 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       <div className="bg-indigo-950/70 border-2 border-indigo-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[210px] shadow-lg shadow-indigo-950/50">
                         <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
                           {referenceClosingDatesFormatted 
-                            ? `Fechamento (${referenceClosingDatesFormatted})` 
-                            : 'Fechamento Dia Anterior'}
+                            ? `Último Fechamento (${referenceClosingDatesFormatted})` 
+                            : 'Último Fechamento'}
                         </span>
                         <span className="text-2xl sm:text-3xl font-black text-indigo-200 tracking-tight mt-0.5">
                           {formatCurrency(provisionBaseValue)}
                         </span>
                         <span className="text-[10px] text-indigo-400 font-medium">
-                          Base das Provisões (Dia Anterior)
+                          Base das Provisões
                         </span>
                       </div>
 
