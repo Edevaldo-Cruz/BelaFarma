@@ -350,6 +350,121 @@ function processarComparativo(itens) {
 }
 
 /**
+ * Consulta no banco compras_estoque_cache dados de estoque, giro de 30 dias,
+ * valor da última compra e sugestão de compra calculada pela diretriz.
+ */
+function buscarInfoEstoqueProduto(nomeProduto, db) {
+  if (!db || !nomeProduto) return null;
+
+  try {
+    const palavrasIgnoradas = new Set([
+      'DE', 'DO', 'DA', 'EM', 'COM', 'C/', 'SEM', 'POR', 'PARA',
+      'COMP', 'COMPRIMIDO', 'COMPRIMIDOS', 'CAPS', 'CAPSULA', 'CAPSULAS',
+      'CPR', 'CPS', 'GENERICO', 'GENÉRICO', 'SIMILAR', 'DRG', 'DRAGEAS'
+    ]);
+
+    const limpo = String(nomeProduto).toUpperCase()
+      .replace(/(\d+)([A-Z]+)/gi, '$1 $2')
+      .replace(/([A-Z]+)(\d+)/gi, '$1 $2')
+      .replace(/[^A-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !palavrasIgnoradas.has(w));
+
+    if (limpo.length === 0) return null;
+
+    const sql1 = `
+      SELECT 
+        produto_id, 
+        descricao, 
+        ean, 
+        saldo, 
+        vendas_30d, 
+        est_minimo_calculado,
+        qtd_sugerida_compra,
+        custo_unitario,
+        COALESCE(NULLIF(preco_unitario_ult_compra, 0), NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as ultima_compra_valor,
+        ultima_compra_fornecedor,
+        ultima_compra_data
+      FROM compras_estoque_cache
+      WHERE ${limpo.map(() => "descricao LIKE ?").join(' AND ')}
+      ORDER BY (saldo > 0 OR vendas_30d > 0) DESC, vendas_30d DESC
+      LIMIT 1
+    `;
+    const params1 = limpo.map(w => `%${w}%`);
+    let row = db.prepare(sql1).get(...params1);
+
+    if (!row && limpo.length > 2) {
+      const duasPrimeiras = limpo.slice(0, 2);
+      const sql2 = `
+        SELECT 
+          produto_id, 
+          descricao, 
+          ean, 
+          saldo, 
+          vendas_30d, 
+          est_minimo_calculado,
+          qtd_sugerida_compra,
+          custo_unitario,
+          COALESCE(NULLIF(preco_unitario_ult_compra, 0), NULLIF(ultima_compra_valor, 0), custo_unitario, 0) as ultima_compra_valor,
+          ultima_compra_fornecedor,
+          ultima_compra_data
+        FROM compras_estoque_cache
+        WHERE ${duasPrimeiras.map(() => "descricao LIKE ?").join(' AND ')}
+        ORDER BY (saldo > 0 OR vendas_30d > 0) DESC, vendas_30d DESC
+        LIMIT 1
+      `;
+      row = db.prepare(sql2).get(...duasPrimeiras.map(w => `%${w}%`));
+    }
+
+    if (!row) return null;
+
+    const ultValor = Number(row.ultima_compra_valor) || 0;
+    const qtdSug = Math.max(0, Math.round(Number(row.qtd_sugerida_compra) || 0));
+
+    return {
+      produtoId: row.produto_id,
+      descricaoEstoque: row.descricao,
+      ean: row.ean,
+      saldo: Number(row.saldo) || 0,
+      vendas30d: Number(row.vendas_30d) || 0,
+      estMinimo: Number(row.est_minimo_calculado) || 0,
+      qtdSugerida30d: qtdSug,
+      valorUltimaCompra: ultValor,
+      fornecedorUltimaCompra: row.ultima_compra_fornecedor || '',
+      dataUltimaCompra: row.ultima_compra_data || ''
+    };
+  } catch (err) {
+    console.warn('[buscarInfoEstoqueProduto] Erro ao consultar estoque:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Enriquece os itens comparados com informações do estoque,
+ * valor da última compra e sugestão de compra para os próximos 30 dias.
+ */
+function enriquecerComDadosEstoque(itensComparados, db) {
+  if (!db || !Array.isArray(itensComparados)) return itensComparados;
+
+  for (const item of itensComparados) {
+    const estoque = buscarInfoEstoqueProduto(item.produto || item.produtoNormalizado, db);
+    if (estoque) {
+      let variacaoVsUltimaCompra = null;
+      if (estoque.valorUltimaCompra > 0 && item.menorPreco > 0) {
+        variacaoVsUltimaCompra = ((item.menorPreco - estoque.valorUltimaCompra) / estoque.valorUltimaCompra) * 100;
+      }
+
+      item.estoqueInfo = {
+        ...estoque,
+        variacaoVsUltimaCompra: variacaoVsUltimaCompra !== null ? Number(variacaoVsUltimaCompra.toFixed(1)) : null
+      };
+    }
+  }
+
+  return itensComparados;
+}
+
+/**
  * Gera o texto final formatado pronto para cópia e preenchimento de quantidades.
  */
 function gerarTextoFormatadoPedidos(vencedoresPorFornecedor, itensQuantidades = {}) {
@@ -439,6 +554,12 @@ async function compararCotacoesTexto(texto, options = {}) {
   }
 
   const comparativo = processarComparativo(dadosExtraidos.itens);
+
+  // Enriquece com dados de estoque, última compra e sugestão 30 dias se banco fornecido
+  if (options.db) {
+    enriquecerComDadosEstoque(comparativo.itensComparados, options.db);
+  }
+
   const resultadoTexto = gerarTextoFormatadoPedidos(
     comparativo.vencedoresPorFornecedor,
     options.quantidades || {}
@@ -466,6 +587,8 @@ module.exports = {
   parsearTextoLocal,
   parsearTextoComIA,
   processarComparativo,
+  buscarInfoEstoqueProduto,
+  enriquecerComDadosEstoque,
   gerarTextoFormatadoPedidos,
   compararCotacoesTexto
 };

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "6805a5a",
-  "commitMessage": "fix(compras): adicionar botao Colar Texto com clipboard e motor local de fallback instantaneo",
-  "buildTime": "10/09/2026, 19:38:25"
+  "commitHash": "9ad9f7f",
+  "commitMessage": "fix(compras): corrigir chamada condicional de hooks useMemo no modal de cotacoes",
+  "buildTime": "11/09/2026, 13:55:46"
 }

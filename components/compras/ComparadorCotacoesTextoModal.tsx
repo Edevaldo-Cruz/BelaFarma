@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Sparkles,
@@ -14,7 +14,18 @@ import {
   PlusCircle,
   Filter,
   CheckSquare,
-  Square
+  Square,
+  CheckCircle2,
+  HardDrive,
+  Trash2,
+  HelpCircle,
+  Zap,
+  ChevronRight,
+  ChevronLeft,
+  ArrowUpRight,
+  ArrowDownRight,
+  ShieldCheck,
+  RotateCcw
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -47,6 +58,51 @@ Dienogest 12,45
 Fluconazol c/ 2 1,18
 Acetilcisteina 600 8,99`;
 
+/**
+ * Calcula a probabilidade (0.0 a 1.0) de dois textos representarem o mesmo produto farmacêutico.
+ */
+function calcularSimilaridadeStrings(s1: string, s2: string): number {
+  if (!s1 || !s2) return 0;
+  const norm1 = s1.toUpperCase().replace(/[^A-Z0-9]/g, ' ').trim();
+  const norm2 = s2.toUpperCase().replace(/[^A-Z0-9]/g, ' ').trim();
+  if (norm1 === norm2) return 1.0;
+
+  const palavrasIgnoradas = new Set([
+    'COMP', 'COMPRIMIDO', 'COMPRIMIDOS', 'CAPS', 'CAPSULA', 'CAPSULAS',
+    'CPR', 'CPS', 'GENERICO', 'GENÉRICO', 'SIMILAR', 'DRG', 'DRAGEAS',
+    'MEDLEY', 'EMS', 'EUROFARMA', 'NEO', 'QUIMICA', 'TEUTO', 'SANDOZ',
+    'LEGRAND', 'ACHE', 'NOVAQUIMICA', 'GERMED', 'PRATI', 'CIMED'
+  ]);
+
+  const tokens1 = norm1.split(/\s+/).filter(w => w.length >= 2 && !palavrasIgnoradas.has(w));
+  const tokens2 = norm2.split(/\s+/).filter(w => w.length >= 2 && !palavrasIgnoradas.has(w));
+
+  const set1 = new Set(tokens1);
+  const set2 = new Set(tokens2);
+
+  let intersecao = 0;
+  for (const t of set1) {
+    if (set2.has(t)) intersecao++;
+  }
+  const uniao = new Set([...set1, ...set2]).size;
+  const jaccard = uniao === 0 ? 0 : intersecao / uniao;
+
+  // Extrai dosagem (número seguido de MG, G, ML, MCG ou isolado com dosagem farmacêutica)
+  const dose1 = norm1.match(/\b\d+\s*(?:MG|G|ML|MCG)\b/i)?.[0]?.replace(/\s+/g, '') || '';
+  const dose2 = norm2.match(/\b\d+\s*(?:MG|G|ML|MCG)\b/i)?.[0]?.replace(/\s+/g, '') || '';
+
+  if (dose1 && dose2) {
+    if (dose1 !== dose2) {
+      // Dosagens declaradas diferentes: NÃO são o mesmo produto
+      return 0.05;
+    }
+    // Mesma dosagem aumenta a confiança de ser o mesmo medicamento
+    return Math.min(1.0, jaccard + 0.35);
+  }
+
+  return jaccard;
+}
+
 export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModalProps> = ({
   isOpen,
   onClose,
@@ -54,23 +110,88 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
   onCriarCotacaoOficial
 }) => {
   const { addToast } = useToast();
+  const CACHE_STORAGE_KEY = 'belafarma_cotacao_texto_cache_v2';
+
   const [texto, setTexto] = useState('');
   const [usarIA, setUsarIA] = useState(false);
   const [processando, setProcessando] = useState(false);
   const [resultado, setResultado] = useState<any | null>(null);
-  
-  // Controle de quantidades por produtoNormalizado
+
+  // Quantidades digitadas pelo comprador por chave de produto
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
-  
+
   // Fornecedor ativo para visualização na tabela ('TODOS' ou nome específico)
   const [fornecedorFiltro, setFornecedorFiltro] = useState<string>('TODOS');
-  
-  // Opção: copiar apenas os itens que tiveram quantidade > 0 preenchida
-  const [apenasComQuantidade, setApenasComQuantidade] = useState(false);
 
   // Estados de feedback de cópia
   const [copiadoGeral, setCopiadoGeral] = useState(false);
   const [copiadoFornecedor, setCopiadoFornecedor] = useState<Record<string, boolean>>({});
+
+  // Unificações confirmadas e rejeitadas pelo Quiz de Similaridade
+  // Ex: { "LAMOTRIGINA 100MG 30CP UNICHEM": "LAMOTRIGINA 100MG" }
+  const [unificacoesConfirmadas, setUnificacoesConfirmadas] = useState<Record<string, string>>({});
+  const [unificacoesRejeitadas, setUnificacoesRejeitadas] = useState<Record<string, boolean>>({});
+  const [quizAberto, setQuizAberto] = useState(true);
+  const [quizIndice, setQuizIndice] = useState(0);
+
+  // Estados de Cache / Auto-Save para segurança contra quedas do sistema
+  const [ultimoSalvamento, setUltimoSalvamento] = useState<string | null>(null);
+  const [cacheRestaurado, setCacheRestaurado] = useState(false);
+  const [carregouCacheInicial, setCarregouCacheInicial] = useState(false);
+
+  // 1. Restaura dados salvos em cache do localStorage na montagem
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && (data.texto || data.resultado || (data.quantidades && Object.keys(data.quantidades).length > 0))) {
+          if (data.texto) setTexto(data.texto);
+          if (data.resultado) setResultado(data.resultado);
+          if (data.quantidades) setQuantidades(data.quantidades);
+          if (data.fornecedorFiltro) setFornecedorFiltro(data.fornecedorFiltro);
+          if (data.unificacoesConfirmadas) setUnificacoesConfirmadas(data.unificacoesConfirmadas);
+          if (data.unificacoesRejeitadas) setUnificacoesRejeitadas(data.unificacoesRejeitadas);
+          if (data.salvoEm) setUltimoSalvamento(data.salvoEm);
+          setCacheRestaurado(true);
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao restaurar cache de cotações:', err);
+    } finally {
+      setCarregouCacheInicial(true);
+    }
+  }, []);
+
+  // 2. Salva automaticamente no cache do navegador a cada alteração
+  useEffect(() => {
+    if (!carregouCacheInicial) return;
+
+    const timer = setTimeout(() => {
+      try {
+        const totalItensPreenchidos = Object.values(quantidades).filter(v => (v || 0) > 0).length;
+        if (texto.trim() || resultado || totalItensPreenchidos > 0) {
+          const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const payload = {
+            texto,
+            resultado,
+            quantidades,
+            fornecedorFiltro,
+            unificacoesConfirmadas,
+            unificacoesRejeitadas,
+            salvoEm: agora,
+            totalItensPreenchidos
+          };
+          localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(payload));
+          setUltimoSalvamento(agora);
+        }
+      } catch (err) {
+        console.warn('Erro ao salvar cache de cotações:', err);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [texto, resultado, quantidades, fornecedorFiltro, unificacoesConfirmadas, unificacoesRejeitadas, carregouCacheInicial]);
 
   const handleColarTexto = async () => {
     try {
@@ -96,6 +217,49 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     setResultado(null);
     setQuantidades({});
     setFornecedorFiltro('TODOS');
+    setUnificacoesConfirmadas({});
+    setUnificacoesRejeitadas({});
+    setQuizIndice(0);
+    setUltimoSalvamento(null);
+    setCacheRestaurado(false);
+    try {
+      localStorage.removeItem(CACHE_STORAGE_KEY);
+    } catch (err) {}
+    addToast('Campos e rascunho em cache limpos.', 'info');
+  };
+
+  // Consulta lote de estoque via API para enriquecer resultados locais
+  const enriquecerProdutosComEstoque = async (itens: any[]) => {
+    try {
+      const produtosNomes = itens.map(i => i.produto || i.produtoNormalizado);
+      const res = await fetch('/api/central-compras/cotacoes/consultar-estoque-lote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ produtos: produtosNomes })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const mapaEstoque = json.data;
+          itens.forEach(item => {
+            const nome = item.produto || item.produtoNormalizado;
+            const estoque = mapaEstoque[nome] || mapaEstoque[item.produtoNormalizado];
+            if (estoque) {
+              let variacaoVsUltimaCompra = null;
+              if (estoque.valorUltimaCompra > 0 && item.menorPreco > 0) {
+                variacaoVsUltimaCompra = ((item.menorPreco - estoque.valorUltimaCompra) / estoque.valorUltimaCompra) * 100;
+              }
+              item.estoqueInfo = {
+                ...estoque,
+                variacaoVsUltimaCompra: variacaoVsUltimaCompra !== null ? Number(variacaoVsUltimaCompra.toFixed(1)) : null
+              };
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Não foi possível carregar dados de estoque em lote:', e);
+    }
   };
 
   // Parser local embutido para execução instantânea sem depender de rede
@@ -116,121 +280,90 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       for (const p of partes) {
         if (PALAVRAS_NAO_FORNECEDOR.has(p)) return false;
       }
-      return partes.length <= 4 && !/[,\.]$/.test(t);
+      return true;
     };
 
-    const parseNum = (val: string) => {
-      if (!val) return 0;
-      let c = String(val).replace(/R\$/gi, '').replace(/\s*(?:min|cx|un|und|reais|pct|p\s*\d+).*$/i, '').trim();
-      if (c.includes(',') && c.includes('.')) c = c.replace(/\./g, '').replace(',', '.');
-      else if (c.includes(',')) c = c.replace(',', '.');
-      const n = parseFloat(c);
-      return isNaN(n) ? 0 : n;
+    const extrairPreco = (linha: string) => {
+      const match = linha.match(/(?:R\$\s*)?(\d+(?:[\.,]\d{2,}))(?!\d)/i);
+      if (!match) return null;
+      let p = match[1];
+      if (p.includes(',') && p.includes('.')) p = p.replace(/\./g, '').replace(',', '.');
+      else if (p.includes(',')) p = p.replace(',', '.');
+      const num = parseFloat(p);
+      return isNaN(num) || num <= 0 ? null : { preco: num, matchStr: match[0] };
     };
 
-    const normalizarNome = (nome: string) => {
-      if (!nome) return '';
-      return String(nome)
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
-        .replace(/\bHIDRO\b/g, 'HIDROCLOROTIAZIDA')
-        .replace(/\bDIENOGESTE\b/g, 'DIENOGEST')
-        .replace(/\bACU\s*FRESH\b/g, 'ACUFRESH')
-        .replace(/\bCARMELOSE\b/g, 'ACUFRESH CARMELOSE')
-        .replace(/\b(UNICHEM|PHARLAB|MEDQUIMICA|MEDLEY|GEOLAB|EUROFARMA|MULTILAB|BRASTERAPICA|FORTLIFE|VITAMEDIC|GREENPHARMA|TEUTO|NEO QUIMICA|NEOQUIMICA|BIOLAB|NATIVITA|GLEN|BIOSINTETICA|LEGRAND|ARTE NATIVA|MUNDIAL)\b/g, '')
-        .replace(/^[0-9\.\-\_\s]{2,10}(?=[A-Z])/g, '')
-        .replace(/[:\-–—=]+$/, '')
-        .replace(/\b(COMPRIMIDOS|COMPRIMIDO|COMP|CPR|CPS|CAPSULAS|CAPSULA|CAPS|DRAGEAS|DRG)\b/g, '')
-        .replace(/\b(CX|CX\.|CAIXA|COM)\b/g, 'C/')
-        .replace(/\bC\/\s*/g, 'C/')
-        .replace(/\bBLX\d+\b/g, '')
-        .replace(/(\d+)\s*(MG|ML|G|MCG)\b/g, '$1$2')
-        .replace(/C\/\s*(\d+)/g, 'C/$1')
-        .replace(/[^\w\d\/]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    const normalizar = (s: string) => {
+      let n = s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const sinonimos: Record<string, string> = {
+        'HIDRO': 'HIDROCLOROTIAZIDA',
+        'ROSUVA': 'ROSUVASTATINA',
+        'ATORVA': 'ATORVASTATINA',
+        'BENEGRIPE': 'BENEGRIP'
+      };
+      for (const [k, v] of Object.entries(sinonimos)) {
+        n = n.replace(new RegExp(`\\b${k}\\b`, 'g'), v);
+      }
+      n = n.replace(/\b(\d+)\s*(MG|G|ML|MCG)\b/g, '$1$2');
+      n = n.replace(/\b(\d+)\s*(?:CP|CPR|CPS|COMP|COMPRIMIDOS|CAPS|CAPSULAS|DRG)\b/g, '');
+      n = n.replace(/[^A-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      return n;
     };
 
     const linhas = textoParaProcessar.split(/\r?\n/);
-    const fornecedoresMap = new Map<string, any[]>();
-    let fornecedorAtual = 'FORNECEDOR';
-    let produtoPendente = '';
+    let fornecedorAtual = 'GERAL';
+    const fornecedoresMap = new Map<string, Array<{ produto: string; produtoNormalizado: string; preco: number }>>();
 
-    for (let i = 0; i < linhas.length; i++) {
-      const raw = linhas[i].trim();
-      if (!raw || raw.length < 2 || /^[=\-_*#]{3,}$/.test(raw)) continue;
+    for (const linha of linhas) {
+      const t = linha.trim();
+      if (!t) continue;
 
-      if (ehFornecedor(raw)) {
-        fornecedorAtual = raw.replace(/^(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|REP|REPRESENTANTE|EMPRESA)\s*[:\-_]?\s*/i, '').replace(/[\*#_:]/g, '').trim().toUpperCase();
+      if (ehFornecedor(t)) {
+        fornecedorAtual = t.replace(/^(?:FORNECEDOR|DISTRIBUIDORA|DISTRIB|COTACAO|REP|REPRESENTANTE|EMPRESA)\s*[:\-_]\s*/i, '').trim().toUpperCase();
         if (!fornecedoresMap.has(fornecedorAtual)) fornecedoresMap.set(fornecedorAtual, []);
-        produtoPendente = '';
         continue;
       }
 
-      let linhaTratada = raw.replace(/(\d+),(\d{1,4},\d{2})\b/, '$1 $2');
-      const regexPreco = /(?:R\$\s*)?(\d{1,4}[,\.]\d{2})\b/g;
-      const matches: { index: number; match: string; valor: number }[] = [];
-      let m;
-      while ((m = regexPreco.exec(linhaTratada)) !== null) {
-        const val = parseNum(m[1]);
-        if (val > 0.40) matches.push({ index: m.index, match: m[0], valor: val });
-      }
-
-      if (matches.length > 0) {
-        let precoEscolhido = matches[0].valor;
-        if (matches.length > 1) precoEscolhido = Math.min(...matches.map(p => p.valor));
-
-        let nomeProduto = '';
-        if (produtoPendente && /^(?:\d+[\s:]*)+/.test(linhaTratada)) {
-          nomeProduto = produtoPendente;
-        } else {
-          nomeProduto = linhaTratada.slice(0, matches[0].index).replace(/[\*\-–—:\|]/g, ' ').trim();
-          if (!nomeProduto && matches.length > 0) nomeProduto = linhaTratada.replace(matches[0].match, '').trim();
-        }
-
-        nomeProduto = nomeProduto.replace(/^[0-9\.\)\-\s]+/, '').replace(/[:\-–—=]+$/, '').replace(/\s+/g, ' ').trim();
-        if (nomeProduto && nomeProduto.length >= 3) {
+      const infoPreco = extrairPreco(t);
+      if (infoPreco) {
+        let nomeProd = t.replace(infoPreco.matchStr, '').replace(/[-–—:]+$/, '').trim();
+        if (nomeProd.length >= 2) {
           if (!fornecedoresMap.has(fornecedorAtual)) fornecedoresMap.set(fornecedorAtual, []);
           fornecedoresMap.get(fornecedorAtual)!.push({
-            fornecedor: fornecedorAtual,
-            produtoOriginal: nomeProduto,
-            produtoNormalizado: normalizarNome(nomeProduto),
-            preco: precoEscolhido
+            produto: nomeProd,
+            produtoNormalizado: normalizar(nomeProd),
+            preco: infoPreco.preco
           });
         }
-      } else if (raw.length >= 4 && !/^(?:obs|frete|prazo|pedido|condicoes)/i.test(raw)) {
-        produtoPendente = raw;
       }
     }
 
-    // Agrupa por produto e calcula menores preços
-    const grupos = new Map<string, any>();
-    for (const [forn, itens] of fornecedoresMap.entries()) {
-      for (const item of itens) {
-        const k = item.produtoNormalizado || normalizarNome(item.produtoOriginal);
-        if (!grupos.has(k)) {
-          grupos.set(k, { produtoNormalizado: k, produtoExibicao: item.produtoOriginal, ofertas: [] });
+    const ofertasPorProduto = new Map<string, { produtoExibicao: string; ofertas: Array<{ fornecedor: string; preco: number }> }>();
+    for (const [forn, prods] of fornecedoresMap.entries()) {
+      for (const p of prods) {
+        if (!ofertasPorProduto.has(p.produtoNormalizado)) {
+          ofertasPorProduto.set(p.produtoNormalizado, { produtoExibicao: p.produto, ofertas: [] });
         }
-        grupos.get(k)!.ofertas.push(item);
+        ofertasPorProduto.get(p.produtoNormalizado)!.ofertas.push({ fornecedor: forn, preco: p.preco });
       }
     }
 
-    const vencedoresPorFornecedor = new Map<string, any[]>();
     const itensComparados: any[] = [];
+    const vencedoresPorFornecedor = new Map<string, any[]>();
     let economiaTotal = 0;
 
-    for (const [k, g] of grupos.entries()) {
-      const ordenados = [...g.ofertas].sort((a, b) => a.preco - b.preco);
-      const melhor = ordenados[0];
-      const segundo = ordenados.length > 1 ? ordenados[1] : null;
+    for (const [k, g] of ofertasPorProduto.entries()) {
+      g.ofertas.sort((a, b) => a.preco - b.preco);
+      const melhor = g.ofertas[0];
+      const concorrentes = g.ofertas.slice(1);
 
       let concorrenteInfo = '';
-      if (segundo && segundo.preco > melhor.preco) {
-        const econ = segundo.preco - melhor.preco;
-        const pct = (econ / segundo.preco) * 100;
-        economiaTotal += econ;
-        concorrenteInfo = `Melhor preço vs ${segundo.fornecedor} (R$ ${segundo.preco.toFixed(2)}) | -${pct.toFixed(1)}%`;
-      } else {
-        concorrenteInfo = `Cotado em ${melhor.fornecedor}`;
+      if (concorrentes.length > 0) {
+        const segundo = concorrentes[0];
+        const dif = segundo.preco - melhor.preco;
+        const perc = (dif / melhor.preco) * 100;
+        economiaTotal += dif;
+        concorrenteInfo = `Melhor preço vs ${segundo.fornecedor} R$ ${segundo.preco.toFixed(2)} (+${perc.toFixed(1)}%)`;
       }
 
       const itemRes = {
@@ -238,7 +371,8 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
         produtoNormalizado: k,
         vencedor: melhor.fornecedor,
         menorPreco: melhor.preco,
-        concorrenteInfo
+        concorrenteInfo,
+        ofertas: g.ofertas
       };
 
       itensComparados.push(itemRes);
@@ -291,21 +425,23 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
         const data = await res.json();
         if (data.success && data.fornecedoresResumo?.length > 0) {
           setResultado(data);
-          addToast(`✅ Cotações analisadas! ${data.fornecedoresEncontrados?.length || 0} fornecedores separados.`, 'success');
+          addToast(`✅ Cotações analisadas! ${data.fornecedoresEncontrados?.length || 0} fornecedores separados com histórico de compras.`, 'success');
           return;
         }
       }
-      // Se a resposta do servidor não veio como esperado, aciona o motor local nativo imediatamente
+      // Fallback: executa comparativo local e enriquece com dados de estoque
       const dataLocal = executarComparativoLocal(texto);
+      await enriquecerProdutosComEstoque(dataLocal.itensComparados);
       setResultado(dataLocal);
       addToast(`✅ Cotações processadas localmente! ${dataLocal.fornecedoresEncontrados?.length || 0} fornecedores separados.`, 'success');
     } catch (err: any) {
-      // Fallback seguro se houver falha de rede/proxy
       const dataLocal = executarComparativoLocal(texto);
+      await enriquecerProdutosComEstoque(dataLocal.itensComparados);
       setResultado(dataLocal);
-      addToast(`✅ Processado com o motor inteligente local (${dataLocal.fornecedoresEncontrados?.length || 0} fornecedores).`, 'info');
+      addToast(`✅ Processado com o motor local (${dataLocal.fornecedoresEncontrados?.length || 0} fornecedores).`, 'info');
     } finally {
       setProcessando(false);
+      setQuizIndice(0);
     }
   };
 
@@ -317,16 +453,211 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     }));
   };
 
-  // Calcula totais individuais por fornecedor
+  // Recalcula o resultado aplicando as unificações confirmadas no Quiz de Similaridade
+  const resultadoConsolidado = useMemo(() => {
+    if (!resultado || !resultado.itensComparados) return resultado;
+    if (Object.keys(unificacoesConfirmadas).length === 0) return resultado;
+
+    const itensAgrupados = new Map<string, any>();
+
+    for (const item of resultado.itensComparados) {
+      // Usa a chave canônica se foi unificado
+      const chaveCanonica = unificacoesConfirmadas[item.produtoNormalizado] || item.produtoNormalizado;
+
+      if (!itensAgrupados.has(chaveCanonica)) {
+        itensAgrupados.set(chaveCanonica, {
+          ...item,
+          produtoNormalizado: chaveCanonica,
+          todasOfertas: [...(item.ofertas || [{ fornecedor: item.vencedor, preco: item.menorPreco }])]
+        });
+      } else {
+        const existente = itensAgrupados.get(chaveCanonica)!;
+        existente.todasOfertas.push(...(item.ofertas || [{ fornecedor: item.vencedor, preco: item.menorPreco }]));
+        // Preserva o melhor estoqueInfo
+        if (!existente.estoqueInfo && item.estoqueInfo) {
+          existente.estoqueInfo = item.estoqueInfo;
+        }
+      }
+    }
+
+    const novosItensComparados: any[] = [];
+    const vencedoresPorFornecedor = new Map<string, any[]>();
+    let economiaTotal = 0;
+
+    for (const [chave, itemData] of itensAgrupados.entries()) {
+      itemData.todasOfertas.sort((a: any, b: any) => a.preco - b.preco);
+      const melhor = itemData.todasOfertas[0];
+      const concorrentes = itemData.todasOfertas.slice(1);
+
+      let concorrenteInfo = '';
+      if (concorrentes.length > 0) {
+        const segundo = concorrentes[0];
+        const dif = segundo.preco - melhor.preco;
+        const perc = (dif / melhor.preco) * 100;
+        economiaTotal += dif;
+        concorrenteInfo = `Melhor preço vs ${segundo.fornecedor} R$ ${segundo.preco.toFixed(2)} (+${perc.toFixed(1)}%)`;
+      }
+
+      const itemFinal = {
+        ...itemData,
+        produtoNormalizado: chave,
+        vencedor: melhor.fornecedor,
+        menorPreco: melhor.preco,
+        concorrenteInfo
+      };
+
+      novosItensComparados.push(itemFinal);
+
+      if (!vencedoresPorFornecedor.has(melhor.fornecedor)) {
+        vencedoresPorFornecedor.set(melhor.fornecedor, []);
+      }
+      vencedoresPorFornecedor.get(melhor.fornecedor)!.push(itemFinal);
+    }
+
+    const novosFornecedoresResumo = Array.from(vencedoresPorFornecedor.entries()).map(([fornecedor, produtos]) => ({
+      fornecedor,
+      totalItens: produtos.length,
+      produtos
+    }));
+
+    return {
+      ...resultado,
+      estatisticas: {
+        ...resultado.estatisticas,
+        totalProdutosUnicos: novosItensComparados.length,
+        economiaTotalEstimada: economiaTotal
+      },
+      itensComparados: novosItensComparados,
+      fornecedoresResumo: novosFornecedoresResumo
+    };
+  }, [resultado, unificacoesConfirmadas]);
+
+  // Detector de candidatos para o Quiz de Similaridade
+  const candidatosQuiz = useMemo(() => {
+    if (!resultado || !resultado.itensComparados || resultado.itensComparados.length < 2) return [];
+
+    const itens = resultado.itensComparados;
+    const listaCandidatos: any[] = [];
+    const paresVistos = new Set<string>();
+
+    for (let i = 0; i < itens.length; i++) {
+      for (let j = i + 1; j < itens.length; j++) {
+        const itemA = itens[i];
+        const itemB = itens[j];
+
+        if (itemA.produtoNormalizado === itemB.produtoNormalizado) continue;
+
+        const parId = [itemA.produtoNormalizado, itemB.produtoNormalizado].sort().join('||');
+        if (paresVistos.has(parId)) continue;
+        paresVistos.add(parId);
+
+        // Se já unificado ou rejeitado, ignora
+        if (unificacoesConfirmadas[itemA.produtoNormalizado] || unificacoesConfirmadas[itemB.produtoNormalizado]) continue;
+        if (unificacoesRejeitadas[parId]) continue;
+
+        const sim = calcularSimilaridadeStrings(itemA.produto, itemB.produto);
+
+        if (sim >= 0.65) {
+          const precoA = itemA.menorPreco;
+          const precoB = itemB.menorPreco;
+          const menor = precoA <= precoB ? itemA : itemB;
+          const maior = precoA <= precoB ? itemB : itemA;
+          const difPerc = menor.menorPreco > 0 ? ((maior.menorPreco - menor.menorPreco) / menor.menorPreco) * 100 : 0;
+
+          listaCandidatos.push({
+            id: parId,
+            chaveA: itemA.produtoNormalizado,
+            chaveB: itemB.produtoNormalizado,
+            itemA,
+            itemB,
+            score: Math.round(sim * 100),
+            vencedorPreco: menor.vencedor,
+            menorPreco: menor.menorPreco,
+            maiorPreco: maior.menorPreco,
+            economiaPerc: Number(difPerc.toFixed(1))
+          });
+        }
+      }
+    }
+
+    return listaCandidatos.sort((a, b) => b.score - a.score);
+  }, [resultado, unificacoesConfirmadas, unificacoesRejeitadas]);
+
+  // Ações do Quiz de Similaridade
+  const handleConfirmarUnificacao = (par: any) => {
+    // Unifica B em A (elege A como canônico)
+    setUnificacoesConfirmadas(prev => ({
+      ...prev,
+      [par.chaveB]: par.chaveA
+    }));
+    addToast(`✅ Produtos unificados! Menor preço eleito: ${par.vencedorPreco} por R$ ${par.menorPreco.toFixed(2)}`, 'success');
+    if (quizIndice >= candidatosQuiz.length - 1) {
+      setQuizIndice(Math.max(0, candidatosQuiz.length - 2));
+    }
+  };
+
+  const handleRejeitarUnificacao = (par: any) => {
+    setUnificacoesRejeitadas(prev => ({
+      ...prev,
+      [par.id]: true
+    }));
+    addToast('Produtos mantidos separados nas tabelas.', 'info');
+    if (quizIndice >= candidatosQuiz.length - 1) {
+      setQuizIndice(Math.max(0, candidatosQuiz.length - 2));
+    }
+  };
+
+  const handleUnificarTodosCerteza = () => {
+    const certas = candidatosQuiz.filter(c => c.score >= 80);
+    if (certas.length === 0) {
+      addToast('Nenhum par com certeza >= 80% pendente.', 'info');
+      return;
+    }
+
+    const novasUnificacoes: Record<string, string> = { ...unificacoesConfirmadas };
+    certas.forEach(par => {
+      novasUnificacoes[par.chaveB] = par.chaveA;
+    });
+
+    setUnificacoesConfirmadas(novasUnificacoes);
+    addToast(`⚡ ${certas.length} pares de produtos unificados com sucesso!`, 'success');
+  };
+
+  // Preenchimento automático com a sugestão de compra de 30 dias
+  const handleAplicarSugestoes30d = () => {
+    if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return;
+    let preenchidos = 0;
+    const novasQtds = { ...quantidades };
+
+    for (const bloco of resultadoConsolidado.fornecedoresResumo) {
+      for (const prod of (bloco.produtos || [])) {
+        const sug = prod.estoqueInfo?.qtdSugerida30d;
+        if (typeof sug === 'number' && sug > 0) {
+          novasQtds[prod.produtoNormalizado] = sug;
+          preenchidos++;
+        }
+      }
+    }
+
+    if (preenchidos === 0) {
+      addToast('Nenhum produto necessita de reposição para 30 dias (o estoque atual já cobre o giro).', 'info');
+      return;
+    }
+
+    setQuantidades(novasQtds);
+    addToast(`⚡ ${preenchidos} produtos foram preenchidos com a sugestão calculada para 30 dias de giro!`, 'success');
+  };
+
+  // Métricas e totais calculados
   const metricasFornecedores = useMemo(() => {
-    if (!resultado || !resultado.fornecedoresResumo) return {};
+    if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return {};
 
     const mapa: Record<string, { totalItens: number; itensComQtd: number; valorTotal: number; unidadesTotal: number }> = {};
     let geralValor = 0;
     let geralUnidades = 0;
     let geralItensComQtd = 0;
 
-    for (const bloco of resultado.fornecedoresResumo) {
+    for (const bloco of resultadoConsolidado.fornecedoresResumo) {
       let valorFornecedor = 0;
       let unidadesFornecedor = 0;
       let itensComQtd = 0;
@@ -341,7 +672,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       }
 
       mapa[bloco.fornecedor] = {
-        totalItens: (bloco.produtos || []).length,
+        totalItens: bloco.totalItens,
         itensComQtd,
         valorTotal: valorFornecedor,
         unidadesTotal: unidadesFornecedor
@@ -360,34 +691,35 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
         itensComQtd: geralItensComQtd
       }
     };
-  }, [resultado, quantidades]);
+  }, [resultadoConsolidado, quantidades]);
 
   /**
-   * Gera o texto LIMPO por fornecedor:
-   * Apenas Produto | Quantidade | Preço Unitário | Subtotal e Totalizadores.
+   * Gera o texto LIMPO individual por fornecedor:
+   * REGRA ESTRITA: Apenas produtos com quantidade preenchida (> 0) são incluídos!
+   * Produtos sem quantidade são estritamente IGNORADOS.
    */
-  const gerarTextoLimpoFornecedor = (fornecedorNome: string, apenasComQtd = apenasComQuantidade) => {
-    if (!resultado || !resultado.fornecedoresResumo) return '';
-    const bloco = resultado.fornecedoresResumo.find((f: any) => f.fornecedor === fornecedorNome);
+  const gerarTextoLimpoFornecedor = (fornecedorNome: string) => {
+    if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return '';
+    const bloco = resultadoConsolidado.fornecedoresResumo.find((f: any) => f.fornecedor === fornecedorNome);
     if (!bloco) return '';
 
-    let produtosParaListar = bloco.produtos || [];
-    if (apenasComQtd) {
-      produtosParaListar = produtosParaListar.filter((p: any) => (quantidades[p.produtoNormalizado] || 0) > 0);
-    }
+    // Filtra estritamente os produtos com quantidade preenchida > 0
+    const produtosComQtd = (bloco.produtos || []).filter((p: any) => {
+      const qtd = quantidades[p.produtoNormalizado];
+      return typeof qtd === 'number' && qtd > 0;
+    });
 
-    if (produtosParaListar.length === 0) {
+    if (produtosComQtd.length === 0) {
       return `PEDIDO DE COMPRA - ${fornecedorNome}\n(Nenhum produto com quantidade preenchida)`;
     }
 
-    let textoOut = `==================================================\n`;
-    textoOut += `PEDIDO DE COMPRA - ${fornecedorNome}\n`;
-    textoOut += `==================================================\n`;
+    let textoOut = `PEDIDO DE COMPRA - ${fornecedorNome}\n`;
+    textoOut += `--------------------------------------------------\n`;
 
     let totalGeralFornecedor = 0;
     let totalUnidadesFornecedor = 0;
 
-    produtosParaListar.forEach((item: any, idx: number) => {
+    produtosComQtd.forEach((item: any, idx: number) => {
       const num = String(idx + 1).padStart(2, '0');
       const qtd = quantidades[item.produtoNormalizado] || 0;
       const precoUnit = item.menorPreco;
@@ -397,38 +729,41 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       totalUnidadesFornecedor += qtd;
 
       const unitFormatado = precoUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-      const subtotalFormatado = subtotal > 0
-        ? subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-        : 'R$ 0,00';
+      const subtotalFormatado = subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-      const qtdTexto = qtd > 0 ? String(qtd).padStart(4, ' ') : '____';
-
-      textoOut += `${num}. ${item.produto} | Qtd: ${qtdTexto} | Unit: ${unitFormatado} | Total: ${subtotalFormatado}\n`;
+      textoOut += `${num}. ${item.produto}\n`;
+      textoOut += `    Qtd: ${qtd} un | Unit: ${unitFormatado} | Subtotal: ${subtotalFormatado}\n`;
     });
 
     textoOut += `--------------------------------------------------\n`;
-    textoOut += `Itens no pedido: ${produtosParaListar.length}\n`;
-    if (totalUnidadesFornecedor > 0) {
-      textoOut += `Total de unidades: ${totalUnidadesFornecedor}\n`;
-    }
+    textoOut += `Itens com pedido: ${produtosComQtd.length} (${totalUnidadesFornecedor} unidades no total)\n`;
     textoOut += `VALOR TOTAL DO PEDIDO: ${totalGeralFornecedor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
-    textoOut += `==================================================\n`;
 
     return textoOut;
   };
 
   /**
-   * Gera o texto LIMPO consolidado de TODOS os fornecedores.
+   * Gera o texto LIMPO consolidado de TODOS os fornecedores com pedido (>0).
    */
-  const gerarTextoLimpoConsolidado = (apenasComQtd = apenasComQuantidade) => {
-    if (!resultado || !resultado.fornecedoresResumo) return '';
-    const blocos = resultado.fornecedoresResumo.map((f: any) => gerarTextoLimpoFornecedor(f.fornecedor, apenasComQtd));
-    
-    let textoTotal = blocos.join('\n\n');
+  const gerarTextoLimpoConsolidado = () => {
+    if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return '';
+
+    const fornecedoresAtivos = resultadoConsolidado.fornecedoresResumo.filter((f: any) =>
+      (f.produtos || []).some((p: any) => (quantidades[p.produtoNormalizado] || 0) > 0)
+    );
+
+    if (fornecedoresAtivos.length === 0) {
+      return `Nenhum produto possui quantidade preenchida ainda.\nPreencha as quantidades desejadas nas tabelas acima para gerar os pedidos limpos por fornecedor.`;
+    }
+
+    const blocos = fornecedoresAtivos.map((f: any) => gerarTextoLimpoFornecedor(f.fornecedor));
+    let textoTotal = blocos.join('\n\n==================================================\n\n');
+
     const metricas = metricasFornecedores.geral;
     if (metricas && metricas.valorTotal > 0) {
       textoTotal += `\n\n==================================================\n`;
       textoTotal += `RESUMO GERAL CONSOLIDADO DE COMPRAS\n`;
+      textoTotal += `Fornecedores com pedidos: ${fornecedoresAtivos.length}\n`;
       textoTotal += `Total de itens pedidos: ${metricas.itensComQtd}\n`;
       textoTotal += `Total geral de unidades: ${metricas.unidadesTotal}\n`;
       textoTotal += `VALOR TOTAL GERAL: ${metricas.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
@@ -439,31 +774,50 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
   };
 
   const handleCopiarFornecedor = (fornecedorNome: string) => {
+    const bloco = resultadoConsolidado?.fornecedoresResumo?.find((f: any) => f.fornecedor === fornecedorNome);
+    const itensComQtd = (bloco?.produtos || []).filter((p: any) => (quantidades[p.produtoNormalizado] || 0) > 0);
+
+    if (itensComQtd.length === 0) {
+      addToast(`⚠️ Nenhum produto de ${fornecedorNome} tem quantidade preenchida. Digite a quantidade na tabela antes de copiar.`, 'warning');
+      return;
+    }
+
     const textoLimpo = gerarTextoLimpoFornecedor(fornecedorNome);
     navigator.clipboard.writeText(textoLimpo).then(() => {
       setCopiadoFornecedor(prev => ({ ...prev, [fornecedorNome]: true }));
       setTimeout(() => setCopiadoFornecedor(prev => ({ ...prev, [fornecedorNome]: false })), 2000);
-      addToast(`📋 Pedido limpo de ${fornecedorNome} copiado com sucesso!`, 'success');
+      addToast(`📋 Pedido limpo de ${fornecedorNome} copiado! (${itensComQtd.length} itens)`, 'success');
+    }).catch(() => {
+      addToast('Não foi possível copiar automaticamente para a área de transferência.', 'error');
     });
   };
 
   const handleCopiarTudo = () => {
+    const totalItens = Object.values(quantidades).filter(v => (v || 0) > 0).length;
+    if (totalItens === 0) {
+      addToast('⚠️ Nenhum produto possui quantidade preenchida ainda.', 'warning');
+      return;
+    }
+
     const textoLimpo = gerarTextoLimpoConsolidado();
     navigator.clipboard.writeText(textoLimpo).then(() => {
       setCopiadoGeral(true);
       setTimeout(() => setCopiadoGeral(false), 2000);
-      addToast('📋 Todos os pedidos consolidados copiados!', 'success');
+      addToast(`📋 Pedidos consolidados copiados (${totalItens} itens)!`, 'success');
+    }).catch(() => {
+      addToast('Não foi possível copiar automaticamente.', 'error');
     });
   };
 
   const handleEnviarParaCotacaoOficial = () => {
-    if (!resultado || !resultado.itensComparados) return;
+    if (!resultadoConsolidado || !resultadoConsolidado.itensComparados) return;
+
     if (onCriarCotacaoOficial) {
-      const itensFormatados = resultado.itensComparados.map((it: any) => ({
-        produtoId: 0,
+      const itensFormatados = resultadoConsolidado.itensComparados.map((it: any) => ({
+        produtoId: it.estoqueInfo?.produtoId || 0,
         descricao: it.produto,
-        ean: '',
-        quantidade: quantidades[it.produtoNormalizado] || 10
+        ean: it.estoqueInfo?.ean || '',
+        quantidade: quantidades[it.produtoNormalizado] || it.estoqueInfo?.qtdSugerida30d || 10
       }));
       onCriarCotacaoOficial(itensFormatados);
       onClose();
@@ -472,12 +826,14 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
   // Fornecedores a exibir com base no filtro
   const blocosExibicao = useMemo(() => {
-    if (!resultado || !resultado.fornecedoresResumo) return [];
-    if (fornecedorFiltro === 'TODOS') return resultado.fornecedoresResumo;
-    return resultado.fornecedoresResumo.filter((b: any) => b.fornecedor === fornecedorFiltro);
-  }, [resultado, fornecedorFiltro]);
+    if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return [];
+    if (fornecedorFiltro === 'TODOS') return resultadoConsolidado.fornecedoresResumo;
+    return resultadoConsolidado.fornecedoresResumo.filter((b: any) => b.fornecedor === fornecedorFiltro);
+  }, [resultadoConsolidado, fornecedorFiltro]);
 
   if (!isOpen) return null;
+
+  const parAtual = candidatosQuiz[quizIndice];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-2 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-200">
@@ -490,35 +846,71 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                Comparador de Cotações em Texto
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
-                  Tabelas por Fornecedor & Pedidos Limpos
-                </span>
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                  Comparador Inteligente de Cotações em Texto
+                </h3>
+                {ultimoSalvamento && (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Salvo em cache ({ultimoSalvamento})
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Digite as quantidades diretamente nas tabelas de cada fornecedor e gere textos limpos com unitário, subtotal e total geral.
+                Identifica o menor preço, cruza com o estoque da loja e gera pedidos limpos por fornecedor.
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Corpo com Scroll */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
           
+          {/* Alerta se o rascunho foi restaurado do cache */}
+          {cacheRestaurado && (
+            <div className="flex items-center justify-between p-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300 text-xs">
+              <div className="flex items-center gap-2 font-bold">
+                <CheckCircle2 className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>
+                  Restauramos suas cotações e quantidades digitadas de onde você parou
+                  {ultimoSalvamento ? ` (salvo em ${ultimoSalvamento})` : ''}.
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setCacheRestaurado(false)}
+                  className="text-[11px] font-bold text-amber-900 dark:text-amber-200 hover:underline cursor-pointer"
+                >
+                  Entendi
+                </button>
+                <span>•</span>
+                <button
+                  onClick={handleLimpar}
+                  className="text-[11px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Limpar / Novo
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Caixa de Entrada de Texto (Retrátil se já houver resultados) */}
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-red-500" />
-                Texto da Cotação (Cole aqui o texto recebido de todos os representantes)
+                Texto da Cotação (Cole aqui as mensagens dos representantes com nomes e preços)
               </label>
 
               <div className="flex items-center gap-2">
@@ -559,8 +951,8 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
             <textarea
               value={texto}
               onChange={e => setTexto(e.target.value)}
-              placeholder="Cole aqui o texto da cotação com os nomes dos representantes (ex: SILAS, FELIPE, FRAN, GUILHERME) e seus produtos/preços..."
-              rows={resultado ? 4 : 7}
+              placeholder="Cole aqui o texto com os fornecedores (ex: SILAS, FELIPE, FRAN, GUILHERME) e os produtos..."
+              rows={resultado ? 3 : 6}
               className="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all resize-y shadow-inner"
             />
 
@@ -587,20 +979,191 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                 {processando ? (
                   <>
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Separando Fornecedores...
+                    Analisando e Cruzando com Estoque...
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    {resultado ? 'Reanalisar Texto' : 'Comparar e Separar Fornecedores'}
+                    {resultado ? 'Reanalisar Cotações' : 'Comparar e Separar Fornecedores'}
                   </>
                 )}
               </button>
             </div>
           </div>
 
+          {/* QUIZ DE SIMILARIDADE DE PRODUTOS */}
+          {candidatosQuiz.length > 0 && quizAberto && parAtual && (
+            <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-50/80 via-orange-50/50 to-amber-100/40 dark:from-amber-950/40 dark:via-orange-950/20 dark:to-slate-900 border-2 border-amber-300/80 dark:border-amber-700/60 shadow-lg space-y-4 animate-in fade-in duration-300">
+              
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-amber-200 dark:border-amber-800/60">
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-amber-500 text-white shadow-xs">
+                    <HelpCircle className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      Quiz de Similaridade: Confirmar Produtos Iguais
+                      <span className="px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[11px] font-black">
+                        Pergunta {quizIndice + 1} de {candidatosQuiz.length}
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                      Detectamos que estes 2 itens de fornecedores diferentes podem ser o mesmo medicamento. Confirme para unificar e eleger o menor preço:
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={handleUnificarTodosCerteza}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black cursor-pointer shadow-xs transition-all"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Unificar Todos (&gt;80%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuizAberto(false)}
+                    className="text-[11px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-2 py-1"
+                  >
+                    Ocultar Quiz
+                  </button>
+                </div>
+              </div>
+
+              {/* Comparação dos 2 itens do Quiz */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Card Item A */}
+                <div className={`p-4 rounded-2xl border transition-all ${
+                  parAtual.itemA.menorPreco <= parAtual.itemB.menorPreco
+                    ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-500/10'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                      <Building2 className="w-3.5 h-3.5 text-red-500" />
+                      {parAtual.itemA.vencedor}
+                    </span>
+                    {parAtual.itemA.menorPreco <= parAtual.itemB.menorPreco && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-white shadow-2xs">
+                        Menor Preço
+                      </span>
+                    )}
+                  </div>
+                  <div className="font-bold text-sm text-slate-900 dark:text-white">
+                    {parAtual.itemA.produto}
+                  </div>
+                  <div className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                    {parAtual.itemA.menorPreco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+
+                {/* Card Item B */}
+                <div className={`p-4 rounded-2xl border transition-all ${
+                  parAtual.itemB.menorPreco < parAtual.itemA.menorPreco
+                    ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-500/10'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                      <Building2 className="w-3.5 h-3.5 text-red-500" />
+                      {parAtual.itemB.vencedor}
+                    </span>
+                    {parAtual.itemB.menorPreco < parAtual.itemA.menorPreco && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-white shadow-2xs">
+                        Menor Preço
+                      </span>
+                    )}
+                  </div>
+                  <div className="font-bold text-sm text-slate-900 dark:text-white">
+                    {parAtual.itemB.produto}
+                  </div>
+                  <div className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                    {parAtual.itemB.menorPreco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Resumo da Probabilidade e Ações */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="px-2.5 py-1 rounded-xl bg-amber-200/80 dark:bg-amber-900/60 text-amber-950 dark:text-amber-200 text-xs font-black">
+                    Probabilidade: {parAtual.score}%
+                  </span>
+                  {parAtual.economiaPerc > 0 && (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      Economia de <b>{parAtual.economiaPerc}%</b> comprando de <b>{parAtual.vencedorPreco}</b>!
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRejeitarUnificacao(parAtual)}
+                    className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-black transition-all cursor-pointer"
+                  >
+                    ❌ Não, Manter Separados
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmarUnificacao(parAtual)}
+                    className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                  >
+                    ✅ Sim, Unificar Produtos
+                  </button>
+
+                  {candidatosQuiz.length > 1 && (
+                    <div className="flex items-center gap-1 pl-2">
+                      <button
+                        type="button"
+                        disabled={quizIndice === 0}
+                        onClick={() => setQuizIndice(prev => Math.max(0, prev - 1))}
+                        className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800 disabled:opacity-30 cursor-pointer"
+                        title="Pergunta anterior"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={quizIndice >= candidatosQuiz.length - 1}
+                        onClick={() => setQuizIndice(prev => Math.min(candidatosQuiz.length - 1, prev + 1))}
+                        className="p-2 rounded-lg bg-slate-200 dark:bg-slate-800 disabled:opacity-30 cursor-pointer"
+                        title="Próxima pergunta"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* Banner discreto para reabrir o Quiz se houver perguntas pendentes */}
+          {candidatosQuiz.length > 0 && !quizAberto && (
+            <div className="flex items-center justify-between p-3 px-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs font-bold text-amber-800 dark:text-amber-300">
+              <span className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-amber-500" />
+                Existem {candidatosQuiz.length} pares de produtos que podem ser iguais aguardando revisão.
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuizAberto(true)}
+                className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-[11px] cursor-pointer"
+              >
+                Abrir Quiz de Similaridade
+              </button>
+            </div>
+          )}
+
           {/* Área de Tabelas por Fornecedor */}
-          {resultado && resultado.success && (
+          {resultadoConsolidado && resultadoConsolidado.success && (
             <div className="space-y-6 animate-in fade-in duration-300">
               
               {/* Barra de Ações Rápidas & Total Geral Consolidado */}
@@ -620,15 +1183,15 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <label className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold cursor-pointer select-none border border-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={apenasComQuantidade}
-                      onChange={e => setApenasComQuantidade(e.target.checked)}
-                      className="rounded text-red-600 focus:ring-red-500 h-4 w-4"
-                    />
-                    <span>Copiar apenas itens com Qtd {'>'} 0</span>
-                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAplicarSugestoes30d}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-md"
+                    title="Preenche automaticamente as quantidades conforme a diretriz de giro de 30 dias da farmácia"
+                  >
+                    <Zap className="w-4 h-4 text-amber-300" />
+                    Aplicar Sugestões de 30 Dias
+                  </button>
 
                   <button
                     onClick={handleCopiarTudo}
@@ -661,10 +1224,10 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                   }`}
                 >
                   <Layers className="w-3.5 h-3.5" />
-                  Todos os Fornecedores ({resultado.fornecedoresResumo?.length || 0})
+                  Todos os Fornecedores ({resultadoConsolidado.fornecedoresResumo?.length || 0})
                 </button>
 
-                {resultado.fornecedoresResumo?.map((bloco: any) => {
+                {resultadoConsolidado.fornecedoresResumo?.map((bloco: any) => {
                   const isSelected = fornecedorFiltro === bloco.fornecedor;
                   const m = metricasFornecedores.porFornecedor?.[bloco.fornecedor];
                   return (
@@ -748,15 +1311,16 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                         </div>
                       </div>
 
-                      {/* Tabela Interativa de Produtos */}
+                      {/* Tabela Interativa de Produtos com Estoque e Última Compra */}
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="bg-slate-100/70 dark:bg-slate-800/30 text-slate-500 dark:text-slate-400 font-black uppercase border-b border-slate-200 dark:border-slate-800">
-                              <th className="py-3 px-4 w-12 text-center">#</th>
+                              <th className="py-3 px-4 w-10 text-center">#</th>
                               <th className="py-3 px-4">Produto</th>
-                              <th className="py-3 px-4 text-right w-28">Preço Unit.</th>
-                              <th className="py-3 px-4 text-center w-32">Quantidade</th>
+                              <th className="py-3 px-4 text-right w-36">Menor Preço</th>
+                              <th className="py-3 px-4 text-center w-36">Sugestão 30d</th>
+                              <th className="py-3 px-4 text-center w-28">Quantidade</th>
                               <th className="py-3 px-4 text-right w-32">Subtotal</th>
                             </tr>
                           </thead>
@@ -765,6 +1329,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                               const qtdAtual = quantidades[prod.produtoNormalizado] || 0;
                               const subtotal = qtdAtual * prod.menorPreco;
                               const temQtd = qtdAtual > 0;
+                              const estoque = prod.estoqueInfo;
 
                               return (
                                 <tr
@@ -779,19 +1344,86 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                                     {String(pIdx + 1).padStart(2, '0')}
                                   </td>
                                   
+                                  {/* Coluna do Produto & Dados do Estoque */}
                                   <td className="py-3 px-4">
-                                    <div className="font-bold text-slate-900 dark:text-white">
+                                    <div className="font-bold text-slate-900 dark:text-white text-xs">
                                       {prod.produto}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 font-medium">
-                                      {prod.concorrenteInfo}
+                                    
+                                    {/* Informações de Concorrentes */}
+                                    {prod.concorrenteInfo && (
+                                      <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                        {prod.concorrenteInfo}
+                                      </div>
+                                    )}
+
+                                    {/* Indicadores de Estoque Atual e Giro */}
+                                    {estoque && (
+                                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px]">
+                                        <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold">
+                                          Estoque: <b>{estoque.saldo} un</b>
+                                        </span>
+                                        <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold">
+                                          Vendas 30d: <b>{estoque.vendas30d} un</b>
+                                        </span>
+                                      </div>
+                                    )}
+                                  </td>
+
+                                  {/* Menor Preço e Comparativo com Última Compra */}
+                                  <td className="py-3 px-4 text-right">
+                                    <div className="font-black text-slate-900 dark:text-white text-xs">
+                                      {prod.menorPreco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </div>
+
+                                    {/* Valor da Última Compra */}
+                                    {estoque?.valorUltimaCompra > 0 && (
+                                      <div className="mt-1 flex flex-col items-end gap-0.5">
+                                        <span className="text-[10px] text-slate-400 font-medium">
+                                          Última: {estoque.valorUltimaCompra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                        </span>
+                                        {estoque.variacaoVsUltimaCompra !== null && (
+                                          estoque.variacaoVsUltimaCompra < 0 ? (
+                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
+                                              ⬇ {Math.abs(estoque.variacaoVsUltimaCompra)}% economia
+                                            </span>
+                                          ) : estoque.variacaoVsUltimaCompra > 0 ? (
+                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400">
+                                              ⬆ +{estoque.variacaoVsUltimaCompra}% mais caro
+                                            </span>
+                                          ) : (
+                                            <span className="text-[9px] text-slate-400 font-bold">= mesmo preço</span>
+                                          )
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
 
-                                  <td className="py-3 px-4 text-right font-black text-slate-900 dark:text-white text-xs">
-                                    {prod.menorPreco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  {/* Sugestão de Compra para os próximos 30 dias */}
+                                  <td className="py-3 px-4 text-center">
+                                    {estoque && estoque.qtdSugerida30d > 0 ? (
+                                      <div className="flex flex-col items-center gap-1">
+                                        <span className="font-black text-blue-600 dark:text-blue-400 text-xs">
+                                          {estoque.qtdSugerida30d} un
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleMudarQuantidade(prod.produtoNormalizado, String(estoque.qtdSugerida30d))}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/60 hover:bg-blue-200 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[10px] font-black cursor-pointer shadow-2xs transition-all"
+                                          title="Preencher com a sugestão calculada para 30 dias"
+                                        >
+                                          <Zap className="w-2.5 h-2.5 text-amber-500" />
+                                          Usar {estoque.qtdSugerida30d}
+                                        </button>
+                                      </div>
+                                    ) : estoque ? (
+                                      <span className="text-[11px] text-slate-400 font-medium">0 un (Estoque OK)</span>
+                                    ) : (
+                                      <span className="text-slate-300 dark:text-slate-600">-</span>
+                                    )}
                                   </td>
 
+                                  {/* Input da Quantidade a Comprar */}
                                   <td className="py-3 px-4 text-center">
                                     <input
                                       type="number"
@@ -799,7 +1431,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                                       placeholder="0"
                                       value={qtdAtual === 0 ? '' : qtdAtual}
                                       onChange={e => handleMudarQuantidade(prod.produtoNormalizado, e.target.value)}
-                                      className={`w-24 px-3 py-1.5 rounded-xl border text-center font-black text-xs transition-all focus:outline-none focus:ring-2 focus:ring-red-500/20 ${
+                                      className={`w-20 px-2.5 py-1.5 rounded-xl border text-center font-black text-xs transition-all focus:outline-none focus:ring-2 focus:ring-red-500/20 ${
                                         temQtd
                                           ? 'border-emerald-500 bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 ring-2 ring-emerald-500/10'
                                           : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200'
@@ -807,9 +1439,10 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                                     />
                                   </td>
 
+                                  {/* Subtotal do Item */}
                                   <td className="py-3 px-4 text-right font-black text-xs">
                                     {subtotal > 0 ? (
-                                      <span className="text-emerald-600 dark:text-emerald-400 text-sm">
+                                      <span className="text-emerald-600 dark:text-emerald-400 text-xs">
                                         {subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                       </span>
                                     ) : (
@@ -825,12 +1458,12 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
                       {/* Rodapé da Tabela do Fornecedor com Totalizador */}
                       <div className="p-4 md:px-6 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400 font-bold">
-                          <span>Total de itens no fornecedor: <b>{bloco.totalItens}</b></span>
+                        <div className="flex flex-wrap items-center gap-3 text-slate-500 dark:text-slate-400 font-bold text-[11px]">
+                          <span>Itens ganhos: <b>{bloco.totalItens}</b></span>
                           <span>•</span>
-                          <span>Com quantidade preenchida: <b className="text-emerald-600 dark:text-emerald-400">{m.itensComQtd}</b></span>
+                          <span>Com quantidade informada: <b className="text-emerald-600 dark:text-emerald-400">{m.itensComQtd}</b></span>
                           <span>•</span>
-                          <span>Unidades: <b>{m.unidadesTotal}</b></span>
+                          <span>Total de unidades: <b>{m.unidadesTotal}</b></span>
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -842,7 +1475,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                           </span>
                           <button
                             onClick={() => handleCopiarFornecedor(bloco.fornecedor)}
-                            className="ml-2 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black uppercase transition-all cursor-pointer"
+                            className="ml-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black uppercase transition-all cursor-pointer shadow-xs active:scale-95"
                           >
                             {copiadoFornecedor[bloco.fornecedor] ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                             Copiar Pedido Limpo
@@ -854,25 +1487,27 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                 })}
               </div>
 
-              {/* Pré-visualização do Texto Limpo que será enviado */}
+              {/* Pré-visualização do Texto Limpo que será enviado para o WhatsApp */}
               <div className="p-5 rounded-3xl bg-slate-900 text-slate-100 font-mono text-xs border border-slate-800 shadow-md space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                  <span className="text-[11px] font-bold text-slate-400 flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                  <span className="text-[11px] font-bold text-slate-300 flex items-center gap-2">
                     <FileText className="w-4 h-4 text-emerald-400" />
-                    Prévia do Texto Limpo para WhatsApp (Apenas Produto, Quantidade, Unitário e Totais)
+                    {fornecedorFiltro === 'TODOS'
+                      ? 'Prévia dos Pedidos Limpos (Separados por Fornecedor - apenas produtos com Qtd > 0)'
+                      : `Prévia do Pedido Limpo de ${fornecedorFiltro} (apenas produtos com Qtd > 0)`}
                   </span>
 
                   <button
-                    onClick={handleCopiarTudo}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95"
+                    onClick={fornecedorFiltro === 'TODOS' ? handleCopiarTudo : () => handleCopiarFornecedor(fornecedorFiltro)}
+                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95"
                   >
-                    {copiadoGeral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiadoGeral ? 'Copiado!' : 'Copiar Texto Completo Limpo'}
+                    <Copy className="w-3.5 h-3.5" />
+                    {fornecedorFiltro === 'TODOS' ? 'Copiar Todos os Pedidos' : `Copiar Pedido de ${fornecedorFiltro}`}
                   </button>
                 </div>
 
                 <pre className="whitespace-pre-wrap leading-relaxed overflow-x-auto max-h-64 p-3 bg-slate-950 rounded-xl text-emerald-300 font-mono text-[11px]">
-                  {gerarTextoLimpoConsolidado()}
+                  {fornecedorFiltro === 'TODOS' ? gerarTextoLimpoConsolidado() : gerarTextoLimpoFornecedor(fornecedorFiltro)}
                 </pre>
               </div>
 
@@ -881,8 +1516,8 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
         </div>
 
         {/* Footer do Modal */}
-        <div className="p-4 md:px-7 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between text-xs text-slate-400 font-medium">
-          <span>O texto copiado contém apenas o produto, a quantidade digitada, o preço unitário e os totalizadores.</span>
+        <div className="p-4 md:px-7 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400 font-medium">
+          <span>O texto gerado contém estritamente o produto, quantidade digitada, unitário, subtotal e total individual.</span>
           <button
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-black transition-all cursor-pointer"

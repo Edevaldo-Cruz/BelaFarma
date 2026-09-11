@@ -662,7 +662,8 @@ module.exports = (db) => {
 
       const resultado = await comprasComparadorService.compararCotacoesTexto(texto, {
         usarIA: usarIA === true,
-        quantidades: quantidades || {}
+        quantidades: quantidades || {},
+        db
       });
 
       console.log('[Comparador-Texto] 📤 Fornecedores detectados:', resultado.fornecedoresEncontrados);
@@ -672,6 +673,33 @@ module.exports = (db) => {
       res.json(resultado);
     } catch (err) {
       console.error('[Compras-Endpoints] Erro no POST /cotacoes/comparar-texto:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/central-compras/cotacoes/consultar-estoque-lote
+   * Permite consultar estoque, histórico de última compra e sugestão 30 dias para uma lista de produtos.
+   */
+  router.post('/cotacoes/consultar-estoque-lote', (req, res) => {
+    try {
+      const { produtos } = req.body;
+      if (!Array.isArray(produtos) || produtos.length === 0) {
+        return res.json({ success: true, data: {} });
+      }
+
+      const mapa = {};
+      for (const p of produtos) {
+        if (!p) continue;
+        const info = comprasComparadorService.buscarInfoEstoqueProduto(p, db);
+        if (info) {
+          mapa[p] = info;
+        }
+      }
+
+      res.json({ success: true, data: mapa });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /cotacoes/consultar-estoque-lote:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
