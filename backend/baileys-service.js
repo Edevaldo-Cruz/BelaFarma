@@ -312,10 +312,12 @@ async function connect(db) {
           const msg = m.messages[0];
           if (!msg.message) return;
 
-          const remoteJid = msg.key.remoteJid;
-          if (remoteJid.endsWith('@g.us')) return; // Ignora mensagens de grupos
+          const remoteJid = msg.key.remoteJid || '';
+          // Ignorar mensagens de grupos, status/stories e transmissões (evita vazamento de cota de IA)
+          if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.includes('@broadcast') || remoteJid === 'status@broadcast') return;
 
           const phone = remoteJid.split('@')[0];
+          if (!phone || phone === 'status' || phone.includes('broadcast')) return;
 
           // Desembrulha mensagens envelopadas (ViewOnce, Ephemeral, DocumentWithCaption, etc.)
           let contentMsg = msg.message;
@@ -658,7 +660,8 @@ async function varrerPixDoDia() {
       rows = savedDb.prepare(`
         SELECT id, phone, messageText, rawMessage, timestamp
         FROM whatsapp_messages
-        WHERE timestamp >= ? AND fromMe = 0
+        WHERE timestamp >= ? AND fromMe = 0 
+          AND phone != 'status' AND phone NOT LIKE '%broadcast%'
         ORDER BY timestamp DESC
       `).all(startOfDayMs);
     } catch (e) {

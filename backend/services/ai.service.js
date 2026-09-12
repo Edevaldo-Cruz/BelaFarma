@@ -78,8 +78,8 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
         }
 
         parts.push({
-          inline_data: {
-            mime_type: mimeType,
+          inlineData: {
+            mimeType: mimeType,
             data: base64Content
           }
         });

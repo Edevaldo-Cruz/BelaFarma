@@ -196,6 +196,11 @@ class PixBotService {
    */
   async processBaileysImage(base64Image, mimeType, phone, messageId) {
     try {
+      if (!phone || phone === 'status' || phone.includes('broadcast') || phone.endsWith('@g.us')) {
+        console.log(`[PixBot] ℹ️ Ignorando imagem com remetente inválido ou status: ${phone}`);
+        return false;
+      }
+
       console.log(`[PixBot] 📸 Imagem interceptada do Baileys para o número ${phone}. Iniciando auditoria...`);
       
       const todayDateStr = new Intl.DateTimeFormat('pt-BR', {
