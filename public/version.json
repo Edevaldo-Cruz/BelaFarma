@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9ad9f7f",
-  "commitMessage": "fix(compras): corrigir chamada condicional de hooks useMemo no modal de cotacoes",
-  "buildTime": "11/09/2026, 13:55:46"
+  "commitHash": "ab98376",
+  "commitMessage": "feat(compras): quiz de similaridade, historico de compras, sugestao de 30 dias e pedidos limpos individuais",
+  "buildTime": "12/09/2026, 11:53:02"
 }

@@ -59,48 +59,114 @@ Fluconazol c/ 2 1,18
 Acetilcisteina 600 8,99`;
 
 /**
+ * Normaliza termos farmacêuticos e sinônimos conhecidos
+ */
+function normalizarTermoFarmaceutico(s: string): string {
+  let n = s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const sinonimos: Record<string, string> = {
+    'HIDRO': 'HIDROCLOROTIAZIDA',
+    'ROSUVA': 'ROSUVASTATINA',
+    'ATORVA': 'ATORVASTATINA',
+    'BENEGRIPE': 'BENEGRIP',
+    'CLENIL': 'BECLOMETASONA',
+    'DIENOGEST': 'DIENOGESTE',
+    'NARATANO': 'NARATRIPTANA',
+    'ACUFRESH': 'CARMELOSE'
+  };
+  for (const [k, v] of Object.entries(sinonimos)) {
+    n = n.replace(new RegExp(`\\b${k}\\b`, 'g'), v);
+  }
+  return n;
+}
+
+/**
  * Calcula a probabilidade (0.0 a 1.0) de dois textos representarem o mesmo produto farmacêutico.
+ * Considera regras farmacêuticas estritas: via de administração, dosagem numérica, quantidade de comprimidos
+ * e correspondência da molécula ativa para evitar falsos positivos.
  */
 function calcularSimilaridadeStrings(s1: string, s2: string): number {
   if (!s1 || !s2) return 0;
-  const norm1 = s1.toUpperCase().replace(/[^A-Z0-9]/g, ' ').trim();
-  const norm2 = s2.toUpperCase().replace(/[^A-Z0-9]/g, ' ').trim();
+  const norm1 = normalizarTermoFarmaceutico(s1);
+  const norm2 = normalizarTermoFarmaceutico(s2);
   if (norm1 === norm2) return 1.0;
+
+  // 1. Vias incompatíveis (ex: vaginal vs oral)
+  const ehVag1 = /\b(VAG|VAGINAL|OVULO|OVULOS)\b/i.test(norm1);
+  const ehVag2 = /\b(VAG|VAGINAL|OVULO|OVULOS)\b/i.test(norm2);
+  if (ehVag1 !== ehVag2 && (ehVag1 || ehVag2)) return 0;
+
+  const ehOral1 = /\b(ORAL|GTS|GOTAS|SUSP)\b/i.test(norm1);
+  const ehOral2 = /\b(ORAL|GTS|GOTAS|SUSP)\b/i.test(norm2);
+  if (ehOral1 !== ehOral2 && (ehOral1 || ehOral2) && (ehVag1 || ehVag2)) return 0;
+
+  // 2. Apresentações de unidades diferentes (ex: 15cp vs 30cp não podem unificar)
+  const qtdCp1 = norm1.match(/\b(2|4|8|10|12|14|15|20|21|28|30|50|60)\s*(?:CP|CPR|CPS|COMP|DRG|UNI)\b/i)?.[1]
+              || norm1.match(/\bC\/?\s*(2|4|8|10|12|14|15|20|21|28|30|50|60)\b/i)?.[1]
+              || norm1.match(/\bC(15|30|60)\b/i)?.[1];
+  const qtdCp2 = norm2.match(/\b(2|4|8|10|12|14|15|20|21|28|30|50|60)\s*(?:CP|CPR|CPS|COMP|DRG|UNI)\b/i)?.[1]
+              || norm2.match(/\bC\/?\s*(2|4|8|10|12|14|15|20|21|28|30|50|60)\b/i)?.[1]
+              || norm2.match(/\bC(15|30|60)\b/i)?.[1];
+
+  if (qtdCp1 && qtdCp2 && qtdCp1 !== qtdCp2) {
+    return 0;
+  }
+
+  // 3. Dosagens com unidades (ex: 50mcg vs 200mcg)
+  const doseFmt1 = norm1.match(/\b\d+(?:[\.,]\d+)?\s*(?:MG|G|ML|MCG)\b/i)?.[0]?.replace(/\s+/g, '')?.replace(',', '.');
+  const doseFmt2 = norm2.match(/\b\d+(?:[\.,]\d+)?\s*(?:MG|G|ML|MCG)\b/i)?.[0]?.replace(/\s+/g, '')?.replace(',', '.');
+  if (doseFmt1 && doseFmt2 && doseFmt1 !== doseFmt2) {
+    return 0;
+  }
+
+  // Dosagens numéricas puras (ex: Betaistina 16 vs Betaistina 24)
+  const numDose1 = norm1.match(/\b(16|20|24|25|30|40|50|60|75|100|150|200|500|600|850)\b/)?.[1];
+  const numDose2 = norm2.match(/\b(16|20|24|25|30|40|50|60|75|100|150|200|500|600|850)\b/)?.[1];
+  if (numDose1 && numDose2 && numDose1 !== numDose2) {
+    return 0;
+  }
 
   const palavrasIgnoradas = new Set([
     'COMP', 'COMPRIMIDO', 'COMPRIMIDOS', 'CAPS', 'CAPSULA', 'CAPSULAS',
     'CPR', 'CPS', 'GENERICO', 'GENÉRICO', 'SIMILAR', 'DRG', 'DRAGEAS',
     'MEDLEY', 'EMS', 'EUROFARMA', 'NEO', 'QUIMICA', 'TEUTO', 'SANDOZ',
-    'LEGRAND', 'ACHE', 'NOVAQUIMICA', 'GERMED', 'PRATI', 'CIMED'
+    'LEGRAND', 'ACHE', 'NOVAQUIMICA', 'GERMED', 'PRATI', 'CIMED', 'UNICHEM',
+    'MEDQUIMICA', 'BIOSINTETICA', 'MULTILAB', 'PHARLAB', 'NATIVITA', 'GEOLAB',
+    'VITAMEDIC', 'GREENPHARMA', 'GLEN', 'BRASTERAPICA', 'FORTLIFE', 'SOL', 'OFT',
+    'GTS', 'CREME', 'POMADA', 'GEL', 'XPE', 'SUSP', 'DE', 'DO', 'DA', 'C/', 'COM',
+    'C15', 'C30', 'C60', 'BLX30', 'ORIGIN', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+    'ADESIVO', 'SEM', 'SABOR'
   ]);
 
-  const tokens1 = norm1.split(/\s+/).filter(w => w.length >= 2 && !palavrasIgnoradas.has(w));
-  const tokens2 = norm2.split(/\s+/).filter(w => w.length >= 2 && !palavrasIgnoradas.has(w));
+  // Remove números e unidades para isolar o nome da substância / medicamento
+  const limpa1 = norm1.replace(/\b\d+(?:[\.,]\d+)?\s*(?:MG|G|ML|MCG|CP|CPR|CPS|COMP|DRG|UNI)\b/gi, ' ')
+                      .replace(/\b\d+\b/g, ' ')
+                      .replace(/[^A-Z]/g, ' ');
+  const limpa2 = norm2.replace(/\b\d+(?:[\.,]\d+)?\s*(?:MG|G|ML|MCG|CP|CPR|CPS|COMP|DRG|UNI)\b/gi, ' ')
+                      .replace(/\b\d+\b/g, ' ')
+                      .replace(/[^A-Z]/g, ' ');
 
-  const set1 = new Set(tokens1);
-  const set2 = new Set(tokens2);
+  const moleculas1 = limpa1.split(/\s+/).filter(w => w.length >= 3 && !palavrasIgnoradas.has(w));
+  const moleculas2 = limpa2.split(/\s+/).filter(w => w.length >= 3 && !palavrasIgnoradas.has(w));
 
-  let intersecao = 0;
-  for (const t of set1) {
-    if (set2.has(t)) intersecao++;
-  }
+  if (moleculas1.length === 0 || moleculas2.length === 0) return 0;
+
+  // Garante que há correspondência da substância ativa
+  const temMoleculaComum = moleculas1.some(m1 => moleculas2.some(m2 => m1 === m2 || (m1.length >= 5 && m2.length >= 5 && (m1.startsWith(m2) || m2.startsWith(m1)))));
+  if (!temMoleculaComum) return 0;
+
+  const set1 = new Set(moleculas1);
+  const set2 = new Set(moleculas2);
+  let inter = 0;
+  for (const t of set1) if (set2.has(t)) inter++;
   const uniao = new Set([...set1, ...set2]).size;
-  const jaccard = uniao === 0 ? 0 : intersecao / uniao;
+  const scoreBase = inter / uniao;
 
-  // Extrai dosagem (número seguido de MG, G, ML, MCG ou isolado com dosagem farmacêutica)
-  const dose1 = norm1.match(/\b\d+\s*(?:MG|G|ML|MCG)\b/i)?.[0]?.replace(/\s+/g, '') || '';
-  const dose2 = norm2.match(/\b\d+\s*(?:MG|G|ML|MCG)\b/i)?.[0]?.replace(/\s+/g, '') || '';
+  // Bônus se dosagens declaradas forem exatamente compatíveis
+  let bonus = 0.3;
+  if (doseFmt1 && doseFmt2 && doseFmt1 === doseFmt2) bonus += 0.2;
+  if (numDose1 && numDose2 && numDose1 === numDose2) bonus += 0.2;
 
-  if (dose1 && dose2) {
-    if (dose1 !== dose2) {
-      // Dosagens declaradas diferentes: NÃO são o mesmo produto
-      return 0.05;
-    }
-    // Mesma dosagem aumenta a confiança de ser o mesmo medicamento
-    return Math.min(1.0, jaccard + 0.35);
-  }
-
-  return jaccard;
+  return Math.min(1.0, scoreBase + bonus);
 }
 
 export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModalProps> = ({
