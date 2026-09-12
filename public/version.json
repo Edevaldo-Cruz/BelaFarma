@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5d014ca",
-  "commitMessage": "feat: atualizar icone do pwa e da interface com o logo oficial da bela farma em alto contraste",
-  "buildTime": "12/09/2026, 12:57:38"
+  "commitHash": "03215e4",
+  "commitMessage": "feat(compras): adicionar opcao de pedido resumido somente com produto e quantidade",
+  "buildTime": "12/09/2026, 13:07:44"
 }

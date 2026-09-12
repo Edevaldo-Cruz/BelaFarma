@@ -818,9 +818,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
     textoOut += `--------------------------------------------------\n`;
     textoOut += `Itens com pedido: ${produtosComQtd.length} (${totalUnidadesFornecedor} unidades no total)\n`;
-    if (formato === 'completo') {
-      textoOut += `VALOR TOTAL DO PEDIDO: ${totalGeralFornecedor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
-    }
+    textoOut += `VALOR TOTAL DO PEDIDO: ${totalGeralFornecedor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
 
     return textoOut;
   };
@@ -849,7 +847,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       textoTotal += `Fornecedores com pedidos: ${fornecedoresAtivos.length}\n`;
       textoTotal += `Total de itens pedidos: ${metricas.itensComQtd}\n`;
       textoTotal += `Total geral de unidades: ${metricas.unidadesTotal}\n`;
-      if (formato === 'completo' && metricas.valorTotal > 0) {
+      if (metricas.valorTotal > 0) {
         textoTotal += `VALOR TOTAL GERAL: ${metricas.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
       }
       textoTotal += `==================================================\n`;
