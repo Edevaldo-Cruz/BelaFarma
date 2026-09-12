@@ -193,6 +193,9 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
   const [copiadoGeral, setCopiadoGeral] = useState(false);
   const [copiadoFornecedor, setCopiadoFornecedor] = useState<Record<string, boolean>>({});
 
+  // Opção de formatação de pedido: 'completo' (com preços e totais) ou 'resumido' (somente produto e quantidade)
+  const [formatoTextoPedido, setFormatoTextoPedido] = useState<'completo' | 'resumido'>('completo');
+
   // Unificações confirmadas e rejeitadas pelo Quiz de Similaridade
   // Ex: { "LAMOTRIGINA 100MG 30CP UNICHEM": "LAMOTRIGINA 100MG" }
   const [unificacoesConfirmadas, setUnificacoesConfirmadas] = useState<Record<string, string>>({});
@@ -218,6 +221,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
           if (data.fornecedorFiltro) setFornecedorFiltro(data.fornecedorFiltro);
           if (data.unificacoesConfirmadas) setUnificacoesConfirmadas(data.unificacoesConfirmadas);
           if (data.unificacoesRejeitadas) setUnificacoesRejeitadas(data.unificacoesRejeitadas);
+          if (data.formatoTextoPedido) setFormatoTextoPedido(data.formatoTextoPedido);
           if (data.salvoEm) setUltimoSalvamento(data.salvoEm);
           setCacheRestaurado(true);
         }
@@ -245,6 +249,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
             fornecedorFiltro,
             unificacoesConfirmadas,
             unificacoesRejeitadas,
+            formatoTextoPedido,
             salvoEm: agora,
             totalItensPreenchidos
           };
@@ -257,7 +262,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [texto, resultado, quantidades, fornecedorFiltro, unificacoesConfirmadas, unificacoesRejeitadas, carregouCacheInicial]);
+  }, [texto, resultado, quantidades, fornecedorFiltro, unificacoesConfirmadas, unificacoesRejeitadas, formatoTextoPedido, carregouCacheInicial]);
 
   const handleColarTexto = async () => {
     try {
@@ -764,7 +769,14 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
    * REGRA ESTRITA: Apenas produtos com quantidade preenchida (> 0) são incluídos!
    * Produtos sem quantidade são estritamente IGNORADOS.
    */
-  const gerarTextoLimpoFornecedor = (fornecedorNome: string) => {
+  /**
+   * Gera o texto LIMPO formatado de um fornecedor específico para envio no WhatsApp.
+   * Filtra APENAS produtos que têm quantidade > 0.
+   * Suporta dois formatos:
+   * - 'completo': Inclui Qtd, Preço Unitário, Subtotal e Valor Total do Pedido
+   * - 'resumido': Inclui somente o Nome do Produto e a Quantidade (sem preços), mais o resumo de itens e unidades
+   */
+  const gerarTextoLimpoFornecedor = (fornecedorNome: string, formato: 'completo' | 'resumido' = formatoTextoPedido) => {
     if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return '';
     const bloco = resultadoConsolidado.fornecedoresResumo.find((f: any) => f.fornecedor === fornecedorNome);
     if (!bloco) return '';
@@ -794,16 +806,21 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       totalGeralFornecedor += subtotal;
       totalUnidadesFornecedor += qtd;
 
-      const unitFormatado = precoUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-      const subtotalFormatado = subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
       textoOut += `${num}. ${item.produto}\n`;
-      textoOut += `    Qtd: ${qtd} un | Unit: ${unitFormatado} | Subtotal: ${subtotalFormatado}\n`;
+      if (formato === 'resumido') {
+        textoOut += `    Qtd: ${qtd} un\n`;
+      } else {
+        const unitFormatado = precoUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const subtotalFormatado = subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        textoOut += `    Qtd: ${qtd} un | Unit: ${unitFormatado} | Subtotal: ${subtotalFormatado}\n`;
+      }
     });
 
     textoOut += `--------------------------------------------------\n`;
     textoOut += `Itens com pedido: ${produtosComQtd.length} (${totalUnidadesFornecedor} unidades no total)\n`;
-    textoOut += `VALOR TOTAL DO PEDIDO: ${totalGeralFornecedor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
+    if (formato === 'completo') {
+      textoOut += `VALOR TOTAL DO PEDIDO: ${totalGeralFornecedor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
+    }
 
     return textoOut;
   };
@@ -811,7 +828,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
   /**
    * Gera o texto LIMPO consolidado de TODOS os fornecedores com pedido (>0).
    */
-  const gerarTextoLimpoConsolidado = () => {
+  const gerarTextoLimpoConsolidado = (formato: 'completo' | 'resumido' = formatoTextoPedido) => {
     if (!resultadoConsolidado || !resultadoConsolidado.fornecedoresResumo) return '';
 
     const fornecedoresAtivos = resultadoConsolidado.fornecedoresResumo.filter((f: any) =>
@@ -822,24 +839,27 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       return `Nenhum produto possui quantidade preenchida ainda.\nPreencha as quantidades desejadas nas tabelas acima para gerar os pedidos limpos por fornecedor.`;
     }
 
-    const blocos = fornecedoresAtivos.map((f: any) => gerarTextoLimpoFornecedor(f.fornecedor));
+    const blocos = fornecedoresAtivos.map((f: any) => gerarTextoLimpoFornecedor(f.fornecedor, formato));
     let textoTotal = blocos.join('\n\n==================================================\n\n');
 
     const metricas = metricasFornecedores.geral;
-    if (metricas && metricas.valorTotal > 0) {
+    if (metricas && metricas.unidadesTotal > 0) {
       textoTotal += `\n\n==================================================\n`;
       textoTotal += `RESUMO GERAL CONSOLIDADO DE COMPRAS\n`;
       textoTotal += `Fornecedores com pedidos: ${fornecedoresAtivos.length}\n`;
       textoTotal += `Total de itens pedidos: ${metricas.itensComQtd}\n`;
       textoTotal += `Total geral de unidades: ${metricas.unidadesTotal}\n`;
-      textoTotal += `VALOR TOTAL GERAL: ${metricas.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
+      if (formato === 'completo' && metricas.valorTotal > 0) {
+        textoTotal += `VALOR TOTAL GERAL: ${metricas.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\n`;
+      }
       textoTotal += `==================================================\n`;
     }
 
     return textoTotal;
   };
 
-  const handleCopiarFornecedor = (fornecedorNome: string) => {
+  const handleCopiarFornecedor = (fornecedorNome: string, formatoForcado?: 'completo' | 'resumido') => {
+    const formato = formatoForcado || formatoTextoPedido;
     const bloco = resultadoConsolidado?.fornecedoresResumo?.find((f: any) => f.fornecedor === fornecedorNome);
     const itensComQtd = (bloco?.produtos || []).filter((p: any) => (quantidades[p.produtoNormalizado] || 0) > 0);
 
@@ -848,28 +868,32 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
       return;
     }
 
-    const textoLimpo = gerarTextoLimpoFornecedor(fornecedorNome);
+    const textoLimpo = gerarTextoLimpoFornecedor(fornecedorNome, formato);
+    const chaveFeedback = `${fornecedorNome}_${formato}`;
     navigator.clipboard.writeText(textoLimpo).then(() => {
-      setCopiadoFornecedor(prev => ({ ...prev, [fornecedorNome]: true }));
-      setTimeout(() => setCopiadoFornecedor(prev => ({ ...prev, [fornecedorNome]: false })), 2000);
-      addToast(`📋 Pedido limpo de ${fornecedorNome} copiado! (${itensComQtd.length} itens)`, 'success');
+      setCopiadoFornecedor(prev => ({ ...prev, [chaveFeedback]: true, [fornecedorNome]: true }));
+      setTimeout(() => setCopiadoFornecedor(prev => ({ ...prev, [chaveFeedback]: false, [fornecedorNome]: false })), 2000);
+      const desc = formato === 'resumido' ? 'somente produtos e quantidades' : 'com valores';
+      addToast(`📋 Pedido (${desc}) de ${fornecedorNome} copiado! (${itensComQtd.length} itens)`, 'success');
     }).catch(() => {
       addToast('Não foi possível copiar automaticamente para a área de transferência.', 'error');
     });
   };
 
-  const handleCopiarTudo = () => {
+  const handleCopiarTudo = (formatoForcado?: 'completo' | 'resumido') => {
+    const formato = formatoForcado || formatoTextoPedido;
     const totalItens = Object.values(quantidades).filter(v => (v || 0) > 0).length;
     if (totalItens === 0) {
       addToast('⚠️ Nenhum produto possui quantidade preenchida ainda.', 'warning');
       return;
     }
 
-    const textoLimpo = gerarTextoLimpoConsolidado();
+    const textoLimpo = gerarTextoLimpoConsolidado(formato);
     navigator.clipboard.writeText(textoLimpo).then(() => {
       setCopiadoGeral(true);
       setTimeout(() => setCopiadoGeral(false), 2000);
-      addToast(`📋 Pedidos consolidados copiados (${totalItens} itens)!`, 'success');
+      const desc = formato === 'resumido' ? 'somente produtos e quantidades' : 'com valores';
+      addToast(`📋 Pedidos consolidados (${desc}) copiados (${totalItens} itens)!`, 'success');
     }).catch(() => {
       addToast('Não foi possível copiar automaticamente.', 'error');
     });
@@ -1367,13 +1391,25 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                             </div>
                           )}
 
-                          <button
-                            onClick={() => handleCopiarFornecedor(bloco.fornecedor)}
-                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-sm"
-                          >
-                            {copiadoFornecedor[bloco.fornecedor] ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                            {copiadoFornecedor[bloco.fornecedor] ? 'Copiado!' : `Copiar Pedido Limpo de ${bloco.fornecedor}`}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleCopiarFornecedor(bloco.fornecedor, 'completo')}
+                              title={`Copiar pedido de ${bloco.fornecedor} com preços e total`}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-sm"
+                            >
+                              {copiadoFornecedor[`${bloco.fornecedor}_completo`] ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{copiadoFornecedor[`${bloco.fornecedor}_completo`] ? 'Copiado!' : 'Com Preço'}</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleCopiarFornecedor(bloco.fornecedor, 'resumido')}
+                              title={`Copiar pedido de ${bloco.fornecedor} somente produto e quantidade`}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-sm"
+                            >
+                              {copiadoFornecedor[`${bloco.fornecedor}_resumido`] ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{copiadoFornecedor[`${bloco.fornecedor}_resumido`] ? 'Copiado!' : 'Só Qtd'}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -1539,13 +1575,24 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
                           <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
                             {m.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
-                          <button
-                            onClick={() => handleCopiarFornecedor(bloco.fornecedor)}
-                            className="ml-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black uppercase transition-all cursor-pointer shadow-xs active:scale-95"
-                          >
-                            {copiadoFornecedor[bloco.fornecedor] ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            Copiar Pedido Limpo
-                          </button>
+                          <div className="flex items-center gap-1.5 ml-2">
+                            <button
+                              onClick={() => handleCopiarFornecedor(bloco.fornecedor, 'completo')}
+                              title="Copiar com preços e total"
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-black uppercase transition-all cursor-pointer shadow-xs active:scale-95"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>{copiadoFornecedor[`${bloco.fornecedor}_completo`] ? 'Copiado!' : 'Com Preço'}</span>
+                            </button>
+                            <button
+                              onClick={() => handleCopiarFornecedor(bloco.fornecedor, 'resumido')}
+                              title="Copiar somente nome do produto e quantidade"
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black uppercase transition-all cursor-pointer shadow-xs active:scale-95"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>{copiadoFornecedor[`${bloco.fornecedor}_resumido`] ? 'Copiado!' : 'Só Qtd'}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1554,22 +1601,54 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
               </div>
 
               {/* Pré-visualização do Texto Limpo que será enviado para o WhatsApp */}
-              <div className="p-5 rounded-3xl bg-slate-900 text-slate-100 font-mono text-xs border border-slate-800 shadow-md space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
-                  <span className="text-[11px] font-bold text-slate-300 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-400" />
-                    {fornecedorFiltro === 'TODOS'
-                      ? 'Prévia dos Pedidos Limpos (Separados por Fornecedor - apenas produtos com Qtd > 0)'
-                      : `Prévia do Pedido Limpo de ${fornecedorFiltro} (apenas produtos com Qtd > 0)`}
-                  </span>
+              <div className="p-5 rounded-3xl bg-slate-900 text-slate-100 font-mono text-xs border border-slate-800 shadow-md space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-[11px] font-bold text-slate-300 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-emerald-400" />
+                      {fornecedorFiltro === 'TODOS'
+                        ? 'Prévia dos Pedidos Limpos (Separados por Fornecedor - Qtd > 0)'
+                        : `Prévia do Pedido Limpo de ${fornecedorFiltro} (Qtd > 0)`}
+                    </span>
 
-                  <button
-                    onClick={fornecedorFiltro === 'TODOS' ? handleCopiarTudo : () => handleCopiarFornecedor(fornecedorFiltro)}
-                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    {fornecedorFiltro === 'TODOS' ? 'Copiar Todos os Pedidos' : `Copiar Pedido de ${fornecedorFiltro}`}
-                  </button>
+                    {/* Alternador de Formato: Com Preços vs Somente Produto e Qtd */}
+                    <div className="inline-flex p-1 bg-slate-950 rounded-2xl border border-slate-800 font-sans">
+                      <button
+                        type="button"
+                        onClick={() => setFormatoTextoPedido('completo')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          formatoTextoPedido === 'completo'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Com Preços
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormatoTextoPedido('resumido')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          formatoTextoPedido === 'resumido'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Somente Produto & Qtd
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={fornecedorFiltro === 'TODOS' ? () => handleCopiarTudo() : () => handleCopiarFornecedor(fornecedorFiltro)}
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-sm"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {fornecedorFiltro === 'TODOS'
+                        ? (formatoTextoPedido === 'resumido' ? 'Copiar Todos (Só Qtd)' : 'Copiar Todos os Pedidos')
+                        : (formatoTextoPedido === 'resumido' ? 'Copiar Pedido (Só Qtd)' : `Copiar Pedido de ${fornecedorFiltro}`)}
+                    </button>
+                  </div>
                 </div>
 
                 <pre className="whitespace-pre-wrap leading-relaxed overflow-x-auto max-h-64 p-3 bg-slate-950 rounded-xl text-emerald-300 font-mono text-[11px]">
@@ -1583,7 +1662,7 @@ export const ComparadorCotacoesTextoModal: React.FC<ComparadorCotacoesTextoModal
 
         {/* Footer do Modal */}
         <div className="p-4 md:px-7 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400 font-medium">
-          <span>O texto gerado contém estritamente o produto, quantidade digitada, unitário, subtotal e total individual.</span>
+          <span>O texto gerado pode ser copiado completo (com preços e totais) ou resumido (apenas produtos e quantidades).</span>
           <button
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-black transition-all cursor-pointer"
