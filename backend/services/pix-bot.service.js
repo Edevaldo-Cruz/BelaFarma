@@ -283,6 +283,7 @@ class PixBotService {
       return true;
     } catch (err) {
       console.error('[PixBot-Baileys] 💥 Erro ao processar imagem:', err.message);
+      return false;
     }
   }
 

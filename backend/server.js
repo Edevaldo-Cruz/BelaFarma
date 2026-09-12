@@ -4606,6 +4606,16 @@ try {
   console.warn('[Baileys] ⚠️ Serviço indisponível (arquivo não encontrado):', e.message);
 }
 
+// GET /api/ai/usage — Monitoramento de consumo diário de IA (limite de 200/dia)
+app.get('/api/ai/usage', (req, res) => {
+  try {
+    const { getDailyUsage } = require('./services/ai.service');
+    res.json(getDailyUsage());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/whatsapp/baileys/status — Status da conexão
 app.get('/api/whatsapp/baileys/status', (req, res) => {
   if (!baileys) return res.json({ connected: false, error: 'Serviço Baileys não carregado.' });

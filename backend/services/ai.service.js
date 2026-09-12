@@ -6,10 +6,87 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'sk-placeholder-bela-farma',
 });
 
+let dbInstance = null;
+function getDb() {
+  if (!dbInstance) {
+    try {
+      dbInstance = require('../database');
+      dbInstance.prepare(`
+        CREATE TABLE IF NOT EXISTS ai_daily_usage (
+          date TEXT PRIMARY KEY,
+          count INTEGER DEFAULT 0,
+          lastUpdated TEXT
+        )
+      `).run();
+    } catch (e) {
+      console.warn('[AI RateLimit] Aviso ao inicializar tabela no banco:', e.message);
+    }
+  }
+  return dbInstance;
+}
+
+/**
+ * Verifica e incrementa o contador diário de requisições de IA
+ */
+function checkAndIncrementDailyUsage() {
+  const maxLimit = parseInt(process.env.MAX_AI_REQUESTS_PER_DAY, 10) || 200;
+  const db = getDb();
+  if (!db) return true;
+
+  const today = new Intl.DateTimeFormat('fr-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(new Date());
+
+  const row = db.prepare('SELECT count FROM ai_daily_usage WHERE date = ?').get(today);
+  const currentCount = row ? row.count : 0;
+
+  if (currentCount >= maxLimit) {
+    const msg = `[AI RateLimit] 🛑 Trava de segurança ativada: Limite diário de ${maxLimit} requisições de IA atingido para hoje (${today}).`;
+    console.warn(msg);
+    throw new Error(`Limite diário de requisições de IA atingido (${maxLimit}/dia). Bloqueado por segurança.`);
+  }
+
+  db.prepare(`
+    INSERT INTO ai_daily_usage (date, count, lastUpdated)
+    VALUES (?, 1, datetime('now'))
+    ON CONFLICT(date) DO UPDATE SET count = count + 1, lastUpdated = datetime('now')
+  `).run(today);
+
+  console.log(`[AI RateLimit] 📊 Requisições de IA hoje (${today}): ${currentCount + 1}/${maxLimit}`);
+  return true;
+}
+
+/**
+ * Retorna o consumo diário de IA atual
+ */
+function getDailyUsage() {
+  const maxLimit = parseInt(process.env.MAX_AI_REQUESTS_PER_DAY, 10) || 200;
+  const db = getDb();
+  const today = new Intl.DateTimeFormat('fr-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(new Date());
+
+  if (!db) return { today, count: 0, maxLimit, remaining: maxLimit };
+
+  const row = db.prepare('SELECT count FROM ai_daily_usage WHERE date = ?').get(today);
+  const count = row ? row.count : 0;
+  return {
+    today,
+    count,
+    maxLimit,
+    remaining: Math.max(0, maxLimit - count)
+  };
+}
+
 /**
  * Função genérica para chamar IA (OpenAI, Gemini ou Ollama)
  */
 async function callAI(prompt, systemPrompt = '', options = {}) {
+  // Trava de segurança: impede gasto descontrolado de tokens se houver loop
+  checkAndIncrementDailyUsage();
+
   const primaryProvider = process.env.AI_PROVIDER || 'openai';
   const temperature = options.temperature !== undefined ? options.temperature : 0.7;
   const maxTokens = options.maxTokens || 8192;
@@ -140,4 +217,4 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
   }
 }
 
-module.exports = { callAI };
+module.exports = { callAI, getDailyUsage, checkAndIncrementDailyUsage };
