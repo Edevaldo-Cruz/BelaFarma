@@ -27,9 +27,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({ onOpenSidebar, onSea
         style={{ borderColor: hasTheme ? 'var(--bf-header-border)' : 'var(--bf-header-border)' }}
       >
         <div className="flex items-center gap-2">
-          <div className="p-1 bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-            <img src="/images/logo-icon.png" alt="Bela Farma" className="w-6 h-6 object-contain" />
-          </div>
+          <img src="/images/logo-icon.png" alt="Bela Farma" className="w-8 h-8 rounded-lg shadow-sm object-contain" />
           <div className="flex flex-col leading-none">
             <span
               className="text-xl font-black tracking-tighter"

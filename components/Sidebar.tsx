@@ -403,9 +403,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-6 py-8">
             <div className="flex items-center gap-2.5">
-              <div className="p-1.5 bg-white dark:bg-slate-800 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-                <img src="/images/logo-icon.png" alt="Bela Farma" className="w-7 h-7 object-contain" />
-              </div>
+              <img src="/images/logo-icon.png" alt="Bela Farma" className="w-9 h-9 rounded-xl shadow-md object-contain" />
               <div className="flex flex-col leading-none">
                 <span className="text-2xl font-black tracking-tighter" style={{ color: 'var(--bf-logo-text)' }}>belinha</span>
                 <span className="text-[10px] font-bold ml-auto tracking-widest uppercase italic" style={{ color: 'var(--bf-logo-sub)' }}>sistema</span>

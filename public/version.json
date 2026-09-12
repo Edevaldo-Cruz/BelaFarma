@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ab98376",
-  "commitMessage": "feat(compras): quiz de similaridade, historico de compras, sugestao de 30 dias e pedidos limpos individuais",
-  "buildTime": "12/09/2026, 11:53:02"
+  "commitHash": "b45dc2e",
+  "commitMessage": "feat(compras): aprimorar quiz de similaridade farmaceutica com deteccao inteligente de moleculas e dosagens",
+  "buildTime": "12/09/2026, 12:35:34"
 }
