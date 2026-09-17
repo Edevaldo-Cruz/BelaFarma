@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ca29182",
-  "commitMessage": "feat(delivery): card de pedidos em rota, confirmacao com edicao de dados e cadastro automatico no Digifarma",
-  "buildTime": "17/09/2026, 13:45:10"
+  "commitHash": "060e0f2",
+  "commitMessage": "feat(dashboard): incluir card de perguntas e confirmacao de pedidos em rota diretamente no topo do dashboard",
+  "buildTime": "17/09/2026, 14:30:30"
 }

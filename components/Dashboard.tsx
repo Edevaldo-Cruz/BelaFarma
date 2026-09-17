@@ -37,7 +37,8 @@ import {
   LineChart as LineChartIcon,
   PieChart,
   Eye,
-  MessageSquare
+  MessageSquare,
+  Heart
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -57,7 +58,6 @@ import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
 import { OrderStatusModal } from './OrderStatusModal';
 import { DeliverySummaryChart } from './DeliverySummaryChart';
-import { InTransitDeliveriesCard } from './InTransitDeliveriesCard';
 import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount, MonthlyLimit } from '../types';
 import { calculateWeeklyBudgetsCascade } from '../utils';
 
@@ -262,6 +262,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
     fetchPendingReviews();
     const interval = setInterval(fetchPendingReviews, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Estado e busca de Entregas em Rota (Perguntas Ativas)
+  const [inTransitCount, setInTransitCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const fetchInTransitCount = async () => {
+      try {
+        const res = await fetch('/api/deliveries/in-transit');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && typeof data.count === 'number') {
+            setInTransitCount(data.count);
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao buscar pedidos em rota no Dashboard:', e);
+      }
+    };
+    fetchInTransitCount();
+    const interval = setInterval(fetchInTransitCount, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -654,11 +676,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
             className="h-12 md:h-16 w-auto object-contain"
           />
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+              {inTransitCount > 0 && (
+                <button
+                  onClick={() => onNavigate('deliveries')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-rose-500/15 via-red-500/15 to-rose-500/15 hover:from-rose-500/25 hover:to-red-500/25 border border-rose-300 dark:border-rose-700/60 text-rose-700 dark:text-rose-300 rounded-full text-xs font-black shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse"
+                  title={`${inTransitCount} entrega(s) em rota com perguntas ativas. Clique para responder no Delivery!`}
+                >
+                  <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500 animate-bounce" />
+                  <span>{inTransitCount} {inTransitCount === 1 ? 'pergunta ativa' : 'perguntas ativas'}</span>
+                </button>
+              )}
+            </div>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Resumo operacional belinha.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {inTransitCount > 0 && (
+            <button
+              onClick={() => onNavigate('deliveries')}
+              className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-full shadow-md transition-all min-h-[36px] animate-pulse cursor-pointer group"
+              title="Perguntas ativas de entregas em rota no Delivery. Clique para responder!"
+            >
+              <Heart className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
+              <span className="hidden sm:inline">Perguntas Ativas:</span>
+              <span>{inTransitCount}</span>
+            </button>
+          )}
           {isAdmin && (
             <div className="flex flex-wrap gap-1.5">
               <button
@@ -726,12 +771,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </button>
         </div>
       )}
-
-      {/* 🛵 CARD DE AÇÃO RÁPIDA: PEDIDOS EM ROTA (CONFIRMAÇÃO DE ENTREGA & DIGIFARMA) */}
-      <InTransitDeliveriesCard 
-        onNavigate={onNavigate} 
-        onOpenChat={(phone) => onNavigate('whatsapp-vendas')} 
-      />
 
       {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
       <section className="relative group">

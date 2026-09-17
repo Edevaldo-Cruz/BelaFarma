@@ -153,6 +153,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(interval);
   }, [currentView]);
 
+  const [inTransitDeliveriesCount, setInTransitDeliveriesCount] = React.useState(0);
+
+  // Check in-transit active deliveries (questions)
+  React.useEffect(() => {
+    const checkInTransit = async () => {
+      try {
+        const res = await fetch('/api/deliveries/in-transit');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && typeof data.count === 'number') {
+            setInTransitDeliveriesCount(data.count);
+          }
+        }
+      } catch (error) {
+        // Fail silently
+      }
+    };
+    checkInTransit();
+    const interval = setInterval(checkInTransit, 20000);
+    return () => clearInterval(interval);
+  }, [currentView]);
+
   React.useEffect(() => {
     if (!isAdmin) return;
     const checkOverdue = async () => {
@@ -589,9 +611,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {purchasingPendingCount}
                     </span>
                   )}
-                  {item.id === 'deliveries' && pendingReviewCount > 0 && (
-                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-amber-500 dark:bg-amber-600 rounded-full animate-pulse shadow-sm" title={`${pendingReviewCount} revisões pendentes`}>
-                      {pendingReviewCount}
+                  {item.id === 'deliveries' && (pendingReviewCount > 0 || inTransitDeliveriesCount > 0) && (
+                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-amber-500 dark:bg-amber-600 rounded-full animate-pulse shadow-sm" title={`${pendingReviewCount} revisões pendentes, ${inTransitDeliveriesCount} perguntas ativas em rota`}>
+                      {pendingReviewCount + inTransitDeliveriesCount}
                     </span>
                   )}
                 </button>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { DeliveryWidget } from './DeliveryWidget';
+import { InTransitDeliveriesCard } from './InTransitDeliveriesCard';
 import { Delivery, View } from '../types';
 
 interface DeliveriesPageProps {
@@ -21,6 +22,13 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({ onNavigate, onSe
           </p>
         </div>
       </div>
+
+      {/* 🛵 CAIXA DE PERGUNTAS: PEDIDOS EM ROTA (CONFIRMAÇÃO DE ENTREGA & DIGIFARMA) */}
+      <InTransitDeliveriesCard 
+        onNavigate={onNavigate}
+        onOpenChat={(phone) => onNavigate && onNavigate('whatsapp-vendas')}
+        showWhenEmpty={true}
+      />
 
       <DeliveryWidget 
         onOpenChat={(phone) => onNavigate && onNavigate('whatsapp-vendas')} 
