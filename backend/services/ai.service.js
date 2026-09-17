@@ -28,8 +28,8 @@ function getDb() {
 /**
  * Verifica e incrementa o contador diário de requisições de IA
  */
-function checkAndIncrementDailyUsage() {
-  const maxLimit = parseInt(process.env.MAX_AI_REQUESTS_PER_DAY, 10) || 200;
+function checkAndIncrementDailyUsage(options = {}) {
+  const maxLimit = parseInt(process.env.MAX_AI_REQUESTS_PER_DAY, 10) || 1500;
   const db = getDb();
   if (!db) return true;
 
@@ -40,6 +40,17 @@ function checkAndIncrementDailyUsage() {
 
   const row = db.prepare('SELECT count FROM ai_daily_usage WHERE date = ?').get(today);
   const currentCount = row ? row.count : 0;
+
+  // Operações de auditoria financeira crítica (ex: PIX Bot) nunca devem ser bloqueadas
+  if (options.bypassLimit || options.isPriority) {
+    db.prepare(`
+      INSERT INTO ai_daily_usage (date, count, lastUpdated)
+      VALUES (?, 1, datetime('now'))
+      ON CONFLICT(date) DO UPDATE SET count = count + 1, lastUpdated = datetime('now')
+    `).run(today);
+    console.log(`[AI RateLimit] ⚡ Operação prioritária liberada (${currentCount + 1}/${maxLimit})`);
+    return true;
+  }
 
   if (currentCount >= maxLimit) {
     const msg = `[AI RateLimit] 🛑 Trava de segurança ativada: Limite diário de ${maxLimit} requisições de IA atingido para hoje (${today}).`;
@@ -85,7 +96,7 @@ function getDailyUsage() {
  */
 async function callAI(prompt, systemPrompt = '', options = {}) {
   // Trava de segurança: impede gasto descontrolado de tokens se houver loop
-  checkAndIncrementDailyUsage();
+  checkAndIncrementDailyUsage(options);
 
   const primaryProvider = process.env.AI_PROVIDER || 'openai';
   const temperature = options.temperature !== undefined ? options.temperature : 0.7;

@@ -140,7 +140,9 @@ class PixBotService {
       const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
         imageData: base64,
         mimeType: mimeType,
-        temperature: 0.0 // 0.0 para ser estritamente analítico e sem alucinações
+        temperature: 0.0, // 0.0 para ser estritamente analítico e sem alucinações
+        isPriority: true,
+        bypassLimit: true
       });
 
       // Limpar resposta da IA (extrair apenas o bloco JSON caso haja texto extra do Gemini)
@@ -243,7 +245,9 @@ class PixBotService {
       const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
         imageData: base64Image,
         mimeType: mimeType || 'image/jpeg',
-        temperature: 0.0
+        temperature: 0.0,
+        isPriority: true,
+        bypassLimit: true
       });
 
       let cleanJson = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
