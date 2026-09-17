@@ -1708,6 +1708,31 @@ try {
     } catch (e) {}
     console.log('✅ Tabela chat_product_rejections e colunas de auditoria em deliveries verificadas/criadas!');
 
+    // Migration: Colunas de inteligência de geolocalização, tempo de resposta e fidelidade em deliveries
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN neighborhood TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN first_response_time_seconds INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN conversation_date TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN is_repeat_customer INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_neighborhood ON deliveries(neighborhood)'); } catch(e) {}
+
+    // Criar tabela customer_address_history para histórico e memória de endereços informados
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS customer_address_history (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        customer_id TEXT,
+        address TEXT NOT NULL,
+        neighborhood TEXT,
+        last_used_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cah_phone ON customer_address_history(phone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cah_neighborhood ON customer_address_history(neighborhood)');
+    } catch(e) {}
+    console.log('✅ Tabela customer_address_history e inteligência de geolocalização criadas!');
+
     // Migration: adicionar coluna source em customers (usada no webhook)
     try {
       db.prepare('SELECT source FROM customers LIMIT 1').get();

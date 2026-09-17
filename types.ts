@@ -731,6 +731,7 @@ export interface Delivery {
   customer_name?: string;
   wa_name?: string;
   delivery_address?: string;
+  neighborhood?: string;
   items?: string;
   total_amount: number;
   payment_method?: string;
@@ -744,6 +745,9 @@ export interface Delivery {
   // Audit & Review fields (M1)
   review_status?: string; // 'pending' | 'reviewed' | 'dismissed'
   is_new_customer?: number; // 1 = Novo cliente, 0 = Cliente recorrente
+  is_repeat_customer?: number;
+  first_response_time_seconds?: number;
+  conversation_date?: string;
   chat_duration_seconds?: number;
   chat_message_count?: number;
   discussed_products_json?: string;
@@ -752,6 +756,59 @@ export interface Delivery {
   reviewed_at?: string;
   products_identified?: ProductIdentified[];
   chat_messages?: ChatMessage[];
+}
+
+export interface DeliveryAnalyticsData {
+  geoAnalytics: Array<{
+    neighborhood: string;
+    count: number;
+    closedCount: number;
+    totalAmount: number;
+    avgTicket: number;
+  }>;
+  topSoldProducts: Array<{
+    product_name: string;
+    count: number;
+  }>;
+  topLostProducts: Array<{
+    product_name: string;
+    count: number;
+    reason: string;
+  }>;
+  customerLoyalty: {
+    newCustomersCount: number;
+    repeatCustomersCount: number;
+    loyaltyRate: number;
+    topCustomers: Array<{
+      phone: string;
+      name: string;
+      orderCount: number;
+      totalSpent: number;
+    }>;
+  };
+  slaAnalytics: {
+    avgFirstResponseSeconds: number;
+    under1Min: number;
+    oneToFiveMin: number;
+    fiveToFifteenMin: number;
+    over15Min: number;
+  };
+  peakHours: Array<{
+    hour: number;
+    label: string;
+    count: number;
+  }>;
+  peakDays: Array<{
+    day: string;
+    dayIndex: number;
+    count: number;
+  }>;
+  funnel: {
+    totalConversations: number;
+    quotesGenerated: number;
+    salesClosed: number;
+    conversionRate: number;
+  };
 }
 
 export interface DeliveryMetrics {

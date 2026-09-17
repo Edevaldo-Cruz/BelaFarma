@@ -41,11 +41,13 @@ Determine 2 pontos cruciais:
    - false: O cliente apenas perguntou preço/estoque, pediu orçamento e não respondeu mais, achou caro, ou o produto estava em falta.
 
 2. QUAIS OS DETALHES DO ATENDIMENTO?
-   - "customer_name": Nome do cliente (se mencionado) ou "Cliente".
+   - "customer_name": Nome do cliente (se mencionado/identificado) ou "Cliente".
    - "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
-   - "delivery_address": Endereço de entrega (se informado) ou null.
+   - "delivery_address": Endereço de entrega (se informado na conversa, incluindo rua, número, etc.) ou null.
+   - "neighborhood": Nome do Bairro ou Região (ex: "Centro", "Jardim Planalto", "Vila Nova", "Setor Sul", etc.) se mencionado no endereço ou contexto. Caso não seja possível identificar ou seja retirada no balcão, retorne null.
    - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados. IMPORTANTE: Se a conversa mencionar ou indicar o envio de uma foto, receita ou áudio (sem texto claro do nome), escreva "Receita / Imagem". Deixe vazio ("") APENAS se for uma conversa sem menção a produtos/receitas (ex: só "Bom dia").
    - "products_discussed": Array contendo os nomes individuais de TODOS os produtos ou medicamentos citados/consultados na conversa. Exemplo: ["Dipirona 500mg", "Dorflex 30 comprimidos"]. Se nenhum produto for citado, retorne [].
+   - "products_bought": Array contendo os nomes individuais dos produtos que foram efetivamente COMPRADOS (se sale_closed for true). Se a venda não foi fechada, retorne [].
    - "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
    - "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
    - "status": 
@@ -66,8 +68,10 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
   "is_delivery": true ou false,
   "customer_name": "Nome do cliente",
   "delivery_address": "Endereço ou null",
+  "neighborhood": "Bairro ou null",
   "items": "Descrição dos produtos",
   "products_discussed": ["Produto 1", "Produto 2"],
+  "products_bought": ["Produto Comprado 1"],
   "total_amount": 0.00,
   "payment_method": "Pix | Cartão | Dinheiro | Crediário | Outro",
   "status": "Pendente | Em Rota | Entregue | Nao_Fechado | Cancelado",
@@ -300,6 +304,29 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
       const chatDurationSeconds = messages.length > 1 ? Math.round((maxTimestamp - minTimestamp) / 1000) : 0;
       const chatMessageCount = messages.length;
 
+      // Tempo de primeira resposta da farmácia (SLA de atendimento em segundos)
+      let firstResponseTimeSeconds = 0;
+      const firstCustomerMsg = messages.find(m => m.fromMe === 0 || m.fromMe === false);
+      if (firstCustomerMsg) {
+        const firstAttendantReply = messages.find(m => (m.fromMe === 1 || m.fromMe === true) && m.timestamp >= firstCustomerMsg.timestamp);
+        if (firstAttendantReply) {
+          firstResponseTimeSeconds = Math.max(0, Math.round((firstAttendantReply.timestamp - firstCustomerMsg.timestamp) / 1000));
+        }
+      }
+
+      // Timestamp e datas reais da última mensagem
+      const lastMsgObj = messages[messages.length - 1];
+      const lastMsgTs = lastMsgObj.timestamp || maxTimestamp;
+      const dateObj = new Date(lastMsgTs);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hours = String(dateObj.getHours()).padStart(2, '0');
+      const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+      const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+      const conversationDate = `${year}-${month}-${day}`;
+      const realCreatedAt = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+
       // Verificação de Novo Cliente (is_new_customer)
       let isNewCustomer = 1;
       try {
@@ -330,6 +357,7 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
           if (hasPriorClosedDelivery) isNewCustomer = 0;
         } catch (e2) {}
       }
+      const isRepeatCustomer = isNewCustomer === 1 ? 0 : 1;
 
       const transcript = messages.map(m => {
         const sender = m.fromMe === 1 ? 'Atendente BelaFarma' : customerName;
@@ -366,6 +394,7 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
           const finalName = (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName;
           const totalAmount = parseFloat(result.total_amount) || 0;
           const address = result.delivery_address || (result.is_delivery ? 'Endereço a confirmar' : 'Balcão / Loja');
+          const neighborhood = (result.neighborhood && result.neighborhood !== 'null' && result.neighborhood !== 'undefined') ? result.neighborhood.trim() : null;
           const paymentMethod = result.payment_method || 'A combinar';
           
           let status = result.status;
@@ -399,6 +428,7 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               UPDATE deliveries SET
                 customer_name = ?,
                 delivery_address = ?,
+                neighborhood = COALESCE(?, neighborhood),
                 items = ?,
                 total_amount = ?,
                 payment_method = ?,
@@ -409,14 +439,19 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
                 notes = ?,
                 review_status = ?,
                 is_new_customer = ?,
+                is_repeat_customer = ?,
                 chat_duration_seconds = ?,
                 chat_message_count = ?,
+                first_response_time_seconds = ?,
                 discussed_products_json = ?,
+                conversation_date = ?,
+                created_at = ?,
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `).run(
               finalName,
               address,
+              neighborhood,
               itemsStr,
               totalAmount,
               paymentMethod,
@@ -427,25 +462,31 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               notes,
               reviewStatus,
               isNewCustomer,
+              isRepeatCustomer,
               chatDurationSeconds,
               chatMessageCount,
+              firstResponseTimeSeconds,
               discussedProductsJson,
+              conversationDate,
+              realCreatedAt,
               existingPending.id
             );
           } else {
             const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             db.prepare(`
               INSERT INTO deliveries (
-                id, phone, customer_name, delivery_address, items,
+                id, phone, customer_name, delivery_address, neighborhood, items,
                 total_amount, payment_method, status, sale_closed, unclosed_reason,
                 last_message_id, notes,
-                review_status, is_new_customer, chat_duration_seconds, chat_message_count, discussed_products_json
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                review_status, is_new_customer, is_repeat_customer, chat_duration_seconds, chat_message_count,
+                first_response_time_seconds, discussed_products_json, conversation_date, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             `).run(
               deliveryId,
               cleanPhone,
               finalName,
               address,
+              neighborhood,
               itemsStr,
               totalAmount,
               paymentMethod,
@@ -456,10 +497,118 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               notes,
               reviewStatus,
               isNewCustomer,
+              isRepeatCustomer,
               chatDurationSeconds,
               chatMessageCount,
-              discussedProductsJson
+              firstResponseTimeSeconds,
+              discussedProductsJson,
+              conversationDate,
+              realCreatedAt
             );
+          }
+
+          // A. Atualizar Nome do Cliente em customers e cache de contatos
+          if (finalName && !['cliente', 'cliente whatsapp', 'atendente', 'null', 'undefined'].includes(finalName.toLowerCase())) {
+            try {
+              db.prepare(`
+                UPDATE customers 
+                SET name = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE phone LIKE ? AND (name IS NULL OR name = '' OR name LIKE 'Cliente%')
+              `).run(finalName, `%${cleanPhone.slice(-8)}%`);
+
+              db.prepare(`
+                INSERT INTO whatsapp_contacts (id, name, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, updated_at = CURRENT_TIMESTAMP
+              `).run(cleanPhone, finalName);
+            } catch (eName) {}
+          }
+
+          // B. Histórico de Endereços Informados pelo Cliente
+          if (address && address !== 'Endereço a confirmar' && address !== 'Balcão / Loja' && address.length >= 5) {
+            try {
+              const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+              const custId = cust ? cust.id : null;
+              const addrId = `addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              
+              db.prepare(`
+                INSERT INTO customer_address_history (id, phone, customer_id, address, neighborhood, last_used_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `).run(
+                addrId,
+                cleanPhone,
+                custId,
+                address,
+                neighborhood || null,
+                realCreatedAt,
+                realCreatedAt
+              );
+
+              if (custId) {
+                db.prepare(`
+                  UPDATE customers 
+                  SET address = COALESCE(NULLIF(address, ''), ?),
+                      neighborhood = COALESCE(NULLIF(neighborhood, ''), ?),
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE id = ?
+                `).run(address, neighborhood || null, custId);
+              }
+            } catch (eAddr) {}
+          }
+
+          // C. Histórico de Produtos Comprados e Pesquisados pelo Cliente (whatsapp_product_history)
+          const boughtProducts = (Array.isArray(result.products_bought) && result.products_bought.length > 0)
+            ? result.products_bought
+            : (isClosed && Array.isArray(result.products_discussed) ? result.products_discussed : []);
+
+          if (isClosed && boughtProducts.length > 0) {
+            const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+            const custId = cust ? cust.id : null;
+            for (const prod of boughtProducts) {
+              if (!prod || typeof prod !== 'string' || prod.trim().length < 2) continue;
+              const cleanProd = prod.trim();
+              const wphId = `wph_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              try {
+                db.prepare(`
+                  INSERT INTO whatsapp_product_history (
+                    id, phone, customer_id, product_name, status, interaction_date, source, notes, created_at
+                  ) VALUES (?, ?, ?, ?, 'comprado', ?, 'WhatsApp Delivery', ?, ?)
+                `).run(
+                  wphId,
+                  cleanPhone,
+                  custId,
+                  cleanProd,
+                  conversationDate,
+                  notes || 'Compra via WhatsApp Delivery',
+                  realCreatedAt
+                );
+              } catch (eProd) {}
+            }
+          } else if (!isClosed && Array.isArray(result.products_discussed) && result.products_discussed.length > 0) {
+            const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+            const custId = cust ? cust.id : null;
+            const statusProd = (unclosedReason === 'Falta de Estoque') ? 'nao_encontrado' : 'pesquisado';
+            for (const prod of result.products_discussed) {
+              if (!prod || typeof prod !== 'string' || prod.trim().length < 2) continue;
+              const cleanProd = prod.trim();
+              const wphId = `wph_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              try {
+                db.prepare(`
+                  INSERT INTO whatsapp_product_history (
+                    id, phone, customer_id, product_name, status, interaction_date, source, notes, created_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, 'WhatsApp Delivery', ?, ?)
+                `).run(
+                  wphId,
+                  cleanPhone,
+                  custId,
+                  cleanProd,
+                  statusProd,
+                  conversationDate,
+                  notes || `Consulta: ${unclosedReason || 'Cotação'}`,
+                  realCreatedAt
+                );
+              } catch (eProd) {}
+            }
           }
         }
       } catch (aiErr) {
@@ -583,6 +732,27 @@ async function syncAndEnqueueChats(db, options = {}) {
         }
       } catch (errCust) {}
 
+      // Tempo de primeira resposta da farmácia
+      let firstResponseTimeSeconds = 0;
+      const firstCustomerMsg = messages.find(m => m.fromMe === 0 || m.fromMe === false);
+      if (firstCustomerMsg) {
+        const firstAttendantReply = messages.find(m => (m.fromMe === 1 || m.fromMe === true) && m.timestamp >= firstCustomerMsg.timestamp);
+        if (firstAttendantReply) {
+          firstResponseTimeSeconds = Math.max(0, Math.round((firstAttendantReply.timestamp - firstCustomerMsg.timestamp) / 1000));
+        }
+      }
+
+      const dateObj = new Date(lastMsg.timestamp);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hours = String(dateObj.getHours()).padStart(2, '0');
+      const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+      const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+      const conversationDate = `${year}-${month}-${day}`;
+      const realCreatedAt = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+      const isRepeatCustomer = isNewCustomer === 1 ? 0 : 1;
+
       // Verifica se já existe registro dessa conversa
       const existing = db.prepare(`
         SELECT id, review_status FROM deliveries WHERE phone = ? LIMIT 1
@@ -595,9 +765,9 @@ async function syncAndEnqueueChats(db, options = {}) {
             id, phone, customer_name, delivery_address, items,
             total_amount, payment_method, status, sale_closed, unclosed_reason,
             last_message_id, notes,
-            review_status, is_new_customer, chat_duration_seconds, chat_message_count, discussed_products_json,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'unixepoch', 'localtime'))
+            review_status, is_new_customer, is_repeat_customer, chat_duration_seconds, chat_message_count,
+            first_response_time_seconds, discussed_products_json, conversation_date, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
           deliveryId,
           cleanPhone,
@@ -613,10 +783,13 @@ async function syncAndEnqueueChats(db, options = {}) {
           `Última mensagem: "${lastSnippet}"`,
           'pending_review',
           isNewCustomer,
+          isRepeatCustomer,
           chatDurationSeconds,
           chatMessageCount,
+          firstResponseTimeSeconds,
           JSON.stringify([]),
-          Math.round(lastMsg.timestamp / 1000)
+          conversationDate,
+          realCreatedAt
         );
         enqueuedCount++;
       }
@@ -639,17 +812,18 @@ Determine os detalhes do atendimento e identifique individualmente CADA produto 
 1. "customer_name": Nome do cliente (se mencionado) ou "Cliente".
 2. "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
 3. "delivery_address": Endereço de entrega (se informado) ou null.
-4. "items": Resumo em texto dos produtos (ex: "2x Dipirona 500mg, 1x Dorflex").
-5. "products_identified": Lista estruturada com CADA PRODUTO citado:
+4. "neighborhood": Nome do Bairro ou Região se informado, ou null.
+5. "items": Resumo em texto dos produtos (ex: "2x Dipirona 500mg, 1x Dorflex").
+6. "products_identified": Lista estruturada com CADA PRODUTO citado:
    - "name": Nome claro do produto/medicamento.
    - "quantity": Quantidade mencionada (ex: "1 caixa", "2 un").
    - "price": Valor unitário ou total estimado em R$ (número).
    - "status": "accepted" se o cliente comprou/aceitou, ou "rejected" se recusou/não levou.
    - "rejection_reason": Se "status" for "rejected", motivo provável: "Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", ou "Outro".
-6. "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
-7. "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
-8. "unclosed_reason": Se a venda não foi fechada, motivo geral ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação").
-9. "notes": Resumo direto de 1 linha sobre a negociação.
+7. "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
+8. "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
+9. "unclosed_reason": Se a venda não foi fechada, motivo geral ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação").
+10. "notes": Resumo direto de 1 linha sobre a negociação.
 
 RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
 {
@@ -657,6 +831,7 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
   "is_delivery": true ou false,
   "customer_name": "Nome do cliente",
   "delivery_address": "Endereço ou null",
+  "neighborhood": "Bairro ou null",
   "items": "Descrição resumida dos produtos",
   "products_identified": [
     {
@@ -749,9 +924,12 @@ Analise e extraia os dados em JSON conforme instruído.
       ? productsIdentified.map(p => p.name)
       : (Array.isArray(result.products_discussed) ? result.products_discussed : (itemsStr ? [itemsStr] : []));
 
+    const finalNeighborhood = (result.neighborhood && result.neighborhood !== 'null') ? result.neighborhood.trim() : (delivery.neighborhood || null);
+
     const updatedData = {
       customer_name: (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName,
       delivery_address: result.delivery_address || '',
+      neighborhood: finalNeighborhood,
       items: itemsStr,
       products_discussed: discussedProducts,
       products_identified: productsIdentified,
@@ -767,6 +945,7 @@ Analise e extraia os dados em JSON conforme instruído.
       UPDATE deliveries SET
         customer_name = ?,
         delivery_address = ?,
+        neighborhood = COALESCE(?, neighborhood),
         items = ?,
         total_amount = ?,
         payment_method = ?,
@@ -778,6 +957,7 @@ Analise e extraia os dados em JSON conforme instruído.
     `).run(
       updatedData.customer_name,
       updatedData.delivery_address,
+      updatedData.neighborhood,
       updatedData.items,
       updatedData.total_amount,
       updatedData.payment_method,
@@ -786,6 +966,18 @@ Analise e extraia os dados em JSON conforme instruído.
       JSON.stringify(updatedData.products_discussed),
       deliveryId
     );
+
+    // Salvar memória de endereço e produtos
+    try {
+      if (updatedData.delivery_address && updatedData.delivery_address.length >= 5) {
+        const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+        const custId = cust ? cust.id : null;
+        db.prepare(`
+          INSERT INTO customer_address_history (id, phone, customer_id, address, neighborhood, last_used_at, created_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        `).run(`addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, cleanPhone, custId, updatedData.delivery_address, updatedData.neighborhood);
+      }
+    } catch (eAddr) {}
 
     return updatedData;
   } catch (err) {

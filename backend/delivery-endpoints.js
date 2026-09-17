@@ -69,25 +69,25 @@ function initializeDeliveryEndpoints(app, db) {
       const { status, period = 'month', search, filterClosed } = req.query;
 
       let timeClause = '';
+      const dateCol = "COALESCE(d.conversation_date, date(d.created_at, 'localtime'))";
       if (period === 'today') {
         timeClause = `AND (
-          date(created_at, 'localtime') = date('now', 'localtime') OR
-          date(created_at) = date('now') OR
-          created_at >= date('now', 'start of day') OR
-          created_at LIKE date('now', 'localtime') || '%'
+          ${dateCol} = date('now', 'localtime') OR
+          date(d.created_at, 'localtime') = date('now', 'localtime') OR
+          d.created_at LIKE date('now', 'localtime') || '%'
         )`;
       } else if (period === '7days') {
-        timeClause = "AND created_at >= datetime('now', '-7 days')";
+        timeClause = `AND ${dateCol} >= date('now', '-7 days', 'localtime')`;
       } else if (period === '30days') {
-        timeClause = "AND created_at >= datetime('now', '-30 days')";
+        timeClause = `AND ${dateCol} >= date('now', '-30 days', 'localtime')`;
       } else if (period === 'month') {
-        timeClause = "AND (strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') OR strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now'))";
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'localtime')`;
       } else if (period === 'prev_month') {
         // Mês anterior
-        timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')";
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')`;
       } else if (period && period.match(/^\d{4}-\d{2}$/)) {
         // Mês específico YYYY-MM (ex: 2026-07)
-        timeClause = `AND strftime('%Y-%m', created_at, 'localtime') = '${period}'`;
+        timeClause = `AND substr(${dateCol}, 1, 7) = '${period}'`;
       } else if (period === 'all') {
         timeClause = '';
       }
@@ -501,6 +501,242 @@ function initializeDeliveryEndpoints(app, db) {
     } catch (err) {
       console.error('[DeliveryEndpoints] Erro ao carregar métricas de rejeição:', err);
       res.status(500).json({ error: 'Erro ao carregar métricas de rejeição.', details: err.message });
+    }
+  });
+
+  // GET /api/deliveries/analytics - Inteligência Geográfica, SLA, Produtos e Fidelidade
+  app.get('/api/deliveries/analytics', (req, res) => {
+    try {
+      const { period = 'month' } = req.query;
+
+      let timeClause = '';
+      let timeClauseWph = '';
+      const dateCol = "COALESCE(conversation_date, date(created_at, 'localtime'))";
+      const dateColWph = "COALESCE(interaction_date, date(created_at, 'localtime'))";
+
+      if (period === 'today') {
+        timeClause = `AND (${dateCol} = date('now', 'localtime') OR created_at LIKE date('now', 'localtime') || '%')`;
+        timeClauseWph = `AND (${dateColWph} = date('now', 'localtime') OR created_at LIKE date('now', 'localtime') || '%')`;
+      } else if (period === '7days') {
+        timeClause = `AND ${dateCol} >= date('now', '-7 days', 'localtime')`;
+        timeClauseWph = `AND ${dateColWph} >= date('now', '-7 days', 'localtime')`;
+      } else if (period === '30days') {
+        timeClause = `AND ${dateCol} >= date('now', '-30 days', 'localtime')`;
+        timeClauseWph = `AND ${dateColWph} >= date('now', '-30 days', 'localtime')`;
+      } else if (period === 'month') {
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'localtime')`;
+        timeClauseWph = `AND substr(${dateColWph}, 1, 7) = strftime('%Y-%m', 'now', 'localtime')`;
+      } else if (period === 'prev_month') {
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')`;
+        timeClauseWph = `AND substr(${dateColWph}, 1, 7) = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')`;
+      } else if (period && period.match(/^\d{4}-\d{2}$/)) {
+        timeClause = `AND substr(${dateCol}, 1, 7) = '${period}'`;
+        timeClauseWph = `AND substr(${dateColWph}, 1, 7) = '${period}'`;
+      }
+
+      // 1. Geolocalização / Bairros
+      const geoRows = db.prepare(`
+        SELECT 
+          COALESCE(NULLIF(neighborhood, ''), 'Não Informado / Balcão') as neighborhood,
+          COUNT(*) as count,
+          SUM(CASE WHEN sale_closed = 1 THEN 1 ELSE 0 END) as closedCount,
+          SUM(CASE WHEN sale_closed = 1 THEN total_amount ELSE 0 END) as totalAmount,
+          AVG(CASE WHEN sale_closed = 1 AND total_amount > 0 THEN total_amount ELSE NULL END) as avgTicket
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+        GROUP BY neighborhood
+        ORDER BY totalAmount DESC, count DESC
+        LIMIT 15
+      `).all();
+
+      const geoAnalytics = geoRows.map(r => ({
+        neighborhood: r.neighborhood,
+        count: r.count,
+        closedCount: r.closedCount || 0,
+        totalAmount: Number((r.totalAmount || 0).toFixed(2)),
+        avgTicket: Number((r.avgTicket || 0).toFixed(2))
+      }));
+
+      // 2. Top Produtos Vendidos
+      const topSoldRows = db.prepare(`
+        SELECT product_name, COUNT(*) as count
+        FROM whatsapp_product_history
+        WHERE status = 'comprado' ${timeClauseWph}
+        GROUP BY product_name
+        ORDER BY count DESC
+        LIMIT 10
+      `).all();
+
+      let topSoldProducts = topSoldRows;
+      if (topSoldProducts.length === 0) {
+        const fallbackSold = db.prepare(`
+          SELECT items, total_amount FROM deliveries
+          WHERE sale_closed = 1 AND items IS NOT NULL AND items != '' ${timeClause}
+          LIMIT 50
+        `).all();
+        const mapCount = {};
+        for (const f of fallbackSold) {
+          const name = f.items.split('\n')[0].replace(/^\d+x\s*/, '').trim();
+          if (name && name !== 'Receita / Imagem' && name.length > 2) {
+            mapCount[name] = (mapCount[name] || 0) + 1;
+          }
+        }
+        topSoldProducts = Object.entries(mapCount)
+          .map(([product_name, count]) => ({ product_name, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10);
+      }
+
+      // 3. Top Produtos Perdidos / Não Fechados
+      const topLostRows = db.prepare(`
+        SELECT product_name, COUNT(*) as count,
+          CASE 
+            WHEN status = 'nao_encontrado' THEN 'Falta de Estoque'
+            WHEN status = 'cancelado' THEN 'Desistência'
+            ELSE 'Preço / Sem Resposta'
+          END as reason
+        FROM whatsapp_product_history
+        WHERE status IN ('nao_encontrado', 'pesquisado', 'cancelado') ${timeClauseWph}
+        GROUP BY product_name, reason
+        ORDER BY count DESC
+        LIMIT 10
+      `).all();
+
+      // 4. Fidelidade: Novos vs Recorrentes
+      const loyaltyRow = db.prepare(`
+        SELECT 
+          SUM(CASE WHEN is_new_customer = 1 THEN 1 ELSE 0 END) as newCustomersCount,
+          SUM(CASE WHEN is_repeat_customer = 1 OR is_new_customer = 0 THEN 1 ELSE 0 END) as repeatCustomersCount,
+          COUNT(*) as totalOrders
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+      `).get() || { newCustomersCount: 0, repeatCustomersCount: 0, totalOrders: 0 };
+
+      const totalL = (loyaltyRow.newCustomersCount || 0) + (loyaltyRow.repeatCustomersCount || 0);
+      const loyaltyRate = totalL > 0 ? ((loyaltyRow.repeatCustomersCount || 0) / totalL) * 100 : 0;
+
+      const topCustomers = db.prepare(`
+        SELECT 
+          d.phone,
+          COALESCE(NULLIF(d.customer_name, ''), 'Cliente') as name,
+          COUNT(*) as orderCount,
+          SUM(d.total_amount) as totalSpent
+        FROM deliveries d
+        WHERE d.sale_closed = 1 ${timeClause}
+        GROUP BY d.phone
+        ORDER BY orderCount DESC, totalSpent DESC
+        LIMIT 8
+      `).all().map(c => ({
+        phone: c.phone,
+        name: c.name,
+        orderCount: c.orderCount,
+        totalSpent: Number((c.totalSpent || 0).toFixed(2))
+      }));
+
+      // 5. SLA de Primeira Resposta
+      const slaRow = db.prepare(`
+        SELECT 
+          AVG(first_response_time_seconds) as avgFirstResponseSeconds,
+          SUM(CASE WHEN first_response_time_seconds > 0 AND first_response_time_seconds <= 60 THEN 1 ELSE 0 END) as under1Min,
+          SUM(CASE WHEN first_response_time_seconds > 60 AND first_response_time_seconds <= 300 THEN 1 ELSE 0 END) as oneToFiveMin,
+          SUM(CASE WHEN first_response_time_seconds > 300 AND first_response_time_seconds <= 900 THEN 1 ELSE 0 END) as fiveToFifteenMin,
+          SUM(CASE WHEN first_response_time_seconds > 900 THEN 1 ELSE 0 END) as over15Min
+        FROM deliveries
+        WHERE first_response_time_seconds > 0 ${timeClause}
+      `).get() || {};
+
+      // 6. Horários de Pico (0 a 23)
+      const hoursRows = db.prepare(`
+        SELECT 
+          CAST(strftime('%H', created_at, 'localtime') AS INTEGER) as hour,
+          COUNT(*) as count
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+        GROUP BY hour
+        ORDER BY hour ASC
+      `).all();
+
+      const peakHours = [];
+      const hourMap = {};
+      for (const h of hoursRows) {
+        hourMap[h.hour] = h.count;
+      }
+      for (let hr = 7; hr <= 22; hr++) {
+        peakHours.push({
+          hour: hr,
+          label: `${String(hr).padStart(2, '0')}h`,
+          count: hourMap[hr] || 0
+        });
+      }
+
+      // 7. Dias da Semana (0=Dom, 1=Seg, ... 6=Sab)
+      const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+      const daysRows = db.prepare(`
+        SELECT 
+          CAST(strftime('%w', created_at, 'localtime') AS INTEGER) as dayIndex,
+          COUNT(*) as count
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+        GROUP BY dayIndex
+      `).all();
+
+      const dayMap = {};
+      for (const d of daysRows) {
+        dayMap[d.dayIndex] = d.count;
+      }
+      const peakDays = dayNames.map((name, idx) => ({
+        day: name,
+        dayIndex: idx,
+        count: dayMap[idx] || 0
+      }));
+
+      // 8. Funil
+      const funnelRow = db.prepare(`
+        SELECT 
+          COUNT(*) as totalConversations,
+          SUM(CASE WHEN total_amount > 0 OR (items IS NOT NULL AND items != '') THEN 1 ELSE 0 END) as quotesGenerated,
+          SUM(CASE WHEN sale_closed = 1 THEN 1 ELSE 0 END) as salesClosed
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+      `).get() || { totalConversations: 0, quotesGenerated: 0, salesClosed: 0 };
+
+      const funnel = {
+        totalConversations: funnelRow.totalConversations || 0,
+        quotesGenerated: funnelRow.quotesGenerated || 0,
+        salesClosed: funnelRow.salesClosed || 0,
+        conversionRate: funnelRow.totalConversations > 0
+          ? Number(((funnelRow.salesClosed / funnelRow.totalConversations) * 100).toFixed(1))
+          : 0
+      };
+
+      res.json({
+        success: true,
+        period,
+        analytics: {
+          geoAnalytics,
+          topSoldProducts,
+          topLostProducts: topLostRows,
+          customerLoyalty: {
+            newCustomersCount: loyaltyRow.newCustomersCount || 0,
+            repeatCustomersCount: loyaltyRow.repeatCustomersCount || 0,
+            loyaltyRate: Number(loyaltyRate.toFixed(1)),
+            topCustomers
+          },
+          slaAnalytics: {
+            avgFirstResponseSeconds: Math.round(slaRow.avgFirstResponseSeconds || 0),
+            under1Min: slaRow.under1Min || 0,
+            oneToFiveMin: slaRow.oneToFiveMin || 0,
+            fiveToFifteenMin: slaRow.fiveToFifteenMin || 0,
+            over15Min: slaRow.over15Min || 0
+          },
+          peakHours,
+          peakDays,
+          funnel
+        }
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao carregar analytics:', err);
+      res.status(500).json({ error: 'Erro ao gerar analytics de delivery.', details: err.message });
     }
   });
 

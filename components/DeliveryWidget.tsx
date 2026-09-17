@@ -14,7 +14,14 @@ import {
   Users,
   XCircle,
   Calendar,
-  Inbox
+  Inbox,
+  MapPin,
+  Award,
+  Search,
+  ShoppingBag,
+  Filter,
+  ArrowUpRight,
+  BarChart3
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,7 +37,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import { useToast } from './ToastContext';
-import { Delivery, DeliveryMetrics } from '../types';
+import { Delivery, DeliveryMetrics, DeliveryAnalyticsData } from '../types';
 
 interface DeliveryWidgetProps {
   onOpenChat?: (phone: string) => void;
@@ -38,7 +45,7 @@ interface DeliveryWidgetProps {
   reviewedDeliveryId?: string | null;
 }
 
-const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899'];
+const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
 export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSelectPendingReview, reviewedDeliveryId }) => {
   const { addToast } = useToast();
@@ -48,8 +55,11 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
   const [loadingPending, setLoadingPending] = useState<boolean>(false);
   const [syncingRetroactive, setSyncingRetroactive] = useState<boolean>(false);
   const [analyzingChatId, setAnalyzingChatId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'pending_reviews' | 'charts'>('pending_reviews');
+  const [activeTab, setActiveTab] = useState<'deliveries_list' | 'intelligence' | 'pending_reviews'>('deliveries_list');
   
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [filterClosed, setFilterClosed] = useState<'all' | 'closed' | 'unclosed'>('all');
+
   const [rejectionMetrics, setRejectionMetrics] = useState<{
     total_rejections: number;
     by_reason: Record<string, number>;
@@ -59,6 +69,8 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
     by_reason: {},
     top_products: []
   });
+
+  const [analyticsData, setAnalyticsData] = useState<DeliveryAnalyticsData | null>(null);
 
   const [metrics, setMetrics] = useState<DeliveryMetrics>({
     totalContacts: 0,
@@ -74,15 +86,19 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
   });
 
   const [loading, setLoading] = useState<boolean>(true);
-  const [period, setPeriod] = useState<'today' | '7days' | '30days' | 'month' | 'prev_month' | 'all' | string>('month');
+  const [period, setPeriod] = useState<'today' | '7days' | '30days' | 'month' | 'prev_month' | 'all' | string>('today');
 
   const fetchDeliveriesAndMetrics = async () => {
     setLoading(true);
     try {
       const query = new URLSearchParams({ period });
-      const [resDeliv, resRej] = await Promise.all([
+      if (searchTerm.trim()) query.append('search', searchTerm.trim());
+      if (filterClosed !== 'all') query.append('filterClosed', filterClosed);
+
+      const [resDeliv, resRej, resAnalytics] = await Promise.all([
         fetch(`/api/deliveries?${query.toString()}`),
-        fetch('/api/deliveries/rejection-metrics')
+        fetch('/api/deliveries/rejection-metrics'),
+        fetch(`/api/deliveries/analytics?${new URLSearchParams({ period }).toString()}`)
       ]);
 
       if (resDeliv.ok) {
@@ -95,14 +111,22 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
 
       if (resRej.ok) {
         const dataRej = await resRej.json();
+        const rejObj = dataRej.metrics || dataRej;
         setRejectionMetrics({
-          total_rejections: dataRej.total_rejections || 0,
-          by_reason: dataRej.by_reason || {},
-          top_products: dataRej.top_products || []
+          total_rejections: rejObj.total_rejections || 0,
+          by_reason: rejObj.by_reason || {},
+          top_products: rejObj.top_rejected_products || rejObj.top_products || []
         });
       }
+
+      if (resAnalytics.ok) {
+        const dataAn = await resAnalytics.json();
+        if (dataAn.success && dataAn.analytics) {
+          setAnalyticsData(dataAn.analytics);
+        }
+      }
     } catch (err: any) {
-      console.error('[DeliveryWidget] Erro ao carregar métricas:', err);
+      console.error('[DeliveryWidget] Erro ao carregar dados:', err);
     } finally {
       setLoading(false);
     }
@@ -124,9 +148,12 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
   };
 
   useEffect(() => {
-    fetchPendingReviews();
     fetchDeliveriesAndMetrics();
-  }, [period]);
+  }, [period, searchTerm, filterClosed]);
+
+  useEffect(() => {
+    fetchPendingReviews();
+  }, []);
 
   useEffect(() => {
     const handleReviewSubmittedEvent = (event: any) => {
@@ -161,8 +188,9 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast(`Busca desde 01/08 concluída! ${data.enqueuedCount} conversas adicionadas à fila.`, 'success');
+        addToast(`Sincronização concluída! ${data.enqueuedCount} conversas adicionadas.`, 'success');
         fetchPendingReviews();
+        fetchDeliveriesAndMetrics();
       } else {
         throw new Error(data.error || 'Erro ao sincronizar conversas.');
       }
@@ -215,62 +243,175 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
     }
   };
 
-  // Dados formatados para gráficos de Recharts
-  const conversionFunnelData = [
-    { name: 'Cotações Perdidas', valor: metrics.unclosedSalesCount, fill: '#ef4444' },
-    { name: 'Pedidos Fechados', valor: metrics.closedSalesCount, fill: '#10b981' }
-  ];
-
-  const reasonChartData = Object.entries(rejectionMetrics.by_reason).map(([reason, count]) => ({
-    name: reason,
-    quantidade: count
-  }));
-
-  const topProductsChartData = rejectionMetrics.top_products.slice(0, 10).map(p => ({
-    name: p.product_name.length > 25 ? p.product_name.substring(0, 25) + '...' : p.product_name,
-    recusas: p.count,
-    motivo: p.main_reason
-  }));
-
-  const customerTypeData = [
-    { name: 'Novos Clientes', valor: deliveries.filter(d => d.is_new_customer === 1).length, fill: '#3b82f6' },
-    { name: 'Recorrentes', valor: deliveries.filter(d => d.is_new_customer !== 1).length, fill: '#8b5cf6' }
-  ];
+  // Formatador de segundos para minutos
+  const formatSLA = (secs?: number) => {
+    if (!secs || secs <= 0) return '—';
+    if (secs < 60) return `${secs}s`;
+    const min = Math.floor(secs / 60);
+    const rem = secs % 60;
+    return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
+  };
 
   return (
     <div className="space-y-6">
-      {/* ── CABEÇALHO DO WIDGET ────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-5 rounded-3xl shadow-xl">
+      {/* ── CABEÇALHO DO WIDGET & SELETOR DE PERÍODO ────────────────────────────── */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-5 rounded-3xl shadow-xl">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
-            <MessageSquare className="w-6 h-6 text-amber-400" />
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+            <Truck className="w-6 h-6 text-emerald-400" />
           </div>
           <div>
             <h2 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
-              Auditoria Interativa & Notificações do WhatsApp
+              Gestão de Entregas, Vendas & Inteligência do WhatsApp
             </h2>
             <p className="text-xs text-slate-400">
-              Classifique as conversas da farmácia para alimentar os gráficos de conversão e perdas.
+              Dados geográficos, SLA de resposta, histórico de pedidos e recompra auditados pela IA.
             </p>
           </div>
         </div>
 
-        {/* Botão de Busca Retroativa desde 01/08 */}
-        <button
-          onClick={handleSyncRetroactive}
-          disabled={syncingRetroactive}
-          className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-2xl shadow-lg shadow-blue-600/20 flex items-center gap-2 transition cursor-pointer disabled:opacity-60 shrink-0"
-        >
-          <RefreshCw className={`w-4 h-4 ${syncingRetroactive ? 'animate-spin' : ''}`} />
-          <span>Sincronizar (Desde 01/08)</span>
-        </button>
+        {/* Controles de Período e Sincronização */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center bg-slate-950 p-1 rounded-2xl border border-slate-800">
+            <button
+              onClick={() => setPeriod('today')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                period === 'today' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Hoje
+            </button>
+            <button
+              onClick={() => setPeriod('7days')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                period === '7days' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              7 Dias
+            </button>
+            <button
+              onClick={() => setPeriod('month')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                period === 'month' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Este Mês
+            </button>
+            <button
+              onClick={() => setPeriod('prev_month')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                period === 'prev_month' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Mês Anterior
+            </button>
+            <button
+              onClick={() => setPeriod('all')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                period === 'all' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Tudo
+            </button>
+          </div>
+
+          <button
+            onClick={handleSyncRetroactive}
+            disabled={syncingRetroactive}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-2xl border border-slate-700 flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60 shrink-0"
+            title="Sincronizar conversas recentes do WhatsApp"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncingRetroactive ? 'animate-spin text-emerald-400' : ''}`} />
+            <span>Sincronizar</span>
+          </button>
+        </div>
       </div>
 
-      {/* ── SUB-TABS NAVEGAÇÃO ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+      {/* ── KPI CARDS SUPERIORES (RESUMO DO PERÍODO) ────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        {/* Total Atendimentos */}
+        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 shadow-xl">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Total Atendimentos</span>
+          <div className="text-2xl sm:text-3xl font-black text-white mt-1">
+            {metrics.totalContacts}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5">Conversas analisadas</p>
+        </div>
+
+        {/* Vendas Fechadas (Pedidos) */}
+        <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-4 shadow-xl">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-400 block">Pedidos Concluídos</span>
+          <div className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">
+            R$ {metrics.closedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">{metrics.closedSalesCount} entregas fechadas</p>
+        </div>
+
+        {/* Cotações Perdidas */}
+        <div className="bg-slate-900/90 border border-rose-500/30 rounded-3xl p-4 shadow-xl">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-rose-400 block">Não Fechados (Perdas)</span>
+          <div className="text-2xl sm:text-3xl font-black text-rose-400 mt-1">
+            R$ {metrics.unclosedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">{metrics.unclosedSalesCount} cotações sem venda</p>
+        </div>
+
+        {/* Taxa de Conversão */}
+        <div className="bg-slate-900/90 border border-blue-500/30 rounded-3xl p-4 shadow-xl">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-blue-400 block">Taxa de Conversão</span>
+          <div className="text-2xl sm:text-3xl font-black text-blue-300 mt-1">
+            {metrics.conversionRate.toFixed(1)}%
+          </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">Ticket Médio: R$ {metrics.averageTicket.toFixed(2)}</p>
+        </div>
+
+        {/* SLA Médio de 1ª Resposta */}
+        <div className="bg-slate-900/90 border border-amber-500/30 rounded-3xl p-4 shadow-xl col-span-2 lg:col-span-1">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-amber-400 block">Tempo 1ª Resposta (SLA)</span>
+          <div className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">
+            {formatSLA(analyticsData?.slaAnalytics?.avgFirstResponseSeconds)}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {analyticsData?.slaAnalytics?.under1Min || 0} chats respondidos em &lt;1m
+          </p>
+        </div>
+      </div>
+
+      {/* ── NAVEGAÇÃO ENTRE AS ABAS ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">
+        {/* Aba 1: Histórico & Entregas */}
+        <button
+          onClick={() => setActiveTab('deliveries_list')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer shrink-0 ${
+            activeTab === 'deliveries_list'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Truck className="w-4 h-4" />
+          <span>🛵 Histórico de Entregas & Pedidos</span>
+          <span className="px-2 py-0.5 bg-slate-950/60 rounded-full text-[11px] font-black">
+            {deliveries.length}
+          </span>
+        </button>
+
+        {/* Aba 2: Inteligência Geográfica, Bairros e SLA */}
+        <button
+          onClick={() => setActiveTab('intelligence')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer shrink-0 ${
+            activeTab === 'intelligence'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <MapPin className="w-4 h-4" />
+          <span>🌍 Inteligência Geográfica & Bairros</span>
+        </button>
+
+        {/* Aba 3: Conversas Pendentes */}
         <button
           onClick={() => setActiveTab('pending_reviews')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer ${
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer shrink-0 ${
             activeTab === 'pending_reviews'
               ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
               : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
@@ -279,7 +420,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
           <Inbox className="w-4 h-4" />
           <span>📥 Conversas Pendentes</span>
           {pendingReviews.length > 0 && (
-            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
               activeTab === 'pending_reviews'
                 ? 'bg-slate-950 text-amber-400'
                 : 'bg-amber-500 text-slate-950 animate-pulse'
@@ -288,21 +429,468 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
             </span>
           )}
         </button>
-
-        <button
-          onClick={() => setActiveTab('charts')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs md:text-sm transition cursor-pointer ${
-            activeTab === 'charts'
-              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
-              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4" />
-          <span>📊 Gráficos & Indicadores Estratégicos</span>
-        </button>
       </div>
 
-      {/* ── ABA 1: FILA DE NOTIFICAÇÃO DE CONVERSAS PENDENTES ──────────────────── */}
+      {/* ── ABA 1: TABELA DETALHADA DE ENTREGAS & PEDIDOS ─────────────────────── */}
+      {activeTab === 'deliveries_list' && (
+        <div className="space-y-4">
+          {/* Barra de Filtros e Busca */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Buscar cliente, telefone, bairro ou item..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-emerald-400" /> Status:
+              </span>
+              <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setFilterClosed('all')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                    filterClosed === 'all' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Todos
+                </button>
+                <button
+                  onClick={() => setFilterClosed('closed')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                    filterClosed === 'closed' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Fechados
+                </button>
+                <button
+                  onClick={() => setFilterClosed('unclosed')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                    filterClosed === 'unclosed' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Não Fechados
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabela de Entregas */}
+          {loading ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-900/60 rounded-3xl border border-slate-800">
+              <RefreshCw className="w-6 h-6 animate-spin text-emerald-500" />
+              <p className="text-sm">Carregando entregas do período selecionado...</p>
+            </div>
+          ) : deliveries.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 bg-slate-900/60 rounded-3xl border border-slate-800">
+              <Package className="w-10 h-10 text-slate-600" />
+              <p className="text-base font-bold text-slate-200">Nenhum atendimento ou entrega encontrada para este filtro.</p>
+              <p className="text-xs text-slate-500">Experimente selecionar outro período (ex: "Este Mês" ou "Tudo") ou sincronizar as mensagens.</p>
+            </div>
+          ) : (
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider">
+                    <tr>
+                      <th className="py-3.5 px-4">Data / Hora</th>
+                      <th className="py-3.5 px-4">Cliente</th>
+                      <th className="py-3.5 px-4">Bairro / Endereço</th>
+                      <th className="py-3.5 px-4">Produtos / Descrição</th>
+                      <th className="py-3.5 px-4">Valor</th>
+                      <th className="py-3.5 px-4">Status / Motivo</th>
+                      <th className="py-3.5 px-4">SLA (1ª Resposta)</th>
+                      <th className="py-3.5 px-4 text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                    {deliveries.map((del) => {
+                      const isClosed = del.sale_closed === 1;
+                      const dateDisplay = del.created_at ? new Date(del.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+                      return (
+                        <tr key={del.id} className="hover:bg-slate-800/40 transition">
+                          {/* Data / Hora */}
+                          <td className="py-3 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                            {dateDisplay}
+                          </td>
+
+                          {/* Cliente */}
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span>{del.customer_name || del.wa_name || 'Cliente'}</span>
+                              {del.is_new_customer === 1 ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                  NOVO
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                  RECORRENTE
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-mono block">
+                              {del.phone}
+                            </span>
+                          </td>
+
+                          {/* Bairro / Endereço */}
+                          <td className="py-3 px-4 max-w-[200px]">
+                            {del.neighborhood ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 mb-0.5">
+                                <MapPin className="w-2.5 h-2.5" />
+                                {del.neighborhood}
+                              </span>
+                            ) : null}
+                            <p className="text-[11px] text-slate-300 truncate" title={del.delivery_address || ''}>
+                              {del.delivery_address || 'Balcão / Loja'}
+                            </p>
+                          </td>
+
+                          {/* Produtos */}
+                          <td className="py-3 px-4 max-w-[220px]">
+                            <p className="text-[11px] text-slate-200 line-clamp-2" title={del.items || ''}>
+                              {del.items || '—'}
+                            </p>
+                          </td>
+
+                          {/* Valor */}
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className={`font-black text-sm ${isClosed ? 'text-emerald-400' : 'text-slate-400'}`}>
+                              R$ {(del.total_amount || 0).toFixed(2)}
+                            </span>
+                            {del.payment_method && (
+                              <span className="block text-[10px] text-slate-500">
+                                {del.payment_method}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Status / Motivo */}
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            {isClosed ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                <CheckCircle className="w-3 h-3" />
+                                {del.status || 'Entregue'}
+                              </span>
+                            ) : (
+                              <div>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  <XCircle className="w-3 h-3" />
+                                  Não Fechado
+                                </span>
+                                {del.unclosed_reason && (
+                                  <span className="block text-[10px] text-slate-400 mt-0.5">
+                                    {del.unclosed_reason}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* SLA */}
+                          <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-amber-300">
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-amber-400" />
+                              {formatSLA(del.first_response_time_seconds)}
+                            </span>
+                          </td>
+
+                          {/* Ação */}
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            {onOpenChat && (
+                              <button
+                                onClick={() => onOpenChat(del.phone)}
+                                className="p-2 bg-slate-800 hover:bg-emerald-600 text-slate-300 hover:text-white rounded-xl transition cursor-pointer inline-flex items-center gap-1 text-xs font-bold"
+                                title="Abrir conversa no WhatsApp"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ABA 2: INTELIGÊNCIA GEOGRÁFICA, BAIRROS & SLA ─────────────────────── */}
+      {activeTab === 'intelligence' && (
+        <div className="space-y-6">
+          {/* SEÇÃO 1: RANKING GEOGRÁFICO DE BAIRROS */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-base font-black uppercase tracking-tight text-white flex items-center gap-2">
+                  <MapPin className="w-5 h-5 text-emerald-400" /> Onde Mais Saem Entregas: Ranking de Bairros & Regiões
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Volume de pedidos e faturamento gerado em cada região de atendimento da BelaFarma.
+                </p>
+              </div>
+              <span className="text-xs font-mono bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/20">
+                {analyticsData?.geoAnalytics?.length || 0} Regiões Mapeadas
+              </span>
+            </div>
+
+            {(!analyticsData?.geoAnalytics || analyticsData.geoAnalytics.length === 0) ? (
+              <p className="text-xs text-slate-500 italic py-8 text-center">
+                Nenhum dado geográfico detectado no período. Conforme os endereços forem informados pelos clientes nas conversas, as regiões aparecerão aqui automaticamente!
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
+                {/* Gráfico de Barras de Faturamento por Bairro */}
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={analyticsData.geoAnalytics.slice(0, 8)}
+                      layout="vertical"
+                      margin={{ top: 10, right: 30, left: 90, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
+                      <XAxis type="number" stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `R$ ${v}`} />
+                      <YAxis dataKey="neighborhood" type="category" stroke="#94a3b8" fontSize={11} width={110} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
+                        formatter={(val: any, name: any, item: any) => [
+                          `R$ ${Number(val).toFixed(2)} (${item.payload.closedCount} pedidos)`,
+                          'Faturamento'
+                        ]}
+                      />
+                      <Bar dataKey="totalAmount" fill="#10b981" radius={[0, 8, 8, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Tabela de Bairros */}
+                <div className="overflow-x-auto max-h-72 rounded-2xl border border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/80 sticky top-0 text-slate-400 font-bold uppercase tracking-wider">
+                      <tr>
+                        <th className="py-2.5 px-3">Bairro / Região</th>
+                        <th className="py-2.5 px-3">Pedidos</th>
+                        <th className="py-2.5 px-3">Faturamento</th>
+                        <th className="py-2.5 px-3">Ticket Médio</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-slate-300">
+                      {analyticsData.geoAnalytics.map((geo, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40">
+                          <td className="py-2 px-3 font-bold text-white flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-slate-800 text-[10px] flex items-center justify-center text-slate-400 font-mono">
+                              {idx + 1}
+                            </span>
+                            {geo.neighborhood}
+                          </td>
+                          <td className="py-2 px-3">{geo.closedCount}</td>
+                          <td className="py-2 px-3 font-black text-emerald-400">R$ {geo.totalAmount.toFixed(2)}</td>
+                          <td className="py-2 px-3 text-slate-400">R$ {geo.avgTicket.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SEÇÃO 2: PRODUTOS NO DELIVERY (MAIS VENDIDOS VS MAIS PERDIDOS) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top Produtos Vendidos no Delivery */}
+            <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4" /> Top Produtos Mais Vendidos no Delivery
+              </h3>
+
+              {(!analyticsData?.topSoldProducts || analyticsData.topSoldProducts.length === 0) ? (
+                <p className="text-xs text-slate-500 italic py-6 text-center">Nenhum produto registrado no período.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {analyticsData.topSoldProducts.slice(0, 8).map((prod, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-950/50 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                        <span className="text-xs font-bold text-white line-clamp-1">{prod.product_name}</span>
+                      </div>
+                      <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 font-black rounded-full text-xs shrink-0">
+                        {prod.count} {prod.count === 1 ? 'venda' : 'vendas'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Top Produtos Perdidos / Cotações Recusadas */}
+            <div className="bg-slate-900/90 border border-rose-500/30 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-rose-400 flex items-center gap-2">
+                <Package className="w-4 h-4" /> Top Produtos Cotados Perdidos (Preço / Falta)
+              </h3>
+
+              {(!analyticsData?.topLostProducts || analyticsData.topLostProducts.length === 0) ? (
+                <p className="text-xs text-slate-500 italic py-6 text-center">Nenhum produto perdido registrado no período.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {analyticsData.topLostProducts.slice(0, 8).map((prod, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-950/50 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 text-xs font-black flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                        <span className="text-xs font-bold text-white line-clamp-1">{prod.product_name}</span>
+                      </div>
+                      <span className="px-2.5 py-0.5 bg-rose-500/20 text-rose-300 font-bold rounded-full text-xs shrink-0">
+                        {prod.count}x ({prod.reason})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SEÇÃO 3: FIDELIDADE (NOVOS VS RECORRENTES) & TOP CLIENTES */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Fidelidade / Taxa de Recompra */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-400" /> Fidelidade & Taxa de Recompra
+              </h3>
+
+              <div className="grid grid-cols-2 gap-4 py-2">
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl">
+                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block">Novos Clientes</span>
+                  <div className="text-3xl font-black text-white mt-1">
+                    {analyticsData?.customerLoyalty?.newCustomersCount || 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">Primeira compra via WhatsApp</p>
+                </div>
+
+                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl">
+                  <span className="text-xs font-bold text-purple-400 uppercase tracking-wider block">Clientes Recorrentes</span>
+                  <div className="text-3xl font-black text-white mt-1">
+                    {analyticsData?.customerLoyalty?.repeatCustomersCount || 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">Recompras fidelizadas</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300">Índice de Fidelidade (Recompra):</span>
+                <span className="text-xl font-black text-emerald-400">
+                  {analyticsData?.customerLoyalty?.loyaltyRate || 0}%
+                </span>
+              </div>
+            </div>
+
+            {/* Ranking dos Clientes Mais Frequentes */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <Award className="w-4 h-4 text-amber-400" /> Clientes Mais Frequentes no Delivery
+              </h3>
+
+              {(!analyticsData?.customerLoyalty?.topCustomers || analyticsData.customerLoyalty.topCustomers.length === 0) ? (
+                <p className="text-xs text-slate-500 italic py-6 text-center">Nenhum cliente com múltiplas compras no período.</p>
+              ) : (
+                <div className="space-y-2">
+                  {analyticsData.customerLoyalty.topCustomers.slice(0, 5).map((cust, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-950 rounded-xl border border-slate-800/80">
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span className="text-amber-400 font-mono text-[11px]">#{idx + 1}</span>
+                          <span>{cust.name}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono">{cust.phone}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-black text-emerald-400 block">R$ {cust.totalSpent.toFixed(2)}</span>
+                        <span className="text-[10px] text-slate-400">{cust.orderCount} pedidos</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SEÇÃO 4: SLA DE ATENDIMENTO & HORÁRIOS DE PICO */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* SLA de Atendimento */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-400" /> SLA: Agilidade no Atendimento (1ª Resposta)
+              </h3>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase block">&lt; 1 minuto</span>
+                  <span className="text-xl font-black text-white mt-1 block">
+                    {analyticsData?.slaAnalytics?.under1Min || 0}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Excelente</span>
+                </div>
+
+                <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-2xl">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase block">1 a 5 min</span>
+                  <span className="text-xl font-black text-white mt-1 block">
+                    {analyticsData?.slaAnalytics?.oneToFiveMin || 0}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Bom</span>
+                </div>
+
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase block">5 a 15 min</span>
+                  <span className="text-xl font-black text-white mt-1 block">
+                    {analyticsData?.slaAnalytics?.fiveToFifteenMin || 0}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Atenção</span>
+                </div>
+
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl">
+                  <span className="text-[10px] font-bold text-rose-400 uppercase block">&gt; 15 min</span>
+                  <span className="text-xl font-black text-white mt-1 block">
+                    {analyticsData?.slaAnalytics?.over15Min || 0}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Crítico</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Horários de Pico */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-blue-400" /> Horários de Pico dos Pedidos (07h às 22h)
+              </h3>
+
+              <div className="h-48 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={analyticsData?.peakHours || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                    <XAxis dataKey="label" stroke="#94a3b8" fontSize={10} />
+                    <YAxis stroke="#94a3b8" fontSize={10} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }} />
+                    <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ABA 3: FILA DE NOTIFICAÇÃO DE CONVERSAS PENDENTES ──────────────────── */}
       {activeTab === 'pending_reviews' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -329,7 +917,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
               <CheckCircle className="w-10 h-10 text-emerald-500/80" />
               <p className="text-base font-bold text-slate-200">Tudo em dia! Nenhuma conversa pendente no momento.</p>
               <p className="text-xs text-slate-400 max-w-md">
-                Clique no botão <strong className="text-blue-400">"Sincronizar (Desde 01/08)"</strong> acima para trazer o histórico recente de conversas para classificação.
+                Todas as conversas foram devidamente auditadas e salvas no sistema!
               </p>
             </div>
           ) : (
@@ -348,54 +936,30 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
                 const isNewCustomer = item.is_new_customer === 1;
                 const isAnalyzing = analyzingChatId === item.id;
                 
-                const durationSecs = item.chat_duration_seconds || 0;
-                const durationMins = Math.floor(durationSecs / 60);
-                const durationSecsRemainder = durationSecs % 60;
-                const durationDisplay = durationMins > 0 ? `${durationMins}m ${durationSecsRemainder}s` : `${durationSecs}s`;
-
                 return (
                   <div
                     key={item.id}
-                    className="bg-slate-950/80 border border-amber-500/30 hover:border-amber-500/60 rounded-3xl p-5 shadow-xl flex flex-col justify-between space-y-4 transition-all hover:translate-y-[-2px]"
+                    className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between space-y-3 hover:border-amber-500/40 transition shadow-lg"
                   >
-                    <div className="space-y-3">
-                      {/* Cabeçalho do Cliente */}
+                    <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h4 className="font-bold text-white text-base truncate flex items-center gap-2" title={displayName}>
-                            {displayName}
-                          </h4>
-                          <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                            <Phone className="w-3.5 h-3.5 text-slate-500" />
-                            {item.phone}
-                          </p>
-                        </div>
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ${
-                          isNewCustomer
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                        }`}>
-                          {isNewCustomer ? '🆕 Cliente Novo' : '👤 Recorrente'}
-                        </span>
-                      </div>
-
-                      {/* Métricas Extraídas */}
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Duração</span>
-                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1 mt-0.5">
-                            <Clock className="w-3.5 h-3.5 text-amber-400" />
-                            {durationDisplay}
+                        <div className="flex items-center gap-2">
+                          <span className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg">
+                            <Phone className="w-3.5 h-3.5" />
                           </span>
+                          <div>
+                            <h4 className="font-bold text-white text-sm leading-tight line-clamp-1">
+                              {displayName}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 font-mono">{item.phone}</p>
+                          </div>
                         </div>
 
-                        <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
-                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Mensagens</span>
-                          <span className="text-xs font-bold text-slate-200 flex items-center gap-1 mt-0.5">
-                            <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-                            {item.chat_message_count || 0} msgs
+                        {isNewCustomer && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                            Novo
                           </span>
-                        </div>
+                        )}
                       </div>
 
                       {/* Prévia da última mensagem */}
@@ -413,7 +977,7 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
                       )}
                     </div>
 
-                    {/* ── AS 3 OPÇÕES DE CLASSIFICAÇÃO PARA O ATENDENTE ─────────────── */}
+                    {/* Opções de Classificação */}
                     <div className="pt-3 border-t border-slate-800/80 space-y-2">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
                         Qual o tipo deste atendimento?
@@ -460,222 +1024,6 @@ export const DeliveryWidget: React.FC<DeliveryWidgetProps> = ({ onOpenChat, onSe
               })}
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── ABA 2: GRÁFICOS & INDICADORES ESTRATÉGICOS (TELA LIMPA SEM LISTA DE TABELA) ───────────────────── */}
-      {activeTab === 'charts' && (
-        <div className="space-y-6">
-          {/* Seletor de Período dos Gráficos */}
-          <div className="flex items-center justify-between bg-slate-950/60 p-4 rounded-2xl border border-slate-800 flex-wrap gap-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-400" /> Período de Análise dos Gráficos:
-            </span>
-            <div className="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 overflow-x-auto">
-              <button
-                onClick={() => setPeriod('today')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                  period === 'today' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Hoje
-              </button>
-              <button
-                onClick={() => setPeriod('month')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                  period === 'month' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Este Mês
-              </button>
-              <button
-                onClick={() => setPeriod('prev_month')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                  period === 'prev_month' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Mês Anterior
-              </button>
-              <button
-                onClick={() => setPeriod('30days')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                  period === '30days' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                30 Dias
-              </button>
-              <button
-                onClick={() => setPeriod('all')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                  period === 'all' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Tudo
-              </button>
-            </div>
-          </div>
-
-          {/* ── KPI CARDS ──────────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Atendimentos */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Total Atendimentos</span>
-              <div className="text-3xl font-black text-white mt-1">
-                {metrics.totalContacts}
-              </div>
-              <p className="text-xs text-slate-500 mt-1">Conversas processadas</p>
-            </div>
-
-            {/* Faturamento em Pedidos */}
-            <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-5 shadow-xl">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 block">Vendas Concluídas (Pedidos)</span>
-              <div className="text-3xl font-black text-emerald-400 mt-1">
-                R$ {metrics.closedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </div>
-              <p className="text-xs text-slate-400 mt-1">{metrics.closedSalesCount} pedidos fechados</p>
-            </div>
-
-            {/* Cotações Perdidas */}
-            <div className="bg-slate-900/90 border border-rose-500/30 rounded-3xl p-5 shadow-xl">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400 block">Cotações Perdidas (Valor)</span>
-              <div className="text-3xl font-black text-rose-400 mt-1">
-                R$ {metrics.unclosedSalesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </div>
-              <p className="text-xs text-slate-400 mt-1">{metrics.unclosedSalesCount} cotações não convertidas</p>
-            </div>
-
-            {/* Taxa de Conversão */}
-            <div className="bg-slate-900/90 border border-blue-500/30 rounded-3xl p-5 shadow-xl">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400 block">Taxa de Conversão</span>
-              <div className="text-3xl font-black text-blue-300 mt-1">
-                {metrics.conversionRate.toFixed(1)}%
-              </div>
-              <p className="text-xs text-slate-400 mt-1">Ticket Médio: R$ {metrics.averageTicket.toFixed(2)}</p>
-            </div>
-          </div>
-
-          {/* ── GRÁFICOS PRINCIPAIS (FUNIL E MOTIVOS DE RECUSA) ───────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* GRÁFICO 1: FUNIL DE CONVERSÃO (PEDIDOS VS COTAÇÕES) */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-400" /> Funil de Conversão: Cotações vs Pedidos
-              </h3>
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={conversionFunnelData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
-                    <YAxis stroke="#94a3b8" fontSize={12} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
-                      itemStyle={{ color: '#fff', fontWeight: 'bold' }}
-                    />
-                    <Bar dataKey="valor" radius={[12, 12, 0, 0]}>
-                      {conversionFunnelData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* GRÁFICO 2: MOTIVOS DE REJEIÇÃO / NÃO FECHAMENTO */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
-                <XCircle className="w-4 h-4 text-rose-400" /> Motivos de Não Fechamento de Cotações
-              </h3>
-              {reasonChartData.length === 0 ? (
-                <div className="h-64 flex items-center justify-center text-slate-500 italic text-xs">
-                  Nenhum motivo registrado no período selecionado.
-                </div>
-              ) : (
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={reasonChartData}
-                        dataKey="quantidade"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                      >
-                        {reasonChartData.map((_, index) => (
-                          <Cell key={`cell-reason-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
-                        itemStyle={{ color: '#fff' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── GRÁFICO 3: TOP PRODUTOS PERDIDOS / REJEITADOS NA COTAÇÃO ────────── */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
-              <Package className="w-4 h-4 text-amber-400" /> Top Produtos Rejeitados / Recusados nas Cotações
-            </h3>
-
-            {topProductsChartData.length === 0 ? (
-              <p className="text-xs italic text-slate-500 py-6 text-center">
-                Nenhum produto rejeitado registrado. Conforme os atendentes responderem ao questionário de Cotação, os produtos recusados aparecerão aqui!
-              </p>
-            ) : (
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topProductsChartData} layout="vertical" margin={{ top: 10, right: 30, left: 100, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                    <XAxis type="number" stroke="#94a3b8" fontSize={12} />
-                    <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={11} width={130} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
-                      formatter={(val, name, item) => [`${val} recusas (Motivo: ${item.payload.motivo})`, 'Recusas']}
-                    />
-                    <Bar dataKey="recusas" fill="#f59e0b" radius={[0, 8, 8, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          {/* ── GRÁFICO 4: CRESCIMENTO DA ÁREA (NOVOS CLIENTES VS RECORRENTES) ────── */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-400" /> Origem dos Atendimentos (Novos Clientes vs Recorrentes)
-            </h3>
-            <div className="h-56 w-full flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={customerTypeData}
-                    dataKey="valor"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    paddingAngle={5}
-                  >
-                    {customerTypeData.map((entry, index) => (
-                      <Cell key={`cell-cust-${index}`} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Legend />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
         </div>
       )}
     </div>

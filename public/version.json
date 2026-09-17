@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "89f2520",
-  "commitMessage": "feat(ai): implementar trava de seguranca limitando requisicoes a 200 por dia com persistencia no sqlite",
-  "buildTime": "17/09/2026, 08:56:43"
+  "commitHash": "9d007a0",
+  "commitMessage": "feat(shortages): aprimorar deteccao de faltas com opcao desde ultimo registro e dados completos do cliente",
+  "buildTime": "17/09/2026, 12:29:07"
 }
