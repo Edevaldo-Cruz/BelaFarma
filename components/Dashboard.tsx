@@ -57,6 +57,7 @@ import PaymentMethodsChart from './PaymentMethodsChart';
 import { GoalPopup } from './GoalPopup';
 import { OrderStatusModal } from './OrderStatusModal';
 import { DeliverySummaryChart } from './DeliverySummaryChart';
+import { InTransitDeliveriesCard } from './InTransitDeliveriesCard';
 import { Order, OrderStatus, User, UserRole, ProductShortage, Boleto, BoletoStatus, CashClosingRecord, FixedAccount, MonthlyLimit } from '../types';
 import { calculateWeeklyBudgetsCascade } from '../utils';
 
@@ -725,6 +726,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </button>
         </div>
       )}
+
+      {/* 🛵 CARD DE AÇÃO RÁPIDA: PEDIDOS EM ROTA (CONFIRMAÇÃO DE ENTREGA & DIGIFARMA) */}
+      <InTransitDeliveriesCard 
+        onNavigate={onNavigate} 
+        onOpenChat={(phone) => onNavigate('whatsapp-vendas')} 
+      />
 
       {/* ⚡ CARROSSEL DE ATALHOS RÁPIDOS (MANUAL, ORDENADO POR USO PESSOAL) */}
       <section className="relative group">
