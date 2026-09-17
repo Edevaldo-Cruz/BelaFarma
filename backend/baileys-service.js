@@ -69,6 +69,25 @@ async function connect(db) {
       fs.mkdirSync(SESSION_DIR, { recursive: true });
     }
 
+    // Proteção contra creds.json corrompido com bytes nulos (evita loops de erro e falha de autenticação)
+    const credsFile = path.join(SESSION_DIR, 'creds.json');
+    if (fs.existsSync(credsFile)) {
+      try {
+        const raw = fs.readFileSync(credsFile);
+        if (raw.length === 0 || raw[0] === 0) {
+          console.warn('[Baileys] ⚠️ creds.json corrompido com bytes nulos. Limpando sessão para novo pareamento...');
+          fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+          fs.mkdirSync(SESSION_DIR, { recursive: true });
+        } else {
+          JSON.parse(raw.toString('utf8'));
+        }
+      } catch (parseErr) {
+        console.warn('[Baileys] ⚠️ creds.json inválido/ilegível. Limpando sessão corrompida...');
+        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+        fs.mkdirSync(SESSION_DIR, { recursive: true });
+      }
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
 
     let version = [2, 3000, 1015901307];
@@ -210,99 +229,82 @@ async function connect(db) {
       const PixBotService = require('./services/pix-bot.service.js');
       const pixBot = new PixBotService(db);
 
-      // ── Histórico de mensagens (Importação em nova conexão) ────────────
+      // ── Histórico de mensagens (Sincronização ao conectar / reconectar) ─
       sock.ev.on('messaging-history.set', async (history) => {
-        if (!sock.importHistory) {
-          console.log('[Baileys] Histórico recebido, mas não é uma nova conexão. Ignorando importação de histórico antigo.');
-          return;
-        }
-
         const { messages } = history;
         if (!messages || messages.length === 0) {
           console.log('[Baileys] Nenhum histórico de mensagens recebido.');
           return;
         }
 
-        console.log(`[Baileys] Processando histórico para nova conexão. Total de mensagens no histórico: ${messages.length}`);
+        console.log(`[Baileys] 📥 Recebido histórico de mensagens do WhatsApp: ${messages.length} mensagens para sincronização.`);
 
-        // Filtrar e agrupar mensagens por remoteJid (ignorando grupos e broadcasts)
-        const messagesByJid = {};
-        for (const msg of messages) {
-          if (!msg.message || !msg.key || !msg.key.remoteJid) continue;
-          
-          const remoteJid = msg.key.remoteJid;
-          if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.includes(':')) continue;
-
-          if (!messagesByJid[remoteJid]) {
-            messagesByJid[remoteJid] = [];
-          }
-          messagesByJid[remoteJid].push(msg);
-        }
-
-        // Para cada remoteJid, ordenar as mensagens do mais antigo ao mais recente
-        const chatsList = [];
-        for (const jid in messagesByJid) {
-          const chatMsgs = messagesByJid[jid];
-          chatMsgs.sort((a, b) => {
-            const tsA = a.messageTimestamp || 0;
-            const tsB = b.messageTimestamp || 0;
-            return tsB - tsA;
-          });
-          
-          chatsList.push({
-            jid,
-            phone: jid.split('@')[0],
-            latestTimestamp: chatMsgs[0].messageTimestamp || 0,
-            msgs: chatMsgs
-          });
-        }
-
-        // Ordenar os chats pelo timestamp mais recente
-        chatsList.sort((a, b) => b.latestTimestamp - a.latestTimestamp);
-
-        // Pegar os 10 chats mais recentes
-        const recentChats = chatsList.slice(0, 10);
-        console.log(`[Baileys] Salvando histórico dos ${recentChats.length} chats mais recentes no SQLite...`);
-
-        // Para cada um dos chats selecionados, salvar as últimas 10 mensagens deles
+        // Filtra e salva todas as mensagens individuais das últimas 48 horas (cobre mensagens enviadas enquanto o servidor estava offline)
+        const cutoffTime = Date.now() - (48 * 60 * 60 * 1000);
         let totalSaved = 0;
-        for (const chat of recentChats) {
-          const msgsToSave = chat.msgs.slice(0, 10);
-          
-          for (const msg of msgsToSave) {
-            try {
-              const messageType = Object.keys(msg.message)[0];
-              let text = null;
-              if (messageType === 'conversation') {
-                text = msg.message.conversation;
-              } else if (messageType === 'extendedTextMessage') {
-                text = msg.message.extendedTextMessage.text;
-              } else if (messageType === 'imageMessage' && msg.message.imageMessage.caption) {
-                text = msg.message.imageMessage.caption;
-              } else if (messageType === 'documentWithCaptionMessage' && msg.message.documentWithCaptionMessage.message?.documentMessage?.caption) {
-                text = msg.message.documentWithCaptionMessage.message.documentMessage.caption;
-              }
 
-              const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : messageType === 'imageMessage' ? '[📷 Imagem]' : '[Outra mídia]');
-              const timestampMs = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
-              const fromMeVal = msg.key.fromMe ? 1 : 0;
+        for (const msg of messages) {
+          try {
+            if (!msg.message || !msg.key || !msg.key.remoteJid) continue;
+            const remoteJid = msg.key.remoteJid;
+            // Ignorar grupos e transmissões/status
+            if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.includes(':') || remoteJid === 'status@broadcast') continue;
 
-              db.prepare(`
-                INSERT OR IGNORE INTO whatsapp_messages (id, phone, fromMe, messageText, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-              `).run(msg.key.id, chat.phone, fromMeVal, textContent, timestampMs);
-              
-              totalSaved++;
-            } catch (err) {
-              // Ignorar erros
+            const phone = remoteJid.split('@')[0];
+            if (!phone || phone === 'status' || phone.includes('broadcast')) continue;
+
+            const timestampMs = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
+            if (timestampMs < cutoffTime) continue; // Mantém foco no período recente (últimas 48h)
+
+            // Desembrulha mensagens envelopadas
+            let contentMsg = msg.message;
+            if (contentMsg?.viewOnceMessage?.message) contentMsg = contentMsg.viewOnceMessage.message;
+            else if (contentMsg?.viewOnceMessageV2?.message) contentMsg = contentMsg.viewOnceMessageV2.message;
+            else if (contentMsg?.ephemeralMessage?.message) contentMsg = contentMsg.ephemeralMessage.message;
+            else if (contentMsg?.documentWithCaptionMessage?.message) contentMsg = contentMsg.documentWithCaptionMessage.message;
+
+            const messageType = Object.keys(contentMsg)[0] || '';
+            let text = null;
+            if (messageType === 'conversation') {
+              text = contentMsg.conversation;
+            } else if (messageType === 'extendedTextMessage') {
+              text = contentMsg.extendedTextMessage?.text;
+            } else if (messageType === 'imageMessage' && contentMsg.imageMessage?.caption) {
+              text = contentMsg.imageMessage.caption;
+            } else if (messageType === 'documentMessage' && contentMsg.documentMessage?.caption) {
+              text = contentMsg.documentMessage.caption;
             }
+
+            const textContent = text || (messageType === 'audioMessage' ? '[🎙️ Áudio]' : (messageType === 'imageMessage' || messageType === 'documentMessage') ? '[📷 Mídia]' : '[Outra mídia]');
+            const fromMeVal = msg.key.fromMe ? 1 : 0;
+            const rawJson = JSON.stringify(msg);
+
+            db.prepare(`
+              INSERT OR REPLACE INTO whatsapp_messages (id, phone, fromMe, messageText, rawMessage, timestamp)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(msg.key.id, phone, fromMeVal, textContent, rawJson, timestampMs);
+
+            totalSaved++;
+          } catch (mErr) {
+            // Ignorar falhas individuais de parse
           }
         }
 
-        console.log(`[Baileys] Importação de histórico concluída: ${recentChats.length} chats e ${totalSaved} mensagens gravadas.`);
-        
-        // Desativar a flag para não importar novamente nesta sessão
+        console.log(`[Baileys] ✅ Sincronização de histórico concluída: ${totalSaved} mensagens recentes (últimas 48h) salvas/atualizadas.`);
         sock.importHistory = false;
+
+        // Se mensagens foram sincronizadas, dispara a varredura automática de Deliveries
+        if (totalSaved > 0) {
+          setTimeout(async () => {
+            try {
+              const { scanDeliveriesFromWhatsApp } = require('./services/whatsapp-delivery-service.js');
+              console.log('[Baileys] 🛵 Disparando auditoria de entregas após sincronização do histórico...');
+              await scanDeliveriesFromWhatsApp(db, { hours: 24 });
+            } catch (scanErr) {
+              console.warn('[Baileys] ⚠️ Erro na auditoria pós-sincronização de histórico:', scanErr.message);
+            }
+          }, 5000);
+        }
       });
 
       sock.ev.on('messages.upsert', async (m) => {

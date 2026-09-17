@@ -61,6 +61,7 @@ import { EstoqueIdealModal } from "./components/compras/EstoqueIdealModal";
 import { VersionNotifier } from "./components/VersionNotifier";
 import { VersionModal } from "./components/VersionModal";
 import { useToast } from "./components/ToastContext";
+import { StartupModalManager, StartupModalItem, StartupModalType } from "./components/StartupModalManager";
 
 
 import {
@@ -130,6 +131,21 @@ const App: React.FC = () => {
   const [isCardMachineModalOpen, setIsCardMachineModalOpen] = useState(false);
   const [isEstoqueIdealModalOpen, setIsEstoqueIdealModalOpen] = useState(false);
   const [isMuralOpen, setIsMuralOpen] = useState(false);
+  const [startupQueue, setStartupQueue] = useState<StartupModalItem[]>([]);
+  const [startupIndex, setStartupIndex] = useState(0);
+  const [isStartupActive, setIsStartupActive] = useState(false);
+
+  const activeStartupModalId: StartupModalType | null = 
+    isStartupActive && startupQueue[startupIndex] ? startupQueue[startupIndex].id : null;
+
+  const handleCloseStartup = () => {
+    setIsStartupActive(false);
+    setStartupQueue([]);
+    setIsTeraModalOpen(false);
+    setIsEstoqueIdealModalOpen(false);
+    setIsCardMachineModalOpen(false);
+    setIsMuralOpen(false);
+  };
   const [muralPendingCount, setMuralPendingCount] = useState(0);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const [anvisaAlertCount, setAnvisaAlertCount] = useState(0);
@@ -254,6 +270,7 @@ const App: React.FC = () => {
     handleNavigate("dashboard");
     localStorage.removeItem("belinha_session_user");
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    handleCloseStartup();
   };
 
   const handleNavigate = (view: View) => {
@@ -281,187 +298,207 @@ const App: React.FC = () => {
       events.forEach((event) => window.addEventListener(event, reset));
       resetLogoutTimer();
 
-      // --- Lógica de Auto-exibição Diária do VW Tera para a Nayane ---
-      if (user.name.toLowerCase().includes("nayane") && !isMobile) {
-        const hoje = new Date().toISOString().slice(0, 10); // Formato YYYY-MM-DD
-        const ultimaDataExibida = localStorage.getItem("tera_popup_last_date");
-        if (ultimaDataExibida !== hoje) {
-          setIsTeraModalOpen(true);
-          localStorage.setItem("tera_popup_last_date", hoje);
-        }
-      }
-
-      // --- Lógica de Auto-exibição Diária do Estoque Ideal para Comprador(a) / Nayane ---
-      const isBuyer = (user.jobRole && String(user.jobRole).toLowerCase().includes("comprador")) || user.name.toLowerCase().includes("nayane");
-      if (isBuyer) {
+      // --- Lógica Centralizada de Popups de Abertura (Fila Limitada a 2 por Ordem de Prioridade) ---
+      const initStartupPopups = async () => {
+        const candidateItems: StartupModalItem[] = [];
         const hoje = new Date().toISOString().slice(0, 10);
-        const ultimaDataEstoqueIdeal = localStorage.getItem("estoque_ideal_last_date");
-        if (ultimaDataEstoqueIdeal !== hoje) {
-          setIsEstoqueIdealModalOpen(true);
-        }
-      }
 
-      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha e Provisões para Edevaldo/ADM ---
-      if (user.name.toLowerCase().includes("edevaldo") || user.role === UserRole.ADM) {
-        const checkCardMachinePending = async () => {
-          try {
-            const now = new Date();
-            const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
-            // Não há repasse em finais de semana (Sábado e Domingo)
-            if (dayOfWeek === 0 || dayOfWeek === 6) return;
-
-            const [resPending, resClosings] = await Promise.all([
-              fetch('/api/card-machine-receivables/pending-due'),
-              fetch('/api/cash-closings')
-            ]);
-
-            if (!resPending.ok) return;
-            const pending = await resPending.json();
-            if (Array.isArray(pending) && pending.length > 0) {
-              setIsCardMachineModalOpen(true);
-              const isMonday = dayOfWeek === 1;
-
-              let closings: any[] = [];
-              if (resClosings.ok) {
-                try { closings = await resClosings.json(); } catch(e) {}
-              }
-
-              // Calcular datas de referência para o faturamento base
-              const formatIsoDate = (d: Date) => {
-                const y = d.getFullYear();
-                const m = String(d.getMonth() + 1).padStart(2, '0');
-                const day = String(d.getDate()).padStart(2, '0');
-                return `${y}-${m}-${day}`;
-              };
-
-              let targetDates: string[] = [];
-              if (isMonday) {
-                // Sexta, Sábado e Domingo anteriores
-                const dFri = new Date(now); dFri.setDate(dFri.getDate() - 3);
-                const dSat = new Date(now); dSat.setDate(dSat.getDate() - 2);
-                const dSun = new Date(now); dSun.setDate(dSun.getDate() - 1);
-                targetDates = [formatIsoDate(dFri), formatIsoDate(dSat), formatIsoDate(dSun)];
-              } else {
-                // Dia útil anterior
-                const dPrev = new Date(now); dPrev.setDate(dPrev.getDate() - 1);
-                targetDates = [formatIsoDate(dPrev)];
-              }
-
-              // Base de faturamento: ESTRITAMENTE o fechamento do dia anterior (ontem) ou mais recente
-              const sortedClosings = [...closings].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              
-              const yesterday = new Date(now);
-              yesterday.setDate(yesterday.getDate() - 1);
-              const yesterdayStr = getLocalDateKey(yesterday.toISOString());
-              const yesterdayClosing = sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) === yesterdayStr);
-
-              const todayKey = getLocalDateKey(now.toISOString());
-              const referenceClosing = yesterdayClosing || sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) < todayKey) || sortedClosings[0];
-
-              const refSales = Number(referenceClosing?.totalSales) || 0;
-              const refClosingDate = referenceClosing?.date ? getLocalDateKey(referenceClosing.date) : yesterdayStr;
-
-              const isDatePastSecondDay = (dateStr: string): boolean => {
-                if (!dateStr) return true;
-                const clean = getLocalDateKey(dateStr);
-                const parts = clean.split('-');
-                if (parts.length !== 3) return true;
-                const [y, m, d] = parts.map(Number);
-                const fromDate = new Date(y, m - 1, d);
-                fromDate.setHours(0, 0, 0, 0);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (fromDate >= today) return false;
-
-                let bDays = 0;
-                const cur = new Date(fromDate);
-                while (cur < today) {
-                  cur.setDate(cur.getDate() + 1);
-                  const day = cur.getDay();
-                  if (day !== 0 && day !== 6) bDays++;
-                }
-                return bDays > 2;
-              };
-
-              // Verifica se a data do fechamento de referência já passou de 2 dias úteis
-              const isExpired = isDatePastSecondDay(refClosingDate);
-
-              // Verifica se as provisões já foram totalmente realizadas para este fechamento
-              let isFullyPaid = false;
-              try {
-                const resPaid = await fetch('/api/settings/paid_provisions_dates');
-                if (resPaid.ok) {
-                  const dataPaid = await resPaid.json();
-                  const paidArr = dataPaid?.value ? JSON.parse(dataPaid.value) : [];
-                  if (Array.isArray(paidArr)) {
-                    const pPaid = paidArr.includes(`prolabore-${refClosingDate}`);
-                    const tPaid = paidArr.includes(`tax-${refClosingDate}`);
-                    const rPaid = paidArr.includes(`reserve-${refClosingDate}`);
-                    isFullyPaid = pPaid && tPaid && rPaid;
-                  }
-                }
-              } catch(e) {}
-
-              // Se não passou de 2 dias e ainda não foi totalmente pago, exibe provisões do fechamento anterior
-              const canShowProvisions = refSales > 0 && !isExpired && !isFullyPaid;
-
-              const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
-
-              if (canShowProvisions) {
-                const valProlabore = refSales * 0.12;
-                const valTax = refSales * 0.04;
-                const valReserve = refSales * 0.01;
-                const valTotal = valProlabore + valTax + valReserve;
-
-                addToast(
-                  `💳 ${pending.length} repasse(s) a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões sobre o fechamento anterior (${formatBRL(refSales)}): Pró-labore ${formatBRL(valProlabore)}, Impostos ${formatBRL(valTax)}, Reserva ${formatBRL(valReserve)}!`,
-                  "info"
-                );
-              } else {
-                addToast(
-                  isMonday 
-                    ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
-                    : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
-                  "info"
-                );
-              }
-            }
-          } catch (err) {
-            console.error("Erro ao checar pendências de maquininha:", err);
+        // 1. Meta VW Tera (Prioridade 1 Comercial)
+        const isNayane = user.name.toLowerCase().includes("nayane");
+        if (isNayane && !isMobile) {
+          const ultimaDataExibida = localStorage.getItem("tera_popup_last_date");
+          if (ultimaDataExibida !== hoje) {
+            candidateItems.push({
+              id: 'tera',
+              title: 'Meta VW Tera 2026',
+              badge: 'Incentivo',
+              badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+            });
+            localStorage.setItem("tera_popup_last_date", hoje);
           }
-        };
+        }
 
-        checkCardMachinePending();
-      }
+        // 2. Estoque Ideal (Prioridade 2 Comercial)
+        const isBuyer = (user.jobRole && String(user.jobRole).toLowerCase().includes("comprador")) || isNayane;
+        if (isBuyer) {
+          const ultimaDataEstoqueIdeal = localStorage.getItem("estoque_ideal_last_date");
+          if (ultimaDataEstoqueIdeal !== hoje) {
+            candidateItems.push({
+              id: 'estoque-ideal',
+              title: 'Alerta de Estoque Ideal',
+              badge: 'Compras',
+              badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+            });
+          }
+        }
 
-      // --- Lógica de Auto-exibição do Mural de Pendências ao entrar ---
-      const checkMuralPendencias = async () => {
+        // 3. Mural de Pendências (Prioridade 3 Comercial)
         try {
           const res = await fetch(`/api/mural/pendencias?userId=${encodeURIComponent(user.id)}&userName=${encodeURIComponent(user.name)}`);
-          if (!res.ok) return;
-          const data = await res.json();
-          if (data.success) {
-            const isAdm = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
-            const parados = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
-            const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
-            const count = parados + variacoes;
-            setMuralPendingCount(count);
-            
-            if (isAdm && variacoes > 0) {
-              addToast(`🔔 Atenção ADM: Existem ${variacoes} variações de preço de compras aguardando sua auditoria no Mural!`, 'warning');
-            }
-            
-            const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
-            if (count > 0 && !sessionDismissed) {
-              setIsMuralOpen(true);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              const isAdm = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
+              const parados = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
+              const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
+              const count = parados + variacoes;
+              setMuralPendingCount(count);
+              
+              if (isAdm && variacoes > 0) {
+                addToast(`🔔 Atenção ADM: Existem ${variacoes} variações de preço de compras aguardando sua auditoria no Mural!`, 'warning');
+              }
+              
+              const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
+              if (count > 0 && !sessionDismissed) {
+                candidateItems.push({
+                  id: 'mural',
+                  title: 'Mural de Pendências & Auditoria',
+                  badge: 'Pendências',
+                  badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                });
+              }
             }
           }
         } catch (err) {
           console.error("Erro ao checar pendências do mural:", err);
         }
+
+        // 4. Conferência de Maquininha e Provisões (Prioridade 4 Comercial)
+        // RESTRITO APENAS PARA O ADM DO FINANCEIRO / EDEVALDO
+        const isFinancialAdm = (
+          user.name.toLowerCase().includes("edevaldo") || 
+          String(user.jobRole || "").toLowerCase().includes("financeiro")
+        ) && (
+          user.role === UserRole.ADM || 
+          String(user.role || "").toUpperCase().includes("ADM") || 
+          user.name.toLowerCase().includes("edevaldo")
+        );
+
+        if (isFinancialAdm) {
+          try {
+            const now = new Date();
+            const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
+            // Não há repasse em finais de semana (Sábado e Domingo)
+            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+              const [resPending, resClosings] = await Promise.all([
+                fetch('/api/card-machine-receivables/pending-due'),
+                fetch('/api/cash-closings')
+              ]);
+
+              if (resPending.ok) {
+                const pending = await resPending.json();
+                if (Array.isArray(pending) && pending.length > 0) {
+                  candidateItems.push({
+                    id: 'card-machines',
+                    title: 'Conferência de Maquininha & Provisões',
+                    badge: 'Financeiro',
+                    badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                  });
+
+                  const isMonday = dayOfWeek === 1;
+
+                  let closings: any[] = [];
+                  if (resClosings.ok) {
+                    try { closings = await resClosings.json(); } catch(e) {}
+                  }
+
+                  const sortedClosings = [...closings].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                  
+                  const yesterday = new Date(now);
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  const yesterdayStr = getLocalDateKey(yesterday.toISOString());
+                  const yesterdayClosing = sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) === yesterdayStr);
+
+                  const todayKey = getLocalDateKey(now.toISOString());
+                  const referenceClosing = yesterdayClosing || sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) < todayKey) || sortedClosings[0];
+
+                  const refSales = Number(referenceClosing?.totalSales) || 0;
+                  const refClosingDate = referenceClosing?.date ? getLocalDateKey(referenceClosing.date) : yesterdayStr;
+
+                  const isDatePastSecondDay = (dateStr: string): boolean => {
+                    if (!dateStr) return true;
+                    const clean = getLocalDateKey(dateStr);
+                    const parts = clean.split('-');
+                    if (parts.length !== 3) return true;
+                    const [y, m, d] = parts.map(Number);
+                    const fromDate = new Date(y, m - 1, d);
+                    fromDate.setHours(0, 0, 0, 0);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (fromDate >= today) return false;
+
+                    let bDays = 0;
+                    const cur = new Date(fromDate);
+                    while (cur < today) {
+                      cur.setDate(cur.getDate() + 1);
+                      const day = cur.getDay();
+                      if (day !== 0 && day !== 6) bDays++;
+                    }
+                    return bDays > 2;
+                  };
+
+                  const isExpired = isDatePastSecondDay(refClosingDate);
+
+                  let isFullyPaid = false;
+                  try {
+                    const resPaid = await fetch('/api/settings/paid_provisions_dates');
+                    if (resPaid.ok) {
+                      const dataPaid = await resPaid.json();
+                      const paidArr = dataPaid?.value ? JSON.parse(dataPaid.value) : [];
+                      if (Array.isArray(paidArr)) {
+                        const pPaid = paidArr.includes(`prolabore-${refClosingDate}`);
+                        const tPaid = paidArr.includes(`tax-${refClosingDate}`);
+                        const rPaid = paidArr.includes(`reserve-${refClosingDate}`);
+                        isFullyPaid = pPaid && tPaid && rPaid;
+                      }
+                    }
+                  } catch(e) {}
+
+                  const canShowProvisions = refSales > 0 && !isExpired && !isFullyPaid;
+                  const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+                  if (canShowProvisions) {
+                    const valProlabore = refSales * 0.12;
+                    const valTax = refSales * 0.04;
+                    const valReserve = refSales * 0.01;
+                    const valTotal = valProlabore + valTax + valReserve;
+
+                    addToast(
+                      `💳 ${pending.length} repasse(s) a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões sobre o fechamento anterior (${formatBRL(refSales)}): Pró-labore ${formatBRL(valProlabore)}, Impostos ${formatBRL(valTax)}, Reserva ${formatBRL(valReserve)}!`,
+                      "info"
+                    );
+                  } else {
+                    addToast(
+                      isMonday 
+                        ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
+                        : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
+                      "info"
+                    );
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Erro ao checar pendências de maquininha:", err);
+          }
+        }
+
+        // Ordenação estrita por prioridade comercial:
+        // 1º Meta VW Tera -> 2º Estoque Ideal -> 3º Mural de Pendências -> 4º Conferência de Maquininha/Provisões
+        const priorityOrder: StartupModalType[] = ['tera', 'estoque-ideal', 'mural', 'card-machines'];
+        candidateItems.sort((a, b) => priorityOrder.indexOf(a.id) - priorityOrder.indexOf(b.id));
+
+        // Limita a NO MÁXIMO 2 popups na abertura
+        const finalQueue = candidateItems.slice(0, 2);
+
+        if (finalQueue.length > 0) {
+          setStartupQueue(finalQueue);
+          setStartupIndex(0);
+          setIsStartupActive(true);
+        }
       };
 
-      checkMuralPendencias();
+      initStartupPopups();
 
       return () => {
         events.forEach((event) => window.removeEventListener(event, reset));
@@ -1346,23 +1383,43 @@ const App: React.FC = () => {
         </footer>
       </main>
 
+      {/* Barra Superior Unificada de Controle dos Avisos de Abertura */}
+      {isStartupActive && startupQueue.length > 0 && (
+        <StartupModalManager
+          queue={startupQueue}
+          currentIndex={startupIndex}
+          onNavigate={(newIndex) => setStartupIndex(newIndex)}
+          onClose={handleCloseStartup}
+        />
+      )}
+
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
-      {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
+      {!isMobile && (
+        <TeraIncentiveModal
+          isOpen={isTeraModalOpen || activeStartupModalId === 'tera'}
+          onClose={() => {
+            setIsTeraModalOpen(false);
+            if (isStartupActive) handleCloseStartup();
+          }}
+        />
+      )}
 
       {/* Modal de Alerta de Estoque Ideal para Comprador(a) / Nayane */}
       {user && (
         <EstoqueIdealModal
-          isOpen={isEstoqueIdealModalOpen}
+          isOpen={isEstoqueIdealModalOpen || activeStartupModalId === 'estoque-ideal'}
           user={user}
           onClose={() => {
             setIsEstoqueIdealModalOpen(false);
             const hoje = new Date().toISOString().slice(0, 10);
             localStorage.setItem("estoque_ideal_last_date", hoje);
+            if (isStartupActive) handleCloseStartup();
           }}
           onNavigateToCompras={() => {
             setIsEstoqueIdealModalOpen(false);
             const hoje = new Date().toISOString().slice(0, 10);
             localStorage.setItem("estoque_ideal_last_date", hoje);
+            if (isStartupActive) handleCloseStartup();
             handleNavigate('central-compras');
           }}
         />
@@ -1370,11 +1427,13 @@ const App: React.FC = () => {
 
       {/* Modal de Conferência Diária de Maquininha e Provisões para Edevaldo */}
       <CardMachineReconcileModal
-        isOpen={isCardMachineModalOpen}
+        isOpen={isCardMachineModalOpen || activeStartupModalId === 'card-machines'}
         onClose={() => {
           setIsCardMachineModalOpen(false);
+          if (isStartupActive) handleCloseStartup();
         }}
         onNavigateToFullView={() => {
+          if (isStartupActive) handleCloseStartup();
           handleNavigate('card-machines');
         }}
         userName={user?.name}
@@ -1387,17 +1446,21 @@ const App: React.FC = () => {
       {/* Modal / Mural de Pendências e Produtos Parados 90d+ */}
       {user && (
         <MuralModal
-          isOpen={isMuralOpen}
+          isOpen={isMuralOpen || activeStartupModalId === 'mural'}
           onClose={() => {
             setIsMuralOpen(false);
             sessionStorage.setItem("belafarma_mural_dismissed", "true");
+            if (isStartupActive) handleCloseStartup();
           }}
           user={user}
           tasks={tasks}
           boletos={boletos}
           pendingReviewCount={pendingReviewCount}
           anvisaAlertCount={anvisaAlertCount}
-          onNavigate={handleNavigate}
+          onNavigate={(view) => {
+            if (isStartupActive) handleCloseStartup();
+            handleNavigate(view);
+          }}
           onRefreshPending={async () => {
             try {
               const res = await fetch(`/api/mural/pendencias?userId=${encodeURIComponent(user.id)}&userName=${encodeURIComponent(user.name)}`);
