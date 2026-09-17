@@ -72,16 +72,31 @@ function genId(prefix = 'id') {
  */
 async function executarVarreduraWhatsApp(db, options = {}) {
   const stats = { totalChats: 0, processedChats: 0, shortagesAdded: 0, newProducts: [] };
-  const maxContactsToAnalyze = options.initialScan30Days ? 100 : 50; // limite preventivo para rate limit
+  const maxContactsToAnalyze = options.maxContacts || (options.initialScan30Days ? 100 : (options.sinceLastRecord || options.sinceDate ? 200 : 50)); // limite preventivo para rate limit
 
   try {
-    console.log(`[WhatsAppShortage] 🔍 Iniciando varredura de faltas (Modo: ${options.initialScan30Days ? 'Histórico 30 Dias' : 'Periódico'})...`);
+    console.log(`[WhatsAppShortage] 🔍 Iniciando varredura de faltas (Modo: ${options.sinceLastRecord ? 'A partir do último registro' : options.initialScan30Days ? 'Histórico 30 Dias' : 'Periódico'})...`);
 
     // 1. Determinar o limite de tempo para a varredura
     const agora = Date.now();
     let timeLimit = 0;
 
-    if (options.initialScan30Days) {
+    if (options.sinceDate) {
+      timeLimit = new Date(options.sinceDate).getTime();
+      console.log(`[WhatsAppShortage] 📅 Varredura a partir da data informada: ${new Date(timeLimit).toISOString()}`);
+    } else if (options.sinceLastRecord) {
+      try {
+        const lastWa = db.prepare("SELECT MAX(createdAt) as lastDate FROM shortages WHERE source = 'WhatsApp'").get();
+        if (lastWa && lastWa.lastDate) {
+          timeLimit = new Date(lastWa.lastDate).getTime();
+          console.log(`[WhatsAppShortage] 📅 Varredura a partir do último registro (${lastWa.lastDate}) até hoje.`);
+        } else {
+          timeLimit = agora - (45 * 24 * 60 * 60 * 1000);
+        }
+      } catch (e) {
+        timeLimit = agora - (45 * 24 * 60 * 60 * 1000);
+      }
+    } else if (options.initialScan30Days) {
       // Histórico dos últimos 30 dias
       timeLimit = agora - (30 * 24 * 60 * 60 * 1000);
     } else if (options.isManual) {
@@ -213,6 +228,15 @@ async function executarVarreduraWhatsApp(db, options = {}) {
           customerName = cust.name;
         }
       } catch (custErr) { /* ignora */ }
+
+      if (isGenericName(customerName)) {
+        try {
+          const deliv = db.prepare('SELECT customer_name FROM deliveries WHERE phone = ? OR phone LIKE ? LIMIT 1').get(rawPhone, `%${rawPhone.slice(-8)}%`);
+          if (deliv && deliv.customer_name && !isGenericName(deliv.customer_name)) {
+            customerName = deliv.customer_name;
+          }
+        } catch (delivErr) { /* ignora */ }
+      }
 
       // 3a. Sincronizar mensagens mais recentes da API para o SQLite para cobrir possíveis falhas do webhook
       try {
@@ -355,7 +379,13 @@ Retorne apenas produtos com status "nao_encontrado". Se não houver produtos em 
               `).run(shortageId, nomeProduto, tipoProduto, notes, dataAtual);
 
               stats.shortagesAdded++;
-              stats.newProducts.push({ nome: nomeProduto, cliente: customerName });
+              stats.newProducts.push({ 
+                nome: nomeProduto, 
+                cliente: customerName, 
+                data: dataAtual,
+                tipo: tipoProduto,
+                telefone: phone 
+              });
               console.log(`[WhatsAppShortage] 🔴 Falta cadastrada automaticamente: ${nomeProduto} (solicitado por ${customerName})`);
             }
           }
