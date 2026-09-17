@@ -1713,7 +1713,10 @@ try {
     try { db.exec('ALTER TABLE deliveries ADD COLUMN first_response_time_seconds INTEGER DEFAULT 0'); } catch(e) {}
     try { db.exec('ALTER TABLE deliveries ADD COLUMN conversation_date TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE deliveries ADD COLUMN is_repeat_customer INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN digifarma_cliente_id INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE customers ADD COLUMN digifarma_id INTEGER'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_neighborhood ON deliveries(neighborhood)'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_digi_cli ON deliveries(digifarma_cliente_id)'); } catch(e) {}
 
     // Criar tabela customer_address_history para histórico e memória de endereços informados
     db.exec(`

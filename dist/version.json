@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9d007a0",
-  "commitMessage": "feat(shortages): aprimorar deteccao de faltas com opcao desde ultimo registro e dados completos do cliente",
-  "buildTime": "17/09/2026, 12:29:07"
+  "commitHash": "875a667",
+  "commitMessage": "feat(delivery): correcao de datas reais, inteligencia geografica, SLA e historico de clientes",
+  "buildTime": "17/09/2026, 13:21:28"
 }

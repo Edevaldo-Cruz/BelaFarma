@@ -756,6 +756,7 @@ export interface Delivery {
   reviewed_at?: string;
   products_identified?: ProductIdentified[];
   chat_messages?: ChatMessage[];
+  digifarma_cliente_id?: number | null;
 }
 
 export interface DeliveryAnalyticsData {

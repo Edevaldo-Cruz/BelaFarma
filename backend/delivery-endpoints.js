@@ -4,8 +4,191 @@ const {
   syncAndEnqueueChats,
   analyzeSingleChatWithAI
 } = require('./services/whatsapp-delivery-service');
+const { findOrCreateDigifarmaCustomer } = require('./services/digifarma.service');
 
 function initializeDeliveryEndpoints(app, db) {
+  // GET /api/deliveries/in-transit - Listar pedidos atualmente Em Rota para confirmação
+  app.get('/api/deliveries/in-transit', (req, res) => {
+    try {
+      const sql = `
+        SELECT d.*, 
+               COALESCE(
+                 NULLIF(wc.pushName, ''), 
+                 NULLIF(wc.name, ''), 
+                 NULLIF(wc2.pushName, ''), 
+                 NULLIF(wc2.name, '')
+               ) as wa_name,
+               c.id as customer_record_id,
+               c.digifarma_id
+        FROM deliveries d
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone
+        LEFT JOIN whatsapp_contacts wc2 ON wc2.id = d.phone || '@s.whatsapp.net'
+        LEFT JOIN customers c ON (c.phone LIKE '%' || substr(d.phone, -8) OR c.phone = d.phone)
+        WHERE d.status = 'Em Rota'
+        ORDER BY d.created_at DESC
+      `;
+      const inTransit = db.prepare(sql).all();
+      res.json({
+        success: true,
+        count: inTransit.length,
+        deliveries: inTransit
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao buscar pedidos em rota:', err);
+      res.status(500).json({ error: 'Erro ao carregar pedidos em rota.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/:id/confirm-status - Confirmar Entrega ou Reagendar/Cancelar com Nome e Endereço
+  app.post('/api/deliveries/:id/confirm-status', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        status, // 'Entregue' | 'Pendente' | 'Cancelado' | 'Nao_Fechado'
+        customer_name,
+        delivery_address,
+        neighborhood,
+        unclosed_reason
+      } = req.body;
+
+      const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+      if (!delivery) {
+        return res.status(404).json({ error: 'Registro de entrega não encontrado.' });
+      }
+
+      const finalStatus = status || 'Entregue';
+      const isClosed = (finalStatus === 'Entregue' || finalStatus === 'Em Rota' || finalStatus === 'Pendente') ? 1 : 0;
+      const cleanPhone = delivery.phone ? delivery.phone.replace(/\D/g, '') : '';
+      const finalName = (customer_name && customer_name.trim() !== '') ? customer_name.trim() : delivery.customer_name;
+      const finalAddress = (delivery_address && delivery_address.trim() !== '') ? delivery_address.trim() : delivery.delivery_address;
+      const finalNeighborhood = (neighborhood && neighborhood.trim() !== '') ? neighborhood.trim() : delivery.neighborhood;
+
+      // 1. Atualizar entrega no SQLite
+      db.prepare(`
+        UPDATE deliveries SET
+          status = ?,
+          sale_closed = ?,
+          customer_name = ?,
+          delivery_address = ?,
+          neighborhood = COALESCE(?, neighborhood),
+          unclosed_reason = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        finalStatus,
+        isClosed,
+        finalName,
+        finalAddress,
+        finalNeighborhood,
+        unclosed_reason || null,
+        id
+      );
+
+      // 2. Atualizar cadastro local do cliente e memória de endereços
+      if (cleanPhone) {
+        try {
+          const cust = db.prepare('SELECT id, digifarma_id FROM customers WHERE phone LIKE ? OR phone = ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`, cleanPhone);
+          const custId = cust ? cust.id : null;
+
+          if (finalName && !['cliente', 'cliente whatsapp', 'atendente'].includes(finalName.toLowerCase())) {
+            db.prepare(`
+              UPDATE customers 
+              SET name = ?, updated_at = CURRENT_TIMESTAMP 
+              WHERE phone LIKE ? AND (name IS NULL OR name = '' OR name LIKE 'Cliente%')
+            `).run(finalName, `%${cleanPhone.slice(-8)}%`);
+
+            db.prepare(`
+              INSERT INTO whatsapp_contacts (id, name, updated_at)
+              VALUES (?, ?, CURRENT_TIMESTAMP)
+              ON CONFLICT(id) DO UPDATE SET name = excluded.name, updated_at = CURRENT_TIMESTAMP
+            `).run(cleanPhone, finalName);
+          }
+
+          if (finalAddress && finalAddress !== 'Endereço a confirmar' && finalAddress !== 'Balcão / Loja' && finalAddress.length >= 5) {
+            db.prepare(`
+              INSERT INTO customer_address_history (id, phone, customer_id, address, neighborhood, last_used_at, created_at)
+              VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+            `).run(`addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, cleanPhone, custId, finalAddress, finalNeighborhood || null);
+
+            if (custId) {
+              db.prepare(`
+                UPDATE customers 
+                SET address = ?, neighborhood = COALESCE(?, neighborhood), updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+              `).run(finalAddress, finalNeighborhood || null, custId);
+            }
+          }
+        } catch (errMem) {
+          console.warn('[DeliveryEndpoints] ⚠️ Falha ao atualizar memória de cliente:', errMem.message);
+        }
+      }
+
+      // 3. Sincronização e Cadastro Automático no Digifarma
+      let digiResult = null;
+      if (cleanPhone) {
+        try {
+          digiResult = await findOrCreateDigifarmaCustomer({
+            name: finalName,
+            phone: cleanPhone,
+            address: finalAddress,
+            neighborhood: finalNeighborhood
+          });
+
+          if (digiResult && digiResult.success && digiResult.cliente_id) {
+            db.prepare('UPDATE deliveries SET digifarma_cliente_id = ? WHERE id = ?').run(digiResult.cliente_id, id);
+            db.prepare('UPDATE customers SET digifarma_id = ? WHERE phone LIKE ? OR phone = ?').run(digiResult.cliente_id, `%${cleanPhone.slice(-8)}%`, cleanPhone);
+          }
+        } catch (errDigi) {
+          console.warn('[DeliveryEndpoints] ⚠️ Erro na sincronização do Digifarma:', errDigi.message);
+        }
+      }
+
+      const updated = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+
+      res.json({
+        success: true,
+        message: finalStatus === 'Entregue' ? 'Entrega confirmada com sucesso!' : 'Status atualizado com sucesso!',
+        delivery: updated,
+        digifarma: digiResult
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao confirmar status da entrega:', err);
+      res.status(500).json({ error: 'Erro ao confirmar entrega.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/:id/sync-digifarma - Sincronização explícita com o Digifarma
+  app.post('/api/deliveries/:id/sync-digifarma', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+      if (!delivery) {
+        return res.status(404).json({ error: 'Entrega não encontrada.' });
+      }
+
+      const digiResult = await findOrCreateDigifarmaCustomer({
+        name: delivery.customer_name,
+        phone: delivery.phone,
+        address: delivery.delivery_address,
+        neighborhood: delivery.neighborhood
+      });
+
+      if (digiResult && digiResult.success && digiResult.cliente_id) {
+        db.prepare('UPDATE deliveries SET digifarma_cliente_id = ? WHERE id = ?').run(digiResult.cliente_id, id);
+        const cleanPhone = delivery.phone.replace(/\D/g, '');
+        db.prepare('UPDATE customers SET digifarma_id = ? WHERE phone LIKE ? OR phone = ?').run(digiResult.cliente_id, `%${cleanPhone.slice(-8)}%`, cleanPhone);
+      }
+
+      res.json({
+        success: true,
+        digifarma: digiResult
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao sincronizar com Digifarma:', err);
+      res.status(500).json({ error: 'Erro ao sincronizar com Digifarma.', details: err.message });
+    }
+  });
+
   // POST /api/deliveries/sync-chats - Sincronizar conversas retroativas (ex: desde 01/08/2026) e colocar na fila de pendentes
   app.post('/api/deliveries/sync-chats', async (req, res) => {
     try {

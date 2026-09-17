@@ -1,4 +1,5 @@
 const { callAI } = require('./ai.service');
+const { findOrCreateDigifarmaCustomer } = require('./digifarma.service');
 
 /**
  * Serviço de Varredura e Auditoria de Vendas (Fechadas x Não Fechadas) e Deliveries via IA
@@ -556,7 +557,25 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
             } catch (eAddr) {}
           }
 
-          // C. Histórico de Produtos Comprados e Pesquisados pelo Cliente (whatsapp_product_history)
+          // C. Sincronização Automática com o Digifarma para Clientes de Venda/Entrega
+          if (isClosed && cleanPhone && finalName && !['cliente', 'cliente whatsapp', 'atendente'].includes(finalName.toLowerCase())) {
+            try {
+              const digiResult = await findOrCreateDigifarmaCustomer({
+                name: finalName,
+                phone: cleanPhone,
+                address: address && address !== 'Endereço a confirmar' ? address : null,
+                neighborhood: neighborhood || null
+              });
+              if (digiResult && digiResult.success && digiResult.cliente_id) {
+                db.prepare('UPDATE deliveries SET digifarma_cliente_id = ? WHERE phone = ?').run(digiResult.cliente_id, cleanPhone);
+                db.prepare('UPDATE customers SET digifarma_id = ? WHERE phone LIKE ? OR phone = ?').run(digiResult.cliente_id, `%${cleanPhone.slice(-8)}%`, cleanPhone);
+              }
+            } catch (eDigi) {
+              // Conexão firebird pode falhar silenciosamente sem interromper o fluxo de varredura
+            }
+          }
+
+          // D. Histórico de Produtos Comprados e Pesquisados pelo Cliente (whatsapp_product_history)
           const boughtProducts = (Array.isArray(result.products_bought) && result.products_bought.length > 0)
             ? result.products_bought
             : (isClosed && Array.isArray(result.products_discussed) ? result.products_discussed : []);
