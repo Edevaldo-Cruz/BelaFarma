@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "060e0f2",
-  "commitMessage": "feat(dashboard): incluir card de perguntas e confirmacao de pedidos em rota diretamente no topo do dashboard",
-  "buildTime": "17/09/2026, 14:30:30"
+  "commitHash": "930323a",
+  "commitMessage": "fix(pixbot): melhorar varredura retroativa com validacao por id de mensagem e suporte a pdf",
+  "buildTime": "17/09/2026, 18:10:12"
 }
