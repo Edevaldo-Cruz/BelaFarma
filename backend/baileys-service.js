@@ -683,14 +683,14 @@ async function varrerPixDoDia() {
 
   for (const row of mediaRows) {
     try {
-      // Verificar se o telefone já teve um PIX confirmado hoje
+      // Verificar se essa mensagem específica já teve um PIX confirmado
       const jaConfirmado = savedDb.prepare(`
         SELECT id FROM pix_confirmations 
-        WHERE phone = ? AND createdAt >= ?
-      `).get(row.phone, startOfDayIso);
+        WHERE id = ? OR id = ?
+      `).get(`pix_${row.id}`, row.id);
 
       if (jaConfirmado) {
-        console.log(`[Baileys-PixScan] ⏩ PIX já confirmado hoje para o número ${row.phone}. Ignorando duplicata.`);
+        console.log(`[Baileys-PixScan] ⏩ Mensagem ${row.id} (${row.phone}) já confirmada anteriormente. Ignorando.`);
         continue;
       }
 
@@ -729,8 +729,11 @@ async function varrerPixDoDia() {
 
         if (buffer && buffer.length > 0) {
           const base64Image = buffer.toString('base64');
-          console.log(`[Baileys-PixScan] 🔍 Enviando imagem de ${row.phone} para auditoria IA...`);
-          const aprovado = await pixBot.processBaileysImage(base64Image, 'image/jpeg', row.phone, row.id);
+          const mimeType = msgToDownload?.message?.documentMessage?.mimetype || 
+                           msgToDownload?.message?.imageMessage?.mimetype || 
+                           'image/jpeg';
+          console.log(`[Baileys-PixScan] 🔍 Enviando mídia (${mimeType}) de ${row.phone} para auditoria IA...`);
+          const aprovado = await pixBot.processBaileysImage(base64Image, mimeType, row.phone, row.id);
           if (aprovado) {
             aprovadas++;
           } else {
