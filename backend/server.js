@@ -3977,24 +3977,26 @@ initializeWhatsAppVendasEndpoints(app, db);
 
 // Módulo de Gestão & Documentação de Deliveries (IA)
 const { initializeDeliveryEndpoints } = require('./delivery-endpoints.js');
-const { scanDeliveriesFromWhatsApp } = require('./services/whatsapp-delivery-service.js');
+const { scanDeliveriesFromWhatsApp, descartarRotasDiasAnteriores } = require('./services/whatsapp-delivery-service.js');
 initializeDeliveryEndpoints(app, db);
 
-// Varredura inicial automática do mês atual no boot (15s após inicialização)
+// Varredura inicial automática focada no dia atual (15s após inicialização)
 setTimeout(async () => {
   try {
-    console.log('[BOOT-DELIVERY] 📅 Executando varredura inicial do mês atual via IA...');
-    await scanDeliveriesFromWhatsApp(db, { currentMonth: true });
+    console.log('[BOOT-DELIVERY] 📅 Executando descarte de rotas anteriores e varredura do dia atual via IA...');
+    descartarRotasDiasAnteriores(db);
+    await scanDeliveriesFromWhatsApp(db, { todayOnly: true });
   } catch (bootErr) {
-    console.error('[BOOT-DELIVERY] ⚠️ Erro na varredura inicial do mês:', bootErr.message);
+    console.error('[BOOT-DELIVERY] ⚠️ Erro na varredura inicial do dia atual:', bootErr.message);
   }
 }, 15000);
 
-// Cron de varredura automática de Deliveries a cada 10 minutos
+// Cron de varredura automática de Deliveries a cada 10 minutos (foco no dia atual)
 setInterval(async () => {
   try {
-    console.log('[CRON-DELIVERY] Running periodic background delivery scan via AI...');
-    await scanDeliveriesFromWhatsApp(db, { hours: 24 });
+    console.log('[CRON-DELIVERY] Running periodic background delivery scan for today via AI...');
+    descartarRotasDiasAnteriores(db);
+    await scanDeliveriesFromWhatsApp(db, { todayOnly: true });
   } catch (err) {
     console.error('[CRON-DELIVERY] Error in background delivery scan:', err.message);
   }

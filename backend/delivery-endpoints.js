@@ -2,14 +2,18 @@ const express = require('express');
 const {
   scanDeliveriesFromWhatsApp,
   syncAndEnqueueChats,
-  analyzeSingleChatWithAI
+  analyzeSingleChatWithAI,
+  descartarRotasDiasAnteriores
 } = require('./services/whatsapp-delivery-service');
 const { findOrCreateDigifarmaCustomer } = require('./services/digifarma.service');
 
 function initializeDeliveryEndpoints(app, db) {
-  // GET /api/deliveries/in-transit - Listar pedidos atualmente Em Rota para confirmação
+  // GET /api/deliveries/in-transit - Listar pedidos atualmente Em Rota para confirmação (apenas do dia atual)
   app.get('/api/deliveries/in-transit', (req, res) => {
     try {
+      // Regra de negócio: pedidos em rota de dias anteriores são descartados automaticamente
+      descartarRotasDiasAnteriores(db);
+
       const sql = `
         SELECT d.*, 
                COALESCE(
@@ -25,6 +29,10 @@ function initializeDeliveryEndpoints(app, db) {
         LEFT JOIN whatsapp_contacts wc2 ON wc2.id = d.phone || '@s.whatsapp.net'
         LEFT JOIN customers c ON (c.phone LIKE '%' || substr(d.phone, -8) OR c.phone = d.phone)
         WHERE d.status = 'Em Rota'
+          AND (
+            d.conversation_date = date('now', 'localtime')
+            OR date(d.created_at, 'localtime') = date('now', 'localtime')
+          )
         GROUP BY d.phone, COALESCE(d.items, d.id)
         ORDER BY d.created_at DESC
       `;

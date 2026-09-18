@@ -146,6 +146,37 @@ function registrarFaltasUnificadas(db, cleanPhone, customerName, shortagesList, 
   return newShortages;
 }
 
+/**
+ * Descarta pedidos com status 'Em Rota' de dias anteriores ao dia atual.
+ * Conforme regra do negócio: pedidos em rota de dias que não sejam o dia atual devem ser descartados.
+ */
+function descartarRotasDiasAnteriores(db) {
+  try {
+    const res = db.prepare(`
+      UPDATE deliveries 
+      SET status = 'Cancelado', 
+          notes = CASE 
+            WHEN notes IS NULL OR notes = '' THEN '[Descartado: Em rota de dia anterior]'
+            ELSE notes || ' [Descartado: Em rota de dia anterior]'
+          END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'Em Rota' 
+        AND (
+          (conversation_date IS NOT NULL AND conversation_date < date('now', 'localtime'))
+          OR date(created_at, 'localtime') < date('now', 'localtime')
+        )
+    `).run();
+
+    if (res.changes > 0) {
+      console.log(`[DeliveryAIService] 🗑️ Descartados ${res.changes} pedidos 'Em Rota' de dias anteriores.`);
+    }
+    return res.changes;
+  } catch (err) {
+    console.error('[DeliveryAIService] ⚠️ Erro ao descartar rotas de dias anteriores:', err.message);
+    return 0;
+  }
+}
+
 const DELIVERY_AUDIT_SYSTEM_PROMPT = `
 Você é o auditor financeiro e de vendas da Drogaria BelaFarma.
 Sua missão é analisar o diálogo no WhatsApp entre o Cliente e a Farmácia e classificar a conversa:
@@ -188,6 +219,7 @@ Determine 3 pontos cruciais em uma única resposta:
      }
 
 REGRAS DE AUDITORIA CRÍTICAS (ANTI-DUPLICAÇÃO E ANTI-SPAM):
+- FOCO EXCLUSIVO NO DIA ATUAL: Analise EXCLUSIVAMENTE o atendimento e a negociação de HOJE. Não inclua itens, valores ou acordos de pedidos anteriores já finalizados em dias passados.
 - NÃO RESUSCITE PEDIDOS ANTIGOS: Se a conversa contiver pedidos antigos que já foram finalizados no passado, e as mensagens mais recentes forem apenas propagandas/cardápios externos (ex: marmitex, restaurantes, promoções), agradecimentos, cumprimentos isolados ("bom dia", "obrigado") ou mensagens automáticas recebidas sem nova negociação de compra em andamento, defina "sale_closed": false e "unclosed_reason": "Apenas Cotação". NUNCA recrie pedidos antigos que já foram concluídos!
 - MENSAGENS DE PROPAGANDA EXTERNA NÃO SÃO VENDAS: Se o contato estiver enviando cardápio de restaurante, divulgação de terceiros ou spam, NUNCA considere venda fechada da farmácia ("sale_closed": false).
 
@@ -359,19 +391,20 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
     await syncMessagesFromEvolution(db);
 
     const now = new Date();
-    let timeLimit = 0;
+    // Início do dia atual às 00:00:00.000 local (foco estrito no dia de hoje)
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+
+    // Descartar pedidos 'Em Rota' de dias anteriores que não foram finalizados
+    descartarRotasDiasAnteriores(db);
+
+    let timeLimit = startOfToday;
     let chatLimit = 200;
 
-    if (options.currentMonth) {
-      // Pegar desde o primeiro dia do mês atual às 00:00:00
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-      timeLimit = startOfMonth;
-      chatLimit = 500;
-      console.log(`[DeliveryAIService] 📅 Varredura COMPLETA do MÊS ATUAL (${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})...`);
+    if (options.allDays && options.hours) {
+      timeLimit = Date.now() - (options.hours * 60 * 60 * 1000);
+      console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${options.hours}h)...`);
     } else {
-      const hoursToAnalyze = options.hours || 48;
-      timeLimit = Date.now() - (hoursToAnalyze * 60 * 60 * 1000);
-      console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${hoursToAnalyze}h)...`);
+      console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries FOCADA NO DIA ATUAL (${now.toLocaleDateString('pt-BR')})...`);
     }
 
     const stats = {
@@ -385,7 +418,7 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
     };
     const allNewShortages = [];
 
-    // Buscar chats ativos no período com pelo menos 2 mensagens
+    // Buscar chats ativos no dia atual com mensagens
     const recentChats = db.prepare(`
       SELECT phone, MAX(timestamp) as lastTimestamp, COUNT(*) as msgCount
       FROM whatsapp_messages
@@ -418,17 +451,18 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
         }
       } catch (e) { /* ignora */ }
 
-      // OTIMIZAÇÃO DE TOKENS: Carregar até 20 mensagens mais recentes do atendimento atual
+      // OTIMIZAÇÃO E INTEGRIDADE: Carregar até 20 mensagens APENAS do dia atual (timestamp >= timeLimit).
+      // Isso impede que conversas de dias/semanas anteriores contaminem ou ressuscitem pedidos passados!
       const messages = db.prepare(`
         SELECT * FROM (
           SELECT id, fromMe, messageText, timestamp
           FROM whatsapp_messages
-          WHERE phone = ?
+          WHERE phone = ? AND timestamp >= ?
           ORDER BY timestamp DESC
           LIMIT 20
         )
         ORDER BY timestamp ASC
-      `).all(chat.phone);
+      `).all(chat.phone, timeLimit);
 
       if (!messages || messages.length === 0) continue;
 
@@ -917,17 +951,17 @@ async function syncAndEnqueueChats(db, options = {}) {
       const cleanPhone = formatPhone(chat.phone);
       if (!cleanPhone) continue;
 
-      // OTIMIZAÇÃO DE TOKENS: Carregar até 20 mensagens mais recentes
+      // OTIMIZAÇÃO DE TOKENS E INTEGRIDADE: Carregar até 20 mensagens a partir de minTimestamp
       const messages = db.prepare(`
         SELECT * FROM (
           SELECT id, fromMe, messageText, timestamp
           FROM whatsapp_messages
-          WHERE phone = ?
+          WHERE phone = ? AND timestamp >= ?
           ORDER BY timestamp DESC
           LIMIT 20
         )
         ORDER BY timestamp ASC
-      `).all(chat.phone);
+      `).all(chat.phone, minTimestamp);
 
       if (!messages || messages.length === 0) continue;
 
@@ -1293,6 +1327,7 @@ Analise e extraia os dados em JSON conforme instruído.
 module.exports = {
   scanDeliveriesFromWhatsApp,
   syncAndEnqueueChats,
-  analyzeSingleChatWithAI
+  analyzeSingleChatWithAI,
+  descartarRotasDiasAnteriores
 };
 
