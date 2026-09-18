@@ -253,28 +253,10 @@ function iniciarScheduler(db) {
       }
     }
 
-    // 3. Verificação de Faltas no WhatsApp (3 vezes ao dia: 09h, 14h e 19h)
-    const horariosScan = [9, 14, 19];
-    if (horariosScan.includes(hora)) {
-      const chaveScan = `whatsapp_shortage_scan_${hora}_executado`;
-      try {
-        const jaExecutouScan = db.prepare("SELECT key FROM system_settings WHERE key = ? AND value = ?").get(chaveScan, hoje);
-        if (!jaExecutouScan) {
-          console.log(`[MarketingScheduler] ⏰ Horário de varredura do WhatsApp atingido (${hora}h). Iniciando scan periódico...`);
-          
-          // Registrar que já executou para evitar loops
-          db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)")
-            .run(chaveScan, hoje, agora.toISOString());
-            
-          // Executar varredura em background
-          whatsappShortage.executarVarreduraWhatsApp(db, { periodHours: 12 }).catch(scanErr => {
-            console.error(`[MarketingScheduler] ❌ Erro no scan periódico do WhatsApp (${hora}h):`, scanErr.message);
-          });
-        }
-      } catch (scanDbErr) {
-        console.error('[MarketingScheduler] Erro ao gerenciar agendamento do WhatsApp:', scanDbErr.message);
-      }
-    }
+    // 3. Verificação de Faltas no WhatsApp:
+    // OTIMIZAÇÃO DE TOKENS: A verificação de faltas foi unificada no serviço de auditoria (whatsapp-delivery-service.js),
+    // que já analisa as conversas a cada 10 minutos para Entregas, Vendas, CRM e Faltas em uma única chamada de IA multitarefa.
+    // Isso elimina o consumo duplicado de tokens dos crons que rodavam às 09h, 14h e 19h.
   }, 5 * 60 * 1000); // 5 minutos
 
   return schedulerInterval;

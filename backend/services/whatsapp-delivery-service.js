@@ -1,8 +1,9 @@
 const { callAI } = require('./ai.service');
 const { findOrCreateDigifarmaCustomer } = require('./digifarma.service');
+const messageSender = require('./message-sender.service');
 
 /**
- * Serviço de Varredura e Auditoria de Vendas (Fechadas x Não Fechadas) e Deliveries via IA
+ * Serviço de Varredura e Auditoria Unificada de Vendas, Deliveries, CRM e Faltas (Shortages) via IA
  */
 
 function formatPhone(phone) {
@@ -32,11 +33,124 @@ function parseJsonFromAiResponse(text) {
   return null;
 }
 
+/**
+ * Pré-filtro local de relevância: economiza tokens ao descartar conversas sem conteúdo comercial antes de chamar a IA
+ */
+function isChatRelevantForAudit(messages) {
+  if (!messages || messages.length < 2) {
+    return false;
+  }
+
+  const allText = messages.map(m => (m.messageText || '').toLowerCase().trim()).join(' ');
+  if (allText.length < 5) {
+    return false;
+  }
+
+  // Detectar spam / propaganda externa sem resposta da farmácia
+  const spamKeywords = [
+    'cardápio', 'cardapio', 'marmitex', 'almoço', 'almoco',
+    'peça já', 'peca ja', 'feijoada', 'restaurante', 'saboor', 'prato do dia'
+  ];
+  const isSpam = spamKeywords.some(kw => allText.includes(kw));
+  if (isSpam) {
+    const hasPharmacyReply = messages.some(m => m.fromMe === 1 || m.fromMe === true);
+    if (!hasPharmacyReply || messages.length <= 4) {
+      return false;
+    }
+  }
+
+  // Detectar conversas que são apenas cumprimentos triviais (ex: "Bom dia", "Olá", "Tudo bem?")
+  const greetingPhrases = new Set([
+    'oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite',
+    'tudo bem', 'tudo bem?', 'tudo bom', 'tudo bom?', 'ok', 'blz',
+    'obrigado', 'obrigada', 'valeu', 'tchau', 'sim', 'nao', 'não',
+    'ta bom', 'tá bom', 'por nada', 'de nada', '👍', '🙏', '❤️'
+  ]);
+
+  const meaningfulWords = [
+    'remédio', 'remedio', 'mg', 'ml', 'comprimido', 'gotas', 'pomada', 'creme',
+    'xarope', 'caixa', 'valor', 'preço', 'preco', 'quanto', 'custa', 'tem',
+    'entrega', 'entregar', 'rua', 'bairro', 'pix', 'cartão', 'cartao', 'troco',
+    'receita', 'foto', 'pedido', 'falta', 'estoque', 'paracetamol', 'dipirona',
+    'amoxicilina', 'ibuprofeno', 'antigripal', 'fralda', 'leite'
+  ];
+
+  const hasMeaningfulWord = meaningfulWords.some(w => allText.includes(w));
+  if (!hasMeaningfulWord) {
+    const allAreGreetings = messages.every(m => {
+      const cleanMsg = (m.messageText || '').toLowerCase().replace(/[^\w\s]/gi, '').trim();
+      return greetingPhrases.has(cleanMsg) || cleanMsg.length <= 3;
+    });
+    if (allAreGreetings) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Cadastra faltas detectadas diretamente no banco de dados SQLite (tabela shortages)
+ */
+function registrarFaltasUnificadas(db, cleanPhone, customerName, shortagesList, unclosedReason, discussedProducts, conversationDate) {
+  const newShortages = [];
+  let list = Array.isArray(shortagesList) ? [...shortagesList] : [];
+
+  // Se o motivo da venda não fechada foi Falta de Estoque e a lista veio vazia, inferir dos produtos discutidos
+  if (list.length === 0 && unclosedReason === 'Falta de Estoque' && Array.isArray(discussedProducts) && discussedProducts.length > 0) {
+    for (const p of discussedProducts) {
+      if (typeof p === 'string' && p.trim().length >= 2) {
+        list.push({
+          nome: p.trim(),
+          tipo: 'Marca (Referência)',
+          motivo: 'Falta de estoque informada pelo atendente'
+        });
+      }
+    }
+  }
+
+  for (const item of list) {
+    if (!item || !item.nome || typeof item.nome !== 'string' || item.nome.trim().length < 2) continue;
+    const nomeProduto = item.nome.toUpperCase().trim();
+    const tipoProduto = item.tipo || 'Marca (Referência)';
+
+    try {
+      const shortageExists = db.prepare(`
+        SELECT id FROM shortages 
+        WHERE productName = ? AND source = 'WhatsApp' AND purchased = 0 AND ordered = 0
+      `).get(nomeProduto);
+
+      if (!shortageExists) {
+        const shortageId = `sh_wa_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const dataAtual = new Date().toISOString();
+        const notes = `Solicitado por ${customerName} (${cleanPhone}) - Identificado na auditoria unificada em ${conversationDate || new Date().toLocaleDateString('pt-BR')}`;
+
+        db.prepare(`
+          INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered)
+          VALUES (?, ?, ?, 1, ?, ?, 'WhatsApp Bot', 'WhatsApp', 0, 0)
+        `).run(shortageId, nomeProduto, tipoProduto, notes, dataAtual);
+
+        newShortages.push({
+          nome: nomeProduto,
+          cliente: customerName,
+          telefone: cleanPhone,
+          tipo: tipoProduto
+        });
+        console.log(`[DeliveryAIService] 🔴 Falta cadastrada via auditoria unificada: ${nomeProduto} (solicitado por ${customerName})`);
+      }
+    } catch (errSh) {
+      console.warn(`[DeliveryAIService] ⚠️ Erro ao registrar falta de ${nomeProduto}:`, errSh.message);
+    }
+  }
+
+  return newShortages;
+}
+
 const DELIVERY_AUDIT_SYSTEM_PROMPT = `
 Você é o auditor financeiro e de vendas da Drogaria BelaFarma.
 Sua missão é analisar o diálogo no WhatsApp entre o Cliente e a Farmácia e classificar a conversa:
 
-Determine 2 pontos cruciais:
+Determine 3 pontos cruciais em uma única resposta:
 1. FOI FECHADA UMA VENDA / PEDIDO DE ENTREGA? ("sale_closed": true ou false)
    - true: O cliente aceitou o orçamento, passou o endereço/dados, confirmou a compra ou a entrega foi agendada/realizada.
    - false: O cliente apenas perguntou preço/estoque, pediu orçamento e não respondeu mais, achou caro, ou o produto estava em falta.
@@ -63,6 +177,16 @@ Determine 2 pontos cruciais:
        - null (caso a venda tenha sido FECHADA com sucesso).
    - "notes": Resumo direto de 1 linha sobre a negociação.
 
+3. HOUVE PRODUTO EM FALTA (SHORTAGE)?
+   - "shortages": Array com produtos que o cliente pediu ou cotou e a farmácia informou que NÃO TEM em estoque, que acabou, que está zerado ou que não trabalha com a marca, OU se o atendente procurou com fornecedor/parceiro e a resposta foi negativa.
+   - Se nenhum produto estiver em falta, retorne [].
+   - Formato de cada item:
+     {
+       "nome": "Nome do Produto em Falta",
+       "tipo": "Genérico" | "Similar" | "Perfumaria" | "Marca (Referência)",
+       "motivo": "Sem estoque no momento"
+     }
+
 REGRAS DE AUDITORIA CRÍTICAS (ANTI-DUPLICAÇÃO E ANTI-SPAM):
 - NÃO RESUSCITE PEDIDOS ANTIGOS: Se a conversa contiver pedidos antigos que já foram finalizados no passado, e as mensagens mais recentes forem apenas propagandas/cardápios externos (ex: marmitex, restaurantes, promoções), agradecimentos, cumprimentos isolados ("bom dia", "obrigado") ou mensagens automáticas recebidas sem nova negociação de compra em andamento, defina "sale_closed": false e "unclosed_reason": "Apenas Cotação". NUNCA recrie pedidos antigos que já foram concluídos!
 - MENSAGENS DE PROPAGANDA EXTERNA NÃO SÃO VENDAS: Se o contato estiver enviando cardápio de restaurante, divulgação de terceiros ou spam, NUNCA considere venda fechada da farmácia ("sale_closed": false).
@@ -77,6 +201,13 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
   "items": "Descrição dos produtos",
   "products_discussed": ["Produto 1", "Produto 2"],
   "products_bought": ["Produto Comprado 1"],
+  "shortages": [
+    {
+      "nome": "Nome do Produto",
+      "tipo": "Genérico | Similar | Perfumaria | Marca (Referência)",
+      "motivo": "Sem estoque"
+    }
+  ],
   "total_amount": 0.00,
   "payment_method": "Pix | Cartão | Dinheiro | Crediário | Outro",
   "status": "Pendente | Em Rota | Entregue | Nao_Fechado | Cancelado",
@@ -249,8 +380,10 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
       closedSalesAmount: 0,
       unclosedSalesCount: 0,
       unclosedSalesAmount: 0,
+      shortagesDetected: 0,
       errors: 0
     };
+    const allNewShortages = [];
 
     // Buscar chats ativos no período com pelo menos 2 mensagens
     const recentChats = db.prepare(`
@@ -285,13 +418,14 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
         }
       } catch (e) { /* ignora */ }
 
+      // OTIMIZAÇÃO DE TOKENS: Carregar até 20 mensagens mais recentes do atendimento atual
       const messages = db.prepare(`
         SELECT * FROM (
           SELECT id, fromMe, messageText, timestamp
           FROM whatsapp_messages
           WHERE phone = ?
           ORDER BY timestamp DESC
-          LIMIT 50
+          LIMIT 20
         )
         ORDER BY timestamp ASC
       `).all(chat.phone);
@@ -307,6 +441,11 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
       `).get(cleanPhone, lastMsgId);
 
       if (existing) {
+        continue;
+      }
+
+      // Pré-filtro local de relevância: ignora saudações isoladas e spams externos sem gastar tokens da IA
+      if (!isChatRelevantForAudit(messages)) {
         continue;
       }
 
@@ -692,6 +831,21 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               } catch (eProd) {}
             }
           }
+
+          // E. Extração Unificada de Faltas (Shortages) para CRM e Compras
+          const detectedShortages = registrarFaltasUnificadas(
+            db,
+            cleanPhone,
+            finalName,
+            result.shortages,
+            unclosedReason,
+            discussedProducts,
+            conversationDate
+          );
+          if (detectedShortages.length > 0) {
+            stats.shortagesDetected += detectedShortages.length;
+            allNewShortages.push(...detectedShortages);
+          }
         }
       } catch (aiErr) {
         stats.errors++;
@@ -702,7 +856,23 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    console.log(`[DeliveryAIService] ✅ Auditoria concluída. Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount} (R$ ${stats.unclosedSalesAmount.toFixed(2)})`);
+    // Notificação consolidada para o administrador caso novas faltas tenham sido identificadas
+    if (allNewShortages.length > 0 && process.env.EDEVALDO_WHATSAPP) {
+      const targetPhone = process.env.EDEVALDO_WHATSAPP;
+      let msg = `🤖 *BelaFarma Bot: Detecção de Faltas no WhatsApp*\n\n`;
+      msg += `Identifiquei de forma automatizada *${allNewShortages.length}* novo(s) produto(s) em falta em conversas recentes:\n\n`;
+      allNewShortages.forEach((p, idx) => {
+        msg += `🛒 *${idx + 1}. ${p.nome}*\n   └ Solicitado por: _${p.cliente}_\n`;
+      });
+      msg += `\nTodos já foram incluídos na sua *Lista de Faltas* no painel do sistema como urgentes (Procura de Cliente) 🔔`;
+
+      console.log(`[DeliveryAIService] 📱 Enviando notificação de faltas para Edevaldo (${targetPhone})...`);
+      messageSender.sendMessage(targetPhone, msg).catch(e => {
+        console.warn(`[DeliveryAIService] ⚠️ Falha ao enviar notificação de faltas para ${targetPhone}:`, e.message);
+      });
+    }
+
+    console.log(`[DeliveryAIService] ✅ Auditoria concluída. Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount} (R$ ${stats.unclosedSalesAmount.toFixed(2)}), Faltas Registradas: ${stats.shortagesDetected}`);
   } catch (err) {
     console.error('[DeliveryAIService] ❌ Erro geral na auditoria:', err);
   } finally {
@@ -747,13 +917,14 @@ async function syncAndEnqueueChats(db, options = {}) {
       const cleanPhone = formatPhone(chat.phone);
       if (!cleanPhone) continue;
 
+      // OTIMIZAÇÃO DE TOKENS: Carregar até 20 mensagens mais recentes
       const messages = db.prepare(`
         SELECT * FROM (
           SELECT id, fromMe, messageText, timestamp
           FROM whatsapp_messages
           WHERE phone = ?
           ORDER BY timestamp DESC
-          LIMIT 50
+          LIMIT 20
         )
         ORDER BY timestamp ASC
       `).all(chat.phone);
@@ -908,6 +1079,7 @@ Determine os detalhes do atendimento e identifique individualmente CADA produto 
 8. "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
 9. "unclosed_reason": Se a venda não foi fechada, motivo geral ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação").
 10. "notes": Resumo direto de 1 linha sobre a negociação.
+11. "shortages": Array com produtos em falta identificados na conversa (quando o cliente pediu e não tem estoque, ou se o produto foi rejeitado por Falta de Estoque). Formato: [{ "nome": "Nome", "tipo": "Genérico | Similar | Perfumaria | Marca (Referência)", "motivo": "Sem estoque" }] ou [].
 
 RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
 {
@@ -924,6 +1096,13 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
       "price": 12.50,
       "status": "accepted",
       "rejection_reason": null
+    }
+  ],
+  "shortages": [
+    {
+      "nome": "Produto Em Falta",
+      "tipo": "Genérico | Similar | Perfumaria | Marca (Referência)",
+      "motivo": "Sem estoque"
     }
   ],
   "total_amount": 0.00,
@@ -944,13 +1123,14 @@ async function analyzeSingleChatWithAI(db, deliveryId, targetType = 'cotacao') {
   }
 
   const cleanPhone = formatPhone(delivery.phone);
+  // OTIMIZAÇÃO DE TOKENS: Limitar a 20 mensagens mais recentes
   const messages = db.prepare(`
     SELECT * FROM (
       SELECT id, fromMe, messageText, timestamp
       FROM whatsapp_messages
       WHERE phone = ? OR phone = ?
       ORDER BY timestamp DESC
-      LIMIT 30
+      LIMIT 20
     )
     ORDER BY timestamp ASC
   `).all(cleanPhone, delivery.phone);
@@ -1062,6 +1242,35 @@ Analise e extraia os dados em JSON conforme instruído.
         `).run(`addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, cleanPhone, custId, updatedData.delivery_address, updatedData.neighborhood);
       }
     } catch (eAddr) {}
+
+    // Registrar faltas caso identificadas na análise do chat
+    try {
+      const shortagesFromAI = Array.isArray(result.shortages) ? result.shortages : [];
+      if (productsIdentified.length > 0) {
+        for (const p of productsIdentified) {
+          if (p.status === 'rejected' && p.rejection_reason === 'Falta de Estoque' && p.name) {
+            if (!shortagesFromAI.some(s => s.nome && s.nome.toLowerCase() === p.name.toLowerCase())) {
+              shortagesFromAI.push({
+                nome: p.name,
+                tipo: 'Marca (Referência)',
+                motivo: 'Falta de estoque'
+              });
+            }
+          }
+        }
+      }
+      registrarFaltasUnificadas(
+        db,
+        cleanPhone,
+        updatedData.customer_name,
+        shortagesFromAI,
+        updatedData.unclosed_reason,
+        updatedData.products_discussed,
+        delivery.conversation_date
+      );
+    } catch (eShortage) {
+      console.warn('[DeliveryAIService] ⚠️ Erro ao registrar falta no chat individual:', eShortage.message);
+    }
 
     return updatedData;
   } catch (err) {
