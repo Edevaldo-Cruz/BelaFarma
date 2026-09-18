@@ -34,7 +34,15 @@ export const InTransitDeliveriesCard: React.FC<InTransitDeliveriesCardProps> = (
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          setInTransitDeliveries(data.deliveries || []);
+          const raw = data.deliveries || [];
+          const seen = new Set<string>();
+          const uniqueDeliveries = raw.filter((d: Delivery) => {
+            const key = `${d.phone || ''}_${(d.items || '').trim().toLowerCase()}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          setInTransitDeliveries(uniqueDeliveries);
         }
       }
     } catch (err: any) {
@@ -79,6 +87,7 @@ export const InTransitDeliveriesCard: React.FC<InTransitDeliveriesCardProps> = (
           msg += ` Digifarma: #${data.digifarma.cliente_id} (${data.digifarma.action === 'created' ? 'Novo Cadastro Criado' : 'Cadastro Atualizado'}).`;
         }
         addToast(msg, 'success');
+        setInTransitDeliveries(prev => prev.filter(item => item.id !== del.id && item.phone !== del.phone));
         fetchInTransitDeliveries();
         // refresh
       } else {

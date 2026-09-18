@@ -25,6 +25,7 @@ function initializeDeliveryEndpoints(app, db) {
         LEFT JOIN whatsapp_contacts wc2 ON wc2.id = d.phone || '@s.whatsapp.net'
         LEFT JOIN customers c ON (c.phone LIKE '%' || substr(d.phone, -8) OR c.phone = d.phone)
         WHERE d.status = 'Em Rota'
+        GROUP BY d.phone, COALESCE(d.items, d.id)
         ORDER BY d.created_at DESC
       `;
       const inTransit = db.prepare(sql).all();
@@ -72,6 +73,7 @@ function initializeDeliveryEndpoints(app, db) {
           delivery_address = ?,
           neighborhood = COALESCE(?, neighborhood),
           unclosed_reason = ?,
+          review_status = 'reviewed',
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
@@ -83,6 +85,32 @@ function initializeDeliveryEndpoints(app, db) {
         unclosed_reason || null,
         id
       );
+
+      // Cascata: Se houverem duplicatas para este mesmo telefone em 'Em Rota' ou com o mesmo last_message_id, atualizar todas
+      if (cleanPhone) {
+        db.prepare(`
+          UPDATE deliveries SET
+            status = ?,
+            sale_closed = ?,
+            customer_name = ?,
+            delivery_address = ?,
+            neighborhood = COALESCE(?, neighborhood),
+            unclosed_reason = ?,
+            review_status = 'reviewed',
+            updated_at = CURRENT_TIMESTAMP
+          WHERE phone = ? AND id != ? AND (status = 'Em Rota' OR last_message_id = ?)
+        `).run(
+          finalStatus,
+          isClosed,
+          finalName,
+          finalAddress,
+          finalNeighborhood,
+          unclosed_reason || null,
+          delivery.phone,
+          id,
+          delivery.last_message_id
+        );
+      }
 
       // 2. Atualizar cadastro local do cliente e memória de endereços
       if (cleanPhone) {

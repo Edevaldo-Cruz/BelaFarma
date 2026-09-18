@@ -63,6 +63,10 @@ Determine 2 pontos cruciais:
        - null (caso a venda tenha sido FECHADA com sucesso).
    - "notes": Resumo direto de 1 linha sobre a negociação.
 
+REGRAS DE AUDITORIA CRÍTICAS (ANTI-DUPLICAÇÃO E ANTI-SPAM):
+- NÃO RESUSCITE PEDIDOS ANTIGOS: Se a conversa contiver pedidos antigos que já foram finalizados no passado, e as mensagens mais recentes forem apenas propagandas/cardápios externos (ex: marmitex, restaurantes, promoções), agradecimentos, cumprimentos isolados ("bom dia", "obrigado") ou mensagens automáticas recebidas sem nova negociação de compra em andamento, defina "sale_closed": false e "unclosed_reason": "Apenas Cotação". NUNCA recrie pedidos antigos que já foram concluídos!
+- MENSAGENS DE PROPAGANDA EXTERNA NÃO SÃO VENDAS: Se o contato estiver enviando cardápio de restaurante, divulgação de terceiros ou spam, NUNCA considere venda fechada da farmácia ("sale_closed": false).
+
 RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
 {
   "sale_closed": true ou false,
@@ -210,36 +214,44 @@ async function syncMessagesFromEvolution(db) {
   }
 }
 
+let isScanningDeliveries = false;
+
 async function scanDeliveriesFromWhatsApp(db, options = {}) {
-  // Sincronizar mensagens reais da Evolution API primeiro
-  await syncMessagesFromEvolution(db);
-
-  const now = new Date();
-  let timeLimit = 0;
-  let chatLimit = 200;
-
-  if (options.currentMonth) {
-    // Pegar desde o primeiro dia do mês atual às 00:00:00
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    timeLimit = startOfMonth;
-    chatLimit = 500;
-    console.log(`[DeliveryAIService] 📅 Varredura COMPLETA do MÊS ATUAL (${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})...`);
-  } else {
-    const hoursToAnalyze = options.hours || 48;
-    timeLimit = Date.now() - (hoursToAnalyze * 60 * 60 * 1000);
-    console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${hoursToAnalyze}h)...`);
+  if (isScanningDeliveries) {
+    console.log('[DeliveryAIService] ⏳ Varredura de entregas já em execução. Ignorando chamada concorrente.');
+    return { skipped: true };
   }
-
-  const stats = {
-    processedChats: 0,
-    closedSalesCount: 0,
-    closedSalesAmount: 0,
-    unclosedSalesCount: 0,
-    unclosedSalesAmount: 0,
-    errors: 0
-  };
+  isScanningDeliveries = true;
 
   try {
+    // Sincronizar mensagens reais da Evolution API primeiro
+    await syncMessagesFromEvolution(db);
+
+    const now = new Date();
+    let timeLimit = 0;
+    let chatLimit = 200;
+
+    if (options.currentMonth) {
+      // Pegar desde o primeiro dia do mês atual às 00:00:00
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      timeLimit = startOfMonth;
+      chatLimit = 500;
+      console.log(`[DeliveryAIService] 📅 Varredura COMPLETA do MÊS ATUAL (${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})...`);
+    } else {
+      const hoursToAnalyze = options.hours || 48;
+      timeLimit = Date.now() - (hoursToAnalyze * 60 * 60 * 1000);
+      console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${hoursToAnalyze}h)...`);
+    }
+
+    const stats = {
+      processedChats: 0,
+      closedSalesCount: 0,
+      closedSalesAmount: 0,
+      unclosedSalesCount: 0,
+      unclosedSalesAmount: 0,
+      errors: 0
+    };
+
     // Buscar chats ativos no período com pelo menos 2 mensagens
     const recentChats = db.prepare(`
       SELECT phone, MAX(timestamp) as lastTimestamp, COUNT(*) as msgCount
@@ -296,6 +308,36 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
 
       if (existing) {
         continue;
+      }
+
+      // Evita ressuscitar pedidos antigos já entregues caso as mensagens recentes sejam apenas spam/cardápios externos
+      const lastFinishedDelivery = db.prepare(`
+        SELECT id, created_at, items, total_amount FROM deliveries 
+        WHERE phone = ? AND (status = 'Entregue' OR status = 'Cancelado')
+        ORDER BY created_at DESC LIMIT 1
+      `).get(cleanPhone);
+
+      if (lastFinishedDelivery) {
+        const deliveryTs = new Date(lastFinishedDelivery.created_at).getTime();
+        const newMsgsAfterDelivery = messages.filter(m => m.timestamp > deliveryTs);
+        
+        // Se após a entrega anterior não houve nenhuma mensagem nova de negociação
+        if (newMsgsAfterDelivery.length === 0) {
+          continue;
+        }
+
+        const hasPharmacyReply = newMsgsAfterDelivery.some(m => m.fromMe === 1 || m.fromMe === true);
+        // Se todas as mensagens após a entrega foram apenas do cliente e a farmácia não respondeu
+        if (!hasPharmacyReply) {
+          const allSpamText = newMsgsAfterDelivery.map(m => m.messageText || '').join(' ').toLowerCase();
+          const isBroadcastOrSpam = allSpamText.includes('cardápio') || allSpamText.includes('marmitex') || 
+            allSpamText.includes('saboor') || allSpamText.includes('almoço') || allSpamText.includes('peça já') || 
+            allSpamText.includes('feijoada') || allSpamText.includes('promoção') || allSpamText.includes('lasanha') ||
+            allSpamText.includes('legenda') || allSpamText.includes('restaurante');
+          if (isBroadcastOrSpam || newMsgsAfterDelivery.length <= 3) {
+            continue;
+          }
+        }
       }
 
       // Métricas da conversa
@@ -473,9 +515,30 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               existingPending.id
             );
           } else {
+            // Checar se já existe entrega para esse telefone e last_message_id (evita corridas de concorrência)
+            const existingAny = db.prepare(`
+              SELECT id FROM deliveries WHERE phone = ? AND last_message_id = ? LIMIT 1
+            `).get(cleanPhone, lastMsgId);
+
+            if (existingAny) {
+              continue;
+            }
+
+            // Evita criar duplicata se já existir um pedido com os mesmos itens e valor em andamento
+            if (isClosed) {
+              const existingSame = db.prepare(`
+                SELECT id FROM deliveries 
+                WHERE phone = ? AND items = ? AND total_amount = ? AND status IN ('Em Rota', 'Pendente')
+                LIMIT 1
+              `).get(cleanPhone, itemsStr, totalAmount);
+              if (existingSame) {
+                continue;
+              }
+            }
+
             const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             db.prepare(`
-              INSERT INTO deliveries (
+              INSERT OR IGNORE INTO deliveries (
                 id, phone, customer_name, delivery_address, neighborhood, items,
                 total_amount, payment_method, status, sale_closed, unclosed_reason,
                 last_message_id, notes,
@@ -642,6 +705,8 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
     console.log(`[DeliveryAIService] ✅ Auditoria concluída. Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount} (R$ ${stats.unclosedSalesAmount.toFixed(2)})`);
   } catch (err) {
     console.error('[DeliveryAIService] ❌ Erro geral na auditoria:', err);
+  } finally {
+    isScanningDeliveries = false;
   }
 
   return stats;
