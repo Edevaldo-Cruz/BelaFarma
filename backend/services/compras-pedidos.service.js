@@ -382,12 +382,23 @@ function validarTetoOrcamentario(valorTotalPedido, mesReferencia = null, anoRefe
     } catch (e) {}
   }
 
-  // 2. Calcula total já comprometido no mês
+  // 2. Calcula total já comprometido no mês incluindo boletos futuros
   let comprometido = 0;
+  let totalBoletosMes = 0;
 
   try {
-    // Soma de compras_pedidos aprovados ou enviados no mês
-    const pedidosComprometidos = db.prepare(`
+    // 2.1 Boletos já emitidos e programados para o mês de referência
+    const mesFormatado = `${ano}-${String(mes).padStart(2, '0')}`;
+    const boletosRow = db.prepare(`
+      SELECT SUM(value) as total
+      FROM boletos
+      WHERE substr(due_date, 1, 7) = ?
+      AND LOWER(status) NOT IN ('cancelado', 'rejeitado')
+    `).get(mesFormatado);
+    totalBoletosMes = Number(boletosRow?.total || 0);
+
+    // 2.2 Pedidos aprovados que ainda NÃO geraram boletos
+    const pedidosSemBoleto = db.prepare(`
       SELECT SUM(valor_total) as total
       FROM compras_pedidos
       WHERE (
@@ -395,50 +406,66 @@ function validarTetoOrcamentario(valorTotalPedido, mesReferencia = null, anoRefe
         OR (strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?)
       )
       AND LOWER(status) NOT IN ('rejeitado', 'cancelado')
+      AND id NOT IN (SELECT DISTINCT order_id FROM boletos WHERE order_id IS NOT NULL)
     `).get(
       mes, ano,
       String(mes).padStart(2, '0'), String(ano)
     );
+    const totalPedidosNovos = Number(pedidosSemBoleto?.total || 0);
 
-    if (pedidosComprometidos && pedidosComprometidos.total) {
-      comprometido += Number(pedidosComprometidos.total);
-    }
-
-    // Soma de orders legadas no mês (se não duplicadas com compras_pedidos)
-    const ordersComprometidas = db.prepare(`
-      SELECT SUM(totalValue) as total
-      FROM orders
-      WHERE (
-        (paymentMonth LIKE ?)
-        OR (strftime('%m', orderDate) = ? AND strftime('%Y', orderDate) = ?)
-      )
-      AND LOWER(status) NOT IN ('cancelado', 'rejeitado')
-      AND id NOT IN (SELECT order_legado_id FROM compras_pedidos WHERE order_legado_id IS NOT NULL)
-    `).get(
-      `%${mes}/${ano}%`,
-      String(mes).padStart(2, '0'), String(ano)
-    );
-
-    if (ordersComprometidas && ordersComprometidas.total) {
-      comprometido += Number(ordersComprometidas.total);
-    }
-  } catch (e) {}
+    comprometido = Number((totalBoletosMes + totalPedidosNovos).toFixed(2));
+  } catch (e) {
+    console.warn('[Compras-Pedidos] Aviso ao calcular orçamento comprometido:', e.message);
+  }
 
   comprometido = Number(comprometido.toFixed(2));
   const disponivel = Math.max(0, Number((limiteMensal - comprometido).toFixed(2)));
   const saldoAposPedido = Number((limiteMensal - (comprometido + valorPedido)).toFixed(2));
-  const permitido = limiteMensal > 0 ? (saldoAposPedido >= 0) : true;
+  const permitidoMensal = limiteMensal > 0 ? (saldoAposPedido >= 0) : true;
+
+  // 3. Trava Semanal: limite máximo de novos pedidos nos últimos 7 dias (R$ 3.650,00)
+  const LIMITE_SEMANAL_PADRAO = 3650.00;
+  let comprasUltimos7Dias = 0;
+  try {
+    const semRow = db.prepare(`
+      SELECT SUM(valor_total) as total
+      FROM compras_pedidos
+      WHERE created_at >= datetime('now', '-7 days')
+      AND LOWER(status) NOT IN ('rejeitado', 'cancelado')
+    `).get();
+    comprasUltimos7Dias = Number(semRow?.total || 0);
+  } catch (eSem) {}
+
+  const disponivelSemana = Math.max(0, Number((LIMITE_SEMANAL_PADRAO - comprasUltimos7Dias).toFixed(2)));
+  const saldoSemanalAposPedido = Number((disponivelSemana - valorPedido).toFixed(2));
+  const permitidoSemanal = (saldoSemanalAposPedido >= 0);
+
+  const permitido = permitidoMensal && (valorPedido > 0 ? permitidoSemanal : true);
+
+  let motivo = null;
+  if (!permitidoMensal) {
+    motivo = `Teto orçamentário mensal de R$ ${limiteMensal.toFixed(2)} excedido em R$ ${Math.abs(saldoAposPedido).toFixed(2)}`;
+  } else if (!permitidoSemanal && valorPedido > 0) {
+    motivo = `Cota semanal de R$ ${LIMITE_SEMANAL_PADRAO.toFixed(2)} excedida! Já comprado nos últimos 7 dias: R$ ${comprasUltimos7Dias.toFixed(2)}. Disponível nesta semana: R$ ${disponivelSemana.toFixed(2)}.`;
+  }
 
   return {
     permitido,
+    permitidoMensal,
+    permitidoSemanal,
     limiteMensal,
     comprometido,
+    totalBoletosMes,
     disponivel,
     saldoAposPedido,
+    limiteSemanal: LIMITE_SEMANAL_PADRAO,
+    comprometidoSemana: comprasUltimos7Dias,
+    disponivelSemana,
+    saldoSemanalAposPedido,
     valorPedido,
     mes,
     ano,
-    motivo: permitido ? null : `Teto orçamentário mensal de R$ ${limiteMensal.toFixed(2)} excedido em R$ ${Math.abs(saldoAposPedido).toFixed(2)}`
+    motivo
   };
 }
 
