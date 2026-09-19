@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { User, SafeEntry, CashClosingRecord, DailyRecordEntry, CardBrand, CardMachineGridState } from '../types';
+import { calculateGlobalClosing, round2 } from '../utils/closingCalculations';
 
 interface CashClosingProps {
   user: User;
@@ -64,6 +65,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const [safeDepositValue, setSafeDepositValue] = useState(0);
 
   const [totalSales, setTotalSales] = useState(0);
+  const [cashSales, setCashSales] = useState(0);
   const [receivedExtra, setReceivedExtra] = useState(0);
   const [initialCash, setInitialCash] = useState(0);
   
@@ -77,6 +79,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const [creditInstallments, setCreditInstallments] = useState(0);
   const [debit, setDebit] = useState(0);
   const [pix, setPix] = useState(0);
+  const [erpPix, setErpPix] = useState(0);
   const [pixDirect, setPixDirect] = useState(0);
   const [others, setOthers] = useState(0);
 
@@ -112,9 +115,16 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       }
       
       setTotalSales(data.totalSales || 0);
+      setCashSales(data.dinheiro || 0);
       setCredit(data.credit || 0);
       setDebit(data.debit || 0);
-      setPix(data.pix || 0);
+      setErpPix(data.pix || 0);
+
+      // Pix da Maquininha: data.pix é o Pix TOTAL do Digifarma (inclui Maquininha + Pix Direto).
+      // Se houver Pix Direto vindo do banco/robô, sugere o valor da maquininha deduzindo o Pix direto:
+      const currentPixDireto = pixDiretoList.reduce((acc, curr) => acc + (curr.val || 0), 0) || pixDirect;
+      const suggestedMachinePix = Math.max(0, round2((data.pix || 0) - currentPixDireto));
+      setPix(suggestedMachinePix);
 
       // Preenche a lista de crediários do dia vindos do Digifarma (se houver)
       if (Array.isArray(data.crediarioList) && data.crediarioList.length > 0) {
@@ -324,6 +334,8 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     // Save form state to localStorage
     const formState = {
       totalSales,
+      cashSales,
+      erpPix,
       receivedExtra,
       initialCash,
       currencyCount,
@@ -338,7 +350,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
       currentStep,
     };
     localStorage.setItem('belinha_closing_form_state', JSON.stringify(formState));
-  }, [totalSales, receivedExtra, initialCash, currencyCount, cardGrid, gridTotals, pix, pixDirect, others, safeDepositValue, currentStep]);
+  }, [totalSales, cashSales, erpPix, receivedExtra, initialCash, currencyCount, cardGrid, gridTotals, pix, pixDirect, others, safeDepositValue, currentStep]);
 
   const totalExpenses = useMemo(() => expensesList.reduce((acc, curr) => acc + curr.val, 0), [expensesList]);
   const totalIfood = useMemo(() => ifoodList.reduce((acc, curr) => acc + curr.val, 0), [ifoodList]);
@@ -358,21 +370,72 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     return Number((gridTotals.totalCards + pix + pixDirect + others).toFixed(2));
   }, [gridTotals.totalCards, pix, pixDirect, others]);
 
-    // Expected Balance (Saldo Esperado): 
-    // Venda Bruta + Troco + Entradas Extras + Produtos não registrados + Pix Direto
-    // MENOS Despesas, Vendas iFood (que não ficam na gaveta), Vendas no Crediário (dívidas novas) e Recebimentos de Crediário (pagos no dia)
-    const subtotalSoma = useMemo(() => {
-      const val = totalSales + receivedExtra + initialCash - totalCreditReceipts + totalNonRegistered + pixDirect - totalExpenses - totalIfood - totalCrediario;
-      return Number(val.toFixed(2));
-    }, [totalSales, receivedExtra, initialCash, totalCreditReceipts, totalNonRegistered, pixDirect, totalExpenses, totalIfood, totalCrediario]);
+  // Vendas em dinheiro do Digifarma (calculadas ou vindas do live closing)
+  const cashSalesCalculated = useMemo(() => {
+    if (cashSales > 0) return cashSales;
+    // Fallback caso ainda não tenha sincronizado com o Digifarma: totalSales - (cartões + pix + crediário)
+    const digitalAndCred = gridTotals.totalCards + pix + totalCrediario;
+    return Math.max(0, round2(totalSales - digitalAndCred));
+  }, [cashSales, totalSales, gridTotals.totalCards, pix, totalCrediario]);
 
-    // Checked Total (Total Conferido): Drawer (Cash) + Sangrias + Digital
-    const totalConferido = useMemo(() => {
-      const val = totalInDrawer + totalSangria + totalDigital;
-      return Number(val.toFixed(2));
-    }, [totalInDrawer, totalSangria, totalDigital]);
+  // Reconciliação completa com segregação de Gaveta (Dinheiro) e Digital (Cartões & Pix)
+  const closingCalcs = useMemo(() => {
+    return calculateGlobalClosing({
+      cash: {
+        initialCash,
+        cashSales: cashSalesCalculated,
+        creditReceipts: totalCreditReceipts,
+        receivedExtra,
+        nonRegistered: totalNonRegistered,
+        expenses: totalExpenses,
+        sangrias: totalSangria,
+        countedInDrawer: totalInDrawer
+      },
+      digital: {
+        cardGrid: {
+          m1_debit: gridTotals.m1_deb,
+          m1_credit: gridTotals.m1_cred,
+          m1_installments: gridTotals.m1_inst,
+          m2_debit: gridTotals.m2_deb,
+          m2_credit: gridTotals.m2_cred,
+          m2_installments: gridTotals.m2_inst,
+          others
+        },
+        pixMachine: pix,
+        pixDirect,
+        erpDebit: debit,
+        erpCredit: credit,
+        erpInstallments: creditInstallments,
+        erpPix: erpPix || (pix + pixDirect),
+        erpOthers: others
+      },
+      totalSales,
+      totalCrediario
+    });
+  }, [
+    initialCash,
+    cashSalesCalculated,
+    totalCreditReceipts,
+    receivedExtra,
+    totalNonRegistered,
+    totalExpenses,
+    totalSangria,
+    totalInDrawer,
+    gridTotals,
+    others,
+    pix,
+    pixDirect,
+    debit,
+    credit,
+    creditInstallments,
+    erpPix,
+    totalSales,
+    totalCrediario
+  ]);
 
-    const diff = useMemo(() => Number((totalConferido - subtotalSoma).toFixed(2)), [totalConferido, subtotalSoma]);
+  const subtotalSoma = closingCalcs.subtotalSoma;
+  const totalConferido = closingCalcs.totalConferido;
+  const diff = closingCalcs.globalDifference;
 
     // Sugestão de Retirada baseada nas regras do usuário:
     // 100: todas, 50: >2, 20: >5, 10: >10, 5: >10, 2: >15
@@ -517,7 +580,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
             id: Date.now().toString(),
             date: new Date().toISOString(),
             totalSales, initialCash, receivedExtra, totalDigital, totalInDrawer,
-            difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses + totalIfood, userName: user.name,
+            difference: diff, safeDeposit: safeDepositValue, expenses: totalExpenses, userName: user.name,
             credit: gridTotals.totalCredit,
             credit_installments: gridTotals.totalInstallments,
             debit: gridTotals.totalDebit,
@@ -1217,68 +1280,243 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   
 
                 {currentStep === 'summary' && (
+                  <div className="space-y-8 animate-in zoom-in-95 duration-300 max-w-4xl mx-auto">
+                    <div className="text-center space-y-1">
+                      <h2 className="text-xl font-black uppercase text-slate-900 dark:text-slate-100">
+                        Resumo e Conferência de Caixa
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        Conferência segregada entre Dinheiro em Gaveta e Meios Digitais (Cartões/Pix)
+                      </p>
+                    </div>
 
-                  <div className="space-y-8 text-center animate-in zoom-in-95 duration-300">
+                    {/* DOIS BLOCOS: GAVETA (DINHEIRO) e DIGITAL (CARTÕES & PIX) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
 
-                    <h2 className="text-xl font-black uppercase text-slate-900 dark:text-slate-100">Resumo e Conferência</h2>
-                    <div className="p-10 bg-white dark:bg-slate-900/50 rounded-[3rem] border-2 border-slate-100 dark:border-slate-800 max-w-2xl mx-auto shadow-inner">
-
-                      <div className="grid grid-cols-2 gap-4 text-left border-b border-slate-200 pb-4 mb-4">
-
-                        <div>
-
-                          <p className="text-[10px] font-black uppercase text-slate-400">Saldo Esperado (Subtotal Soma)</p>
-                          <p className="text-xl font-black text-slate-900 dark:text-slate-100">R$ {subtotalSoma.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                          <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 mt-2">
-
-                            <li>+ Venda Bruta do Dia: R$ {totalSales.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>+ Recebido Extra: R$ {receivedExtra.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>+ Saldo Inicial: R$ {initialCash.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>- Recebimento Crediário: R$ {totalCreditReceipts.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>+ Produto Não Cadastrado: R$ {totalNonRegistered.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>- Despesas: R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-                            <li>- Vendas iFood: R$ {totalIfood.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                            <li>- Vendas em Crediário: R$ {totalCrediario.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-
-                          </ul>
-
+                      {/* BLOCO 1: DINHEIRO FÍSICO (GAVETA) */}
+                      <div className={`p-6 rounded-3xl border-2 transition-all ${
+                        closingCalcs.cash.isBalanced 
+                          ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800' 
+                          : 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                      }`}>
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3 mb-4">
+                          <div className="flex items-center space-x-2">
+                            <Wallet className="w-5 h-5 text-amber-600" />
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                              1. Dinheiro Físico (Gaveta)
+                            </h3>
+                          </div>
+                          <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                            closingCalcs.cash.isBalanced
+                              ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300'
+                              : closingCalcs.cash.cashDifference > 0
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300'
+                                : 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'
+                          }`}>
+                            {closingCalcs.cash.isBalanced 
+                              ? '✓ Gaveta Bateu' 
+                              : closingCalcs.cash.cashDifference > 0 
+                                ? `Sobra: +${formatCurrency(closingCalcs.cash.cashDifference)}` 
+                                : `Falta: ${formatCurrency(closingCalcs.cash.cashDifference)}`}
+                          </span>
                         </div>
 
-                        </div>
+                        <div className="space-y-3 text-xs">
+                          <div className="space-y-1.5 text-slate-600 dark:text-slate-400">
+                            <div className="flex justify-between">
+                              <span>+ Saldo Inicial (Troco):</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(initialCash)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>+ Vendas em Dinheiro (Digifarma):</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(cashSalesCalculated)}</span>
+                            </div>
+                            {totalCreditReceipts > 0 && (
+                              <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
+                                <span>+ Recebimento Crediário (Entrou):</span>
+                                <span>+{formatCurrency(totalCreditReceipts)}</span>
+                              </div>
+                            )}
+                            {receivedExtra > 0 && (
+                              <div className="flex justify-between">
+                                <span>+ Entradas Extras:</span>
+                                <span className="font-bold">{formatCurrency(receivedExtra)}</span>
+                              </div>
+                            )}
+                            {totalNonRegistered > 0 && (
+                              <div className="flex justify-between">
+                                <span>+ Produtos Não Cadastrados:</span>
+                                <span className="font-bold">{formatCurrency(totalNonRegistered)}</span>
+                              </div>
+                            )}
+                            {totalExpenses > 0 && (
+                              <div className="flex justify-between text-rose-600 dark:text-rose-400 font-medium">
+                                <span>- Despesas do Caixa:</span>
+                                <span>-{formatCurrency(totalExpenses)}</span>
+                              </div>
+                            )}
+                            {totalSangria > 0 && (
+                              <div className="flex justify-between text-orange-600 dark:text-orange-400 font-medium">
+                                <span>- Sangrias para o Cofre:</span>
+                                <span>-{formatCurrency(totalSangria)}</span>
+                              </div>
+                            )}
+                          </div>
 
-                        <div>
-                          <p className="text-[10px] font-black uppercase text-slate-400">Total Conferido</p>
-                          <p className="text-xl font-black text-slate-900 dark:text-slate-100">R$ {totalConferido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                          <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1 mt-2">
-                             <li>+ Dinheiro (Gaveta + Sangrias): R$ {(totalInDrawer + totalSangria).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-                             {totalSangria > 0 && <li className="pl-4 text-xs opacity-70">Sendo R$ {totalSangria.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em sangrias</li>}
-                             <li>+ Total Digital (Cartões/Pix): R$ {totalDigital.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</li>
-                          </ul>
+                          <div className="border-t border-slate-200 dark:border-slate-700 pt-2.5 flex justify-between items-center">
+                            <span className="font-black text-slate-500 uppercase text-[10px]">Saldo Esperado na Gaveta:</span>
+                            <span className="font-black text-sm text-slate-800 dark:text-slate-100">
+                              {formatCurrency(closingCalcs.cash.expectedInDrawer)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="font-black text-slate-500 uppercase text-[10px]">Dinheiro Contado na Gaveta:</span>
+                            <span className="font-black text-base text-emerald-600 dark:text-emerald-400">
+                              {formatCurrency(closingCalcs.cash.countedInDrawer)}
+                            </span>
+                          </div>
+
+                          <div className={`p-3 rounded-2xl flex justify-between items-center font-black ${
+                            closingCalcs.cash.isBalanced
+                              ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                              : closingCalcs.cash.cashDifference > 0
+                                ? 'bg-blue-100/60 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                : 'bg-rose-100/60 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'
+                          }`}>
+                            <span className="uppercase text-[10px]">Diferença de Gaveta:</span>
+                            <span className="text-base">{formatCurrency(closingCalcs.cash.cashDifference)}</span>
+                          </div>
                         </div>
                       </div>
-                      
-                      <p className="text-[10px] font-black uppercase text-slate-400 mt-4">Divergência Apurada</p>
-                      <h3 className={`text-6xl font-black tracking-tighter ${Math.abs(diff) < 0.1 ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {formatCurrency(diff)}
+
+                      {/* BLOCO 2: CONFERÊNCIA DIGITAL (CARTÕES & PIX) */}
+                      <div className={`p-6 rounded-3xl border-2 transition-all ${
+                        closingCalcs.digital.isBalanced 
+                          ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800' 
+                          : 'bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800'
+                      }`}>
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3 mb-4">
+                          <div className="flex items-center space-x-2">
+                            <CreditCard className="w-5 h-5 text-indigo-600" />
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                              2. Conferência Digital
+                            </h3>
+                          </div>
+                          <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                            closingCalcs.digital.isBalanced
+                              ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'
+                          }`}>
+                            {closingCalcs.digital.isBalanced ? '✓ Digital Bateu' : `Dif: ${formatCurrency(closingCalcs.digital.digitalDifference)}`}
+                          </span>
+                        </div>
+
+                        <div className="space-y-3 text-xs">
+                          <div className="space-y-1.5 text-slate-600 dark:text-slate-400">
+                            <div className="flex justify-between items-center">
+                              <span>Cartões Débito (M1+M2):</span>
+                              <div className="text-right">
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(closingCalcs.digital.totalDebitCounted)}</span>
+                                {debit > 0 && <span className="text-[10px] opacity-70 ml-1.5">(ERP: {formatCurrency(debit)})</span>}
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Cartões Crédito (M1+M2):</span>
+                              <div className="text-right">
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(closingCalcs.digital.totalCreditCounted + closingCalcs.digital.totalInstallmentsCounted)}</span>
+                                {credit > 0 && <span className="text-[10px] opacity-70 ml-1.5">(ERP: {formatCurrency(credit + creditInstallments)})</span>}
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Pix Maquininhas:</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(pix)}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Pix Direto na Conta (Inter):</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(pixDirect)}</span>
+                            </div>
+                            <div className="flex justify-between items-center font-bold text-indigo-700 dark:text-indigo-300 pt-1">
+                              <span>= Total Pix (Máq + Conta):</span>
+                              <div className="text-right">
+                                <span>{formatCurrency(closingCalcs.digital.totalPixCounted)}</span>
+                                {erpPix > 0 && <span className="text-[10px] font-normal opacity-70 ml-1.5">(ERP: {formatCurrency(erpPix)})</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-slate-200 dark:border-slate-700 pt-2.5 flex justify-between items-center">
+                            <span className="font-black text-slate-500 uppercase text-[10px]">Total Digital Registrado (ERP):</span>
+                            <span className="font-black text-sm text-slate-800 dark:text-slate-100">
+                              {formatCurrency(closingCalcs.digital.erpDigitalExpected)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="font-black text-slate-500 uppercase text-[10px]">Total Digital Conferido:</span>
+                            <span className="font-black text-base text-indigo-600 dark:text-indigo-400">
+                              {formatCurrency(closingCalcs.digital.totalDigitalCounted)}
+                            </span>
+                          </div>
+
+                          <div className={`p-3 rounded-2xl flex justify-between items-center font-black ${
+                            closingCalcs.digital.isBalanced
+                              ? 'bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-rose-100/60 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300'
+                          }`}>
+                            <span className="uppercase text-[10px]">Diferença Digital:</span>
+                            <span className="text-base">{formatCurrency(closingCalcs.digital.digitalDifference)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* CARD CENTRAL DE DIVERGÊNCIA GERAL CONSOLIDADA */}
+                    <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border-2 border-slate-100 dark:border-slate-800 shadow-xl max-w-xl mx-auto space-y-4 text-center">
+                      <p className="text-xs font-black uppercase text-slate-400 tracking-wider">
+                        Divergência Consolidada do Fechamento
+                      </p>
+                      <h3 className={`text-5xl font-black tracking-tight ${
+                        closingCalcs.isBalanced ? 'text-emerald-600' : 'text-rose-600'
+                      }`}>
+                        {formatCurrency(closingCalcs.globalDifference)}
                       </h3>
-                      <button ref={firstInputRef} onClick={handleNext} className="mt-8 px-10 py-4 bg-red-600 text-white rounded-2xl font-black uppercase shadow-xl transition-all">Finalizar (ENTER)</button>
-                    {(totalExpenses > 0 || totalNonRegistered > 0 || totalCrediario > 0) && (
+
+                      <div className="flex items-center justify-center gap-6 text-xs text-slate-500 dark:text-slate-400 pt-2">
+                        <div>
+                          <span className="block font-medium">Gaveta (Dinheiro):</span>
+                          <strong className={closingCalcs.cash.isBalanced ? 'text-emerald-600' : 'text-rose-600'}>
+                            {formatCurrency(closingCalcs.cash.cashDifference)}
+                          </strong>
+                        </div>
+                        <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+                        <div>
+                          <span className="block font-medium">Digital (Cartões/Pix):</span>
+                          <strong className={closingCalcs.digital.isBalanced ? 'text-emerald-600' : 'text-indigo-600'}>
+                            {formatCurrency(closingCalcs.digital.digitalDifference)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <button 
+                        ref={firstInputRef} 
+                        onClick={handleNext} 
+                        className="w-full mt-4 px-10 py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase shadow-xl hover:shadow-red-600/30 transition-all text-sm tracking-wider"
+                      >
+                        Finalizar Fechamento (ENTER)
+                      </button>
+                    </div>
+
+                    {(totalExpenses > 0 || totalNonRegistered > 0 || totalCrediario > 0 || creditReceiptsList.length > 0 || sangriaList.length > 0) && (
                       <div className="mt-8 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 text-left space-y-4">
                         <h4 className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2">
-                          <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados ({formatCurrency(totalExpenses + totalNonRegistered + totalCrediario)})
+                          <ShoppingBag className="w-3.5 h-3.5" /> Lançamentos Registrados do Dia
                         </h4>
                         {expensesList.length > 0 && (
                           <ul className="space-y-1">
                             {expensesList.map((item, idx) => (
-                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-                                <span>{item.desc}</span>
-                                <span>- {formatCurrency(item.val)}</span>
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700 dark:text-slate-300">
+                                <span>{item.desc} (Despesa)</span>
+                                <span className="text-rose-600">- {formatCurrency(item.val)}</span>
                               </li>
                             ))}
                           </ul>
@@ -1287,9 +1525,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                           <ul className="space-y-1 mt-2">
                             <h5 className="text-[10px] font-black uppercase text-rose-500">Vendas iFood</h5>
                             {ifoodList.map((item, idx) => (
-                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700 dark:text-slate-300">
                                 <span>{item.desc}</span>
-                                <span>- {formatCurrency(item.val)}</span>
+                                <span className="text-slate-600">{formatCurrency(item.val)}</span>
                               </li>
                             ))}
                           </ul>
@@ -1297,42 +1535,42 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                         {nonRegisteredList.length > 0 && (
                           <ul className="space-y-1 mt-2">
                             {nonRegisteredList.map((item, idx) => (
-                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700 dark:text-slate-300">
                                 <span>{item.desc} (s/ cadastro)</span>
-                                <span>- {formatCurrency(item.val)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {crediarioList.length > 0 && (
-                          <ul className="space-y-1 mt-2">
-                            <h5 className="text-[10px] font-black uppercase text-amber-500">Crediário</h5>
-                            {crediarioList.map((item, idx) => (
-                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
-                                <span>{item.client}</span>
-                                <span>- {formatCurrency(item.val)}</span>
+                                <span className="text-emerald-600">+ {formatCurrency(item.val)}</span>
                               </li>
                             ))}
                           </ul>
                         )}
                         {creditReceiptsList.length > 0 && (
                           <ul className="space-y-1 mt-2">
-                            <h5 className="text-[10px] font-black uppercase text-emerald-500">Recebimento Crediário</h5>
+                            <h5 className="text-[10px] font-black uppercase text-emerald-500">Recebimento Crediário (Entrou na Gaveta)</h5>
                             {creditReceiptsList.map((item, idx) => (
-                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700 dark:text-slate-300">
                                 <span>{item.customer}</span>
-                                <span>- {formatCurrency(item.val)}</span>
+                                <span className="text-emerald-600">+ {formatCurrency(item.val)}</span>
                               </li>
                             ))}
                           </ul>
-                         )}
+                        )}
                         {sangriaList.length > 0 && (
                           <ul className="space-y-1 mt-2">
-                            <h5 className="text-[10px] font-black uppercase text-orange-500">Sangrias</h5>
+                            <h5 className="text-[10px] font-black uppercase text-orange-500">Sangrias (Retiradas da Gaveta)</h5>
                             {sangriaList.map((item, idx) => (
-                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700">
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700 dark:text-slate-300">
                                 <span>{item.desc}</span>
-                                <span>+ {formatCurrency(item.val)}</span>
+                                <span className="text-orange-600">- {formatCurrency(item.val)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {crediarioList.length > 0 && (
+                          <ul className="space-y-1 mt-2">
+                            <h5 className="text-[10px] font-black uppercase text-amber-500">Vendas Fiado Novo (A receber)</h5>
+                            {crediarioList.map((item, idx) => (
+                              <li key={item.id || idx} className="flex justify-between text-sm font-bold text-slate-700 dark:text-slate-300">
+                                <span>{item.client}</span>
+                                <span className="text-amber-600">{formatCurrency(item.val)}</span>
                               </li>
                             ))}
                           </ul>
