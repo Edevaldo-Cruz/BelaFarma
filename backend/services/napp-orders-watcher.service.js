@@ -664,38 +664,49 @@ function isIFoodOrderAlert(text) {
   return hasNovoPedido && hasFarmacia;
 }
 
+const WHATSAPP_TRIGGER_DELAY_MS = 10 * 60 * 1000; // 10 minutos
+const scheduledWhatsAppTimers = new Set();
+
 /**
- * Gatilho chamado quando a mensagem de novo pedido iFood chega no WhatsApp principal
+ * Gatilho chamado quando a mensagem de novo pedido iFood chega no WhatsApp principal.
+ * Aguarda 10 minutos após o recebimento do alerta para disparar a consulta na Napp,
+ * dando tempo hábil para a separação, expedição e finalização da entrega do pedido.
  */
-async function triggerNappCheckFromWhatsApp(messageText = '', sender = '') {
-  console.log(`[Napp Watcher] 📲 GATILHO WHATSAPP DISPARADO de ${sender}!`);
+function triggerNappCheckFromWhatsApp(messageText = '', sender = '', { delayMs = WHATSAPP_TRIGGER_DELAY_MS } = {}) {
+  console.log(`[Napp Watcher] 📲 GATILHO WHATSAPP RECEBIDO de ${sender}!`);
   console.log(`[Napp Watcher] 📄 Mensagem: "${messageText.replace(/\r?\n/g, ' ')}"`);
 
   // Extrai código numérico caso venha na mensagem (ex: #6099 ou 6099)
   const codeMatch = messageText.match(/#?(\d{4,6})/);
+  let orderCodeStr = '';
   if (codeMatch) {
-    trackedPendingCodes.add(codeMatch[1]);
-    console.log(`[Napp Watcher] 🔍 Código de pedido detectado no alerta: #${codeMatch[1]}`);
+    orderCodeStr = codeMatch[1];
+    trackedPendingCodes.add(orderCodeStr);
+    console.log(`[Napp Watcher] 🔍 Código de pedido detectado no alerta: #${orderCodeStr}`);
   }
 
-  // Define janela de vigilância ativa de 60 minutos
-  activeWatchExpiresAt = Date.now() + 60 * 60 * 1000;
+  const delayMinutes = Math.round(delayMs / 60000);
+  console.log(`[Napp Watcher] ⏳ Aguardando ${delayMinutes} minutos após o evento do WhatsApp para consultar a Napp...`);
 
-  // Executa checagem imediata no Napp
-  const res = await syncNappOrders({ includePast30Days: false });
+  // Agenda a consulta na Napp para daqui a 10 minutos (ou delayMs especificado)
+  const timer = setTimeout(async () => {
+    scheduledWhatsAppTimers.delete(timer);
+    console.log(`[Napp Watcher] ⏰ Tempo de espera (${delayMinutes} min) concluído! Consultando pedido no Napp agora...`);
 
-  // Se houver pedido em andamento hoje ou códigos pendentes, ativa vigilância de alta frequência (60s)
-  if (res?.hasPendingOrdersToday || trackedPendingCodes.size > 0) {
-    startActiveWatchInterval();
-  } else {
-    // Se a Napp ainda não listou o pedido no exato segundo que a msg chegou, agenda duas checagens curtas (30s e 90s)
-    setTimeout(() => {
-      console.log('[Napp Watcher] 🔄 Checagem de confirmação pós-notificação WhatsApp (30s)...');
-      syncNappOrders({ includePast30Days: false }).then(r => {
-        if (r?.hasPendingOrdersToday || trackedPendingCodes.size > 0) startActiveWatchInterval();
-      }).catch(e => {});
-    }, 30 * 1000);
-  }
+    // Define janela de vigilância ativa de 60 minutos a partir deste momento
+    activeWatchExpiresAt = Date.now() + 60 * 60 * 1000;
+
+    // Executa a checagem no Napp
+    const res = await syncNappOrders({ includePast30Days: false });
+
+    // Se o pedido ainda estiver em trânsito (não entregue) hoje, ativa vigilância de 60s até a entrega
+    if (res?.hasPendingOrdersToday || trackedPendingCodes.size > 0) {
+      startActiveWatchInterval();
+    }
+  }, delayMs);
+
+  scheduledWhatsAppTimers.add(timer);
+  return timer;
 }
 
 /**
@@ -752,6 +763,10 @@ function stopNappOrdersWatcher() {
     clearInterval(watcherInterval);
     watcherInterval = null;
   }
+  for (const t of scheduledWhatsAppTimers) {
+    clearTimeout(t);
+  }
+  scheduledWhatsAppTimers.clear();
   stopActiveWatchInterval();
 }
 
