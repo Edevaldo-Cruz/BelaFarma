@@ -329,9 +329,9 @@ async function launchDigifarmaPreVenda(orderDetail, itemsWithProducts) {
 /**
  * Registra o pedido iFood na tabela de controle financeiro ifood_sales (Previsão D+30)
  */
-function recordIFoodSale(orderDetail) {
-  const orderId = orderDetail.id;
+function recordIFoodSale(orderDetail, fallbackId = null) {
   const orderCode = String(orderDetail.code || '').trim();
+  const orderId = orderDetail.id || fallbackId || ('napp_' + orderCode);
   const rawDate = orderDetail.date || new Date().toISOString();
   const saleDateStr = getLocalDateStr(rawDate);
 
