@@ -452,8 +452,44 @@ module.exports = (db) => {
         });
       }
 
+  router.get('/oportunidades/ranking', async (req, res) => {
+    try {
+      const { status, fornecedor_id, busca, limite, apenas_hoje, apenas_com_desconto, apenas_bonificadas } = req.query;
+      const apenasHojeBool = apenas_hoje === 'true' || apenas_hoje === '1';
+      const ranking = comprasMineracaoService.obterRankingOportunidades(db, {
+        status: status || null,
+        fornecedorId: fornecedor_id || null,
+        busca: busca || null,
+        apenasHoje: apenasHojeBool,
+        apenasComDesconto: apenas_com_desconto !== 'false' && apenas_com_desconto !== '0',
+        apenasBonificadas: apenas_bonificadas === 'true' || apenas_bonificadas === '1',
+        limite: limite ? parseInt(limite, 10) : 20
+      });
+
+      res.json({ success: true, data: ranking });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /oportunidades/ranking:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/oportunidades/bonificadas', async (req, res) => {
+    try {
+      const { status, fornecedor_id, busca, limite, offset, apenas_hoje } = req.query;
+      const apenasHojeBool = apenas_hoje === undefined ? false : (apenas_hoje === 'true' || apenas_hoje === '1');
+      const oportunidades = comprasMineracaoService.listarOportunidades(db, {
+        status: status || null,
+        fornecedorId: fornecedor_id || null,
+        busca: busca || null,
+        apenasBonificadas: true,
+        apenasHoje: apenasHojeBool,
+        limite: limite ? parseInt(limite, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0
+      });
+
       res.json({ success: true, data: oportunidades });
     } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /oportunidades/bonificadas:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });

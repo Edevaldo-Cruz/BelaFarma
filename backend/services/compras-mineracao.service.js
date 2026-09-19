@@ -428,6 +428,225 @@ function isPossivelDosagemOuConcentracao(valor, linha) {
 }
 
 /**
+ * Analisa e extrai detalhes matemáticos de bonificações comerciais farmacêuticas.
+ * Suporta:
+ * - "compre 10 ganhe 2", "compre 10 leve 12", "na compra de 5 caixas ganhe 1"
+ * - "10+2", "5+1", "12+3"
+ * - "leve 12 pague 10", "pague 10 leve 12"
+ * - "bonifica 1 a cada 5", "bonif 2 a cada 10"
+ * - "10% de desconto", "15% off"
+ */
+function extrairBonificacaoDetalhada(linha, precoBruto) {
+  const bruto = typeof precoBruto === 'number' ? precoBruto : (parsePriceValue(precoBruto) || 0);
+  if (!linha || typeof linha !== 'string') {
+    return {
+      temBonificacao: false,
+      tipo: null,
+      descricao: null,
+      qtdComprada: 1,
+      qtdBonificada: 0,
+      qtdTotalRecebida: 1,
+      precoBruto: bruto,
+      precoLiquido: bruto,
+      economiaPercentual: 0,
+      economiaUnitario: 0,
+      ganhoMercadoriaReais: 0
+    };
+  }
+
+  // 1. "compre X ganhe Y" ou "compre X leve Y" ou "na compra de X ganhe Y"
+  const mCompreGanhe = /(?:(?:na\s+compra\s+de|compre|comprando)\s*(\d+)(?:\s*(?:cx|caixas?|un|unidades?|fr|frascos?))?\s*(?:ganhe|leve|bonif(?:ica)?)\s*(\d+))/i.exec(linha);
+  if (mCompreGanhe) {
+    const comprou = parseInt(mCompreGanhe[1], 10);
+    const ganhouOuLevou = parseInt(mCompreGanhe[2], 10);
+    const isLeve = /leve/i.test(mCompreGanhe[0]);
+    const totalRecebido = (isLeve && ganhouOuLevou > comprou) ? ganhouOuLevou : (comprou + ganhouOuLevou);
+    const qtdBonificada = totalRecebido - comprou;
+
+    if (comprou > 0 && totalRecebido > comprou) {
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = ((totalRecebido - comprou) / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = qtdBonificada * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'LEVE_MAIS_PAGUE_MENOS',
+        descricao: `Compre ${comprou} Ganhe ${qtdBonificada} (Leve ${totalRecebido})`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada,
+        qtdBonus: qtdBonificada,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 2. "X+Y" (ex: "10+2", "5+1")
+  const mMais = /\b(\d+)\s*\+\s*(\d+)\b/.exec(linha);
+  if (mMais) {
+    const comprou = parseInt(mMais[1], 10);
+    const ganhou = parseInt(mMais[2], 10);
+    const totalRecebido = comprou + ganhou;
+    if (comprou > 0 && ganhou > 0) {
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = (ganhou / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = ganhou * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'BONIFICACAO_PRODUTO',
+        descricao: `${comprou}+${ganhou} (Bônus de ${ganhou} un)`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada: ganhou,
+        qtdBonus: ganhou,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 3. "leve X pague Y" ou "pague Y leve X"
+  const mLevePague = /(?:leve\s*(\d+)\s*pague\s*(\d+)|pague\s*(\d+)\s*leve\s*(\d+))/i.exec(linha);
+  if (mLevePague) {
+    let totalRecebido = 0;
+    let comprou = 0;
+    if (mLevePague[1] && mLevePague[2]) {
+      totalRecebido = parseInt(mLevePague[1], 10);
+      comprou = parseInt(mLevePague[2], 10);
+    } else if (mLevePague[3] && mLevePague[4]) {
+      comprou = parseInt(mLevePague[3], 10);
+      totalRecebido = parseInt(mLevePague[4], 10);
+    }
+
+    if (comprou > 0 && totalRecebido > comprou) {
+      const qtdBonificada = totalRecebido - comprou;
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = (qtdBonificada / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = qtdBonificada * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'LEVE_MAIS_PAGUE_MENOS',
+        descricao: `Leve ${totalRecebido} Pague ${comprou}`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada,
+        qtdBonus: qtdBonificada,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 4. "bonifica X a cada Y" / "bonif X a cada Y"
+  const mBonifCada = /bonif(?:ica(?:[çc][ãa]o)?)?\s*(?:de\s*)?(\d+)\s*(?:a\s+cada|para\s+cada)\s*(\d+)/i.exec(linha);
+  if (mBonifCada) {
+    const ganhou = parseInt(mBonifCada[1], 10);
+    const comprou = parseInt(mBonifCada[2], 10);
+    const totalRecebido = comprou + ganhou;
+    if (comprou > 0 && ganhou > 0) {
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = (ganhou / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = ganhou * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'BONIFICACAO_PRODUTO',
+        descricao: `Bonifica ${ganhou} a cada ${comprou} comprados`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada: ganhou,
+        qtdBonus: ganhou,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 5. Desconto percentual comercial: "10% de desconto", "desc 15%", "20% off"
+  const mDesc = /(\d{1,2}(?:[\.,]\d+)?)\s*%\s*(?:de\s*desc(?:onto)?|off|bonif(?:icado)?)/i.exec(linha);
+  if (mDesc) {
+    const perc = parseFloat(mDesc[1].replace(',', '.'));
+    if (perc > 0 && perc < 100) {
+      const precoLiquido = bruto * (1 - (perc / 100));
+      const economiaUnitario = bruto - precoLiquido;
+
+      return {
+        temBonificacao: true,
+        tipo: 'DESCONTO_PERCENTUAL',
+        descricao: `${perc}% de desconto comercial`,
+        qtdComprada: 1,
+        qtdPaga: 1,
+        qtdBonificada: 0,
+        qtdBonus: 0,
+        qtdTotalRecebida: 1,
+        qtdTotal: 1,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(perc.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: 0,
+        economiaReaisTotal: 0
+      };
+    }
+  }
+
+  return {
+    temBonificacao: false,
+    tipo: null,
+    descricao: null,
+    qtdComprada: 1,
+    qtdPaga: 1,
+    qtdBonificada: 0,
+    qtdBonus: 0,
+    qtdTotalRecebida: 1,
+    qtdTotal: 1,
+    precoBruto: bruto,
+    precoLiquido: bruto,
+    precoLiquidoEfetivo: bruto,
+    economiaPercentual: 0,
+    economiaUnitario: 0,
+    ganhoMercadoriaReais: 0,
+    economiaReaisTotal: 0
+  };
+}
+
+/**
  * Identifica ofertas de produtos individuais em linhas de texto
  */
 function extrairLinhasDeOferta(texto) {
@@ -550,63 +769,18 @@ function extrairLinhasDeOferta(texto) {
         ean = eanMatch[1];
       }
 
-      // Busca bonificação ou desconto percentual
-      let bonificacao = null;
-      let precoLiquido = precoBruto;
-
-      // "compre 10 ganhe 2" ou "compre 10 leve 12" ou "10+2" ou "leve 12 pague 10" ou "pague 10 leve 12"
-      const bonusMatch = /(?:compre\s*(\d+)\s*(?:ganhe|leve)\s*(\d+)|(\d+)\s*\+\s*(\d+)|leve\s*(\d+)\s*pague\s*(\d+)|pague\s*(\d+)\s*leve\s*(\d+))/i.exec(trimmed);
-      if (bonusMatch) {
-        if (bonusMatch[1] && bonusMatch[2]) {
-          const comprou = parseInt(bonusMatch[1], 10);
-          const ganhouOuLevou = parseInt(bonusMatch[2], 10);
-          const totalRecebido = ganhouOuLevou > comprou ? ganhouOuLevou : comprou + ganhouOuLevou;
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `Compre ${comprou} Receba ${totalRecebido}`;
-          }
-        } else if (bonusMatch[3] && bonusMatch[4]) {
-          const comprou = parseInt(bonusMatch[3], 10);
-          const ganhou = parseInt(bonusMatch[4], 10);
-          const totalRecebido = comprou + ganhou;
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `${comprou}+${ganhou}`;
-          }
-        } else if (bonusMatch[5] && bonusMatch[6]) {
-          const totalRecebido = parseInt(bonusMatch[5], 10);
-          const comprou = parseInt(bonusMatch[6], 10);
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `Leve ${totalRecebido} Pague ${comprou}`;
-          }
-        } else if (bonusMatch[7] && bonusMatch[8]) {
-          const comprou = parseInt(bonusMatch[7], 10);
-          const totalRecebido = parseInt(bonusMatch[8], 10);
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `Pague ${comprou} Leve ${totalRecebido}`;
-          }
-        }
-      }
-
-      // Desconto percentual direto: "10% de desconto", "desc 15%", "20% off"
-      const descMatch = /(\d{1,2}(?:[\.,]\d+)?)\s*%\s*(?:de\s*desc(?:onto)?|off)/i.exec(trimmed);
-      if (descMatch) {
-        const perc = parseFloat(descMatch[1].replace(',', '.'));
-        if (perc > 0 && perc < 100) {
-          precoLiquido = precoLiquido * (1 - perc / 100);
-          bonificacao = bonificacao ? `${bonificacao} + ${perc}% desc` : `${perc}% desc`;
-        }
-      }
+      // Busca bonificação ou desconto percentual detalhado
+      const bonusInfo = extrairBonificacaoDetalhada(trimmed, precoBruto);
+      const bonificacao = bonusInfo.temBonificacao ? bonusInfo.descricao : null;
+      const precoLiquido = bonusInfo.precoLiquido;
 
       // Extrai o nome do produto removendo preços, ean e bonificações da linha
       let nomeProduto = trimmed
         .replace(matchedRegex, '')
         .replace(/(?:(?:por\s+)|(?:cada\s+)|(?:un\s*:\s*)|(?:un\s+))/gi, ' ')
         .replace(/\b(789\d{10}|\d{13})\b/g, '')
-        .replace(/(?:compre\s*\d+\s*(?:ganhe|leve)\s*\d+|\d+\s*\+\s*\d+|leve\s*\d+\s*pague\s*\d+|pague\s*\d+\s*leve\s*\d+)/gi, '')
-        .replace(/\d{1,2}(?:[\.,]\d+)?\s*%\s*(?:de\s*desc(?:onto)?|off)/gi, '')
+        .replace(/(?:(?:na\s+compra\s+de|compre|comprando)\s*\d+(?:\s*(?:cx|caixas?|un|unidades?|fr|frascos?))?\s*(?:ganhe|leve|bonif(?:ica)?)\s*\d+|\d+\s*\+\s*\d+|leve\s*\d+\s*pague\s*\d+|pague\s*\d+\s*leve\s*\d+|bonif(?:ica(?:[çc][ãa]o)?)?\s*(?:de\s*)?\d+\s*(?:a\s+cada|para\s+cada)\s*\d+)/gi, '')
+        .replace(/\d{1,2}(?:[\.,]\d+)?\s*%\s*(?:de\s*desc(?:onto)?|off|bonif(?:icado)?)/gi, '')
         .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#\u2190-\u21FF]+/gu, '')
         .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+$/gu, '')
         .replace(/\b(?:un|unidades?|cx|cxs|caixas?|fr|frascos?)\b[.:\->→=~]*$/gi, '')
@@ -631,18 +805,25 @@ function extrairLinhasDeOferta(texto) {
       }
 
       if (nomeProduto.length >= 4 && !isApenasEmbalagemOuQuantidade(nomeProduto) && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|boa noite|ol[áa]|aten[çc][ãa]o|vc\b|voc[eê]\b|compre\b|compra\b|comprando\b|leve\b|ganhe\b|pague\b|pagando\b|promo[çc]|ofertas?\b|descontos?\b|repassando|aviso|importante)/i.test(nomeProduto)) {
+        const qtdMin = bonusInfo.temBonificacao && bonusInfo.qtdComprada > 1 ? bonusInfo.qtdComprada : 1;
         ofertas.push({
           produtoNome: nomeProduto,
           ean,
           precoBruto: Number(precoBruto.toFixed(2)),
           precoOfertado: Number(precoLiquido.toFixed(2)),
-          qtdMinima: 1,
-          faixasPreco: [{ qtdMinima: 1, preco: Number(precoLiquido.toFixed(2)) }],
+          precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+          qtdMinima: qtdMin,
+          faixasPreco: [{ qtdMinima: qtdMin, preco: Number(precoLiquido.toFixed(2)) }],
           bonificacao,
+          bonificacaoDetalhe: bonusInfo.temBonificacao ? bonusInfo : null,
+          temBonificacao: bonusInfo.temBonificacao,
+          economiaBonificacaoPercentual: bonusInfo.economiaPercentual,
+          economiaBonificacaoReais: bonusInfo.ganhoMercadoriaReais,
           isCombo: comboAtual ? true : false,
           comboId: comboAtual ? comboAtual.id : null,
           comboNome: comboAtual ? comboAtual.nome : null,
-          linhaRaw: trimmed
+          linhaRaw: trimmed,
+          trechoOriginal: trimmed
         });
       }
     } else {
@@ -821,16 +1002,28 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
       const precoFinal = menorFaixa ? menorFaixa.preco : precoBase;
       const nomeProduto = (o.produtoNome || '').replace(/[\u2190-\u21FF]/g, '').trim();
 
+      // Enriquecimento e validação matemática da bonificação
+      const bonusCheck = extrairBonificacaoDetalhada(o.trechoOriginal || o.bonificacao || '', precoBase);
+      const temBonus = bonusCheck.temBonificacao;
+      const precoLiquidoReal = temBonus ? bonusCheck.precoLiquido : precoFinal;
+      const qtdMin = temBonus && bonusCheck.qtdComprada > 1 ? bonusCheck.qtdComprada : (menorFaixa ? menorFaixa.qtdMinima : (parseInt(o.qtdMinima, 10) || 1));
+
       return {
         produtoNome: nomeProduto,
         ean: o.ean || null,
-        precoOfertado: precoFinal,
-        qtdMinima: menorFaixa ? menorFaixa.qtdMinima : (parseInt(o.qtdMinima, 10) || 1),
+        precoBruto: Number(precoBase.toFixed(2)),
+        precoOfertado: Number(precoLiquidoReal.toFixed(2)),
+        precoLiquidoEfetivo: Number(precoLiquidoReal.toFixed(2)),
+        qtdMinima: qtdMin,
         isCombo: Boolean(o.isCombo),
         comboId: o.comboId || (o.isCombo && o.comboNome ? 'combo_' + Buffer.from(o.comboNome).toString('hex').slice(0, 8) : null),
         comboNome: o.comboNome || null,
         faixasPreco: faixas,
-        bonificacao: o.bonificacao || null,
+        bonificacao: temBonus ? bonusCheck.descricao : (o.bonificacao || null),
+        bonificacaoDetalhe: temBonus ? bonusCheck : null,
+        temBonificacao: temBonus,
+        economiaBonificacaoPercentual: bonusCheck.economiaPercentual,
+        economiaBonificacaoReais: bonusCheck.ganhoMercadoriaReais,
         trechoOriginal: o.trechoOriginal || null,
         linhaRaw: o.trechoOriginal || null
       };
@@ -1160,12 +1353,18 @@ function calcularPrecoUnitarioReal(prCompra, emb, ultFrac) {
  */
 async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, options = {}) {
   let targetProdutoId = null;
-  if (produtoNome && typeof produtoNome === 'object') {
-    const opts = produtoNome;
-    options = opts.options || options || {};
-    db = opts.db || db;
-    precoOfertado = opts.precoOfertado !== undefined ? opts.precoOfertado : precoOfertado;
-    ean = opts.ean || ean;
+  const entradaObj = (produtoNome && typeof produtoNome === 'object') ? produtoNome : null;
+  if (entradaObj) {
+    const opts = entradaObj;
+    if (ean && typeof ean.prepare === 'function') {
+      db = ean;
+      ean = opts.ean || null;
+    } else {
+      db = opts.db || (db && typeof db.prepare === 'function' ? db : null);
+      ean = opts.ean || (typeof ean === 'string' ? ean : null);
+    }
+    options = Object.assign({}, opts, opts.options, (typeof precoOfertado === 'object' && precoOfertado && typeof precoOfertado.prepare !== 'function') ? precoOfertado : options);
+    precoOfertado = opts.precoOfertado !== undefined ? opts.precoOfertado : (typeof precoOfertado === 'number' ? precoOfertado : 0);
     targetProdutoId = opts.produtoId || opts.id || options.produtoId;
     produtoNome = opts.produtoNome || opts.descricao || '';
   } else if (options && options.produtoId) {
@@ -1539,20 +1738,27 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     } catch (e) {}
   }
 
+  const precoBrutoVal = parseFloat(options.precoBruto !== undefined ? options.precoBruto : (entradaObj?.precoBruto !== undefined ? entradaObj.precoBruto : precoOfertado)) || precoOfertado;
+  const bonificacaoDetalhe = options.bonificacaoDetalhe || entradaObj?.bonificacaoDetalhe || null;
+  const temBonificacao = Boolean(options.temBonificacao || entradaObj?.temBonificacao || (bonificacaoDetalhe && bonificacaoDetalhe.temBonificacao));
+  const precoLiquidoVal = parseFloat(options.precoLiquidoEfetivo !== undefined ? options.precoLiquidoEfetivo : (entradaObj?.precoLiquidoEfetivo !== undefined ? entradaObj.precoLiquidoEfetivo : (bonificacaoDetalhe?.precoLiquidoEfetivo || bonificacaoDetalhe?.precoLiquido || precoOfertado))) || precoOfertado;
+
+  const precoComparacao = (temBonificacao && precoLiquidoVal > 0) ? precoLiquidoVal : precoOfertado;
+
   // Calcula a economia percentual
   let percentualDesconto = 0;
   let precoInferior = false;
 
   if (precoUltCompra && precoUltCompra > 0) {
-    if (precoOfertado > 0 && precoOfertado < precoUltCompra) {
-      percentualDesconto = ((precoUltCompra - precoOfertado) / precoUltCompra) * 100;
+    if (precoComparacao > 0 && precoComparacao < precoUltCompra) {
+      percentualDesconto = ((precoUltCompra - precoComparacao) / precoUltCompra) * 100;
       precoInferior = true;
-    } else if (precoOfertado >= precoUltCompra) {
-      percentualDesconto = -(((precoOfertado - precoUltCompra) / precoUltCompra) * 100);
+    } else if (precoComparacao >= precoUltCompra) {
+      percentualDesconto = -(((precoComparacao - precoUltCompra) / precoUltCompra) * 100);
     }
   }
 
-  const isOfertaValida = precoInferior && precoOfertado > 0;
+  const isOfertaValida = precoInferior && precoComparacao > 0;
 
   // Verificação de elegibilidade dos últimos 10 meses (300 dias)
   let ativo10m = 1;
@@ -1589,6 +1795,13 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     };
   }
 
+  let viabilizadaPorBonificacao = false;
+  if (precoUltCompra && precoUltCompra > 0 && temBonificacao) {
+    if (precoBrutoVal >= precoUltCompra && precoComparacao < precoUltCompra) {
+      viabilizadaPorBonificacao = true;
+    }
+  }
+
   let statusCalculado = 'Oportunidade_Sem_Historico';
   let precisaRevisao = false;
   let motivoRevisao = null;
@@ -1618,12 +1831,19 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     notaFiscalUltCompra,
     embalagemUltCompra,
     precoTotalNota: precoTotalNota ? Number(precoTotalNota.toFixed(2)) : (precoUltCompra ? Number(precoUltCompra.toFixed(2)) : null),
+    precoBruto: Number(precoBrutoVal.toFixed(2)),
     precoOfertado: Number(precoOfertado.toFixed(2)),
+    precoLiquidoEfetivo: Number(precoComparacao.toFixed(2)),
     percentualDesconto: Number(percentualDesconto.toFixed(2)),
     percentualEconomia: Number(percentualDesconto.toFixed(2)),
     precoInferior: isOfertaValida,
     vantajosa: isOfertaValida && percentualDesconto <= 40,
     valida: isOfertaValida,
+    temBonificacao,
+    bonificacaoDetalhe,
+    viabilizadaPorBonificacao,
+    economiaBonificacaoPercentual: bonificacaoDetalhe ? (bonificacaoDetalhe.economiaPercentual || 0) : 0,
+    economiaBonificacaoReais: bonificacaoDetalhe ? (bonificacaoDetalhe.ganhoMercadoriaReais || 0) : 0,
     status: statusCalculado,
     precisaRevisao,
     motivoRevisao,
@@ -1803,7 +2023,12 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
     if (isApenasEmbalagemOuQuantidade(ofr.produtoNome)) {
       continue;
     }
-    const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, options);
+    const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, {
+      ...options,
+      precoBruto: ofr.precoBruto,
+      temBonificacao: ofr.temBonificacao,
+      bonificacaoDetalhe: ofr.bonificacaoDetalhe
+    });
     if (validacao.invalido) {
       continue;
     }
@@ -1820,6 +2045,13 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
       try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN precisa_revisao INTEGER DEFAULT 0'); } catch(e) {}
       try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN motivo_revisao TEXT'); } catch(e) {}
       try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN trecho_original TEXT'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_bruto REAL'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_liquido_efetivo REAL'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN tem_bonificacao INTEGER DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN bonificacao_detalhe TEXT'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN economia_bonificacao_percentual REAL DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN economia_bonificacao_reais REAL DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN viabilizada_por_bonificacao INTEGER DEFAULT 0'); } catch(e) {}
 
       const tableInfo = dbInst.prepare("PRAGMA table_info(compras_oportunidades_mineradas)").all();
       const colNames = new Set(tableInfo.map(c => c.name));
@@ -1925,6 +2157,34 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         fields.push('motivo_revisao');
         values.push(validacao.motivoRevisao || ofr.motivoRevisao || null);
       }
+      if (colNames.has('preco_bruto')) {
+        fields.push('preco_bruto');
+        values.push(validacao.precoBruto || ofr.precoBruto || ofr.precoOfertado);
+      }
+      if (colNames.has('preco_liquido_efetivo')) {
+        fields.push('preco_liquido_efetivo');
+        values.push(validacao.precoLiquidoEfetivo || ofr.precoOfertado);
+      }
+      if (colNames.has('tem_bonificacao')) {
+        fields.push('tem_bonificacao');
+        values.push((validacao.temBonificacao || ofr.temBonificacao) ? 1 : 0);
+      }
+      if (colNames.has('bonificacao_detalhe')) {
+        fields.push('bonificacao_detalhe');
+        values.push(validacao.bonificacaoDetalhe || ofr.bonificacaoDetalhe ? JSON.stringify(validacao.bonificacaoDetalhe || ofr.bonificacaoDetalhe) : null);
+      }
+      if (colNames.has('economia_bonificacao_percentual')) {
+        fields.push('economia_bonificacao_percentual');
+        values.push(validacao.economiaBonificacaoPercentual || ofr.economiaBonificacaoPercentual || 0);
+      }
+      if (colNames.has('economia_bonificacao_reais')) {
+        fields.push('economia_bonificacao_reais');
+        values.push(validacao.economiaBonificacaoReais || ofr.economiaBonificacaoReais || 0);
+      }
+      if (colNames.has('viabilizada_por_bonificacao')) {
+        fields.push('viabilizada_por_bonificacao');
+        values.push(validacao.viabilizadaPorBonificacao ? 1 : 0);
+      }
 
       const placeholders = fields.map(() => '?').join(', ');
       dbInst.prepare(`
@@ -1935,7 +2195,9 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
       ofertasProcessadas.push({
         id: ofertaId,
         produtoNome: ofr.produtoNome,
+        precoBruto: validacao.precoBruto || ofr.precoBruto || ofr.precoOfertado,
         precoOfertado: ofr.precoOfertado,
+        precoLiquidoEfetivo: validacao.precoLiquidoEfetivo || ofr.precoOfertado,
         qtdMinima: ofr.qtdMinima || 1,
         faixasPreco: ofr.faixasPreco || null,
         precoUltimaCompra: validacao.precoUltCompra,
@@ -1946,6 +2208,12 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         notaFiscalUltCompra: validacao.notaFiscalUltCompra,
         embalagemUltCompra: validacao.embalagemUltCompra,
         precoTotalNota: validacao.precoTotalNota,
+        bonificacao: ofr.bonificacao || null,
+        temBonificacao: Boolean(validacao.temBonificacao || ofr.temBonificacao),
+        bonificacaoDetalhe: validacao.bonificacaoDetalhe || ofr.bonificacaoDetalhe || null,
+        economiaBonificacaoPercentual: validacao.economiaBonificacaoPercentual || ofr.economiaBonificacaoPercentual || 0,
+        economiaBonificacaoReais: validacao.economiaBonificacaoReais || ofr.economiaBonificacaoReais || 0,
+        viabilizadaPorBonificacao: Boolean(validacao.viabilizadaPorBonificacao),
         isCombo: ofr.isCombo || false,
         comboId: ofr.comboId || null,
         comboNome: ofr.comboNome || null,
@@ -2402,6 +2670,10 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     sql += ` AND percentual_desconto > 0`;
   }
 
+  if (filtros.apenasBonificadas) {
+    sql += ` AND tem_bonificacao = 1`;
+  }
+
   // Filtro de validade dinâmica: se houver validade definida pelo representante, respeita até a data limite.
   // Caso contrário, aplica a validade padrão de 1 dia civil (hoje).
   if (filtros.apenasHoje !== false) {
@@ -2445,6 +2717,19 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     .filter(r => !isApenasEmbalagemOuQuantidade(r.produto_nome))
     .map(r => {
       const precoOfertado = parseFloat(r.preco_ofertado) || 0;
+      const precoBruto = parseFloat(r.preco_bruto) || precoOfertado;
+      const precoLiquidoEfetivo = parseFloat(r.preco_liquido_efetivo) || precoOfertado;
+      const temBonificacao = Boolean(r.tem_bonificacao);
+      let bonificacaoDetalhe = null;
+      if (r.bonificacao_detalhe) {
+        try {
+          bonificacaoDetalhe = typeof r.bonificacao_detalhe === 'string' ? JSON.parse(r.bonificacao_detalhe) : r.bonificacao_detalhe;
+        } catch (e) {}
+      }
+      const economiaBonificacaoPercentual = parseFloat(r.economia_bonificacao_percentual) || 0;
+      const economiaBonificacaoReais = parseFloat(r.economia_bonificacao_reais) || 0;
+      const viabilizadaPorBonificacao = Boolean(r.viabilizada_por_bonificacao);
+
       let precoUltCompra = parseFloat(r.preco_ult_compra_digifarma) || null;
       let descontoPercentual = parseFloat(r.percentual_desconto) || 0;
       let ultForn = r.ultimo_fornecedor || null;
@@ -2478,17 +2763,19 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
         }
       } catch (e) {}
 
-      if (precoUltCompra && precoUltCompra > 0 && precoOfertado > 0) {
-        descontoPercentual = ((precoUltCompra - precoOfertado) / precoUltCompra) * 100;
+      // Compara com o preço líquido efetivo (diluído por bônus)
+      const precoComparacao = precoLiquidoEfetivo > 0 ? precoLiquidoEfetivo : precoOfertado;
+      if (precoUltCompra && precoUltCompra > 0 && precoComparacao > 0) {
+        descontoPercentual = ((precoUltCompra - precoComparacao) / precoUltCompra) * 100;
       }
 
       let statusEfetivo = r.status;
       if (precoUltCompra && precoUltCompra > 0) {
-        if (precoOfertado > 0) {
+        if (precoComparacao > 0) {
           if (descontoPercentual > 40) {
             statusEfetivo = 'Revisao_Manual';
           } else {
-            statusEfetivo = precoOfertado < precoUltCompra ? 'Aprovado_Radar' : 'Descartado_Preco_Maior';
+            statusEfetivo = precoComparacao < precoUltCompra ? 'Aprovado_Radar' : 'Descartado_Preco_Maior';
           }
         } else {
           statusEfetivo = 'Descartado_Preco_Maior';
@@ -2518,7 +2805,7 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
             ativo10m = Number(pCache.ativo_10m);
           }
         } else {
-          ativo10m = (pIdResolvido || r.ean) ? 1 : 0;
+          ativo10m = 1;
         }
       } catch (e) {}
 
@@ -2544,7 +2831,7 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     let justificativaTexto = 'Oferta de representante comercial';
     let scoreRelevancia = 0;
 
-    const economiaValor = precoUltCompra && precoUltCompra > precoOfertado ? (precoUltCompra - precoOfertado) : 0;
+    const economiaValor = precoUltCompra && precoUltCompra > precoComparacao ? (precoUltCompra - precoComparacao) : 0;
     const temEconomia = economiaValor > 0 && descontoPercentual > 0;
     const temRupturaCritica = emRuptura && estoqueAtual <= 0;
     const temEstoqueBaixo = emRuptura && estoqueAtual > 0 && estoqueAtual < estoqueMinimo;
@@ -2554,6 +2841,11 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       justificativaCor = 'amber';
       justificativaTexto = `Desconto de ${descontoPercentual.toFixed(1)}% acima da trava de segurança (40%). Requer conferência humana se o preço é unitário ou da caixa.`;
       scoreRelevancia = 50;
+    } else if (temRupturaCritica && temBonificacao) {
+      justificativaBadge = '🚨 Ruptura + Bonificação';
+      justificativaCor = 'red';
+      justificativaTexto = `Estoque Zerado com Bonificação Comercial Ativa! Custo efetivo de R$ ${precoComparacao.toFixed(2)}/un (${descontoPercentual.toFixed(1)}% abaixo da últ. compra).`;
+      scoreRelevancia = 230 + descontoPercentual;
     } else if (temRupturaCritica && temEconomia) {
       justificativaBadge = '🚨 Ruptura + Desconto';
       justificativaCor = 'red';
@@ -2564,6 +2856,16 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       justificativaCor = 'red';
       justificativaTexto = `Estoque Zerado (Mínimo: ${estoqueMinimo}). Reposição obrigatória para não perder vendas.`;
       scoreRelevancia = 150;
+    } else if (viabilizadaPorBonificacao) {
+      justificativaBadge = '🎁 Viabilizado por Bônus';
+      justificativaCor = 'emerald';
+      justificativaTexto = `Preço bruto de tabela (R$ ${precoBruto.toFixed(2)}) torna-se vantajoso a R$ ${precoLiquidoEfetivo.toFixed(2)}/un via bonificação. Economia de ${descontoPercentual.toFixed(1)}% vs últ. compra.`;
+      scoreRelevancia = 100 + descontoPercentual;
+    } else if (temBonificacao && temEconomia) {
+      justificativaBadge = '🎁 Bônus + Desconto';
+      justificativaCor = 'emerald';
+      justificativaTexto = `Oferta com Bonificação Comercial (${bonificacaoDetalhe?.tipo || 'bônus'})! Preço líquido R$ ${precoLiquidoEfetivo.toFixed(2)}/un com ${descontoPercentual.toFixed(1)}% de vantagem.`;
+      scoreRelevancia = 80 + descontoPercentual;
     } else if (temEstoqueBaixo && temEconomia) {
       justificativaBadge = '⚡ Reposição + Desconto';
       justificativaCor = 'amber';
@@ -2628,6 +2930,20 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       ean: r.ean,
       precoOfertado,
       preco_ofertado: precoOfertado,
+      precoBruto,
+      preco_bruto: precoBruto,
+      precoLiquidoEfetivo,
+      preco_liquido_efetivo: precoLiquidoEfetivo,
+      temBonificacao,
+      tem_bonificacao: temBonificacao,
+      bonificacaoDetalhe,
+      bonificacao_detalhe: bonificacaoDetalhe,
+      economiaBonificacaoPercentual,
+      economia_bonificacao_percentual: economiaBonificacaoPercentual,
+      economiaBonificacaoReais,
+      economia_bonificacao_reais: economiaBonificacaoReais,
+      viabilizadaPorBonificacao,
+      viabilizada_por_bonificacao: viabilizadaPorBonificacao,
       qtdMinima,
       qtd_minima: qtdMinima,
       faixasPreco,
@@ -2639,7 +2955,6 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       notaFiscalUltCompra: nfUlt,
       embalagemUltCompra: embUlt,
       precoTotalNota: pTotal,
-      precoLiquidoEfetivo: precoOfertado,
       descontoPercentual,
       percentual_desconto: descontoPercentual,
       economiaPercentual: descontoPercentual,
@@ -2696,6 +3011,110 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
   }
 
   return filteredItems;
+}
+
+/**
+ * Retorna o Ranking Estratégico de Oportunidades por Retorno Financeiro Estimado (R$).
+ * Cruza o preço líquido da oferta minerada com a demanda (vendas_30d / curva ABC / ruptura)
+ * de compras_estoque_cache para calcular a economia real projetada no mês.
+ */
+function obterRankingOportunidades(dbOrOptions = {}, talvezOptions = {}) {
+  let db, options;
+  if (dbOrOptions && typeof dbOrOptions.prepare === 'function') {
+    db = dbOrOptions;
+    options = talvezOptions || {};
+  } else {
+    db = getDb();
+    options = (typeof dbOrOptions === 'object' && dbOrOptions !== null) ? dbOrOptions : (talvezOptions || {});
+  }
+
+  if (!db) return { totalOportunidadesAvaliadas: 0, economiaProjetadaTotalReais: 0, itens: [] };
+
+  const limite = options.limite ? parseInt(options.limite, 10) : 20;
+  const apenasHoje = options.apenasHoje !== undefined ? options.apenasHoje : false;
+
+  // Busca as oportunidades válidas (com desconto e ativas)
+  const oportunidades = listarOportunidades(db, {
+    apenasHoje,
+    apenasComDesconto: options.apenasComDesconto !== false,
+    status: options.status || null,
+    apenasBonificadas: options.apenasBonificadas || false,
+    busca: options.busca || null,
+    fornecedorId: options.fornecedorId || null
+  });
+
+  let stmtEstoque = null;
+  try {
+    stmtEstoque = db.prepare(`
+      SELECT produto_id, ean, descricao, saldo, est_minimo_calculado, est_minimo_digifarma,
+             curva_abc, vendas_30d, vmd_ponderado, em_ruptura, cmv_atual
+      FROM compras_estoque_cache
+      WHERE produto_id = ? OR ean = ?
+      LIMIT 1
+    `);
+  } catch (e) {}
+
+  const ranking = [];
+  let economiaProjetadaTotalReais = 0;
+
+  for (const op of oportunidades) {
+    let dadosEstoque = null;
+    if (stmtEstoque && (op.produtoId || op.ean)) {
+      try {
+        dadosEstoque = stmtEstoque.get(String(op.produtoId || ''), String(op.ean || ''));
+      } catch (e) {}
+    }
+
+    const curvaAbc = dadosEstoque?.curva_abc || 'B';
+    const vendas30d = parseFloat(dadosEstoque?.vendas_30d) || (dadosEstoque?.vmd_ponderado ? Math.round(parseFloat(dadosEstoque.vmd_ponderado) * 30) : 0);
+    
+    // Giro mensal projetado: vendas reais ou estimativa conservadora por curva
+    const giroMensal = vendas30d > 0 ? vendas30d : (curvaAbc === 'A' ? 30 : curvaAbc === 'B' ? 15 : 5);
+
+    const precoRef = op.precoUltCompraDigifarma || op.precoBruto || op.precoOfertado;
+    const precoEfetivo = op.precoLiquidoEfetivo || op.precoOfertado;
+    const economiaUnitario = Math.max(0, precoRef - precoEfetivo);
+
+    // Quantidade sugerida para o ciclo (respeitando lote mínimo)
+    const qtdCompraSugerida = Math.max(op.qtdMinima || 1, giroMensal);
+    const economiaProjetadaReais = Math.round((economiaUnitario * qtdCompraSugerida) * 100) / 100;
+    const investimentoProjetadoReais = Math.round((precoEfetivo * qtdCompraSugerida) * 100) / 100;
+    const roiEstimado = investimentoProjetadoReais > 0 ? Math.round(((economiaProjetadaReais / investimentoProjetadoReais) * 100) * 10) / 10 : 0;
+
+    // Score Estratégico Ponderado
+    let multiplicadorCurva = curvaAbc === 'A' ? 2.5 : curvaAbc === 'B' ? 1.5 : 1.0;
+    let multiplicadorRuptura = op.emRuptura ? (op.estoqueAtual <= 0 ? 2.0 : 1.4) : 1.0;
+    let bonusBonificacao = op.temBonificacao ? 40 : 0;
+
+    const scoreEstrategico = Math.round(
+      (economiaProjetadaReais * 5 * multiplicadorCurva * multiplicadorRuptura) +
+      (op.descontoPercentual * 2) +
+      bonusBonificacao
+    );
+
+    ranking.push({
+      ...op,
+      curvaAbc,
+      giroMensalEstimado: giroMensal,
+      qtdCompraSugerida,
+      economiaUnitario: Math.round(economiaUnitario * 100) / 100,
+      economiaProjetadaReais,
+      investimentoProjetadoReais,
+      roiEstimado,
+      scoreEstrategico
+    });
+
+    economiaProjetadaTotalReais += economiaProjetadaReais;
+  }
+
+  // Ordena pelo maior retorno / score estratégico
+  ranking.sort((a, b) => b.scoreEstrategico - a.scoreEstrategico);
+
+  return {
+    totalOportunidadesAvaliadas: ranking.length,
+    economiaProjetadaTotalReais: Math.round(economiaProjetadaTotalReais * 100) / 100,
+    itens: ranking.slice(0, limite)
+  };
 }
 
 /**
@@ -3909,6 +4328,7 @@ module.exports = {
   minerarHistoricoConversas,
   executarVarreduraRetroativa90Dias,
   listarOportunidades,
+  obterRankingOportunidades,
   listarFornecedoresMinerados,
   obterCatalogoFornecedor,
   atualizarFornecedorMeta,
@@ -3918,6 +4338,7 @@ module.exports = {
   atualizarDadosContatoFornecedor,
   extrairTermosBuscaProduto,
   pontuarCorrespondencia,
+  extrairBonificacaoDetalhada,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO
