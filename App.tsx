@@ -380,17 +380,26 @@ const App: React.FC = () => {
             const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
             // Não há repasse em finais de semana (Sábado e Domingo)
             if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-              const [resPending, resClosings] = await Promise.all([
+              const [resPending, resClosings, resIFood] = await Promise.all([
                 fetch('/api/card-machine-receivables/pending-due'),
-                fetch('/api/cash-closings')
+                fetch('/api/cash-closings'),
+                fetch('/api/ifood-sales/reconcile-today')
               ]);
+
+              let hasIFoodPending = false;
+              if (resIFood && resIFood.ok) {
+                try {
+                  const ifoodJson = await resIFood.json();
+                  hasIFoodPending = !!(ifoodJson && ifoodJson.count > 0);
+                } catch (e) {}
+              }
 
               if (resPending.ok) {
                 const pending = await resPending.json();
-                if (Array.isArray(pending) && pending.length > 0) {
+                if ((Array.isArray(pending) && pending.length > 0) || hasIFoodPending) {
                   candidateItems.push({
                     id: 'card-machines',
-                    title: 'Conferência de Maquininha & Provisões',
+                    title: 'Conferência de Repasses & Provisões',
                     badge: 'Financeiro',
                     badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                   });

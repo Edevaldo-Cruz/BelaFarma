@@ -3778,6 +3778,62 @@ app.delete('/api/ifood-sales/:id', (req, res) => {
   }
 });
 
+// GET /api/ifood-sales/reconcile-today — Repasses iFood pendentes com vencimento até hoje
+app.get('/api/ifood-sales/reconcile-today', (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const pendingSales = db.prepare(`
+      SELECT * FROM ifood_sales
+      WHERE status = 'Pendente' AND payment_due_date <= ?
+      ORDER BY payment_due_date ASC, sale_date ASC
+    `).all(today);
+
+    const totalExpected = pendingSales.reduce((acc, s) => acc + (s.net_value || 0), 0);
+    const totalGross = pendingSales.reduce((acc, s) => acc + (s.gross_value || 0), 0);
+    const totalFee = pendingSales.reduce((acc, s) => acc + (s.operator_fee_value || 0), 0);
+
+    res.json({
+      today,
+      sales: pendingSales,
+      totalExpected,
+      totalGross,
+      totalFee,
+      count: pendingSales.length
+    });
+  } catch (err) {
+    console.error('Error fetching today iFood reconcile sales:', err);
+    res.status(500).json({ error: 'Erro ao buscar repasses do iFood.' });
+  }
+});
+
+// POST /api/napp/sync-orders — Dispara sincronização de pedidos Napp sob demanda
+app.post('/api/napp/sync-orders', async (req, res) => {
+  try {
+    const nappWatcher = require('./services/napp-orders-watcher.service.js');
+    const includePast30Days = !!req.body?.includePast30Days;
+    const result = await nappWatcher.syncNappOrders({ includePast30Days });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro na sincronização manual de pedidos Napp:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/napp/orders-status — Retorna histórico dos últimos pedidos vigiados e pendências
+app.get('/api/napp/orders-status', (req, res) => {
+  try {
+    const syncHistory = db.prepare(`
+      SELECT * FROM napp_orders_sync
+      ORDER BY order_date DESC, synced_at DESC
+      LIMIT 100
+    `).all();
+    res.json(syncHistory);
+  } catch (err) {
+    console.error('Erro ao buscar status de sincronização Napp:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== SYSTEM SETTINGS =====
 
 // GET all settings or a specific setting
@@ -4593,6 +4649,14 @@ app.get('/api/run-auto-shortages', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+
+// 🍔 VIGIA DE PEDIDOS IFOOD VIA NAPP SOLUTIONS
+try {
+  const { startNappOrdersWatcher } = require('./services/napp-orders-watcher.service.js');
+  startNappOrdersWatcher();
+} catch (e) {
+  console.error('[Napp Watcher] ⚠️ Falha ao inicializar vigia Napp:', e.message);
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // 🤖 BAILEYS WHATSAPP SERVICE — Inicialização e Endpoints

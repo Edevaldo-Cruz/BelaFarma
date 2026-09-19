@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "cc721fc",
-  "commitMessage": "fix(delivery): focar auditoria estritamente no dia atual e descartar rotas de dias anteriores",
-  "buildTime": "19/09/2026, 11:15:41"
+  "commitHash": "7b6ca85",
+  "commitMessage": "fix(fechamento): segrega conferência de gaveta e digital, corrige sinal de crediário e adiciona testes unitários",
+  "buildTime": "19/09/2026, 14:00:15"
 }

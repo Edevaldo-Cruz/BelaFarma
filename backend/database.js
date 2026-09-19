@@ -1375,6 +1375,29 @@ try {
 
     console.log('✅ Módulo iFood: Tabela criada com sucesso!');
 
+    // Tabela de sincronização e vigia de pedidos Napp iFood
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS napp_orders_sync (
+        order_id TEXT PRIMARY KEY,
+        code TEXT,
+        order_date TEXT NOT NULL,
+        customer_name TEXT,
+        customer_document TEXT,
+        total_amount REAL NOT NULL,
+        is_today INTEGER DEFAULT 0,
+        prevenda_id INTEGER,
+        venda_nota_id INTEGER,
+        sync_status TEXT NOT NULL, -- 'SUCCESS', 'ITEM_NOT_FOUND', 'SKIPPED_PAST_DATE', 'ERROR'
+        error_log TEXT,
+        synced_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_napp_sync_order_date ON napp_orders_sync(order_date)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_napp_sync_status ON napp_orders_sync(sync_status)');
+    } catch (e) {}
+    console.log('✅ Napp Orders Sync: Tabela criada com sucesso!');
+
     // Tabela de configurações do sistema (chave-valor)
     db.exec(`
       CREATE TABLE IF NOT EXISTS system_settings (
