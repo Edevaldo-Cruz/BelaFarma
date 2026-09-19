@@ -11,6 +11,9 @@ let cachedToken = null;
 let tokenExpiry = 0;
 let isSyncing = false;
 let watcherInterval = null;
+let activeWatchInterval = null;
+let activeWatchExpiresAt = 0;
+const trackedPendingCodes = new Set();
 
 /**
  * Obtém ou renova token de autenticação na Napp Solutions
@@ -590,10 +593,16 @@ async function syncNappOrders({ includePast30Days = false } = {}) {
       if (orders.length === 0) break;
 
       for (const order of orders) {
-        // Apenas pedidos entregues
-        if (order.status !== 'DELIVERED') continue;
-
         const orderDateStr = getLocalDateStr(order.date);
+
+        // Se o pedido for de hoje e estiver em andamento (não entregue e não cancelado), sinalizar
+        if (orderDateStr === todayStr && order.status !== 'DELIVERED' && order.status !== 'CANCELED') {
+          results.hasPendingOrdersToday = true;
+          console.log(`[Napp Watcher] ⏳ Pedido #${order.code} de hoje em andamento (Status: ${order.status}). Aguardando ser entregue...`);
+        }
+
+        // Apenas pedidos entregues geram pré-venda no Digifarma e controle financeiro
+        if (order.status !== 'DELIVERED') continue;
 
         // Se não for retroativo 30d e o pedido for anterior a hoje, pular para o próximo (não break, pois a lista da Napp não é ordenada estritamente por data)
         if (!includePast30Days && orderDateStr !== todayStr) {
@@ -608,7 +617,13 @@ async function syncNappOrders({ includePast30Days = false } = {}) {
         try {
           const r = await processSingleOrder(order, token, todayStr);
           results.processed++;
-          if (r.preVendaId) results.createdPreVenda++;
+          if (r.preVendaId) {
+            results.createdPreVenda++;
+            if (trackedPendingCodes.has(order.code)) {
+              trackedPendingCodes.delete(order.code);
+              console.log(`[Napp Watcher] 🎉 Pedido pendente #${order.code} foi entregue e finalizado com sucesso!`);
+            }
+          }
           if (r.error) results.errors.push({ code: order.code, error: r.error });
         } catch (singleErr) {
           results.errors.push({ code: order.code, error: singleErr.message });
@@ -639,20 +654,97 @@ async function syncNappOrders({ includePast30Days = false } = {}) {
 }
 
 /**
- * Inicia o temporizador de verificação a cada 2 minutos
+ * Verifica se um texto recebido no WhatsApp corresponde ao alerta de novo pedido do iFood
+ */
+function isIFoodOrderAlert(text) {
+  if (!text || typeof text !== 'string') return false;
+  const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const hasNovoPedido = normalized.includes('novo pedido recebido') || normalized.includes('novo pedido');
+  const hasFarmacia = normalized.includes('bela farma');
+  return hasNovoPedido && hasFarmacia;
+}
+
+/**
+ * Gatilho chamado quando a mensagem de novo pedido iFood chega no WhatsApp principal
+ */
+async function triggerNappCheckFromWhatsApp(messageText = '', sender = '') {
+  console.log(`[Napp Watcher] 📲 GATILHO WHATSAPP DISPARADO de ${sender}!`);
+  console.log(`[Napp Watcher] 📄 Mensagem: "${messageText.replace(/\r?\n/g, ' ')}"`);
+
+  // Extrai código numérico caso venha na mensagem (ex: #6099 ou 6099)
+  const codeMatch = messageText.match(/#?(\d{4,6})/);
+  if (codeMatch) {
+    trackedPendingCodes.add(codeMatch[1]);
+    console.log(`[Napp Watcher] 🔍 Código de pedido detectado no alerta: #${codeMatch[1]}`);
+  }
+
+  // Define janela de vigilância ativa de 60 minutos
+  activeWatchExpiresAt = Date.now() + 60 * 60 * 1000;
+
+  // Executa checagem imediata no Napp
+  const res = await syncNappOrders({ includePast30Days: false });
+
+  // Se houver pedido em andamento hoje ou códigos pendentes, ativa vigilância de alta frequência (60s)
+  if (res?.hasPendingOrdersToday || trackedPendingCodes.size > 0) {
+    startActiveWatchInterval();
+  } else {
+    // Se a Napp ainda não listou o pedido no exato segundo que a msg chegou, agenda duas checagens curtas (30s e 90s)
+    setTimeout(() => {
+      console.log('[Napp Watcher] 🔄 Checagem de confirmação pós-notificação WhatsApp (30s)...');
+      syncNappOrders({ includePast30Days: false }).then(r => {
+        if (r?.hasPendingOrdersToday || trackedPendingCodes.size > 0) startActiveWatchInterval();
+      }).catch(e => {});
+    }, 30 * 1000);
+  }
+}
+
+/**
+ * Inicia ciclo de monitoramento frequente (a cada 60s) enquanto houver pedido em andamento
+ */
+function startActiveWatchInterval() {
+  if (activeWatchInterval) return;
+
+  console.log('[Napp Watcher] ⚡ Monitoramento ativo iniciado (checando a cada 60s até que o pedido seja entregue)...');
+  activeWatchInterval = setInterval(async () => {
+    if (Date.now() > activeWatchExpiresAt) {
+      console.log('[Napp Watcher] 💤 Janela de monitoramento ativo de 60 minutos expirou. Retornando ao modo de repouso.');
+      stopActiveWatchInterval();
+      return;
+    }
+
+    const res = await syncNappOrders({ includePast30Days: false });
+    if (!res?.hasPendingOrdersToday && trackedPendingCodes.size === 0) {
+      console.log('[Napp Watcher] ✅ Todos os pedidos de hoje estão entregues ou finalizados. Modo de repouso ativado.');
+      stopActiveWatchInterval();
+    }
+  }, 60 * 1000);
+}
+
+function stopActiveWatchInterval() {
+  if (activeWatchInterval) {
+    clearInterval(activeWatchInterval);
+    activeWatchInterval = null;
+  }
+}
+
+/**
+ * Inicia o serviço de monitoramento.
+ * Em vez de consultar a API da Napp de 2 em 2 minutos ininterruptamente,
+ * o monitoramento é acionado por evento via WhatsApp principal (frase de novo pedido)
+ * com acompanhamento ativo até a entrega, e um batimento leve de segurança (a cada 30 min).
  */
 function startNappOrdersWatcher() {
   if (watcherInterval) return;
 
-  console.log('[Napp Watcher] ⏱️ Iniciando serviço de monitoramento contínuo de pedidos iFood (a cada 2 minutos)...');
+  console.log('[Napp Watcher] 🎧 Modo de escuta ativado: Monitoramento Napp disparado via WhatsApp principal (frase de novo pedido) + batimento leve de 30min.');
 
   // Executa uma vez na inicialização verificando os últimos 30 dias
   syncNappOrders({ includePast30Days: true }).catch(e => console.error('[Napp Watcher] Erro inicial 30d:', e.message));
 
-  // Loop a cada 2 minutos (120.000 ms)
+  // Batimento leve de segurança (a cada 30 minutos em vez de 2 minutos)
   watcherInterval = setInterval(() => {
-    syncNappOrders({ includePast30Days: false }).catch(e => console.error('[Napp Watcher] Erro no ciclo:', e.message));
-  }, 2 * 60 * 1000);
+    syncNappOrders({ includePast30Days: false }).catch(e => console.error('[Napp Watcher] Erro no ciclo de segurança:', e.message));
+  }, 30 * 60 * 1000);
 }
 
 function stopNappOrdersWatcher() {
@@ -660,11 +752,15 @@ function stopNappOrdersWatcher() {
     clearInterval(watcherInterval);
     watcherInterval = null;
   }
+  stopActiveWatchInterval();
 }
 
 module.exports = {
   syncNappOrders,
   startNappOrdersWatcher,
   stopNappOrdersWatcher,
+  triggerNappCheckFromWhatsApp,
+  isIFoodOrderAlert,
   getNappToken
 };
+

@@ -315,11 +315,7 @@ async function connect(db) {
           if (!msg.message) return;
 
           const remoteJid = msg.key.remoteJid || '';
-          // Ignorar mensagens de grupos, status/stories e transmissões (evita vazamento de cota de IA)
-          if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.includes('@broadcast') || remoteJid === 'status@broadcast') return;
-
-          const phone = remoteJid.split('@')[0];
-          if (!phone || phone === 'status' || phone.includes('broadcast')) return;
+          if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.includes('@broadcast')) return;
 
           // Desembrulha mensagens envelopadas (ViewOnce, Ephemeral, DocumentWithCaption, etc.)
           let contentMsg = msg.message;
@@ -342,6 +338,27 @@ async function connect(db) {
           } else if (messageType === 'documentMessage' && contentMsg.documentMessage?.caption) {
             text = contentMsg.documentMessage.caption;
           }
+
+          // 🍔 Gatilho iFood / Napp: Monitoramento da frase de novo pedido recebido
+          if (text) {
+            try {
+              const { isIFoodOrderAlert, triggerNappCheckFromWhatsApp } = require('./services/napp-orders-watcher.service');
+              if (isIFoodOrderAlert(text)) {
+                console.log(`[Baileys] 🍔 Alerta de novo pedido iFood recebido no WhatsApp (${remoteJid})! Acionando vigia Napp...`);
+                triggerNappCheckFromWhatsApp(text, remoteJid).catch(err => {
+                  console.error('[Baileys] Erro no gatilho Napp:', err.message);
+                });
+              }
+            } catch (triggerErr) {
+              console.error('[Baileys] Falha ao verificar gatilho iFood:', triggerErr.message);
+            }
+          }
+
+          // Ignorar mensagens de grupos para fluxos normais de atendimento/CRM/PixBot (evita vazamento de cota de IA)
+          if (remoteJid.endsWith('@g.us')) return;
+
+          const phone = remoteJid.split('@')[0];
+          if (!phone || phone === 'status' || phone.includes('broadcast')) return;
 
           const cleanText = text ? text.toLowerCase().trim() : '';
 
