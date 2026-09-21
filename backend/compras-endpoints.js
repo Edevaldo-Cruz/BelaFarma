@@ -452,6 +452,13 @@ module.exports = (db) => {
         });
       }
 
+      res.json({ success: true, data: oportunidades });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /radar/oportunidades:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/oportunidades/ranking', async (req, res) => {
     try {
       const { status, fornecedor_id, busca, limite, apenas_hoje, apenas_com_desconto, apenas_bonificadas } = req.query;

@@ -386,6 +386,16 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
   }
   isScanningDeliveries = true;
 
+  const stats = {
+    processedChats: 0,
+    closedSalesCount: 0,
+    closedSalesAmount: 0,
+    unclosedSalesCount: 0,
+    unclosedSalesAmount: 0,
+    shortagesDetected: 0,
+    errors: 0
+  };
+
   try {
     // Sincronizar mensagens reais da Evolution API primeiro
     await syncMessagesFromEvolution(db);
@@ -401,21 +411,12 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
     let chatLimit = 200;
 
     if (options.allDays && options.hours) {
-      timeLimit = Date.now() - (options.hours * 60 * 60 * 1000);
       console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${options.hours}h)...`);
+      timeLimit = Date.now() - (options.hours * 60 * 60 * 1000);
     } else {
       console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries FOCADA NO DIA ATUAL (${now.toLocaleDateString('pt-BR')})...`);
     }
 
-    const stats = {
-      processedChats: 0,
-      closedSalesCount: 0,
-      closedSalesAmount: 0,
-      unclosedSalesCount: 0,
-      unclosedSalesAmount: 0,
-      shortagesDetected: 0,
-      errors: 0
-    };
     const allNewShortages = [];
 
     // Buscar chats ativos no dia atual com mensagens
