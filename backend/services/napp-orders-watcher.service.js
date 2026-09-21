@@ -397,13 +397,12 @@ async function processSingleOrder(orderSummary, token, todayStr) {
   const orderId = orderSummary.id;
   const orderCode = String(orderSummary.code || '');
   const orderDateStr = getLocalDateStr(orderSummary.date);
-  const isToday = (orderDateStr === todayStr);
 
   // Verificar histórico prévio no SQLite
   const prevSync = db.prepare("SELECT * FROM napp_orders_sync WHERE order_id = ?").get(orderId);
 
-  // Se já foi sincronizado com sucesso no Digifarma (ou dispensado por ser data passada) E já está no ifood_sales, nada a fazer
-  if (prevSync && (prevSync.sync_status === 'SUCCESS' || prevSync.sync_status === 'SKIPPED_PAST_DATE')) {
+  // Se já foi sincronizado com sucesso no Digifarma E já está no ifood_sales, nada a fazer
+  if (prevSync && prevSync.sync_status === 'SUCCESS') {
     const inIfood = db.prepare("SELECT id FROM ifood_sales WHERE id = ? OR description LIKE ?").get(orderId, `%#${orderCode}%`);
     if (inIfood) {
       return { skipped: true, code: orderCode };
@@ -416,7 +415,19 @@ async function processSingleOrder(orderSummary, token, todayStr) {
   // 1. Sempre registrar no controle financeiro do BelaFarma (ifood_sales)
   recordIFoodSale(detail);
 
-  // 2. Lançamento no Digifarma: APENAS se o pedido for de HOJE
+  // 2. Lançamento no Digifarma: Verificar se o pedido foi criado hoje OU entregue hoje OU criado nas últimas 24h
+  let deliveredAtStr = null;
+  if (Array.isArray(detail.order_status_history)) {
+    const deliveredEntry = detail.order_status_history.find(h => h.status === 'DELIVERED');
+    if (deliveredEntry && deliveredEntry.created_at) {
+      deliveredAtStr = getLocalDateStr(deliveredEntry.created_at);
+    }
+  }
+
+  const orderTime = new Date(orderSummary.date).getTime();
+  const isWithinLast24h = (Date.now() - orderTime) < (24 * 60 * 60 * 1000);
+  const isToday = (orderDateStr === todayStr) || (deliveredAtStr === todayStr) || (isWithinLast24h && detail.status === 'DELIVERED');
+
   if (!isToday) {
     db.prepare(`
       INSERT OR REPLACE INTO napp_orders_sync (
@@ -594,18 +605,21 @@ async function syncNappOrders({ includePast30Days = false } = {}) {
 
       for (const order of orders) {
         const orderDateStr = getLocalDateStr(order.date);
+        const orderTime = new Date(order.date).getTime();
+        const isRecent = (Date.now() - orderTime) < (48 * 60 * 60 * 1000);
+        const isTracked = trackedPendingCodes.has(String(order.code));
 
-        // Se o pedido for de hoje e estiver em andamento (não entregue e não cancelado), sinalizar
-        if (orderDateStr === todayStr && order.status !== 'DELIVERED' && order.status !== 'CANCELED') {
+        // Se o pedido for recente ou de hoje e estiver em andamento (não entregue e não cancelado), sinalizar
+        if ((orderDateStr === todayStr || isRecent || isTracked) && order.status !== 'DELIVERED' && order.status !== 'CANCELED') {
           results.hasPendingOrdersToday = true;
-          console.log(`[Napp Watcher] ⏳ Pedido #${order.code} de hoje em andamento (Status: ${order.status}). Aguardando ser entregue...`);
+          console.log(`[Napp Watcher] ⏳ Pedido #${order.code} em andamento (Status: ${order.status}). Aguardando ser entregue...`);
         }
 
         // Apenas pedidos entregues geram pré-venda no Digifarma e controle financeiro
         if (order.status !== 'DELIVERED') continue;
 
-        // Se não for retroativo 30d e o pedido for anterior a hoje, pular para o próximo (não break, pois a lista da Napp não é ordenada estritamente por data)
-        if (!includePast30Days && orderDateStr !== todayStr) {
+        // Se não for retroativo 30d, pular apenas se não for de hoje E não for recente (últimas 48h) E não for rastreado
+        if (!includePast30Days && !isRecent && !isTracked && orderDateStr !== todayStr) {
           continue;
         }
 
@@ -688,25 +702,32 @@ function triggerNappCheckFromWhatsApp(messageText = '', sender = '', { delayMs =
   const delayMinutes = Math.round(delayMs / 60000);
   console.log(`[Napp Watcher] ⏳ Aguardando ${delayMinutes} minutos após o evento do WhatsApp para consultar a Napp...`);
 
-  // Agenda a consulta na Napp para daqui a 10 minutos (ou delayMs especificado)
-  const timer = setTimeout(async () => {
-    scheduledWhatsAppTimers.delete(timer);
-    console.log(`[Napp Watcher] ⏰ Tempo de espera (${delayMinutes} min) concluído! Consultando pedido no Napp agora...`);
+  // Retorna Promise para ser compatível com await e .catch()
+  return new Promise((resolve) => {
+    const timer = setTimeout(async () => {
+      scheduledWhatsAppTimers.delete(timer);
+      try {
+        console.log(`[Napp Watcher] ⏰ Tempo de espera (${delayMinutes} min) concluído! Consultando pedido no Napp agora...`);
 
-    // Define janela de vigilância ativa de 60 minutos a partir deste momento
-    activeWatchExpiresAt = Date.now() + 60 * 60 * 1000;
+        // Define janela de vigilância ativa de 60 minutos a partir deste momento
+        activeWatchExpiresAt = Date.now() + 60 * 60 * 1000;
 
-    // Executa a checagem no Napp
-    const res = await syncNappOrders({ includePast30Days: false });
+        // Executa a checagem no Napp
+        const res = await syncNappOrders({ includePast30Days: false });
 
-    // Se o pedido ainda estiver em trânsito (não entregue) hoje, ativa vigilância de 60s até a entrega
-    if (res?.hasPendingOrdersToday || trackedPendingCodes.size > 0) {
-      startActiveWatchInterval();
-    }
-  }, delayMs);
+        // Se o pedido ainda estiver em trânsito (não entregue) hoje, ativa vigilância de 60s até a entrega
+        if (res?.hasPendingOrdersToday || trackedPendingCodes.size > 0) {
+          startActiveWatchInterval();
+        }
+        resolve(res);
+      } catch (err) {
+        console.error('[Napp Watcher] Erro ao consultar Napp via gatilho:', err.message);
+        resolve({ error: err.message });
+      }
+    }, delayMs);
 
-  scheduledWhatsAppTimers.add(timer);
-  return timer;
+    scheduledWhatsAppTimers.add(timer);
+  });
 }
 
 /**
@@ -776,6 +797,10 @@ module.exports = {
   stopNappOrdersWatcher,
   triggerNappCheckFromWhatsApp,
   isIFoodOrderAlert,
-  getNappToken
+  getNappToken,
+  fetchOrderDetail,
+  extractOrderItems,
+  processSingleOrder,
+  launchDigifarmaPreVenda
 };
 
