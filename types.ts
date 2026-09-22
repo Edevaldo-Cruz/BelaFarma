@@ -500,7 +500,37 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines';
+export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias';
+
+export type MotivoPerda = 'Vencido' | 'Avariado' | 'Furto/Roubo' | 'Uso Interno/Descarte';
+
+export interface ItemLotePerda {
+  id?: string;
+  lote_id?: string;
+  produto_id?: string | number;
+  codigo_barras: string;
+  descricao: string;
+  quantidade: number;
+  motivo: MotivoPerda;
+  preco_custo: number;
+  preco_venda: number;
+  saldo_anterior_digifarma?: number;
+  saldo_baixado_digifarma?: number;
+  observacao?: string;
+  is_controlado?: boolean;
+}
+
+export interface LotePerda {
+  id: string;
+  data_hora: string;
+  usuario_id?: string;
+  usuario_nome: string;
+  total_itens: number;
+  total_custo: number;
+  total_venda: number;
+  observacao_geral?: string;
+  itens?: ItemLotePerda[];
+}
 
 export interface CardMachineReceivable {
   id: string;

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "7b6ca85",
-  "commitMessage": "fix(fechamento): segrega conferência de gaveta e digital, corrige sinal de crediário e adiciona testes unitários",
-  "buildTime": "19/09/2026, 14:00:15"
+  "commitHash": "0b339fd",
+  "commitMessage": "fix(ifood): considerar data de entrega para lancamento no Digifarma e suportar pedidos agendados/noturnos",
+  "buildTime": "22/09/2026, 08:48:06"
 }

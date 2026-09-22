@@ -44,6 +44,7 @@ import {
   NotebookPen, // Added for Bloco de Notas
   RefreshCw, // Added for Digifarma Sync
   ShoppingBag, // Added for Central de Compras
+  Trash2, // Added for Perdas e Avarias
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -271,6 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
     { id: 'inventario', label: 'Inventário Rotativo', icon: ClipboardList },
+    { id: 'perdas-avarias', label: 'Perdas e Avarias', icon: Trash2 },
     { id: 'orders', label: 'Pedidos', icon: ShoppingCart },
     { id: 'users', label: 'Usuários', icon: UsersIcon },
     { id: 'safe', label: 'Cofre', icon: Lock },

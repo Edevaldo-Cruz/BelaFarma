@@ -43,6 +43,7 @@ import { PurchaseCalendar } from "./components/PurchaseCalendar";
 import { StockManagement } from "./components/StockManagement";
 import SuppliersManager from "./components/SuppliersManager";
 import { InventoryManager } from "./components/InventoryManager";
+import { LossesManager } from "./components/LossesManager";
 import { PwaUpdater } from "./components/PwaUpdater";
 import { MobileHeader } from "./components/MobileHeader";
 import { SalesReport } from "./components/SalesReport";
@@ -1291,6 +1292,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'inventario' && (
                 <InventoryManager user={user} />
+              )}
+              {currentView === 'perdas-avarias' && (
+                <LossesManager user={user} theme={theme} />
               )}
               {currentView === 'backups' && user.role === UserRole.ADM && (
                 <BackupManager />

@@ -767,6 +767,43 @@ try {
     db.exec(createCardMachineReceivablesTable);
     db.exec(createPricingEngineTables);
 
+    // Módulo de Perdas, Vencidos e Avarias
+    const createLotesPerdasTable = `
+      CREATE TABLE IF NOT EXISTS lotes_perdas (
+        id TEXT PRIMARY KEY,
+        data_hora TEXT NOT NULL,
+        usuario_id TEXT,
+        usuario_nome TEXT NOT NULL,
+        total_itens INTEGER NOT NULL DEFAULT 0,
+        total_custo REAL NOT NULL DEFAULT 0,
+        total_venda REAL NOT NULL DEFAULT 0,
+        observacao_geral TEXT
+      );
+    `;
+
+    const createItensLotePerdasTable = `
+      CREATE TABLE IF NOT EXISTS itens_lote_perdas (
+        id TEXT PRIMARY KEY,
+        lote_id TEXT NOT NULL,
+        produto_id TEXT,
+        codigo_barras TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        quantidade REAL NOT NULL,
+        motivo TEXT NOT NULL,
+        preco_custo REAL NOT NULL DEFAULT 0,
+        preco_venda REAL NOT NULL DEFAULT 0,
+        saldo_anterior_digifarma REAL DEFAULT 0,
+        saldo_baixado_digifarma REAL DEFAULT 0,
+        observacao TEXT,
+        FOREIGN KEY(lote_id) REFERENCES lotes_perdas(id) ON DELETE CASCADE
+      );
+    `;
+
+    db.exec(createLotesPerdasTable);
+    db.exec(createItensLotePerdasTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_lote ON itens_lote_perdas(lote_id);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_barcode ON itens_lote_perdas(codigo_barras);'); } catch(e) {}
+
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_alto REAL'); } catch(e) {}

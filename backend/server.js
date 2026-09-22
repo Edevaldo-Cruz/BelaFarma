@@ -4090,6 +4090,10 @@ const inventarioEndpoints = require('./inventario-endpoints.js');
 app.use('/api/inventario', inventarioEndpoints(db));
 console.log('📋 Módulo Inventário Rotativo inicializado.');
 
+const perdasEndpoints = require('./perdas-endpoints.js');
+app.use('/api/perdas', perdasEndpoints(db));
+console.log('🗑️ Módulo de Perdas, Vencidos e Avarias inicializado.');
+
 // Módulo Saúde Financeira (diagnóstico via Gemini)
 require('./financial-health-endpoints.js')(app, db);
 console.log('💊 Módulo Saúde Financeira inicializado.');
