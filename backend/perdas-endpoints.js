@@ -240,10 +240,15 @@ module.exports = function (db) {
         const isEspecial = it.is_especial || specialInfo.is_especial;
         const tipoEspecial = it.tipo_especial || specialInfo.tipo_especial;
 
+        let statusBaixa = 'sucesso';
+        let mensagemBaixa = '';
+
         if (isEspecial) {
           // 🛡️ PRODUTO ESPECIAL (Controlado ou Antibiótico)
           // Prejuízo contabilizado normalmente, mas SEM baixar estoque físico no Digifarma!
           saldoBaixado = 0;
+          statusBaixa = 'ignorado_especial';
+          mensagemBaixa = `Produto Especial (${tipoEspecial || 'Controlado/Antibiótico'}) - Estoque mantido no Digifarma para escrituração sanitária.`;
           console.log(`[Perdas API] 🛡️ Item Especial: "${it.descricao}" (${tipoEspecial}). Prejuízo contabilizado no BelaFarma (R$ ${(custoUnit * qty).toFixed(2)}). Baixa de estoque no Digifarma NÃO executada conforme solicitado.`);
         } else {
           // 📦 PRODUTO COMUM: Executa baixa no estoque do Digifarma Firebird
@@ -256,13 +261,21 @@ module.exports = function (db) {
                 "UPDATE PRODUTOS SET PROD_SALDO = ?, LASTUPDATESALDO = CURRENT_TIMESTAMP WHERE PRODUTO_ID = ?",
                 [novoSaldo, prodRow.PRODUTO_ID]
               );
+              statusBaixa = 'sucesso';
+              mensagemBaixa = `Estoque baixado no Digifarma de ${saldoAnterior} para ${novoSaldo} (-${saldoBaixado}).`;
               console.log(`[Perdas API] ✅ Baixa efetuada no Digifarma para Prod #${prodRow.PRODUTO_ID} (${it.descricao}): Saldo Anterior: ${saldoAnterior}, Novo Saldo: ${novoSaldo}`);
             } catch (dbErr) {
-              console.error(`[Perdas API] Erro ao abater estoque no Firebird (${it.descricao}):`, dbErr.message);
-              return res.status(500).json({
-                error: `Falha na comunicação com o Digifarma ao dar baixa no item "${it.descricao}": ${dbErr.message}. O lote não foi confirmado.`
-              });
+              // ⚠️ NÃO TRAVA O RESTANTE DOS PRODUTOS!
+              console.error(`[Perdas API] ⚠️ Falha ao abater estoque no Firebird (${it.descricao}):`, dbErr.message);
+              statusBaixa = 'falha';
+              saldoBaixado = 0;
+              mensagemBaixa = `Erro ao atualizar estoque no Digifarma: ${dbErr.message}`;
             }
+          } else {
+            console.warn(`[Perdas API] ⚠️ Produto "${it.descricao}" não localizado no Firebird.`);
+            statusBaixa = 'nao_encontrado';
+            saldoBaixado = 0;
+            mensagemBaixa = 'Produto não localizado na tabela PRODUTOS do Digifarma (saldo físico não abatido).';
           }
         }
 
@@ -274,7 +287,9 @@ module.exports = function (db) {
           saldo_anterior_digifarma: saldoAnterior,
           saldo_baixado_digifarma: saldoBaixado,
           is_especial: isEspecial ? 1 : 0,
-          tipo_especial: tipoEspecial || null
+          tipo_especial: tipoEspecial || null,
+          status_baixa: statusBaixa,
+          mensagem_baixa: mensagemBaixa
         });
       }
 
@@ -302,8 +317,8 @@ module.exports = function (db) {
           INSERT INTO itens_lote_perdas (
             id, lote_id, produto_id, codigo_barras, descricao, quantidade, motivo,
             preco_custo, preco_venda, saldo_anterior_digifarma, saldo_baixado_digifarma,
-            is_especial, tipo_especial, observacao
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            is_especial, tipo_especial, status_baixa, mensagem_baixa, observacao
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of processedItems) {
@@ -322,6 +337,8 @@ module.exports = function (db) {
             item.saldo_baixado_digifarma,
             item.is_especial ? 1 : 0,
             item.tipo_especial || null,
+            item.status_baixa || 'sucesso',
+            item.mensagem_baixa || null,
             item.observacao || null
           );
         }
@@ -329,8 +346,11 @@ module.exports = function (db) {
         // Registrar no log de auditoria
         try {
           const logId = 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-          const especiaisCount = processedItems.filter(i => i.is_especial).length;
-          const detalhesEspeciais = especiaisCount > 0 ? ` (${especiaisCount} especiais sem baixa física no Digifarma)` : '';
+          const especiaisCount = processedItems.filter(i => i.status_baixa === 'ignorado_especial').length;
+          const falhasCount = processedItems.filter(i => i.status_baixa === 'falha' || i.status_baixa === 'nao_encontrado').length;
+          const sucessoCount = processedItems.filter(i => i.status_baixa === 'sucesso').length;
+
+          const descStatus = `(Sucesso: ${sucessoCount}, Especiais: ${especiaisCount}, Falhas ERP: ${falhasCount})`;
 
           db.prepare(`
             INSERT INTO logs (id, timestamp, userName, userId, action, category, details)
@@ -342,7 +362,7 @@ module.exports = function (db) {
             userId,
             'BAIXA_PERDAS_ESTOQUE',
             'Estoque',
-            `Lote de baixa de perdas #${loteId} confirmado: ${processedItems.length} itens${detalhesEspeciais}. Custo Total: R$ ${totalCusto.toFixed(2)}, Venda Total: R$ ${totalVenda.toFixed(2)}`
+            `Lote de baixa de perdas #${loteId} confirmado: ${processedItems.length} itens ${descStatus}. Custo Total: R$ ${totalCusto.toFixed(2)}, Venda Total: R$ ${totalVenda.toFixed(2)}`
           );
         } catch (logErr) {
           console.warn('[Perdas API] Falha ao registrar log de auditoria:', logErr.message);
@@ -351,8 +371,20 @@ module.exports = function (db) {
 
       insertLoteTx();
 
+      const countSucesso = processedItems.filter(i => i.status_baixa === 'sucesso').length;
+      const countEspeciais = processedItems.filter(i => i.status_baixa === 'ignorado_especial').length;
+      const countFalhas = processedItems.filter(i => i.status_baixa === 'falha' || i.status_baixa === 'nao_encontrado').length;
+
       res.status(201).json({
         success: true,
+        resumo: {
+          total_itens: processedItems.length,
+          total_custo: totalCusto,
+          total_venda: totalVenda,
+          baixados_sucesso: countSucesso,
+          mantidos_especiais: countEspeciais,
+          falhas_baixa: countFalhas
+        },
         lote: {
           id: loteId,
           data_hora: dataHora,

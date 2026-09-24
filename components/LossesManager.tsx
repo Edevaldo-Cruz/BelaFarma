@@ -272,8 +272,20 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
         throw new Error(data.error || 'Erro ao processar baixa de perdas no servidor.');
       }
 
-      const msgEspeciais = qtdItensEspeciais > 0 ? ` (${qtdItensEspeciais} especiais sem baixa no Digifarma)` : '';
-      addToast(`✅ Lote de perdas registrado com sucesso! ${qtdItensComuns} itens baixados no estoque Digifarma${msgEspeciais}.`, 'success');
+      const resumo = data.resumo || {};
+      const baixados = resumo.baixados_sucesso ?? qtdItensComuns;
+      const especiais = resumo.mantidos_especiais ?? qtdItensEspeciais;
+      const falhas = resumo.falhas_baixa ?? 0;
+
+      let msg = `✅ Lote de perdas registrado com sucesso! ${baixados} produto(s) baixado(s) no estoque Digifarma.`;
+      if (especiais > 0) {
+        msg += ` ${especiais} especial(is) mantido(s) no ERP.`;
+      }
+      if (falhas > 0) {
+        msg += ` ⚠️ ${falhas} produto(s) não puderam ser baixados no Digifarma, mas foram 100% contabilizados no financeiro!`;
+      }
+
+      addToast(msg, falhas > 0 ? 'warning' : 'success');
       setItems([]);
       setObservacaoGeral('');
       setSpecialAlert(null);
@@ -1050,13 +1062,17 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                       </td>
                       <td className="p-2.5 text-slate-500">{it.saldo_anterior_digifarma ?? '-'}</td>
                       <td className="p-2.5">
-                        {it.is_especial ? (
+                        {it.is_especial || it.status_baixa === 'ignorado_especial' ? (
                           <span className="text-amber-600 dark:text-amber-400 font-bold text-[11px] flex items-center gap-1">
-                            <ShieldAlert className="w-3.5 h-3.5" /> Não baixado (Especial)
+                            <ShieldAlert className="w-3.5 h-3.5" /> Mantido (Especial)
+                          </span>
+                        ) : it.status_baixa === 'falha' || it.status_baixa === 'nao_encontrado' ? (
+                          <span className="text-rose-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1" title={it.mensagem_baixa || 'Falha na baixa do ERP'}>
+                            <AlertTriangle className="w-3.5 h-3.5" /> Não baixado no ERP (Contabilizado)
                           </span>
                         ) : (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                            -{it.saldo_baixado_digifarma ?? it.quantidade} baixado
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> -{it.saldo_baixado_digifarma ?? it.quantidade} baixado
                           </span>
                         )}
                       </td>

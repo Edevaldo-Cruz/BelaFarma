@@ -796,6 +796,8 @@ try {
         saldo_baixado_digifarma REAL DEFAULT 0,
         is_especial INTEGER DEFAULT 0,
         tipo_especial TEXT,
+        status_baixa TEXT DEFAULT 'sucesso',
+        mensagem_baixa TEXT,
         observacao TEXT,
         FOREIGN KEY(lote_id) REFERENCES lotes_perdas(id) ON DELETE CASCADE
       );
@@ -805,6 +807,8 @@ try {
     db.exec(createItensLotePerdasTable);
     try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN is_especial INTEGER DEFAULT 0'); } catch(e) {}
     try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN tipo_especial TEXT'); } catch(e) {}
+    try { db.exec("ALTER TABLE itens_lote_perdas ADD COLUMN status_baixa TEXT DEFAULT 'sucesso'"); } catch(e) {}
+    try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN mensagem_baixa TEXT'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_lote ON itens_lote_perdas(lote_id);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_barcode ON itens_lote_perdas(codigo_barras);'); } catch(e) {}
 

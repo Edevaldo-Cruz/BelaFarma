@@ -521,6 +521,8 @@ export interface ItemLotePerda {
   is_antibiotico?: boolean;
   is_especial?: boolean;
   tipo_especial?: string;
+  status_baixa?: 'sucesso' | 'ignorado_especial' | 'falha' | 'nao_encontrado';
+  mensagem_baixa?: string;
 }
 
 export interface LotePerda {

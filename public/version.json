@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "1806dbd",
-  "commitMessage": "feat: modulo de perdas, vencidos e avarias com baixa integrada no Digifarma",
-  "buildTime": "24/09/2026, 10:50:24"
+  "commitHash": "8c0197b",
+  "commitMessage": "feat: contabilizacao de perdas para controlados e antibioticos com alerta e sem baixa fisica no Digifarma",
+  "buildTime": "24/09/2026, 11:13:43"
 }
