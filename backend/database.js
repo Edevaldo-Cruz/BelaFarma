@@ -794,6 +794,8 @@ try {
         preco_venda REAL NOT NULL DEFAULT 0,
         saldo_anterior_digifarma REAL DEFAULT 0,
         saldo_baixado_digifarma REAL DEFAULT 0,
+        is_especial INTEGER DEFAULT 0,
+        tipo_especial TEXT,
         observacao TEXT,
         FOREIGN KEY(lote_id) REFERENCES lotes_perdas(id) ON DELETE CASCADE
       );
@@ -801,6 +803,8 @@ try {
 
     db.exec(createLotesPerdasTable);
     db.exec(createItensLotePerdasTable);
+    try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN is_especial INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN tipo_especial TEXT'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_lote ON itens_lote_perdas(lote_id);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_barcode ON itens_lote_perdas(codigo_barras);'); } catch(e) {}
 

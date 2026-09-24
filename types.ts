@@ -518,6 +518,9 @@ export interface ItemLotePerda {
   saldo_baixado_digifarma?: number;
   observacao?: string;
   is_controlado?: boolean;
+  is_antibiotico?: boolean;
+  is_especial?: boolean;
+  tipo_especial?: string;
 }
 
 export interface LotePerda {

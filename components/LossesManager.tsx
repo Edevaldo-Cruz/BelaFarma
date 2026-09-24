@@ -18,7 +18,8 @@ import {
   Loader2, 
   ChevronRight,
   Info,
-  ShieldBan
+  ShieldCheck,
+  Pill
 } from 'lucide-react';
 import { User, MotivoPerda, ItemLotePerda, LotePerda } from '../types';
 import { useToast } from './ToastContext';
@@ -35,7 +36,15 @@ interface ProductSearchResult {
   saldo: number;
   preco_custo: number;
   preco_venda: number;
+  is_especial: boolean;
   is_controlado: boolean;
+  is_antibiotico: boolean;
+  tipo_especial: string | null;
+}
+
+interface SpecialAlertInfo {
+  produto: string;
+  tipo: string;
 }
 
 export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'light' }) => {
@@ -53,7 +62,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [controlledAlertProduct, setControlledAlertProduct] = useState<string | null>(null);
+  const [specialAlert, setSpecialAlert] = useState<SpecialAlertInfo | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Estado da aba Histórico
@@ -100,13 +109,16 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
 
   // Função para adicionar produto ao lote atual
   const handleSelectProduct = (prod: ProductSearchResult) => {
-    // 🛡️ REGRA DE SEGURANÇA: Bloqueia imediatamente medicamentos controlados
-    if (prod.is_controlado) {
-      setControlledAlertProduct(prod.descricao);
-      addToast(`🚫 ${prod.descricao} é controlado (Portaria 344/SNGPC). Baixa bloqueada neste módulo!`, 'error');
-      setSearchQuery('');
-      setShowDropdown(false);
-      return;
+    // 🛡️ Alerta imediato no Belinha para produtos especiais (Controlados e Antibióticos)
+    if (prod.is_especial) {
+      const tipoNome = prod.tipo_especial || (prod.is_controlado ? 'Controlado (Portaria 344/SNGPC)' : 'Antibiótico / Antimicrobiano');
+      setSpecialAlert({
+        produto: prod.descricao,
+        tipo: tipoNome
+      });
+      addToast(`⚠️ ATENÇÃO: "${prod.descricao}" é ${tipoNome}. Prejuízo contabilizado no BelaFarma, mas o estoque NÃO será baixado no Digifarma!`, 'warning');
+    } else {
+      setSpecialAlert(null);
     }
 
     // Verifica se já está na lista
@@ -130,10 +142,16 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
         preco_custo: prod.preco_custo,
         preco_venda: prod.preco_venda,
         saldo_anterior_digifarma: prod.saldo,
-        observacao: ''
+        is_especial: prod.is_especial,
+        is_controlado: prod.is_controlado,
+        is_antibiotico: prod.is_antibiotico,
+        tipo_especial: prod.tipo_especial || undefined,
+        observacao: prod.is_especial ? `(${prod.tipo_especial} - Estoque mantido no Digifarma)` : ''
       };
       setItems([newItem, ...items]);
-      addToast(`"${prod.descricao}" adicionado à sessão de descarte.`, 'success');
+      if (!prod.is_especial) {
+        addToast(`"${prod.descricao}" adicionado à sessão de descarte.`, 'success');
+      }
     }
 
     setSearchQuery('');
@@ -150,20 +168,17 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
       const q = searchQuery.trim();
       if (!q) return;
 
-      // Se temos resultado exato ou 1 resultado
       if (searchResults.length === 1) {
         handleSelectProduct(searchResults[0]);
         return;
       }
 
-      // Se é leitor rápido (geralmente numérico)
       try {
         setIsSearching(true);
         const res = await fetch(`/api/perdas/buscar-produto?q=${encodeURIComponent(q)}`);
         if (res.ok) {
           const data: ProductSearchResult[] = await res.json();
           if (data.length > 0) {
-            // Se encontrar correspondência exata de código de barras
             const exact = data.find(p => p.codigo_barras === q);
             if (exact) {
               handleSelectProduct(exact);
@@ -200,6 +215,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
     if (window.confirm('Deseja realmente limpar todos os itens desta sessão de descarte?')) {
       setItems([]);
       setObservacaoGeral('');
+      setSpecialAlert(null);
     }
   };
 
@@ -207,6 +223,8 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
   const totalItensContados = items.reduce((acc, it) => acc + (Number(it.quantidade) || 0), 0);
   const totalPrejuizoCusto = items.reduce((acc, it) => acc + ((Number(it.quantidade) || 0) * (it.preco_custo || 0)), 0);
   const totalPotencialVenda = items.reduce((acc, it) => acc + ((Number(it.quantidade) || 0) * (it.preco_venda || 0)), 0);
+  const qtdItensEspeciais = items.filter(it => it.is_especial).length;
+  const qtdItensComuns = items.filter(it => !it.is_especial).length;
 
   // Confirmação e envio da baixa ao backend e Digifarma
   const handleConfirmDisposal = async () => {
@@ -215,7 +233,6 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
       return;
     }
 
-    // Validações
     for (const it of items) {
       if (!it.quantidade || it.quantidade <= 0) {
         addToast(`A quantidade do item "${it.descricao}" deve ser maior que 0.`, 'error');
@@ -237,6 +254,8 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
           motivo: it.motivo,
           preco_custo: it.preco_custo,
           preco_venda: it.preco_venda,
+          is_especial: it.is_especial,
+          tipo_especial: it.tipo_especial,
           observacao: it.observacao
         }))
       };
@@ -253,11 +272,12 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
         throw new Error(data.error || 'Erro ao processar baixa de perdas no servidor.');
       }
 
-      addToast(`✅ Baixa de perdas confirmada com sucesso! ${items.length} itens abatidos no estoque Digifarma.`, 'success');
+      const msgEspeciais = qtdItensEspeciais > 0 ? ` (${qtdItensEspeciais} especiais sem baixa no Digifarma)` : '';
+      addToast(`✅ Lote de perdas registrado com sucesso! ${qtdItensComuns} itens baixados no estoque Digifarma${msgEspeciais}.`, 'success');
       setItems([]);
       setObservacaoGeral('');
+      setSpecialAlert(null);
       setShowConfirmModal(false);
-      // Atualiza histórico e muda de aba
       fetchHistorico();
       setActiveTab('historico');
     } catch (err: any) {
@@ -316,7 +336,6 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
     }
   };
 
-  // Impressão simples do comprovante do lote
   const handlePrintLote = () => {
     window.print();
   };
@@ -373,24 +392,35 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
         </div>
       </div>
 
-      {/* Alerta de Medicamento Controlado Rejeitado */}
-      {controlledAlertProduct && (
-        <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start justify-between gap-3 animate-fadeIn">
+      {/* AVISO DO BELINHA AO BIPAR PRODUTO ESPECIAL (Controlado ou Antibiótico) */}
+      {specialAlert && (
+        <div className="mb-6 p-4 bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl flex items-start justify-between gap-3 shadow-sm animate-fadeIn">
           <div className="flex items-start gap-3">
-            <ShieldBan className="w-6 h-6 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <div className="p-2 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl mt-0.5 shrink-0">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
             <div>
-              <h4 className="font-bold text-rose-700 dark:text-rose-300">
-                Bloqueio de Segurança: Medicamento Controlado Identificado
-              </h4>
-              <p className="text-sm text-rose-600 dark:text-rose-400 mt-0.5">
-                O produto <strong className="underline">{controlledAlertProduct}</strong> está sujeito a controle especial (Portaria 344 / SNGPC / Psicotrópicos).
-                Por exigência sanitária e conformidade com a Anvisa, descarte e perdas de controlados devem ser escriturados exclusivamente no módulo oficial de SNGPC no Digifarma.
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 text-xs font-black bg-amber-500 text-white rounded-md uppercase tracking-wider">
+                  Aviso do Belinha
+                </span>
+                <h4 className="font-bold text-base text-amber-800 dark:text-amber-300">
+                  {specialAlert.tipo} Identificado
+                </h4>
+              </div>
+              <p className="text-sm text-amber-700 dark:text-amber-300/90 mt-1 leading-relaxed">
+                O produto <strong className="underline">{specialAlert.produto}</strong> foi adicionado à lista.
+                <strong className="block mt-0.5 text-amber-900 dark:text-amber-200">
+                  O prejuízo financeiro será contabilizado no BelaFarma, mas a baixa no estoque do Digifarma NÃO será realizada por se tratar de um produto especial.
+                </strong>
+                O saldo físico no Digifarma permanece preservado para que a escrituração e o descarte sejam realizados pelo procedimento oficial (SNGPC / Livro de Psicotrópicos).
               </p>
             </div>
           </div>
           <button
-            onClick={() => setControlledAlertProduct(null)}
-            className="text-rose-500 hover:text-rose-700 p-1 rounded-md"
+            onClick={() => setSpecialAlert(null)}
+            className="text-amber-600 hover:text-amber-800 p-1.5 rounded-lg hover:bg-amber-500/20 transition-colors"
+            title="Fechar aviso"
           >
             <X className="w-5 h-5" />
           </button>
@@ -435,17 +465,18 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                         key={`${prod.produto_id}_${prod.codigo_barras}`}
                         onClick={() => handleSelectProduct(prod)}
                         className={`p-3 cursor-pointer flex items-center justify-between gap-3 transition-colors ${
-                          prod.is_controlado 
-                            ? (isDark ? 'hover:bg-rose-950/40 bg-rose-950/20' : 'hover:bg-rose-50 bg-rose-50/50')
+                          prod.is_especial 
+                            ? (isDark ? 'hover:bg-amber-950/40 bg-amber-950/20' : 'hover:bg-amber-50 bg-amber-50/50')
                             : (isDark ? 'hover:bg-slate-700/60' : 'hover:bg-slate-100')
                         }`}
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-sm truncate">{prod.descricao}</span>
-                            {prod.is_controlado && (
-                              <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-500 text-white rounded-md tracking-wider uppercase">
-                                Controlado / SNGPC
+                            {prod.is_especial && (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500 text-white rounded-md tracking-wider uppercase flex items-center gap-1">
+                                <ShieldAlert className="w-3 h-3" />
+                                {prod.tipo_especial || 'Produto Especial'} (Sem baixa no Digifarma)
                               </span>
                             )}
                           </div>
@@ -457,15 +488,11 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                           </div>
                         </div>
                         <div>
-                          {prod.is_controlado ? (
-                            <span className="text-xs text-rose-500 font-bold flex items-center gap-1">
-                              <ShieldBan className="w-4 h-4" /> Bloqueado
-                            </span>
-                          ) : (
-                            <button className="px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg flex items-center gap-1 shadow-sm">
-                              <Plus className="w-3.5 h-3.5" /> Adicionar
-                            </button>
-                          )}
+                          <button className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1 shadow-sm text-white ${
+                            prod.is_especial ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'
+                          }`}>
+                            <Plus className="w-3.5 h-3.5" /> Adicionar
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -481,6 +508,12 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
               <div className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-rose-500" />
                 <h3 className="font-bold text-base">Itens na Sessão de Descarte ({items.length})</h3>
+                {qtdItensEspeciais > 0 && (
+                  <span className="px-2.5 py-0.5 text-xs font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded-full flex items-center gap-1">
+                    <ShieldAlert className="w-3 h-3" />
+                    {qtdItensEspeciais} especial(is) sem baixa de estoque
+                  </span>
+                )}
               </div>
               {items.length > 0 && (
                 <button
@@ -506,7 +539,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                   }`}>
                     <tr>
                       <th className="p-3">Produto</th>
-                      <th className="p-3 w-28">Estoque Atual</th>
+                      <th className="p-3 w-32">Estoque Digifarma</th>
                       <th className="p-3 w-40">Motivo</th>
                       <th className="p-3 w-28">Qtd Perda</th>
                       <th className="p-3 w-32">Custo Unit.</th>
@@ -526,11 +559,30 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                           <td className="p-3">
                             <div className="font-semibold text-slate-900 dark:text-slate-100">{it.descricao}</div>
                             <div className="text-xs text-slate-500">EAN: {it.codigo_barras || 'S/N'}</div>
+                            {it.is_especial && (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                  <ShieldAlert className="w-3 h-3 text-amber-500" />
+                                  {it.tipo_especial || 'Produto Especial'} • Estoque mantido no Digifarma
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 font-medium">
-                            <span className={Number(it.saldo_anterior_digifarma) <= 0 ? 'text-rose-500' : 'text-slate-600 dark:text-slate-300'}>
-                              {it.saldo_anterior_digifarma ?? 0}
-                            </span>
+                            <div className="flex flex-col">
+                              <span className={Number(it.saldo_anterior_digifarma) <= 0 ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'}>
+                                Saldo: {it.saldo_anterior_digifarma ?? 0}
+                              </span>
+                              {it.is_especial ? (
+                                <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-tight">
+                                  (Não será baixado)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                  (Será baixado)
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="p-3">
                             <select
@@ -571,7 +623,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                               type="text"
                               value={it.observacao || ''}
                               onChange={(e) => handleUpdateItem(idx, 'observacao', e.target.value)}
-                              placeholder="Opcional: lote, motivo específico..."
+                              placeholder="Opcional: lote, motivo..."
                               className={`w-full p-1.5 text-xs rounded-lg border focus:ring-1 focus:ring-rose-500 ${
                                 isDark ? 'bg-slate-900 border-slate-700 text-white placeholder-slate-600' : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400'
                               }`}
@@ -602,6 +654,9 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                 <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                   <span className="text-xs font-semibold text-slate-500 uppercase">Total de Itens</span>
                   <div className="text-2xl font-black mt-1 text-slate-800 dark:text-slate-100">{totalItensContados}</div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    {qtdItensComuns} com baixa • {qtdItensEspeciais} especiais
+                  </div>
                 </div>
 
                 <div className={`p-4 rounded-xl border ${isDark ? 'bg-rose-950/30 border-rose-800/40' : 'bg-rose-50 border-rose-200'}`}>
@@ -609,6 +664,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                   <div className="text-2xl font-black mt-1 text-rose-600 dark:text-rose-400">
                     R$ {totalPrejuizoCusto.toFixed(2)}
                   </div>
+                  <div className="text-[11px] text-rose-500/80 mt-1">100% Contabilizado no Financeiro</div>
                 </div>
 
                 <div className={`p-4 rounded-xl border ${isDark ? 'bg-amber-950/30 border-amber-800/40' : 'bg-amber-50 border-amber-200'}`}>
@@ -616,6 +672,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                   <div className="text-2xl font-black mt-1 text-amber-600 dark:text-amber-400">
                     R$ {totalPotencialVenda.toFixed(2)}
                   </div>
+                  <div className="text-[11px] text-amber-500/80 mt-1">Faturamento Potencial</div>
                 </div>
 
                 <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-900/60 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
@@ -646,7 +703,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                 <div className="text-xs text-slate-500 flex items-center gap-1.5">
                   <Info className="w-4 h-4 text-slate-400 shrink-0" />
                   <span>
-                    Ao confirmar, o saldo dos produtos será abatido no Digifarma (limitado a zero).
+                    Produtos comuns terão o saldo abatido no Digifarma. Controlados e antibióticos terão apenas o prejuízo contabilizado.
                   </span>
                 </div>
 
@@ -656,7 +713,7 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                   className="w-full sm:w-auto px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-5 h-5" />
-                  Confirmar Baixa no Digifarma
+                  Confirmar Baixa e Contabilizar
                 </button>
               </div>
             </div>
@@ -820,13 +877,24 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
           }`}>
             <div className="flex items-center gap-3 text-rose-600 mb-4">
               <AlertTriangle className="w-7 h-7" />
-              <h3 className="text-xl font-bold">Confirmar Baixa de Estoque</h3>
+              <h3 className="text-xl font-bold">Confirmar Baixa e Contabilização</h3>
             </div>
 
             <p className="text-sm text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
-              Você está prestes a efetivar o descarte de <strong>{totalItensContados} produto(s)</strong>.
-              O estoque será automaticamente abatido no ERP Digifarma (limitado a zero).
+              Você está prestes a efetivar o registro de <strong>{totalItensContados} produto(s)</strong>.
             </p>
+
+            {qtdItensEspeciais > 0 && (
+              <div className="mb-4 p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-xs leading-relaxed flex items-start gap-2">
+                <ShieldAlert className="w-5 h-5 shrink-0 text-amber-500 mt-0.5" />
+                <div>
+                  <strong>Atenção ({qtdItensEspeciais} Produto(s) Especial(is)):</strong>
+                  <p className="mt-0.5">
+                    O prejuízo de medicamentos controlados e antibióticos será somado ao valor contábil, mas o saldo no Digifarma <strong>NÃO</strong> será alterado para preservar a escrituração oficial do SNGPC.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className={`p-4 rounded-xl border mb-5 space-y-2 text-sm ${
               isDark ? 'bg-slate-900/60 border-slate-700' : 'bg-slate-50 border-slate-200'
@@ -840,15 +908,14 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                 <strong className="text-amber-600 dark:text-amber-400 font-bold">R$ {totalPotencialVenda.toFixed(2)}</strong>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-500">Itens com baixa no Digifarma:</span>
+                <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">{qtdItensComuns} produto(s)</strong>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-500">Responsável pelo registro:</span>
                 <strong className="text-slate-700 dark:text-slate-300 font-semibold">{user.name}</strong>
               </div>
             </div>
-
-            <p className="text-xs text-rose-500 font-semibold mb-6 flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 shrink-0" />
-              Atenção: Esta operação é contábil e irreversível no Digifarma.
-            </p>
 
             <div className="flex justify-end gap-3">
               <button
@@ -866,12 +933,12 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Abatendo no Digifarma...
+                    Processando...
                   </>
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4" />
-                    Sim, Confirmar e Abater
+                    Confirmar e Contabilizar
                   </>
                 )}
               </button>
@@ -951,8 +1018,8 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                     <th className="p-2.5">Custo Unit.</th>
                     <th className="p-2.5">Custo Total</th>
                     <th className="p-2.5">Venda Total</th>
-                    <th className="p-2.5">Saldo Anterior</th>
-                    <th className="p-2.5">Saldo Abatido</th>
+                    <th className="p-2.5">Saldo ERP</th>
+                    <th className="p-2.5">Baixa no Digifarma</th>
                     <th className="p-2.5">Obs.</th>
                   </tr>
                 </thead>
@@ -962,6 +1029,11 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                       <td className="p-2.5 font-medium">
                         <div>{it.descricao}</div>
                         <div className="text-[10px] text-slate-500">EAN: {it.codigo_barras || 'S/N'}</div>
+                        {it.is_especial ? (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.2 text-[9px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 rounded">
+                            {it.tipo_especial || 'Produto Especial'}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="p-2.5">
                         <span className="px-2 py-0.5 rounded-md font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400">
@@ -977,8 +1049,16 @@ export const LossesManager: React.FC<LossesManagerProps> = ({ user, theme = 'lig
                         R$ {((it.quantidade || 0) * (it.preco_venda || 0)).toFixed(2)}
                       </td>
                       <td className="p-2.5 text-slate-500">{it.saldo_anterior_digifarma ?? '-'}</td>
-                      <td className="p-2.5 text-emerald-600 dark:text-emerald-400 font-semibold">
-                        {it.saldo_baixado_digifarma ?? it.quantidade}
+                      <td className="p-2.5">
+                        {it.is_especial ? (
+                          <span className="text-amber-600 dark:text-amber-400 font-bold text-[11px] flex items-center gap-1">
+                            <ShieldAlert className="w-3.5 h-3.5" /> Não baixado (Especial)
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                            -{it.saldo_baixado_digifarma ?? it.quantidade} baixado
+                          </span>
+                        )}
                       </td>
                       <td className="p-2.5 text-slate-500 max-w-xs truncate">{it.observacao || '-'}</td>
                     </tr>

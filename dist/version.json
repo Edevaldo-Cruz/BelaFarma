@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0b339fd",
-  "commitMessage": "fix(ifood): considerar data de entrega para lancamento no Digifarma e suportar pedidos agendados/noturnos",
-  "buildTime": "22/09/2026, 08:48:06"
+  "commitHash": "1806dbd",
+  "commitMessage": "feat: modulo de perdas, vencidos e avarias com baixa integrada no Digifarma",
+  "buildTime": "24/09/2026, 10:50:24"
 }

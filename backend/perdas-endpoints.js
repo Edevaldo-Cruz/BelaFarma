@@ -1,17 +1,50 @@
 const express = require('express');
 const { queryDigifarma } = require('./services/digifarma.service');
 
-function isControlledProduct(p) {
-  if (!p) return false;
+/**
+ * Identifica se um produto é especial (Controlado ou Antibiótico)
+ * Produtos especiais têm seu prejuízo contabilizado no financeiro, mas NÃO sofrem
+ * baixa física automática no saldo do Digifarma (para evitar inconsistência sanitária Anvisa/SNGPC).
+ */
+function checkSpecialProduct(p) {
+  if (!p) return { is_especial: false, is_controlado: false, is_antibiotico: false, tipo_especial: null };
+
   const psico = String(p.PSICOTROPICO || '').toUpperCase().trim();
-  if (psico === 'S') return true;
-
+  const anti = String(p.ANTIMICROBIANO || '').toUpperCase().trim();
   const desc = String(p.PRODUTO || p.descricao || '').toUpperCase();
-  // Padrões de listas de controle especial (Portaria 344 e antimicrobianos comuns)
-  const pattern = /\b(A1|A2|A3|B1|B2|C1|C2|C3|C4|C5)\b|\((A[1-3]|B[1-2]|C[1-5])\)/i;
-  if (pattern.test(desc)) return true;
 
-  return false;
+  // 1. Psicotrópico / Portaria 344 / SNGPC
+  const patternPsico = /\b(A1|A2|A3|B1|B2|C1|C2|C3|C4|C5)\b|\((A[1-3]|B[1-2]|C[1-5])\)/i;
+  const isControlado = psico === 'S' || patternPsico.test(desc);
+
+  // 2. Antibiótico / Antimicrobiano (RDC 20/2011)
+  const patternAnti = /\b(AMOXICILINA|AZITROMICINA|CEFALEXINA|CIPROFLOXACINO|CLAVULANATO|LEVOFLOXACINO|SULFAMETOXAZOL|TRIMETOPRIMA|AMPICILINA|CLARITROMICINA|DOXICICLINA|METRONIDAZOL|NORFLOXACINO|CEFTRIAXONA|ERITROMICINA|GENTAMICINA|TOBRAMICINA|NEOMICINA|CLINDAMICINA|RIFAMICINA|OXACILINA|PENICILINA)\b/i;
+  const isAntibiotico = anti === 'S' || patternAnti.test(desc);
+
+  if (isControlado) {
+    return {
+      is_especial: true,
+      is_controlado: true,
+      is_antibiotico: isAntibiotico,
+      tipo_especial: 'Controlado (Portaria 344/SNGPC)'
+    };
+  }
+
+  if (isAntibiotico) {
+    return {
+      is_especial: true,
+      is_controlado: false,
+      is_antibiotico: true,
+      tipo_especial: 'Antibiótico / Antimicrobiano'
+    };
+  }
+
+  return {
+    is_especial: false,
+    is_controlado: false,
+    is_antibiotico: false,
+    tipo_especial: null
+  };
 }
 
 module.exports = function (db) {
@@ -42,13 +75,13 @@ module.exports = function (db) {
             COALESCE(p.PROD_PRVENDA, 0) as PROD_PRVENDA,
             COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
             p.PSICOTROPICO,
+            p.ANTIMICROBIANO,
             p.PROD_LISTA
           FROM PRODUTOS p
           WHERE p.COD_BARRAS = ? OR p.COD_BARRAS LIKE ?
         `;
         params = [q, `%${q}%`];
       } else if (isNumeric && q.length <= 6) {
-        // Possível PRODUTO_ID interno
         sql = `
           SELECT FIRST 10
             p.PRODUTO_ID,
@@ -59,13 +92,13 @@ module.exports = function (db) {
             COALESCE(p.PROD_PRVENDA, 0) as PROD_PRVENDA,
             COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
             p.PSICOTROPICO,
+            p.ANTIMICROBIANO,
             p.PROD_LISTA
           FROM PRODUTOS p
           WHERE p.PRODUTO_ID = ? OR p.COD_BARRAS = ?
         `;
         params = [parseInt(q, 10), q];
       } else {
-        // Busca textual por nome
         sql = `
           SELECT FIRST 15
             p.PRODUTO_ID,
@@ -76,6 +109,7 @@ module.exports = function (db) {
             COALESCE(p.PROD_PRVENDA, 0) as PROD_PRVENDA,
             COALESCE(p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, 0) as PROD_PRCOMPRA,
             p.PSICOTROPICO,
+            p.ANTIMICROBIANO,
             p.PROD_LISTA
           FROM PRODUTOS p
           WHERE p.PRODUTO LIKE ?
@@ -89,7 +123,6 @@ module.exports = function (db) {
         rows = await queryDigifarma(sql, params);
       } catch (err) {
         console.warn('[Perdas API] Falha na busca Firebird, tentando cache SQLite:', err.message);
-        // Fallback para o cache local SQLite se houver
         const cacheRows = db.prepare(`
           SELECT codigo_barras, produto_id, descricao, estoque_atual, preco_venda
           FROM digifarma_products_cache
@@ -103,14 +136,15 @@ module.exports = function (db) {
           COD_BARRAS: c.codigo_barras,
           PROD_SALDO: c.estoque_atual || 0,
           PROD_PRVENDA: c.preco_venda || 0,
-          PROD_PRCOMPRA: (c.preco_venda || 0) * 0.65, // Estimativa se sem custo
-          PSICOTROPICO: 'N'
+          PROD_PRCOMPRA: (c.preco_venda || 0) * 0.65,
+          PSICOTROPICO: 'N',
+          ANTIMICROBIANO: 'N'
         }));
       }
 
       const products = rows.map(r => {
         const fullDesc = r.APRESENTACAO ? `${r.PRODUTO} ${r.APRESENTACAO}`.trim() : (r.PRODUTO || '').trim();
-        const controlled = isControlledProduct(r);
+        const specialInfo = checkSpecialProduct(r);
         return {
           produto_id: r.PRODUTO_ID,
           codigo_barras: r.COD_BARRAS ? String(r.COD_BARRAS).trim() : '',
@@ -118,7 +152,10 @@ module.exports = function (db) {
           saldo: Number(r.PROD_SALDO) || 0,
           preco_custo: Number(r.PROD_PRCOMPRA) || 0,
           preco_venda: Number(r.PROD_PRVENDA) || 0,
-          is_controlado: controlled
+          is_especial: specialInfo.is_especial,
+          is_controlado: specialInfo.is_controlado,
+          is_antibiotico: specialInfo.is_antibiotico,
+          tipo_especial: specialInfo.tipo_especial
         };
       });
 
@@ -141,13 +178,8 @@ module.exports = function (db) {
       const userName = usuario_nome || 'Operador';
       const userId = usuario_id || 'system';
 
-      // Validação Prévia: Nenhum item controlado pode ser baixado por aqui
+      // Validação básica dos itens
       for (const it of itens) {
-        if (it.is_controlado) {
-          return res.status(400).json({
-            error: `O produto "${it.descricao}" é controlado (Portaria 344/SNGPC) e sua baixa não é permitida neste módulo. Realize a baixa diretamente pelo sistema regulatório do Digifarma.`
-          });
-        }
         if (!it.quantidade || Number(it.quantidade) <= 0) {
           return res.status(400).json({
             error: `Quantidade inválida para o item "${it.descricao}". Deve ser maior que 0.`
@@ -161,7 +193,9 @@ module.exports = function (db) {
         }
       }
 
-      // 1. Processar baixa no Digifarma Firebird para cada item
+      // Processar itens:
+      // - Produtos normais: abate saldo no Digifarma
+      // - Produtos especiais (controlados/antibióticos): NÃO baixa estoque no Digifarma, apenas contabiliza financeiro
       const processedItems = [];
       let totalCusto = 0;
       let totalVenda = 0;
@@ -179,52 +213,57 @@ module.exports = function (db) {
         let saldoAnterior = 0;
         let saldoBaixado = 0;
 
+        // Verificar no Firebird dados atuais do produto
+        let prodRow = null;
         try {
-          // Consultar saldo atual no Firebird
           let currentProduct = [];
           if (it.produto_id) {
             currentProduct = await queryDigifarma(
-              "SELECT FIRST 1 PRODUTO_ID, PROD_SALDO, PSICOTROPICO FROM PRODUTOS WHERE PRODUTO_ID = ?",
+              "SELECT FIRST 1 PRODUTO_ID, PRODUTO, PROD_SALDO, PSICOTROPICO, ANTIMICROBIANO FROM PRODUTOS WHERE PRODUTO_ID = ?",
               [it.produto_id]
             );
           } else if (it.codigo_barras) {
             currentProduct = await queryDigifarma(
-              "SELECT FIRST 1 PRODUTO_ID, PROD_SALDO, PSICOTROPICO FROM PRODUTOS WHERE COD_BARRAS = ?",
+              "SELECT FIRST 1 PRODUTO_ID, PRODUTO, PROD_SALDO, PSICOTROPICO, ANTIMICROBIANO FROM PRODUTOS WHERE COD_BARRAS = ?",
               [it.codigo_barras]
             );
           }
-
           if (currentProduct && currentProduct.length > 0) {
-            const prodRow = currentProduct[0];
-            // Re-validação rigorosa de psicotrópico no banco
-            if (isControlledProduct(prodRow)) {
-              throw new Error(`O produto "${it.descricao}" foi identificado no Digifarma como controlado (Portaria 344). Baixa cancelada.`);
-            }
-
+            prodRow = currentProduct[0];
             saldoAnterior = Number(prodRow.PROD_SALDO) || 0;
-            // Regra: Limitar a zero no Digifarma (abate até o saldo existente, não deixa negativo)
-            const novoSaldo = Math.max(0, saldoAnterior - qty);
-            saldoBaixado = saldoAnterior - novoSaldo;
-
-            // Executa baixa no Firebird
-            await queryDigifarma(
-              "UPDATE PRODUTOS SET PROD_SALDO = ?, LASTUPDATESALDO = CURRENT_TIMESTAMP WHERE PRODUTO_ID = ?",
-              [novoSaldo, prodRow.PRODUTO_ID]
-            );
-
-            console.log(`[Perdas API] ✅ Baixa efetuada no Digifarma para Prod #${prodRow.PRODUTO_ID} (${it.descricao}): Saldo Anterior: ${saldoAnterior}, Novo Saldo: ${novoSaldo}`);
-          } else {
-            console.warn(`[Perdas API] ⚠️ Produto "${it.descricao}" não localizado no Firebird. Registrando perda apenas no BelaFarma.`);
           }
-        } catch (dbErr) {
-          console.error(`[Perdas API] Erro ao abater item no Firebird (${it.descricao}):`, dbErr.message);
-          if (dbErr.message.includes('controlado')) {
-            return res.status(400).json({ error: dbErr.message });
+        } catch (checkErr) {
+          console.warn(`[Perdas API] Falha ao consultar produto no Firebird (${it.descricao}):`, checkErr.message);
+        }
+
+        const specialInfo = checkSpecialProduct(prodRow || it);
+        const isEspecial = it.is_especial || specialInfo.is_especial;
+        const tipoEspecial = it.tipo_especial || specialInfo.tipo_especial;
+
+        if (isEspecial) {
+          // 🛡️ PRODUTO ESPECIAL (Controlado ou Antibiótico)
+          // Prejuízo contabilizado normalmente, mas SEM baixar estoque físico no Digifarma!
+          saldoBaixado = 0;
+          console.log(`[Perdas API] 🛡️ Item Especial: "${it.descricao}" (${tipoEspecial}). Prejuízo contabilizado no BelaFarma (R$ ${(custoUnit * qty).toFixed(2)}). Baixa de estoque no Digifarma NÃO executada conforme solicitado.`);
+        } else {
+          // 📦 PRODUTO COMUM: Executa baixa no estoque do Digifarma Firebird
+          if (prodRow) {
+            try {
+              const novoSaldo = Math.max(0, saldoAnterior - qty);
+              saldoBaixado = saldoAnterior - novoSaldo;
+
+              await queryDigifarma(
+                "UPDATE PRODUTOS SET PROD_SALDO = ?, LASTUPDATESALDO = CURRENT_TIMESTAMP WHERE PRODUTO_ID = ?",
+                [novoSaldo, prodRow.PRODUTO_ID]
+              );
+              console.log(`[Perdas API] ✅ Baixa efetuada no Digifarma para Prod #${prodRow.PRODUTO_ID} (${it.descricao}): Saldo Anterior: ${saldoAnterior}, Novo Saldo: ${novoSaldo}`);
+            } catch (dbErr) {
+              console.error(`[Perdas API] Erro ao abater estoque no Firebird (${it.descricao}):`, dbErr.message);
+              return res.status(500).json({
+                error: `Falha na comunicação com o Digifarma ao dar baixa no item "${it.descricao}": ${dbErr.message}. O lote não foi confirmado.`
+              });
+            }
           }
-          // Se o Digifarma falhar por estar offline ou timeout, repassa erro para não gerar inconsistência
-          return res.status(500).json({
-            error: `Falha na comunicação com o Digifarma ao dar baixa no item "${it.descricao}": ${dbErr.message}. O lote não foi confirmado.`
-          });
         }
 
         processedItems.push({
@@ -233,11 +272,13 @@ module.exports = function (db) {
           preco_custo: custoUnit,
           preco_venda: vendaUnit,
           saldo_anterior_digifarma: saldoAnterior,
-          saldo_baixado_digifarma: saldoBaixado
+          saldo_baixado_digifarma: saldoBaixado,
+          is_especial: isEspecial ? 1 : 0,
+          tipo_especial: tipoEspecial || null
         });
       }
 
-      // 2. Persistir Lote e Itens no SQLite (Transação)
+      // Persistir Lote e Itens no SQLite (Transação)
       const loteId = 'lote_perda_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
       const dataHora = new Date().toISOString();
 
@@ -260,8 +301,9 @@ module.exports = function (db) {
         const insertItemStmt = db.prepare(`
           INSERT INTO itens_lote_perdas (
             id, lote_id, produto_id, codigo_barras, descricao, quantidade, motivo,
-            preco_custo, preco_venda, saldo_anterior_digifarma, saldo_baixado_digifarma, observacao
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            preco_custo, preco_venda, saldo_anterior_digifarma, saldo_baixado_digifarma,
+            is_especial, tipo_especial, observacao
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of processedItems) {
@@ -278,6 +320,8 @@ module.exports = function (db) {
             item.preco_venda,
             item.saldo_anterior_digifarma,
             item.saldo_baixado_digifarma,
+            item.is_especial ? 1 : 0,
+            item.tipo_especial || null,
             item.observacao || null
           );
         }
@@ -285,6 +329,9 @@ module.exports = function (db) {
         // Registrar no log de auditoria
         try {
           const logId = 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+          const especiaisCount = processedItems.filter(i => i.is_especial).length;
+          const detalhesEspeciais = especiaisCount > 0 ? ` (${especiaisCount} especiais sem baixa física no Digifarma)` : '';
+
           db.prepare(`
             INSERT INTO logs (id, timestamp, userName, userId, action, category, details)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -295,7 +342,7 @@ module.exports = function (db) {
             userId,
             'BAIXA_PERDAS_ESTOQUE',
             'Estoque',
-            `Lote de baixa de perdas #${loteId} confirmado: ${processedItems.length} itens. Custo Total: R$ ${totalCusto.toFixed(2)}, Venda Total: R$ ${totalVenda.toFixed(2)}`
+            `Lote de baixa de perdas #${loteId} confirmado: ${processedItems.length} itens${detalhesEspeciais}. Custo Total: R$ ${totalCusto.toFixed(2)}, Venda Total: R$ ${totalVenda.toFixed(2)}`
           );
         } catch (logErr) {
           console.warn('[Perdas API] Falha ao registrar log de auditoria:', logErr.message);
@@ -348,7 +395,6 @@ module.exports = function (db) {
 
       const lotes = db.prepare(sql).all(...params);
 
-      // Calcular totais somados
       let somaCusto = 0;
       let somaVenda = 0;
       let somaQtdItens = 0;
