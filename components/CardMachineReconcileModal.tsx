@@ -17,7 +17,10 @@ import {
   ChevronDown,
   Check,
   Percent,
-  ShoppingBag
+  ShoppingBag,
+  Scale,
+  Sliders,
+  UserCheck
 } from 'lucide-react';
 import { CardMachineReceivable, CardBrand, CashClosingRecord } from '../types';
 import { useToast } from './ToastContext';
@@ -95,6 +98,55 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   const [paidDates, setPaidDates] = useState<string[]>([]);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [includeOlderPending, setIncludeOlderPending] = useState<boolean>(false);
+
+  // Integração com médias da Gestão de Preço para lembrar % de separação
+  const [pricingAverages, setPricingAverages] = useState<any>(null);
+  const [provisionRateMode, setProvisionRateMode] = useState<'pricing' | 'standard'>(() => {
+    try {
+      return (localStorage.getItem('belafarma_provision_rate_mode') as 'pricing' | 'standard') || 'pricing';
+    } catch (e) {
+      return 'pricing';
+    }
+  });
+
+  const fetchPricingAverages = async () => {
+    try {
+      const res = await fetch('/api/price-manager/customizations/averages');
+      if (res.ok) {
+        const d = await res.json();
+        if (d.success) setPricingAverages(d);
+      }
+    } catch (e) {
+      console.error('Erro ao buscar médias da precificação para o modal de conciliação:', e);
+    }
+  };
+
+  const handleToggleProvisionRateMode = (mode: 'pricing' | 'standard') => {
+    setProvisionRateMode(mode);
+    try {
+      localStorage.setItem('belafarma_provision_rate_mode', mode);
+      window.dispatchEvent(new CustomEvent('belafarma_provision_mode_changed', { detail: mode }));
+    } catch (e) {}
+    addToast(
+      mode === 'pricing'
+        ? '⚡ Caixinhas atualizadas com as porcentagens da Gestão de Preço!'
+        : '📋 Caixinhas retornaram ao padrão fixo (12% / 4% / 1%).',
+      'info'
+    );
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchPricingAverages();
+    }
+    const handleModeChanged = (e: any) => {
+      if (e.detail && (e.detail === 'pricing' || e.detail === 'standard')) {
+        setProvisionRateMode(e.detail);
+      }
+    };
+    window.addEventListener('belafarma_provision_mode_changed', handleModeChanged);
+    return () => window.removeEventListener('belafarma_provision_mode_changed', handleModeChanged);
+  }, [isOpen]);
 
   const fetchPaidDates = async () => {
     try {
@@ -508,24 +560,71 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     };
   }, [internalClosings]);
 
+  // Taxas ativas (dinâmicas conforme Gestão de Preço ou Padrão)
+  const activeRates = useMemo(() => {
+    const hasCustom = pricingAverages && pricingAverages.totalModifiedProducts > 0;
+    if (provisionRateMode === 'pricing' && hasCustom) {
+      const avg = pricingAverages.simpleAverages;
+      const prolabore = (avg.proLaboreTotalPct || 12) / 100;
+      const socio1 = (avg.proLabore1Pct || avg.proLaboreTotalPct / 2 || 6) / 100;
+      const socio2 = (avg.proLabore2Pct || avg.proLaboreTotalPct / 2 || 6) / 100;
+      const tax = (avg.impostoPct || 4) / 100;
+      const reserve = (avg.margemLiquidaPct || 1) / 100; // Lucro Líquido / Reserva
+
+      return {
+        prolabore,
+        socio1,
+        socio2,
+        tax,
+        reserve,
+        prolaborePctDisplay: avg.proLaboreTotalPct,
+        socio1PctDisplay: avg.proLabore1Pct,
+        socio2PctDisplay: avg.proLabore2Pct,
+        taxPctDisplay: avg.impostoPct,
+        reservePctDisplay: avg.margemLiquidaPct,
+        isCustom: true,
+        totalItems: pricingAverages.totalModifiedProducts
+      };
+    }
+
+    return {
+      prolabore: 0.12,
+      socio1: 0.06,
+      socio2: 0.06,
+      tax: 0.04,
+      reserve: 0.01,
+      prolaborePctDisplay: 12,
+      socio1PctDisplay: 6,
+      socio2PctDisplay: 6,
+      taxPctDisplay: 4,
+      reservePctDisplay: 1,
+      isCustom: false,
+      totalItems: pricingAverages?.totalModifiedProducts || 0
+    };
+  }, [provisionRateMode, pricingAverages]);
+
   // Base de cálculo das provisões: Faturamento do Fechamento do dia anterior (ou repasses caso não haja fechamento)
   const provisionBaseValue = referenceClosingSales > 0 ? referenceClosingSales : totalsSummary.totalGross;
 
-  // Provisões calculadas sobre o fechamento do dia anterior (Regra BelaFarma: 12% Pró-labore, 4% DAS, 1% Reserva)
+  // Provisões calculadas sobre o fechamento do dia anterior
   const provisions = useMemo(() => {
     const base = provisionBaseValue;
-    const prolabore = base * 0.12;
-    const impostos = base * 0.04;
-    const reserva = base * 0.01;
+    const prolabore = base * activeRates.prolabore;
+    const socio1 = base * activeRates.socio1;
+    const socio2 = base * activeRates.socio2;
+    const impostos = base * activeRates.tax;
+    const reserva = base * activeRates.reserve;
     return {
       base,
       prolabore: Number(prolabore.toFixed(2)),
+      socio1: Number(socio1.toFixed(2)),
+      socio2: Number(socio2.toFixed(2)),
       impostos: Number(impostos.toFixed(2)),
       reserva: Number(reserva.toFixed(2)),
       total: Number((prolabore + impostos + reserva).toFixed(2)),
       liquidoAposProvisoes: Number((totalsSummary.totalGross - prolabore - impostos - reserva).toFixed(2))
     };
-  }, [provisionBaseValue, totalsSummary.totalGross]);
+  }, [provisionBaseValue, totalsSummary.totalGross, activeRates]);
 
   // Sincroniza os botões do modal com os registros persistidos de provisão
   useEffect(() => {
@@ -630,9 +729,9 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       window.dispatchEvent(new CustomEvent('belafarma_provisions_updated', { detail: updated }));
 
       const nomes = {
-        prolabore: 'Pró-Labore (12%)',
-        impostos: 'Impostos / DAS (4%)',
-        reserva: 'Reserva de Emergência (1%)'
+        prolabore: `Pró-Labore (${activeRates.prolaborePctDisplay.toFixed(1)}%)`,
+        impostos: `Impostos / DAS (${activeRates.taxPctDisplay.toFixed(1)}%)`,
+        reserva: `Reserva / Lucro (${activeRates.reservePctDisplay.toFixed(1)}%)`
       };
 
       if (!isCurrentlyConfirmed) {
@@ -929,13 +1028,19 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                         <Percent className="w-6 h-6" />
                       </div>
                       <div>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <h4 className="text-base font-black tracking-tight text-white">
                             Provisões Obrigatórias das Caixinhas
                           </h4>
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
-                            Regra BelaFarma
-                          </span>
+                          {activeRates.isCustom ? (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
+                              Gestão de Preço (60% Pró-labore / 40% Lucro)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
+                              Regra Padrão BelaFarma
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Calculadas sobre o faturamento do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>. Fica disponível por 2 dias se não tiver sido provisionado.
@@ -943,10 +1048,40 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       </div>
                     </div>
 
-                    {/* Cards de Destaque: Base do Fechamento + Repasses de Cartão */}
+                    {/* Toggle de Modo + Cards de Destaque */}
                     <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
+                      {/* Toggle de Modo: Precificação vs Padrão */}
+                      <div className="inline-flex p-1 bg-slate-800/90 rounded-2xl border border-slate-700/80">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleProvisionRateMode('pricing')}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                            provisionRateMode === 'pricing'
+                              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Usar porcentagens da Gestão de Preço"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>% Precificação</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleProvisionRateMode('standard')}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                            provisionRateMode === 'standard'
+                              ? 'bg-slate-700 text-white shadow-md'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Usar padrão fixo 12%/4%/1%"
+                        >
+                          <Sliders className="w-3 h-3" />
+                          <span>Padrão (12%/4%/1%)</span>
+                        </button>
+                      </div>
+
                       {/* Card Base de Fechamento */}
-                      <div className="bg-indigo-950/70 border-2 border-indigo-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[210px] shadow-lg shadow-indigo-950/50">
+                      <div className="bg-indigo-950/70 border-2 border-indigo-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[190px] shadow-lg shadow-indigo-950/50">
                         <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
                           {referenceClosingDatesFormatted 
                             ? `Último Fechamento (${referenceClosingDatesFormatted})` 
@@ -961,7 +1096,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       </div>
 
                       {/* Card Repasses a Conferir */}
-                      <div className="bg-emerald-950/70 border-2 border-emerald-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[190px] shadow-lg shadow-emerald-950/50">
+                      <div className="bg-emerald-950/70 border-2 border-emerald-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[180px] shadow-lg shadow-emerald-950/50">
                         <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
                           Repasses a Conferir
                         </span>
@@ -977,7 +1112,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
 
                   {/* 3 Caixinhas de Provisão com Botões Individuais de Confirmação */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    {/* 1. Pró-Labore (12%) */}
+                    {/* 1. Pró-Labore */}
                     {(!isProvisionsPastSecondDay || confirmedProvisions.prolabore) && (
                       <div className={`p-4 rounded-2xl border transition-all ${
                         confirmedProvisions.prolabore 
@@ -986,18 +1121,24 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       }`}>
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-black uppercase tracking-wider text-purple-300">
-                            Pró-Labore
+                            Pró-Labore dos Sócios
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                            12%
+                            {activeRates.prolaborePctDisplay.toFixed(1)}%
                           </span>
                         </div>
                         <div className="mt-2 text-2xl font-black text-white">
                           {formatCurrency(provisions.prolabore)}
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          12% do fechamento ({formatCurrency(provisionBaseValue)})
+                          {activeRates.prolaborePctDisplay.toFixed(1)}% do fechamento ({formatCurrency(provisionBaseValue)})
                         </p>
+                        {activeRates.isCustom && (
+                          <div className="mt-1 pt-1 border-t border-slate-700/60 flex items-center justify-between text-[10px] text-purple-200">
+                            <span>S1 ({activeRates.socio1PctDisplay.toFixed(1)}%): <strong>{formatCurrency(provisions.socio1)}</strong></span>
+                            <span>S2 ({activeRates.socio2PctDisplay.toFixed(1)}%): <strong>{formatCurrency(provisions.socio2)}</strong></span>
+                          </div>
+                        )}
                         <div className="pt-3 mt-2 border-t border-slate-700/60">
                           <button
                             onClick={() => handleToggleProvision('prolabore')}
@@ -1023,7 +1164,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       </div>
                     )}
 
-                    {/* 2. Impostos / DAS (4%) */}
+                    {/* 2. Impostos / DAS */}
                     {(!isProvisionsPastSecondDay || confirmedProvisions.impostos) && (
                       <div className={`p-4 rounded-2xl border transition-all ${
                         confirmedProvisions.impostos 
@@ -1035,14 +1176,14 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                             Impostos / DAS
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                            4%
+                            {activeRates.taxPctDisplay.toFixed(1)}%
                           </span>
                         </div>
                         <div className="mt-2 text-2xl font-black text-white">
                           {formatCurrency(provisions.impostos)}
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          4% do fechamento ({formatCurrency(provisionBaseValue)})
+                          {activeRates.taxPctDisplay.toFixed(1)}% do fechamento ({formatCurrency(provisionBaseValue)})
                         </p>
                         <div className="pt-3 mt-2 border-t border-slate-700/60">
                           <button
@@ -1069,7 +1210,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       </div>
                     )}
 
-                    {/* 3. Reserva Emergência (1%) */}
+                    {/* 3. Reserva / Lucro */}
                     {(!isProvisionsPastSecondDay || confirmedProvisions.reserva) && (
                       <div className={`p-4 rounded-2xl border transition-all ${
                         confirmedProvisions.reserva 
@@ -1078,17 +1219,17 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       }`}>
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-black uppercase tracking-wider text-sky-300">
-                            Reserva Emergência
+                            Lucro / Fundo de Reserva
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                            1%
+                            {activeRates.reservePctDisplay.toFixed(1)}%
                           </span>
                         </div>
                         <div className="mt-2 text-2xl font-black text-white">
                           {formatCurrency(provisions.reserva)}
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          1% do fechamento ({formatCurrency(provisionBaseValue)})
+                          {activeRates.reservePctDisplay.toFixed(1)}% do fechamento ({formatCurrency(provisionBaseValue)})
                         </p>
                         <div className="pt-3 mt-2 border-t border-slate-700/60">
                           <button
@@ -1119,7 +1260,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                   {/* Resumo Total das Provisões Obrigatórias */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-xs">
                     <span className="text-slate-300 font-medium">
-                      Total Obrigatório a Separar Hoje (17% do faturamento de {formatCurrency(provisionBaseValue)}):
+                      Total a Separar Hoje ({((activeRates.prolabore + activeRates.tax + activeRates.reserve) * 100).toFixed(1)}% do faturamento de {formatCurrency(provisionBaseValue)}):
                     </span>
                     <span className="font-black text-emerald-300 text-base">
                       {formatCurrency(provisions.total)}

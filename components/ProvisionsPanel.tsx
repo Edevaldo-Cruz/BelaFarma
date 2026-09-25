@@ -11,12 +11,47 @@ import {
   Info,
   RefreshCw,
   Filter,
-  XCircle
+  XCircle,
+  Scale,
+  Sparkles,
+  UserCheck,
+  DollarSign,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
+  Calculator,
+  ArrowRight
 } from 'lucide-react';
 import { CashClosingRecord, FixedAccount } from '../types';
 import { useToast } from './ToastContext';
 
 import { getLocalDateKey } from '../utils';
+
+interface PricingAverages {
+  totalModifiedProducts: number;
+  simpleAverages: {
+    proLabore1Pct: number;
+    proLabore2Pct: number;
+    proLaboreTotalPct: number;
+    custoFixoPct: number;
+    impostoPct: number;
+    taxaCartaoPct: number;
+    custosVariaveisPct: number;
+    margemLiquidaPct: number;
+    markupDivisor: number;
+    markupMultiplicador: number;
+  };
+  weightedAverages: {
+    proLaboreTotalPct: number;
+    custoFixoPct: number;
+    impostoPct: number;
+    taxaCartaoPct: number;
+    custosVariaveisPct: number;
+    margemLiquidaPct: number;
+    totalEstoqueValor: number;
+  };
+  items: any[];
+}
 
 interface ProvisionsPanelProps {
   cashClosings: CashClosingRecord[];
@@ -81,6 +116,19 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   const [isUpdating, setIsUpdating] = useState(false);
   const [filterMode, setFilterMode] = useState<'provisioned' | 'all' | 'pending'>('provisioned');
 
+  // Integração com as Médias da Gestão de Preço / Precificação
+  const [pricingAverages, setPricingAverages] = useState<PricingAverages | null>(null);
+  const [isLoadingAverages, setIsLoadingAverages] = useState(false);
+  const [provisionRateMode, setProvisionRateMode] = useState<'pricing' | 'standard'>(() => {
+    try {
+      return (localStorage.getItem('belafarma_provision_rate_mode') as 'pricing' | 'standard') || 'pricing';
+    } catch (e) {
+      return 'pricing';
+    }
+  });
+  const [isPricingExpanded, setIsPricingExpanded] = useState(true);
+  const [simClosingValue, setSimClosingValue] = useState<string>('');
+
   // Busca configurações de datas de provisões pagas
   const fetchPaidDates = async () => {
     try {
@@ -99,8 +147,41 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     }
   };
 
+  // Busca as médias calculadas pelo Gestão de Preço
+  const fetchPricingAverages = async () => {
+    setIsLoadingAverages(true);
+    try {
+      const res = await fetch('/api/price-manager/customizations/averages');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setPricingAverages(data);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar médias de precificação:', err);
+    } finally {
+      setIsLoadingAverages(false);
+    }
+  };
+
+  const handleToggleRateMode = (mode: 'pricing' | 'standard') => {
+    setProvisionRateMode(mode);
+    try {
+      localStorage.setItem('belafarma_provision_rate_mode', mode);
+      window.dispatchEvent(new CustomEvent('belafarma_provision_mode_changed', { detail: mode }));
+    } catch (e) {}
+    addToast(
+      mode === 'pricing' 
+        ? '⚡ Caixinhas agora utilizam as médias salvas na Gestão de Preço!' 
+        : '📋 Caixinhas retornaram ao padrão fixo (12% / 4% / 1%).', 
+      'info'
+    );
+  };
+
   useEffect(() => {
     fetchPaidDates();
+    fetchPricingAverages();
 
     const handleProvisionsUpdated = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
@@ -109,8 +190,19 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
         fetchPaidDates();
       }
     };
+
+    const handleModeChanged = (e: any) => {
+      if (e.detail && (e.detail === 'pricing' || e.detail === 'standard')) {
+        setProvisionRateMode(e.detail);
+      }
+    };
+
     window.addEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
-    return () => window.removeEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
+    window.addEventListener('belafarma_provision_mode_changed', handleModeChanged);
+    return () => {
+      window.removeEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
+      window.removeEventListener('belafarma_provision_mode_changed', handleModeChanged);
+    };
   }, []);
 
   // Data de início oficial das provisões das caixinhas (ignora fechamentos anteriores a 31/08/2026)
@@ -134,10 +226,58 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     return monthClosings.reduce((sum, c) => sum + (Number(c.totalSales) || 0), 0);
   }, [monthClosings]);
 
+  // Taxas ativas (dinâmicas conforme Gestão de Preço ou Padrão)
+  const activeRates = useMemo(() => {
+    const hasCustom = pricingAverages && pricingAverages.totalModifiedProducts > 0;
+    if (provisionRateMode === 'pricing' && hasCustom) {
+      const avg = pricingAverages.simpleAverages;
+      const prolabore = (avg.proLaboreTotalPct || 12) / 100;
+      const socio1 = (avg.proLabore1Pct || avg.proLaboreTotalPct / 2 || 6) / 100;
+      const socio2 = (avg.proLabore2Pct || avg.proLaboreTotalPct / 2 || 6) / 100;
+      const tax = (avg.impostoPct || 4) / 100;
+      const reserve = (avg.margemLiquidaPct || 1) / 100; // Lucro Líquido / Fundo de Reserva
+      const custoFixo = (avg.custoFixoPct || 0) / 100;
+
+      return {
+        prolabore,
+        socio1,
+        socio2,
+        tax,
+        reserve,
+        custoFixo,
+        prolaborePctDisplay: avg.proLaboreTotalPct,
+        socio1PctDisplay: avg.proLabore1Pct,
+        socio2PctDisplay: avg.proLabore2Pct,
+        taxPctDisplay: avg.impostoPct,
+        reservePctDisplay: avg.margemLiquidaPct,
+        custoFixoPctDisplay: avg.custoFixoPct,
+        isCustom: true,
+        totalItems: pricingAverages.totalModifiedProducts
+      };
+    }
+
+    return {
+      prolabore: 0.12,
+      socio1: 0.06,
+      socio2: 0.06,
+      tax: 0.04,
+      reserve: 0.01,
+      custoFixo: 0,
+      prolaborePctDisplay: 12,
+      socio1PctDisplay: 6,
+      socio2PctDisplay: 6,
+      taxPctDisplay: 4,
+      reservePctDisplay: 1,
+      custoFixoPctDisplay: 0,
+      isCustom: false,
+      totalItems: pricingAverages?.totalModifiedProducts || 0
+    };
+  }, [provisionRateMode, pricingAverages]);
+
   // Cálculos das Caixinhas
-  const prolaboreTotal = totalMonthSales * 0.12;
-  const taxTotal = totalMonthSales * 0.04;
-  const reserveTotal = totalMonthSales * 0.01;
+  const prolaboreTotal = totalMonthSales * activeRates.prolabore;
+  const taxTotal = totalMonthSales * activeRates.tax;
+  const reserveTotal = totalMonthSales * activeRates.reserve;
   const grandTotalProvisions = prolaboreTotal + taxTotal + reserveTotal;
 
   // Totais Pagos / Separados (desconsiderando pendências descartadas após o 2º dia útil)
@@ -159,21 +299,21 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       const rPaid = paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
 
       if (pPaid) {
-        paidProlabore += sales * 0.12;
+        paidProlabore += sales * activeRates.prolabore;
       } else if (!isPast2ndDay) {
-        pendingProlabore += sales * 0.12;
+        pendingProlabore += sales * activeRates.prolabore;
       }
 
       if (tPaid) {
-        paidTax += sales * 0.04;
+        paidTax += sales * activeRates.tax;
       } else if (!isPast2ndDay) {
-        pendingTax += sales * 0.04;
+        pendingTax += sales * activeRates.tax;
       }
 
       if (rPaid) {
-        paidReserve += sales * 0.01;
+        paidReserve += sales * activeRates.reserve;
       } else if (!isPast2ndDay) {
-        pendingReserve += sales * 0.01;
+        pendingReserve += sales * activeRates.reserve;
       }
     });
 
@@ -187,7 +327,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       totalPaid: paidProlabore + paidTax + paidReserve,
       totalPending: pendingProlabore + pendingTax + pendingReserve
     };
-  }, [monthClosings, paidProvisionsDates]);
+  }, [monthClosings, paidProvisionsDates, activeRates]);
 
   const isClosingProvisioned = (date: string) => {
     const key = getDateKey(date);
@@ -283,7 +423,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <PiggyBank className="w-7 h-7 text-emerald-600" /> Caixinhas de Provisão
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Separação diária sobre o faturamento: Pró-labore (12%), Impostos (4%) e Fundo de Reserva (1%).
+            Separação diária sobre o faturamento: Pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%), Impostos ({activeRates.taxPctDisplay.toFixed(1)}%) e Lucro/Reserva ({activeRates.reservePctDisplay.toFixed(1)}%).
           </p>
         </div>
         
@@ -312,17 +452,299 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </select>
 
           <button
-            onClick={fetchPaidDates}
-            disabled={isUpdating}
+            onClick={() => {
+              fetchPaidDates();
+              fetchPricingAverages();
+            }}
+            disabled={isUpdating || isLoadingAverages}
             className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all border border-slate-200 hover:border-emerald-200"
-            title="Atualizar dados de provisões"
+            title="Atualizar dados de provisões e médias da precificação"
           >
-            <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isUpdating || isLoadingAverages ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>
 
-      {/* Resumo Geral de Faturamento e Total Provisionado (17%) */}
+      {/* LEMBRETE DE SEPARAÇÃO INTELIGENTE (GESTÃO DE PREÇO) */}
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-indigo-900/50 space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+              <Scale className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
+                  Lembrete de Separação de Dinheiro
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Gestão de Preço
+                  </span>
+                </h2>
+                {activeRates.isCustom && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-500/40">
+                    {pricingAverages?.totalModifiedProducts} produtos equalizados (60% Pró-labore / 40% Lucro)
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-300 mt-1">
+                Use estas porcentagens para saber exatamente quanto separar em espécie para cada sócio, lucro e tributos.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Toggle de Modo: Precificação vs Padrão */}
+            <div className="inline-flex p-1 bg-slate-800/80 rounded-2xl border border-slate-700/80">
+              <button
+                type="button"
+                onClick={() => handleToggleRateMode('pricing')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                  provisionRateMode === 'pricing'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Aplica as médias da Gestão de Preço nas Caixinhas"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Usar % da Precificação</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleRateMode('standard')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                  provisionRateMode === 'standard'
+                    ? 'bg-slate-700 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Aplica a regra clássica fixa de 12% Pró-labore, 4% DAS, 1% Reserva"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Padrão (12% / 4% / 1%)</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsPricingExpanded(!isPricingExpanded)}
+              className="p-2 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700/80 transition-all cursor-pointer"
+              title={isPricingExpanded ? 'Recolher detalhes' : 'Expandir detalhes'}
+            >
+              {isPricingExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        {isPricingExpanded && (
+          <div className="space-y-5 pt-2 border-t border-slate-800">
+            {/* Grid dos 4 Percentuais de Referência */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* 1. Pró-labore dos Sócios */}
+              <div className="bg-slate-800/80 border border-emerald-500/30 rounded-2xl p-4 relative overflow-hidden">
+                <div className="flex justify-between items-start">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                    <UserCheck className="w-3.5 h-3.5" /> Pró-labore dos Sócios
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                    60% da sobra
+                  </span>
+                </div>
+                <div className="mt-2 text-2xl font-black text-white">
+                  {(pricingAverages?.simpleAverages.proLaboreTotalPct ?? 12).toFixed(1)}%
+                </div>
+                <div className="mt-2 pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-300">
+                  <span>👤 Sócio 1: <strong className="text-emerald-300">{(pricingAverages?.simpleAverages.proLabore1Pct ?? 6).toFixed(1)}%</strong></span>
+                  <span>👤 Sócio 2: <strong className="text-emerald-300">{(pricingAverages?.simpleAverages.proLabore2Pct ?? 6).toFixed(1)}%</strong></span>
+                </div>
+              </div>
+
+              {/* 2. Lucro Líquido / Reserva */}
+              <div className="bg-slate-800/80 border border-purple-500/30 rounded-2xl p-4 relative overflow-hidden">
+                <div className="flex justify-between items-start">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-purple-400 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Lucro Líquido / Reserva
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                    40% da sobra
+                  </span>
+                </div>
+                <div className="mt-2 text-2xl font-black text-white">
+                  {(pricingAverages?.simpleAverages.margemLiquidaPct ?? 1).toFixed(1)}%
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Destinado a investimentos, reserva ou divisão de lucros.
+                </p>
+              </div>
+
+              {/* 3. Impostos / DAS */}
+              <div className="bg-slate-800/80 border border-blue-500/30 rounded-2xl p-4 relative overflow-hidden">
+                <div className="flex justify-between items-start">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1">
+                    <Landmark className="w-3.5 h-3.5" /> Impostos / DAS
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
+                    Simples
+                  </span>
+                </div>
+                <div className="mt-2 text-2xl font-black text-white">
+                  {(pricingAverages?.simpleAverages.impostoPct ?? 4).toFixed(1)}%
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Alíquota configurada para pagamento da guia mensal de DAS.
+                </p>
+              </div>
+
+              {/* 4. Custo Fixo Operacional */}
+              <div className="bg-slate-800/80 border border-amber-500/30 rounded-2xl p-4 relative overflow-hidden">
+                <div className="flex justify-between items-start">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                    <DollarSign className="w-3.5 h-3.5" /> Custo Fixo (Ref.)
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                    Operação
+                  </span>
+                </div>
+                <div className="mt-2 text-2xl font-black text-white">
+                  {(pricingAverages?.simpleAverages.custoFixoPct ?? 15.7).toFixed(1)}%
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Aluguel, energia, funcionários e despesas fixas da loja.
+                </p>
+              </div>
+            </div>
+
+            {/* SIMULADOR RÁPIDO DE SEPARAÇÃO DE DINHEIRO DO DIA */}
+            <div className="bg-slate-950/60 border border-indigo-500/30 rounded-2xl p-4 sm:p-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-emerald-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-white">
+                    Simulador Rápido: Quanto separar do fechamento de hoje?
+                  </span>
+                </div>
+
+                {/* Input de Valor ou Botões Rápidos */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative w-44">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">R$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={monthClosings[0] ? Number(monthClosings[0].totalSales).toFixed(2) : "1000.00"}
+                      value={simClosingValue}
+                      onChange={(e) => setSimClosingValue(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  {monthClosings[0] && (
+                    <button
+                      type="button"
+                      onClick={() => setSimClosingValue(String(Number(monthClosings[0].totalSales) || 0))}
+                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[11px] font-bold transition-all border border-slate-700 cursor-pointer"
+                    >
+                      Último Fechamento ({formatBRL(Number(monthClosings[0].totalSales) || 0)})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSimClosingValue('2000')}
+                    className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[11px] font-bold border border-slate-700 cursor-pointer"
+                  >
+                    R$ 2.000
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimClosingValue('3000')}
+                    className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[11px] font-bold border border-slate-700 cursor-pointer"
+                  >
+                    R$ 3.000
+                  </button>
+                </div>
+              </div>
+
+              {(() => {
+                const defaultRefValue = monthClosings[0] ? Number(monthClosings[0].totalSales) || 1000 : 1000;
+                const calcBase = parseFloat(simClosingValue) > 0 ? parseFloat(simClosingValue) : defaultRefValue;
+                const simProlabore = calcBase * activeRates.prolabore;
+                const simSocio1 = calcBase * activeRates.socio1;
+                const simSocio2 = calcBase * activeRates.socio2;
+                const simTax = calcBase * activeRates.tax;
+                const simReserve = calcBase * activeRates.reserve;
+                const simTotal = simProlabore + simTax + simReserve;
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+                    {/* Caixinha Pró-labore */}
+                    <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3.5">
+                      <div className="flex justify-between items-center text-xs font-black text-emerald-300">
+                        <span>🟣 Caixinha Pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%)</span>
+                      </div>
+                      <div className="text-xl font-black text-white mt-1">
+                        {formatBRL(simProlabore)}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-emerald-500/30 space-y-0.5 text-[11px] text-emerald-200">
+                        <div className="flex justify-between">
+                          <span>Sócio 1 ({activeRates.socio1PctDisplay.toFixed(1)}%):</span>
+                          <strong>{formatBRL(simSocio1)}</strong>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Sócio 2 ({activeRates.socio2PctDisplay.toFixed(1)}%):</span>
+                          <strong>{formatBRL(simSocio2)}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Caixinha Lucro / Reserva */}
+                    <div className="bg-purple-950/40 border border-purple-500/40 rounded-xl p-3.5">
+                      <div className="flex justify-between items-center text-xs font-black text-purple-300">
+                        <span>🟢 Caixinha Lucro ({activeRates.reservePctDisplay.toFixed(1)}%)</span>
+                      </div>
+                      <div className="text-xl font-black text-white mt-1">
+                        {formatBRL(simReserve)}
+                      </div>
+                      <p className="text-[11px] text-purple-200 mt-2 pt-2 border-t border-purple-500/30">
+                        Guardar no cofre ou conta poupança/reserva.
+                      </p>
+                    </div>
+
+                    {/* Caixinha Impostos */}
+                    <div className="bg-blue-950/40 border border-blue-500/40 rounded-xl p-3.5">
+                      <div className="flex justify-between items-center text-xs font-black text-blue-300">
+                        <span>🔵 Caixinha Impostos ({activeRates.taxPctDisplay.toFixed(1)}%)</span>
+                      </div>
+                      <div className="text-xl font-black text-white mt-1">
+                        {formatBRL(simTax)}
+                      </div>
+                      <p className="text-[11px] text-blue-200 mt-2 pt-2 border-t border-blue-500/30">
+                        Separar para pagar a guia do DAS no dia 20.
+                      </p>
+                    </div>
+
+                    {/* Total a Separar Hoje */}
+                    <div className="bg-indigo-900/60 border-2 border-indigo-400/60 rounded-xl p-3.5 shadow-lg">
+                      <div className="flex justify-between items-center text-xs font-black text-indigo-300">
+                        <span>💰 Total a Separar Hoje</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/30 text-indigo-200">
+                          {((activeRates.prolabore + activeRates.reserve + activeRates.tax) * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-xl font-black text-emerald-300 mt-1">
+                        {formatBRL(simTotal)}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-indigo-500/30 text-[11px] text-indigo-200 flex justify-between">
+                        <span>Sobre faturamento de:</span>
+                        <strong>{formatBRL(calcBase)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Resumo Geral de Faturamento e Total Provisionado */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card Faturamento Total */}
         <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
@@ -345,7 +767,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </div>
         </div>
 
-        {/* Card 1: Pró-labore (12%) */}
+        {/* Card 1: Pró-labore */}
         <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-2xl p-5 border border-emerald-100 shadow-sm relative overflow-hidden">
           <div className="flex justify-between items-start">
             <div>
@@ -353,12 +775,16 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <PiggyBank className="w-3.5 h-3.5 text-emerald-600" /> Pró-labore dos Sócios
               </span>
               <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                12% do Faturamento
+                {activeRates.prolaborePctDisplay.toFixed(1)}% do Faturamento
               </span>
             </div>
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-black text-emerald-950 tracking-tight">{formatBRL(prolaboreTotal)}</h3>
+            <div className="text-[11px] text-emerald-700/80 font-bold mt-1 flex justify-between">
+              <span>S1: {formatBRL(prolaboreTotal * (activeRates.socio1 / activeRates.prolabore))}</span>
+              <span>S2: {formatBRL(prolaboreTotal * (activeRates.socio2 / activeRates.prolabore))}</span>
+            </div>
             <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-emerald-200/60 font-semibold">
               <span className="text-emerald-700">Reservado: {formatBRL(paidStats.paidProlabore)}</span>
               <span className="text-amber-700 font-bold">Pendente: {formatBRL(paidStats.pendingProlabore)}</span>
@@ -366,7 +792,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </div>
         </div>
 
-        {/* Card 2: Impostos (4%) */}
+        {/* Card 2: Impostos */}
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50/50 rounded-2xl p-5 border border-blue-100 shadow-sm relative overflow-hidden">
           <div className="flex justify-between items-start">
             <div>
@@ -374,7 +800,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <Landmark className="w-3.5 h-3.5 text-blue-600" /> Impostos / Tributos
               </span>
               <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-md">
-                4% do Faturamento
+                {activeRates.taxPctDisplay.toFixed(1)}% do Faturamento
               </span>
             </div>
           </div>
@@ -387,15 +813,15 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </div>
         </div>
 
-        {/* Card 3: Reserva (1%) */}
+        {/* Card 3: Lucro / Reserva */}
         <div className="bg-gradient-to-br from-purple-50 to-violet-50/50 rounded-2xl p-5 border border-purple-100 shadow-sm relative overflow-hidden">
           <div className="flex justify-between items-start">
             <div>
               <span className="text-[10px] font-black text-purple-800 uppercase tracking-widest flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" /> Fundo de Reserva
+                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" /> Lucro / Fundo de Reserva
               </span>
               <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md">
-                1% do Faturamento
+                {activeRates.reservePctDisplay.toFixed(1)}% do Faturamento
               </span>
             </div>
           </div>
@@ -409,7 +835,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
         </div>
       </div>
 
-      {/* Card de Total Acumulado Provisionado (17%) */}
+      {/* Card de Total Acumulado Provisionado */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
@@ -417,7 +843,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </div>
           <div>
             <h3 className="text-lg font-black text-slate-900 tracking-tight">Total Geral de Provisões do Mês</h3>
-            <p className="text-xs text-slate-500 font-medium">Soma das reservas destinadas a pró-labore (12%), impostos (4%) e fundo de emergência (1%).</p>
+            <p className="text-xs text-slate-500 font-medium">
+              Soma das reservas destinadas a pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%), impostos ({activeRates.taxPctDisplay.toFixed(1)}%) e lucro/reserva ({activeRates.reservePctDisplay.toFixed(1)}%). Total: {((activeRates.prolabore + activeRates.tax + activeRates.reserve) * 100).toFixed(1)}%.
+            </p>
           </div>
         </div>
 
@@ -533,18 +961,24 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <tr className="bg-slate-50/80 border-b border-slate-100">
                   <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest">Data</th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Faturamento</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center">Pró-labore (12%)</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center">Impostos (4%)</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center">Reserva (1%)</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center">
+                    Pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%)
+                  </th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center">
+                    Impostos ({activeRates.taxPctDisplay.toFixed(1)}%)
+                  </th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center">
+                    Reserva/Lucro ({activeRates.reservePctDisplay.toFixed(1)}%)
+                  </th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Total Provisionado (Dia)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {displayedClosings.map(c => {
                   const sales = Number(c.totalSales) || 0;
-                  const valProlabore = sales * 0.12;
-                  const valTax = sales * 0.04;
-                  const valReserve = sales * 0.01;
+                  const valProlabore = sales * activeRates.prolabore;
+                  const valTax = sales * activeRates.tax;
+                  const valReserve = sales * activeRates.reserve;
                   const valDayTotal = valProlabore + valTax + valReserve;
 
                   const dateKey = getDateKey(c.date);

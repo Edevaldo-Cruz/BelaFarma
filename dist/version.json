@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "253bac5",
-  "commitMessage": "feat(pricing-simulator): ajustar proporcao de equalizacao para 60% pro-labore e 40% lucro",
-  "buildTime": "25/09/2026, 17:27:07"
+  "commitHash": "34bf7d1",
+  "commitMessage": "build: atualizar bundle dist com a lista de produtos vendidos por categoria",
+  "buildTime": "25/09/2026, 17:45:37"
 }
