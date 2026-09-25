@@ -1108,19 +1108,9 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           <h4 className="text-base font-black tracking-tight text-white">
                             Provisões Obrigatórias das Caixinhas
                           </h4>
-                          {provisionRateMode === 'mix' ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
-                              ⚡ Mix Real (s/ Crediário) {activeRates.isCustom ? `• ${activeRates.totalItems} produto(s) esp.` : ''}
-                            </span>
-                          ) : activeRates.isCustom ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
-                              Gestão de Preço (60% Pró-labore / 40% Lucro)
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
-                              Regra Padrão BelaFarma
-                            </span>
-                          )}
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
+                            ⚡ Mix Real de Vendas (s/ Crediário) {activeRates.isCustom ? `• ${activeRates.totalItems} especial(is)` : ''}
+                          </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Calculadas sobre o faturamento à vista do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>
@@ -1129,51 +1119,8 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       </div>
                     </div>
 
-                    {/* Toggle de Modo + Cards de Destaque */}
+                    {/* Cards de Destaque */}
                     <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
-                      {/* Toggle de Modo: Mix Real vs Precificação vs Padrão */}
-                      <div className="inline-flex p-1 bg-slate-800/90 rounded-2xl border border-slate-700/80">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleProvisionRateMode('mix')}
-                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
-                            provisionRateMode === 'mix'
-                              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                          title="Calcula sobre os itens vendidos no dia, aplicando a taxa de cada produto e excluindo crediário"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          <span>% Mix Real</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleProvisionRateMode('pricing')}
-                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
-                            provisionRateMode === 'pricing'
-                              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                          title="Usar média geral da Gestão de Preço"
-                        >
-                          <Scale className="w-3 h-3" />
-                          <span>% Precificação</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleProvisionRateMode('standard')}
-                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
-                            provisionRateMode === 'standard'
-                              ? 'bg-slate-700 text-white shadow-md'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                          title="Usar padrão fixo 12%/4%/1%"
-                        >
-                          <Sliders className="w-3 h-3" />
-                          <span>Padrão</span>
-                        </button>
-                      </div>
-
                       {/* Card Base de Fechamento */}
                       <div className="bg-indigo-950/70 border-2 border-indigo-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[190px] shadow-lg shadow-indigo-950/50">
                         <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">

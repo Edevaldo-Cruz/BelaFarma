@@ -655,18 +655,12 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <h2 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
                   Lembrete de Separação de Dinheiro
                   <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {provisionRateMode === 'mix' ? '⚡ Mix Real Ponderado' : provisionRateMode === 'pricing' ? '📊 Gestão de Preço' : '📋 Padrão'}
+                    ⚡ Mix Real Ponderado
                   </span>
                 </h2>
-                {provisionRateMode === 'mix' ? (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/30 text-emerald-200 border border-emerald-500/40">
-                    {salesMixData?.monthSummary?.totalCustomItemsCount || 0} produtos especiais vendidos no mês (s/ crediário)
-                  </span>
-                ) : activeRates.isCustom ? (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-500/40">
-                    {pricingAverages?.totalModifiedProducts} produtos equalizados (60% Pró-labore / 40% Lucro)
-                  </span>
-                ) : null}
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/30 text-emerald-200 border border-emerald-500/40">
+                  {salesMixData?.monthSummary?.totalCustomItemsCount || 0} produtos especiais vendidos no mês (s/ crediário)
+                </span>
               </div>
               <p className="text-xs text-slate-300 mt-1">
                 Use estas porcentagens para saber exatamente quanto separar em espécie para cada sócio, lucro e tributos (vendas no crediário desconsideradas).
@@ -675,49 +669,6 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Toggle de Modo: Mix Real vs Precificação vs Padrão */}
-            <div className="inline-flex p-1 bg-slate-800/80 rounded-2xl border border-slate-700/80">
-              <button
-                type="button"
-                onClick={() => handleToggleRateMode('mix')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                  provisionRateMode === 'mix'
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Calcula com base nos itens reais vendidos no dia, aplicando a taxa de cada produto e excluindo crediário"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>⚡ Mix Real (s/ Crediário)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleRateMode('pricing')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                  provisionRateMode === 'pricing'
-                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Aplica a média global da Gestão de Preço nas Caixinhas"
-              >
-                <Scale className="w-3.5 h-3.5" />
-                <span>Média Precificação</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleRateMode('standard')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                  provisionRateMode === 'standard'
-                    ? 'bg-slate-700 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Aplica a regra clássica fixa de 12% Pró-labore, 4% DAS, 1% Reserva"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Padrão (12% / 4% / 1%)</span>
-              </button>
-            </div>
-
             <button
               type="button"
               onClick={() => setIsPricingExpanded(!isPricingExpanded)}
