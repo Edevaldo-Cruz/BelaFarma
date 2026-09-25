@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "7ba78e1",
-  "commitMessage": "fix(price-manager): sincronizar precos e custos vigentes com compras_estoque_cache",
-  "buildTime": "25/09/2026, 17:15:53"
+  "commitHash": "2176256",
+  "commitMessage": "feat(pricing-simulator): botao para equalizar pro-labore e lucro liquido pelo preco atual da loja",
+  "buildTime": "25/09/2026, 17:20:38"
 }

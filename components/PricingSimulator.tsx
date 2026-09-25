@@ -467,8 +467,8 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
       return;
     }
 
-    // Divide 50% da margem disponível para Pró-labore e 50% para Lucro Líquido
-    const proLaboreTotal = Number((margemDisponivel / 2).toFixed(2));
+    // Distribui 60% da margem disponível para o Pró-labore e 40% para o Lucro Líquido
+    const proLaboreTotal = Number((margemDisponivel * 0.60).toFixed(2));
     const margemLiquida = Number((margemDisponivel - proLaboreTotal).toFixed(2));
 
     // Distribuição do Pró-labore entre os Sócios
@@ -482,7 +482,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
       socio1 = 0;
       socio2 = proLaboreTotal;
     } else {
-      // Padrão BelaFarma: 2 sócios iguais (50% cada)
+      // Padrão BelaFarma: 2 sócios iguais (50% do pró-labore para cada)
       socio1 = Number((proLaboreTotal / 2).toFixed(2));
       socio2 = Number((proLaboreTotal - socio1).toFixed(2));
     }
@@ -497,7 +497,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     setHasSavedCustomization(false);
 
     addToast(
-      `⚖️ Equalizado pelo preço R$ ${storePrice.toFixed(2)}: Pró-labore ${proLaboreTotal.toFixed(1)}% (S1: ${socio1}% / S2: ${socio2}%) e Lucro Líquido ${margemLiquida.toFixed(1)}%!`,
+      `⚖️ Equalizado pelo preço R$ ${storePrice.toFixed(2)}: Pró-labore 60% (${proLaboreTotal.toFixed(1)}% total | S1: ${socio1}% / S2: ${socio2}%) e Lucro 40% (${margemLiquida.toFixed(1)}%)!`,
       'success'
     );
   };
@@ -1260,7 +1260,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
               >
                 <Scale className="w-4 h-4 text-emerald-200" />
                 <span>
-                  Equalizar Pró-labore e Lucro Líquido
+                  Equalizar: 60% Pró-labore e 40% Lucro
                   {parseFloat(currentStorePrice) > 0 ? ` (pelo Preço R$ ${parseFloat(currentStorePrice).toFixed(2)})` : ' pelo Preço da Loja'}
                 </span>
               </button>
