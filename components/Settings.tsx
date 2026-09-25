@@ -25,7 +25,8 @@ import {
   Sparkles,
   GitCommit,
   Clock,
-  Layers
+  Layers,
+  Thermometer
 } from 'lucide-react';
 import { User, UserRole, MonthlyLimit } from '../types';
 import { isAtlasConfigured } from '../lib/mongodb';
@@ -43,6 +44,49 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const [ifoodFee, setIfoodFee] = React.useState('6.5');
   const [ifoodFeeOriginal, setIfoodFeeOriginal] = React.useState('6.5');
   const [ifoodFeeSaving, setIfoodFeeSaving] = React.useState(false);
+
+  // --- Responsável Técnico (Termo-Higrômetro / ANVISA) ---
+  const [farmaceuticoNome, setFarmaceuticoNome] = React.useState('');
+  const [farmaceuticoCrf, setFarmaceuticoCrf] = React.useState('');
+  const [termometroModelo, setTermometroModelo] = React.useState('');
+  const [termometroCertificado, setTermometroCertificado] = React.useState('');
+  const [isSavingFarmaceutico, setIsSavingFarmaceutico] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch('/api/temperature/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data) {
+          setFarmaceuticoNome(data.farmaceutico_nome || '');
+          setFarmaceuticoCrf(data.farmaceutico_crf || '');
+          setTermometroModelo(data.termometro_modelo || '');
+          setTermometroCertificado(data.termometro_certificado || '');
+        }
+      })
+      .catch(err => console.error('Error fetching farmaceutico config:', err));
+  }, []);
+
+  const handleSaveFarmaceuticoConfig = async () => {
+    setIsSavingFarmaceutico(true);
+    try {
+      const res = await fetch('/api/temperature/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          farmaceutico_nome: farmaceuticoNome,
+          farmaceutico_crf: farmaceuticoCrf,
+          termometro_modelo: termometroModelo,
+          termometro_certificado: termometroCertificado
+        })
+      });
+      if (!res.ok) throw new Error('Falha ao salvar');
+      addToast('Dados do Farmacêutico Responsável atualizados com sucesso!', 'success');
+    } catch (e: any) {
+      addToast(e.message || 'Erro ao salvar responsável técnico', 'error');
+    } finally {
+      setIsSavingFarmaceutico(false);
+    }
+  };
 
 
   // --- WhatsApp Baileys Status & Reconnect (Principal, Secundário e Comercial) ---
@@ -364,6 +408,78 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
           </div>
         </div>
       )}
+
+      {/* ── RESPONSÁVEL TÉCNICO & TERMO-HIGRÔMETRO (ANVISA) ── */}
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl shadow-sm">
+            <Thermometer className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Responsável Técnico & Termo-Higrômetro</h3>
+            <p className="text-xs text-slate-400 font-medium">Dados sanitários oficiais para o Mapa de Temperatura e Umidade (ANVISA / RDC 44)</p>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t border-slate-50 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nome do Farmacêutico(a) Responsável</label>
+              <input
+                type="text"
+                value={farmaceuticoNome}
+                onChange={(e) => setFarmaceuticoNome(e.target.value)}
+                placeholder="Ex: Dra. Maria Silva"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Número do CRF / UF</label>
+              <input
+                type="text"
+                value={farmaceuticoCrf}
+                onChange={(e) => setFarmaceuticoCrf(e.target.value)}
+                placeholder="Ex: CRF/MG 12345"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Modelo do Termo-Higrômetro</label>
+              <input
+                type="text"
+                value={termometroModelo}
+                onChange={(e) => setTermometroModelo(e.target.value)}
+                placeholder="Ex: Termo-Higrômetro Digital Calibrado TH-01"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Certificado de Calibração</label>
+              <input
+                type="text"
+                value={termometroCertificado}
+                onChange={(e) => setTermometroCertificado(e.target.value)}
+                placeholder="Ex: Certificado de Calibração Vigente RBC"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={handleSaveFarmaceuticoConfig}
+              disabled={isSavingFarmaceutico}
+              className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>{isSavingFarmaceutico ? 'Salvando...' : 'Salvar Responsável Técnico'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* ── MÓDULOS DE WHATSAPP (BAILEYS) ── */}
       {user.role === UserRole.ADM && (

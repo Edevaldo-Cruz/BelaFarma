@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "a043382",
-  "commitMessage": "feat: baixa resiliente de perdas - contabiliza financeiro e nao trava se um produto falhar no Digifarma",
-  "buildTime": "25/09/2026, 10:45:43"
+  "commitHash": "6f68dbb",
+  "commitMessage": "feat: modulo Mapa de Temperatura com controle de termo-higrometro para Loja e Almoxarifado",
+  "buildTime": "25/09/2026, 11:18:45"
 }

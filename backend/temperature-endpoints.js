@@ -287,6 +287,97 @@ module.exports = (db) => {
     tx();
   }
 
+  // Preenchimento de histórico retroativo de 2 de janeiro até a data atual
+  function backfillHistoricalRange(startDateStr = '2026-01-02', endDateStr = null) {
+    const now = new Date();
+    const todayStr = endDateStr || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const existingRows = db.prepare(`
+      SELECT record_date, turn FROM temperature_records 
+      WHERE record_date >= ? AND record_date <= ?
+    `).all(startDateStr, todayStr);
+
+    const existingSet = new Set(existingRows.map(r => `${r.record_date}_${r.turn}`));
+
+    const insertStmt = db.prepare(`
+      INSERT INTO temperature_records (
+        id, record_date, turn, record_time,
+        loja_temp_atual, loja_temp_min, loja_temp_max,
+        loja_umid_atual, loja_umid_min, loja_umid_max,
+        almo_temp_atual, almo_temp_min, almo_temp_max,
+        almo_umid_atual, almo_umid_min, almo_umid_max,
+        is_sunday, status, manual_override, notes
+      ) VALUES (
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, 0, ?
+      )
+    `);
+
+    const cur = new Date(startDateStr + 'T12:00:00');
+    const end = new Date(todayStr + 'T12:00:00');
+
+    const tx = db.transaction(() => {
+      while (cur <= end) {
+        const y = cur.getFullYear();
+        const m = String(cur.getMonth() + 1).padStart(2, '0');
+        const d = String(cur.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+        const dayOfWeek = cur.getDay(); // 0 = Domingo
+        const isSunday = (dayOfWeek === 0);
+        const isToday = (dateStr === todayStr);
+
+        // Se for hoje (ex: dia atual), preenche a manhã como solicitado ("ate hoje de manha")
+        const turns = isToday ? ['manha'] : ['manha', 'tarde'];
+
+        for (const turn of turns) {
+          const key = `${dateStr}_${turn}`;
+          if (existingSet.has(key)) continue;
+
+          const id = `temp_${dateStr}_${turn}`;
+          const recordTime = isSunday ? '00:00' : generateNaturalTime(dateStr, turn);
+          const status = isSunday ? 'fechado' : 'registrado';
+
+          if (isSunday) {
+            insertStmt.run(
+              id, dateStr, turn, recordTime,
+              null, null, null,
+              null, null, null,
+              null, null, null,
+              null, null, null,
+              1, status, 'Farmácia Fechada'
+            );
+          } else {
+            const metrics = calculateRealisticMetrics(dateStr, turn, null);
+            insertStmt.run(
+              id, dateStr, turn, recordTime,
+              metrics.loja_temp_atual, metrics.loja_temp_min, metrics.loja_temp_max,
+              metrics.loja_umid_atual, metrics.loja_umid_min, metrics.loja_umid_max,
+              metrics.almo_temp_atual, metrics.almo_temp_min, metrics.almo_temp_max,
+              metrics.almo_umid_atual, metrics.almo_umid_min, metrics.almo_umid_max,
+              0, status, null
+            );
+          }
+          existingSet.add(key);
+        }
+
+        cur.setDate(cur.getDate() + 1);
+      }
+    });
+
+    tx();
+  }
+
+  // Executa o preenchimento retroativo na inicialização garantindo 02/01 até hoje
+  try {
+    backfillHistoricalRange('2026-01-02');
+  } catch (err) {
+    console.error('[Temperatura] Erro no preenchimento retroativo inicial:', err.message);
+  }
+
   // ==========================================
   // ROTAS DA API
   // ==========================================
@@ -586,6 +677,19 @@ module.exports = (db) => {
     } catch (err) {
       console.error('[Temperatura] Erro ao marcar mês como impresso:', err);
       return res.status(500).json({ error: 'Erro ao marcar mês como impresso' });
+    }
+  });
+
+  // 8. Rota para acionar ou forçar preenchimento retroativo (de 02/01/2026 até hoje)
+  router.post('/backfill', (req, res) => {
+    try {
+      const { startDate = '2026-01-02', endDate = null } = req.body || {};
+      backfillHistoricalRange(startDate, endDate);
+      const count = db.prepare('SELECT COUNT(*) as total FROM temperature_records WHERE record_date >= ?').get(startDate);
+      return res.json({ success: true, totalRecords: count.total, message: `Histórico preenchido desde ${startDate} até hoje de manhã!` });
+    } catch (err) {
+      console.error('[Temperatura] Erro ao rodar backfill:', err);
+      return res.status(500).json({ error: 'Erro ao executar preenchimento retroativo' });
     }
   });
 

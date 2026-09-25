@@ -27,7 +27,7 @@ const MONTH_NAMES = [
 ];
 
 export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
-  const { showToast } = useToast();
+  const { addToast } = useToast();
 
   const [currentYearMonth, setCurrentYearMonth] = useState<string>(() => {
     const now = new Date();
@@ -95,7 +95,7 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
       setRecords(data.records || []);
     } catch (err) {
       console.error(err);
-      showToast('Erro ao carregar dados de temperatura', 'error');
+      addToast('Erro ao carregar dados de temperatura', 'error');
     } finally {
       setLoading(false);
     }
@@ -209,7 +209,7 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
 
     for (const t of tempsToCheck) {
       if (!isNaN(t) && t > 29.2) {
-        showToast('As medições não podem ultrapassar 29,2°C (limite sanitário da loja).', 'warning');
+        addToast('As medições não podem ultrapassar 29,2°C (limite sanitário da loja).', 'warning');
         return;
       }
     }
@@ -245,11 +245,11 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
         throw new Error(errData.error || 'Erro ao salvar registro');
       }
 
-      showToast('Medição salva com sucesso!', 'success');
+      addToast('Medição salva com sucesso!', 'success');
       setIsEntryModalOpen(false);
       fetchRecords(currentYearMonth);
     } catch (err: any) {
-      showToast(err.message || 'Erro ao registrar medição', 'error');
+      addToast(err.message || 'Erro ao registrar medição', 'error');
     }
   };
 
@@ -264,10 +264,10 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
       });
       if (!res.ok) throw new Error('Erro ao salvar cabeçalho');
       setConfig(configForm);
-      showToast('Configurações do cabeçalho salvas!', 'success');
+      addToast('Configurações do cabeçalho salvas!', 'success');
       setIsConfigModalOpen(false);
     } catch (err: any) {
-      showToast(err.message || 'Erro ao salvar configurações', 'error');
+      addToast(err.message || 'Erro ao salvar configurações', 'error');
     }
   };
 
@@ -419,45 +419,23 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
         </div>
       </div>
 
-      {/* CARDS RESUMO / FAIXA DE CONFORMIDADE */}
-      <div className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Faixa Segura Temperatura</span>
-          <div className="text-lg font-bold text-slate-800 dark:text-white mt-1 flex items-center justify-between">
-            <span>15,0°C a 29,2°C</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-              Teto Máx: 29,2°C
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400 mt-1">Regra de ouro sanitária para estabilidade</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Faixa Segura Umidade</span>
-          <div className="text-lg font-bold text-slate-800 dark:text-white mt-1 flex items-center justify-between">
-            <span>40% a 70%</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-              Ideal: 55%
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400 mt-1">Controle de higrometria do ambiente</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Responsável Técnico</span>
-          <div className="text-sm font-bold text-slate-800 dark:text-white mt-1 truncate" title={config.farmaceutico_nome}>
+      {/* CARD DO RESPONSÁVEL TÉCNICO */}
+      <div className="no-print flex items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm max-w-md">
+        <div>
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Responsável Técnico (Farmacêutico)</span>
+          <div className="text-base font-bold text-slate-800 dark:text-white mt-0.5 truncate" title={config.farmaceutico_nome}>
             {config.farmaceutico_nome || 'Não configurado'}
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">{config.farmaceutico_crf || 'CRF não informado'}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{config.farmaceutico_crf || 'CRF não informado'}</p>
         </div>
-
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Equipamento Termômetro</span>
-          <div className="text-sm font-bold text-slate-800 dark:text-white mt-1 truncate" title={config.termometro_modelo}>
-            {config.termometro_modelo}
-          </div>
-          <p className="text-[11px] text-slate-400 mt-1 truncate">{config.termometro_certificado}</p>
-        </div>
+        <button
+          onClick={() => setIsConfigModalOpen(true)}
+          title="Alterar Dados do Farmacêutico"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg transition-colors"
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+          <span>Alterar</span>
+        </button>
       </div>
 
       {/* ============================================================== */}
