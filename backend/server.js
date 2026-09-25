@@ -4146,6 +4146,10 @@ const cardMachinesEndpoints = require('./card-machines-endpoints.js');
 app.use('/api', cardMachinesEndpoints(db));
 console.log('💳 Módulo Controle de Maquininhas inicializado.');
 
+const temperatureEndpoints = require('./temperature-endpoints.js');
+app.use('/api/temperature', temperatureEndpoints(db));
+console.log('🌡️ Módulo Mapa de Temperatura (Termo-Higrômetro) inicializado.');
+
 // Rotina periódica em segundo plano para checar atualizações da ANVISA (a cada 12 horas)
 const { fetchOnlineAnvisaUpdates } = require('./services/anvisa.service');
 setInterval(async () => {

@@ -500,7 +500,40 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias';
+export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map';
+
+export interface TemperatureRecord {
+  id: string;
+  record_date: string; // YYYY-MM-DD
+  turn: 'manha' | 'tarde';
+  record_time: string; // HH:mm
+  loja_temp_atual: number | null;
+  loja_temp_min: number | null;
+  loja_temp_max: number | null;
+  loja_umid_atual: number | null;
+  loja_umid_min: number | null;
+  loja_umid_max: number | null;
+  almo_temp_atual: number | null;
+  almo_temp_min: number | null;
+  almo_temp_max: number | null;
+  almo_umid_atual: number | null;
+  almo_umid_min: number | null;
+  almo_umid_max: number | null;
+  is_sunday: number;
+  status: 'registrado' | 'fechado';
+  manual_override: number;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TemperatureConfig {
+  farmaceutico_nome: string;
+  farmaceutico_crf: string;
+  termometro_modelo: string;
+  termometro_certificado: string;
+  printed_months?: string[];
+}
 
 export type MotivoPerda = 'Vencido' | 'Avariado' | 'Furto/Roubo' | 'Uso Interno/Descarte';
 

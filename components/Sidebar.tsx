@@ -45,6 +45,7 @@ import {
   RefreshCw, // Added for Digifarma Sync
   ShoppingBag, // Added for Central de Compras
   Trash2, // Added for Perdas e Avarias
+  Thermometer, // Added for Mapa de Temperatura
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -268,6 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
     { id: 'notes', label: 'Anotações', icon: NotebookPen },
+    { id: 'temperature-map', label: 'Mapa de Temperatura', icon: Thermometer },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
 
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },

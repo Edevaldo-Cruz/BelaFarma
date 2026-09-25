@@ -63,6 +63,8 @@ import { VersionNotifier } from "./components/VersionNotifier";
 import { VersionModal } from "./components/VersionModal";
 import { useToast } from "./components/ToastContext";
 import { StartupModalManager, StartupModalItem, StartupModalType } from "./components/StartupModalManager";
+import { TemperatureMap } from "./components/TemperatureMap";
+import { TemperaturePrintReminderModal } from "./components/TemperaturePrintReminderModal";
 
 
 import {
@@ -157,6 +159,20 @@ const App: React.FC = () => {
   const [pendingReviewMode, setPendingReviewMode] = useState<'pedido' | 'cotacao'>('pedido');
   const [lastReviewedDeliveryId, setLastReviewedDeliveryId] = useState<string | null>(null);
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [tempReminderData, setTempReminderData] = useState<{
+    pending: boolean;
+    previousMonth: string;
+    previousMonthLabel: string;
+  } | null>(null);
+  const [isTempReminderOpen, setIsTempReminderOpen] = useState(false);
+
+  const handleOpenAndPrintTemp = (targetMonth: string) => {
+    setIsTempReminderOpen(false);
+    setCurrentView('temperature-map');
+    setTimeout(() => {
+      window.print();
+    }, 600);
+  };
 
   const handleReviewSubmitted = (deliveryId?: string) => {
     if (deliveryId) {
@@ -509,6 +525,23 @@ const App: React.FC = () => {
       };
 
       initStartupPopups();
+
+      // Verificação sanitária da Folha Mensal de Temperatura (ANVISA - RDC 44)
+      const checkPendingTempPrint = async () => {
+        try {
+          const res = await fetch('/api/temperature/check-pending-print');
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.pending) {
+              setTempReminderData(data);
+              setIsTempReminderOpen(true);
+            }
+          }
+        } catch (err) {
+          console.error("Erro ao checar impressão de temperatura:", err);
+        }
+      };
+      checkPendingTempPrint();
 
       return () => {
         events.forEach((event) => window.removeEventListener(event, reset));
@@ -1381,6 +1414,7 @@ const App: React.FC = () => {
               {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === 'anvisa-alerts' && <AnvisaAlerts theme={theme} />}
               {currentView === 'notes' && <NotesManager user={user} theme={theme} />}
+              {currentView === 'temperature-map' && <TemperatureMap />}
               {currentView === 'card-machines' && user.role === UserRole.ADM && (
                 <CardMachinesManager user={user} />
               )}
@@ -1574,6 +1608,17 @@ const App: React.FC = () => {
         isOpen={isVersionModalOpen}
         onClose={() => setIsVersionModalOpen(false)}
       />
+
+      {/* Modal de Aviso de Impressão da Folha Mensal de Temperatura */}
+      {isTempReminderOpen && tempReminderData && (
+        <TemperaturePrintReminderModal
+          isOpen={isTempReminderOpen}
+          previousMonth={tempReminderData.previousMonth}
+          previousMonthLabel={tempReminderData.previousMonthLabel}
+          onClose={() => setIsTempReminderOpen(false)}
+          onOpenAndPrint={handleOpenAndPrintTemp}
+        />
+      )}
     </div>
   );
 };
