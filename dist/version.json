@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "2176256",
-  "commitMessage": "feat(pricing-simulator): botao para equalizar pro-labore e lucro liquido pelo preco atual da loja",
-  "buildTime": "25/09/2026, 17:20:38"
+  "commitHash": "253bac5",
+  "commitMessage": "feat(pricing-simulator): ajustar proporcao de equalizacao para 60% pro-labore e 40% lucro",
+  "buildTime": "25/09/2026, 17:27:07"
 }
