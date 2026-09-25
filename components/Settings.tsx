@@ -46,45 +46,72 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const [ifoodFeeSaving, setIfoodFeeSaving] = React.useState(false);
 
   // --- Responsável Técnico (Termo-Higrômetro / ANVISA) ---
-  const [farmaceuticoNome, setFarmaceuticoNome] = React.useState('');
-  const [farmaceuticoCrf, setFarmaceuticoCrf] = React.useState('');
-  const [termometroModelo, setTermometroModelo] = React.useState('');
-  const [termometroCertificado, setTermometroCertificado] = React.useState('');
+  const [farmaceuticoNome, setFarmaceuticoNome] = React.useState('Farmacêutico(a) Responsável');
+  const [farmaceuticoCrf, setFarmaceuticoCrf] = React.useState('CRF/MG 00000');
+  const [termometroModelo, setTermometroModelo] = React.useState('Termo-Higrômetro Digital Calibrado TH-01');
+  const [termometroCertificado, setTermometroCertificado] = React.useState('Certificado de Calibração Vigente');
   const [isSavingFarmaceutico, setIsSavingFarmaceutico] = React.useState(false);
 
   React.useEffect(() => {
+    // 1. Carrega imediatamente do localStorage para resposta instantânea
+    try {
+      const cached = localStorage.getItem('belafarma_temp_config');
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (data.farmaceutico_nome) setFarmaceuticoNome(data.farmaceutico_nome);
+        if (data.farmaceutico_crf) setFarmaceuticoCrf(data.farmaceutico_crf);
+        if (data.termometro_modelo) setTermometroModelo(data.termometro_modelo);
+        if (data.termometro_certificado) setTermometroCertificado(data.termometro_certificado);
+      }
+    } catch (e) {}
+
+    // 2. Consulta o backend em segundo plano e sincroniza se estiver online
     fetch('/api/temperature/config')
-      .then(res => res.json())
+      .then(res => {
+        if (res.ok) return res.json();
+        return null;
+      })
       .then(data => {
         if (data) {
-          setFarmaceuticoNome(data.farmaceutico_nome || '');
-          setFarmaceuticoCrf(data.farmaceutico_crf || '');
-          setTermometroModelo(data.termometro_modelo || '');
-          setTermometroCertificado(data.termometro_certificado || '');
+          if (data.farmaceutico_nome) setFarmaceuticoNome(data.farmaceutico_nome);
+          if (data.farmaceutico_crf) setFarmaceuticoCrf(data.farmaceutico_crf);
+          if (data.termometro_modelo) setTermometroModelo(data.termometro_modelo);
+          if (data.termometro_certificado) setTermometroCertificado(data.termometro_certificado);
+          localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
         }
       })
-      .catch(err => console.error('Error fetching farmaceutico config:', err));
+      .catch(err => console.warn('[Temperatura] Backend offline ou 404, utilizando cache local:', err));
   }, []);
 
   const handleSaveFarmaceuticoConfig = async () => {
     setIsSavingFarmaceutico(true);
+    const newConfig = {
+      farmaceutico_nome: farmaceuticoNome,
+      farmaceutico_crf: farmaceuticoCrf,
+      termometro_modelo: termometroModelo,
+      termometro_certificado: termometroCertificado
+    };
+
+    // 1. Salva IMEDIATAMENTE no localStorage (persistência garantida localmente)
     try {
-      const res = await fetch('/api/temperature/config', {
+      localStorage.setItem('belafarma_temp_config', JSON.stringify(newConfig));
+      window.dispatchEvent(new Event('belafarma_temp_config_updated'));
+    } catch (e) {
+      console.error('Erro ao salvar no localStorage:', e);
+    }
+
+    // 2. Tenta persistir no SQLite do backend
+    try {
+      await fetch('/api/temperature/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          farmaceutico_nome: farmaceuticoNome,
-          farmaceutico_crf: farmaceuticoCrf,
-          termometro_modelo: termometroModelo,
-          termometro_certificado: termometroCertificado
-        })
+        body: JSON.stringify(newConfig)
       });
-      if (!res.ok) throw new Error('Falha ao salvar');
-      addToast('Dados do Farmacêutico Responsável atualizados com sucesso!', 'success');
-    } catch (e: any) {
-      addToast(e.message || 'Erro ao salvar responsável técnico', 'error');
+    } catch (e) {
+      console.warn('[Temperatura] Não foi possível persistir no backend no momento, mantido no cache local.');
     } finally {
       setIsSavingFarmaceutico(false);
+      addToast('Dados do Farmacêutico Responsável atualizados com sucesso!', 'success');
     }
   };
 

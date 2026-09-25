@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "17e9f86",
-  "commitMessage": "feat(vendas): adicionar coluna de saldo em estoque na lista e impressao de produtos vendidos",
-  "buildTime": "25/09/2026, 18:32:12"
+  "commitHash": "dddbb95",
+  "commitMessage": "feat(provisions): calculo ponderado por mix real de vendas excluindo crediario",
+  "buildTime": "25/09/2026, 18:37:16"
 }

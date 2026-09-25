@@ -314,6 +314,12 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
 
   useEffect(() => {
     fetchConfig();
+
+    const handleConfigUpdated = () => {
+      fetchConfig();
+    };
+    window.addEventListener('belafarma_temp_config_updated', handleConfigUpdated);
+    return () => window.removeEventListener('belafarma_temp_config_updated', handleConfigUpdated);
   }, []);
 
   const handlePrevMonth = () => {
@@ -469,6 +475,7 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
     setConfig(configForm);
     try {
       localStorage.setItem('belafarma_temp_config', JSON.stringify(configForm));
+      window.dispatchEvent(new Event('belafarma_temp_config_updated'));
     } catch (e) {}
 
     try {
