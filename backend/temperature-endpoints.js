@@ -575,6 +575,28 @@ module.exports = (db) => {
   // 4. Obter configurações de cabeçalho da folha e status de impressão
   router.get('/config', (req, res) => {
     try {
+      // 1. Tenta carregar da tabela system_settings se existir
+      let sysRow = null;
+      try {
+        sysRow = db.prepare('SELECT value FROM system_settings WHERE key = ?').get('temperature_config');
+      } catch (e) {}
+
+      if (sysRow && sysRow.value) {
+        try {
+          const parsed = JSON.parse(sysRow.value);
+          if (parsed && parsed.farmaceutico_nome) {
+            return res.json({
+              farmaceutico_nome: parsed.farmaceutico_nome,
+              farmaceutico_crf: parsed.farmaceutico_crf,
+              termometro_modelo: parsed.termometro_modelo,
+              termometro_certificado: parsed.termometro_certificado,
+              printed_months: []
+            });
+          }
+        } catch (e) {}
+      }
+
+      // 2. Carrega da tabela temperature_config
       const config = db.prepare('SELECT * FROM temperature_config WHERE id = ?').get('default');
       let printedMonths = [];
       try {
@@ -582,10 +604,10 @@ module.exports = (db) => {
       } catch (e) {}
 
       return res.json({
-        farmaceutico_nome: config.farmaceutico_nome,
-        farmaceutico_crf: config.farmaceutico_crf,
-        termometro_modelo: config.termometro_modelo,
-        termometro_certificado: config.termometro_certificado,
+        farmaceutico_nome: config ? config.farmaceutico_nome : 'Farmacêutico(a) Responsável',
+        farmaceutico_crf: config ? config.farmaceutico_crf : 'CRF/MG 00000',
+        termometro_modelo: config ? config.termometro_modelo : 'Termo-Higrômetro Digital Calibrado TH-01',
+        termometro_certificado: config ? config.termometro_certificado : 'Certificado de Calibração Vigente',
         printed_months: printedMonths
       });
     } catch (err) {
@@ -607,6 +629,17 @@ module.exports = (db) => {
           updated_at = CURRENT_TIMESTAMP
         WHERE id = 'default'
       `).run(farmaceutico_nome, farmaceutico_crf, termometro_modelo, termometro_certificado);
+
+      // Sincroniza também no system_settings
+      try {
+        const valStr = JSON.stringify({ farmaceutico_nome, farmaceutico_crf, termometro_modelo, termometro_certificado });
+        const existing = db.prepare('SELECT key FROM system_settings WHERE key = ?').get('temperature_config');
+        if (existing) {
+          db.prepare('UPDATE system_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?').run(valStr, 'temperature_config');
+        } else {
+          db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run('temperature_config', valStr);
+        }
+      } catch (e) {}
 
       return res.json({ success: true, message: 'Configurações atualizadas com sucesso' });
     } catch (err) {
