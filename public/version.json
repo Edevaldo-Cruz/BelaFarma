@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "59c7585",
-  "commitMessage": "build: bundle atualizado com index-BdQB8RnK.js",
-  "buildTime": "25/09/2026, 14:26:41"
+  "commitHash": "f3e918c",
+  "commitMessage": "feat(temperatura): gerador de PDF de alta resolucao para mes individual e em lote sem cortes",
+  "buildTime": "25/09/2026, 15:11:46"
 }

@@ -568,6 +568,46 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_status ON price_scheduled_steps(status);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_exec ON price_scheduled_steps(proxima_execucao);'); } catch(e) {}
 
+    // Tabela de Customizações e Rateio de Preço por Produto (Pró-labore, Fixo, Impostos, Margens)
+    const createProductPricingCustomizationsTable = `
+      CREATE TABLE IF NOT EXISTS product_pricing_customizations (
+        produto_id INTEGER PRIMARY KEY,
+        descricao TEXT NOT NULL,
+        cod_barras TEXT,
+        cmv REAL NOT NULL DEFAULT 0,
+        imposto_pct REAL NOT NULL DEFAULT 0,
+        taxa_cartao_pct REAL NOT NULL DEFAULT 0,
+        custos_variaveis_pct REAL NOT NULL DEFAULT 0,
+        custo_fixo_pct REAL NOT NULL DEFAULT 0,
+        pro_labore_1_pct REAL NOT NULL DEFAULT 0,
+        pro_labore_2_pct REAL NOT NULL DEFAULT 0,
+        pro_labore_total_pct REAL NOT NULL DEFAULT 0,
+        margem_liquida_pct REAL NOT NULL DEFAULT 0,
+        preco_venda REAL NOT NULL DEFAULT 0,
+        preco_anterior REAL DEFAULT 0,
+        markup_divisor REAL NOT NULL DEFAULT 0,
+        markup_multiplicador REAL NOT NULL DEFAULT 0,
+        categoria_preset TEXT,
+        categoria_nome TEXT,
+        estoque REAL DEFAULT 0,
+        atualizado_por TEXT,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `;
+    db.exec(createProductPricingCustomizationsTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_ppc_data ON product_pricing_customizations(atualizado_em);'); } catch(e) {}
+
+    // Migrações para snapshots de alteração de preço guardarem os percentuais
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN imposto_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN taxa_cartao_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN custos_variaveis_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN custo_fixo_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN pro_labore_1_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN pro_labore_2_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN pro_labore_total_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN margem_liquida_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN markup_divisor REAL DEFAULT 0'); } catch(e) {}
+
     // Digifarma Replication & Continuous Sync Tables
     const createDigifarmaSyncTables = `
       CREATE TABLE IF NOT EXISTS digifarma_sync_metadata (
