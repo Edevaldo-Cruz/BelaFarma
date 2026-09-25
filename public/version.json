@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "34bf7d1",
-  "commitMessage": "build: atualizar bundle dist com a lista de produtos vendidos por categoria",
-  "buildTime": "25/09/2026, 17:45:37"
+  "commitHash": "2b31510",
+  "commitMessage": "feat(provisions): lembrete inteligente e integracao dos percentuais da precificacao na separacao de dinheiro",
+  "buildTime": "25/09/2026, 18:13:31"
 }

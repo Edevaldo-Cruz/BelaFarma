@@ -57,6 +57,7 @@ export interface SoldProductItem {
   produto: string;
   apresentacao: string;
   codBarras: string;
+  saldo: number;
   qtdVendida: number;
   ultimoFornecedor: string;
   ultimoPreco: number;
@@ -220,6 +221,7 @@ export const SalesReport: React.FC = () => {
             ${p.apresentacao ? `<div class="prod-desc">${p.apresentacao}</div>` : ''}
             ${p.codBarras ? `<div class="prod-ean">EAN: ${p.codBarras}</div>` : ''}
           </td>
+          <td class="text-right font-bold ${Number(p.saldo || 0) <= 0 ? 'stock-zero' : 'stock-ok'}">${Number(p.saldo || 0).toLocaleString('pt-BR')}</td>
           <td class="text-right font-bold qty-col">${Number(p.qtdVendida).toLocaleString('pt-BR')}</td>
           <td>${p.ultimoFornecedor || 'Não inf.'}</td>
           <td class="text-right font-bold price-col">R$ ${(Number(p.ultimoPreco) || 0).toFixed(2).replace('.', ',')}</td>
@@ -235,10 +237,11 @@ export const SalesReport: React.FC = () => {
           <table>
             <thead>
               <tr>
-                <th style="width: 8%;" class="text-center">Cód.</th>
-                <th style="width: 44%;">Produto</th>
-                <th style="width: 14%;" class="text-right">Qtd. Vendida</th>
-                <th style="width: 22%;">Último Fornecedor</th>
+                <th style="width: 7%;" class="text-center">Cód.</th>
+                <th style="width: 39%;">Produto</th>
+                <th style="width: 10%;" class="text-right">Estoque</th>
+                <th style="width: 12%;" class="text-right">Qtd. Vendida</th>
+                <th style="width: 20%;">Último Fornecedor</th>
                 <th style="width: 12%;" class="text-right">Último Preço</th>
               </tr>
             </thead>
@@ -393,6 +396,13 @@ export const SalesReport: React.FC = () => {
             }
             .price-col {
               color: #047857;
+            }
+            .stock-ok {
+              color: #0f172a;
+            }
+            .stock-zero {
+              color: #dc2626;
+              font-weight: 800;
             }
             .report-footer {
               margin-top: 14px;
@@ -908,11 +918,12 @@ export const SalesReport: React.FC = () => {
                         <table className="w-full text-left text-xs">
                           <thead>
                             <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                              <th className="px-6 py-3 text-center w-16">Cód.</th>
-                              <th className="px-6 py-3">Produto</th>
-                              <th className="px-6 py-3 text-right w-36">Qtd. Vendida</th>
-                              <th className="px-6 py-3 w-64">Último Fornecedor</th>
-                              <th className="px-6 py-3 text-right w-36">Último Preço (Custo)</th>
+                              <th className="px-5 py-3 text-center w-16">Cód.</th>
+                              <th className="px-5 py-3">Produto</th>
+                              <th className="px-5 py-3 text-right w-28">Estoque</th>
+                              <th className="px-5 py-3 text-right w-32">Qtd. Vendida</th>
+                              <th className="px-5 py-3 w-56">Último Fornecedor</th>
+                              <th className="px-5 py-3 text-right w-36">Último Preço (Custo)</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -921,10 +932,10 @@ export const SalesReport: React.FC = () => {
                                 key={prod.produtoId || pIdx} 
                                 className="hover:bg-slate-50/60 dark:hover:bg-slate-800/20 transition-colors"
                               >
-                                <td className="px-6 py-3 text-center font-bold text-slate-400">
+                                <td className="px-5 py-3 text-center font-bold text-slate-400">
                                   #{prod.produtoId}
                                 </td>
-                                <td className="px-6 py-3">
+                                <td className="px-5 py-3">
                                   <div className="font-black text-slate-800 dark:text-slate-200">
                                     {prod.produto}
                                   </div>
@@ -937,18 +948,27 @@ export const SalesReport: React.FC = () => {
                                     )}
                                   </div>
                                 </td>
-                                <td className="px-6 py-3 text-right">
+                                <td className="px-5 py-3 text-right">
+                                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-black ${
+                                    (prod.saldo || 0) <= 0 
+                                      ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400' 
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                  }`}>
+                                    {Number(prod.saldo || 0).toLocaleString('pt-BR')} un
+                                  </span>
+                                </td>
+                                <td className="px-5 py-3 text-right">
                                   <span className="inline-block px-3 py-1 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-black rounded-lg text-xs">
                                     {Number(prod.qtdVendida).toLocaleString('pt-BR')} un
                                   </span>
                                 </td>
-                                <td className="px-6 py-3 text-slate-700 dark:text-slate-300 font-bold truncate max-w-xs">
+                                <td className="px-5 py-3 text-slate-700 dark:text-slate-300 font-bold truncate max-w-xs">
                                   <div className="flex items-center gap-1.5">
                                     <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                     <span className="truncate">{prod.ultimoFornecedor || 'Não inf.'}</span>
                                   </div>
                                 </td>
-                                <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
+                                <td className="px-5 py-3 text-right font-black text-slate-900 dark:text-slate-100">
                                   {formatCurrency(prod.ultimoPreco || 0)}
                                 </td>
                               </tr>

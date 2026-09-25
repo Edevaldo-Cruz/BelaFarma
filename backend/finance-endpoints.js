@@ -564,6 +564,7 @@ module.exports = function (db) {
           p.PRODUTO,
           p.APRESENTACAO,
           p.COD_BARRAS,
+          p.PROD_SALDO,
           COALESCE(c.CATEGORIA, 'OUTROS') AS CATEGORIA_NOME,
           SUM(iv.ITEMVEND_QUANT) AS QTD_VENDIDA,
           COALESCE(p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA, 0) AS ULTIMO_PRECO_DIGIFARMA
@@ -573,7 +574,7 @@ module.exports = function (db) {
         LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
         WHERE v.CANCELADO <> 'S'
           AND v.VENDA_DATA_HORA BETWEEN ? AND ?
-        GROUP BY p.PRODUTO_ID, p.PRODUTO, p.APRESENTACAO, p.COD_BARRAS, c.CATEGORIA, p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA
+        GROUP BY p.PRODUTO_ID, p.PRODUTO, p.APRESENTACAO, p.COD_BARRAS, p.PROD_SALDO, c.CATEGORIA, p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA
         ORDER BY CATEGORIA_NOME ASC, QTD_VENDIDA DESC
       `;
 
@@ -599,7 +600,7 @@ module.exports = function (db) {
             const chunk = productIds.slice(i, i + chunkSize);
             const placeholders = chunk.map(() => '?').join(',');
             const rows = db.prepare(`
-              SELECT produto_id, ultima_compra_fornecedor, preco_unitario_ult_compra, custo_unitario, ultima_compra_valor
+              SELECT produto_id, ultima_compra_fornecedor, preco_unitario_ult_compra, custo_unitario, ultima_compra_valor, saldo
               FROM compras_estoque_cache
               WHERE produto_id IN (${placeholders})
             `).all(chunk);
@@ -635,11 +636,20 @@ module.exports = function (db) {
           ultimoPreco = parseFloat(r.ULTIMO_PRECO_DIGIFARMA) || 0;
         }
 
+        // Determina saldo em estoque
+        let saldo = 0;
+        if (r.PROD_SALDO !== null && r.PROD_SALDO !== undefined) {
+          saldo = parseFloat(r.PROD_SALDO) || 0;
+        } else if (cached?.saldo !== undefined && cached?.saldo !== null) {
+          saldo = parseFloat(cached.saldo) || 0;
+        }
+
         const item = {
           produtoId: r.PRODUTO_ID,
           produto: (r.PRODUTO || '').trim(),
           apresentacao: (r.APRESENTACAO || '').trim(),
           codBarras: (r.COD_BARRAS || '').trim(),
+          saldo: saldo,
           qtdVendida: qtdVendida,
           ultimoFornecedor: ultimoFornecedor,
           ultimoPreco: ultimoPreco
