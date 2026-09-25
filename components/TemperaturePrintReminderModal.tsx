@@ -23,6 +23,9 @@ export const TemperaturePrintReminderModal: React.FC<TemperaturePrintReminderMod
   const handlePrintClick = async () => {
     setLoading(true);
     try {
+      try {
+        localStorage.setItem(`belafarma_temp_printed_${previousMonth}`, 'true');
+      } catch (e) {}
       // Registrar no backend que a impressão foi iniciada
       await fetch('/api/temperature/mark-printed', {
         method: 'POST',

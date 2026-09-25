@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "923fbf5",
-  "commitMessage": "fix: preenchimento retroativo desde 02/01, correcao de toast no mapa de temperatura, remocao de cards e campos de RT nas configuracoes",
-  "buildTime": "25/09/2026, 11:28:13"
+  "commitHash": "7e13ec6",
+  "commitMessage": "feat(temperatura): impressao em lote de todos os meses, seletor dropdown rapido e gerador com fallback resiliente",
+  "buildTime": "25/09/2026, 11:32:06"
 }

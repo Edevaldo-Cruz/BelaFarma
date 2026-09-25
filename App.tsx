@@ -167,6 +167,9 @@ const App: React.FC = () => {
   const [isTempReminderOpen, setIsTempReminderOpen] = useState(false);
 
   const handleOpenAndPrintTemp = (targetMonth: string) => {
+    try {
+      localStorage.setItem(`belafarma_temp_printed_${targetMonth}`, 'true');
+    } catch (e) {}
     setIsTempReminderOpen(false);
     setCurrentView('temperature-map');
     setTimeout(() => {
@@ -535,11 +538,37 @@ const App: React.FC = () => {
             if (data && data.pending) {
               setTempReminderData(data);
               setIsTempReminderOpen(true);
+              return;
+            } else if (data && !data.pending) {
+              return;
             }
           }
         } catch (err) {
-          console.error("Erro ao checar impressão de temperatura:", err);
+          // Backend offline ou 404
         }
+
+        // Fallback local: se o mês anterior ainda não foi marcado como impresso
+        try {
+          const now = new Date();
+          const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const prevYm = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+          if (prevYm >= '2026-01') {
+            const isPrinted = localStorage.getItem(`belafarma_temp_printed_${prevYm}`);
+            if (!isPrinted) {
+              const monthNames = [
+                'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+              ];
+              const prevLabel = `${monthNames[prevDate.getMonth()]} de ${prevDate.getFullYear()}`;
+              setTempReminderData({
+                pending: true,
+                previousMonth: prevYm,
+                previousMonthLabel: prevLabel
+              });
+              setIsTempReminderOpen(true);
+            }
+          }
+        } catch (e) {}
       };
       checkPendingTempPrint();
 
