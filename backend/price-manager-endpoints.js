@@ -184,6 +184,14 @@ async function processScheduledPriceSteps(db) {
       WHERE produto_id = ?
     `);
 
+    const updateComprasCacheStmt = db.prepare(`
+      UPDATE compras_estoque_cache 
+      SET preco_venda_vigente = ?,
+          preco_normal = ?,
+          atualizado_em = ?
+      WHERE produto_id = ?
+    `);
+
     const insertSnapshotStmt = db.prepare(`
       INSERT INTO price_change_snapshots (
         id, produto_id, descricao, cod_barras, preco_anterior, novo_preco, preco_custo, tipo, motivo, usuario, data_alteracao
@@ -237,6 +245,7 @@ async function processScheduledPriceSteps(db) {
 
         // Atualiza SQLite cache
         updateCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId);
+        try { updateComprasCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId); } catch(e) {}
 
         // Atualiza status do agendamento
         const isComplete = nextPrice === targetPrice || step.etapa_atual >= step.total_etapas;
@@ -282,15 +291,16 @@ module.exports = function (db) {
           c.produto_id as PRODUTO_ID,
           c.descricao as PRODUTO,
           c.codigo_barras as COD_BARRAS,
-          c.preco_venda as PROD_PRVENDA,
-          c.preco_promocao as PROD_PRPROMOCAO,
-          c.preco_custo as PROD_PRCOMPRA,
-          c.estoque_atual as ESTOQUE,
-          c.curva as CURVA,
+          COALESCE(NULLIF(ce.preco_venda_vigente, 0), c.preco_venda) as PROD_PRVENDA,
+          COALESCE(ce.preco_promocional, c.preco_promocao) as PROD_PRPROMOCAO,
+          COALESCE(NULLIF(ce.custo_unitario, 0), NULLIF(ce.preco_unitario_ult_compra, 0), c.preco_custo) as PROD_PRCOMPRA,
+          COALESCE(ce.saldo, c.estoque_atual) as ESTOQUE,
+          COALESCE(ce.curva_abc, c.curva) as CURVA,
           COALESCE(n.preco_proffer_medio, n.preco_proffer) as PRECO_PROFFER_MEDIO,
           COALESCE(n.preco_proffer_baixo, n.preco_proffer) as PRECO_PROFFER_BAIXO,
           COALESCE(n.preco_proffer_alto, n.preco_proffer) as PRECO_PROFFER_ALTO
         FROM digifarma_products_cache c
+        LEFT JOIN compras_estoque_cache ce ON CAST(c.produto_id AS INTEGER) = ce.produto_id
         LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         WHERE c.descricao LIKE ? OR c.codigo_barras LIKE ? OR c.produto_id LIKE ?
         ORDER BY 
@@ -298,7 +308,7 @@ module.exports = function (db) {
                WHEN c.codigo_barras = ? THEN 2
                WHEN c.descricao LIKE ? THEN 3
                ELSE 4 END,
-          c.curva ASC, c.descricao ASC
+          COALESCE(ce.curva_abc, c.curva) ASC, c.descricao ASC
         LIMIT ?
       `).all(searchLike, searchLike, searchLike, q, q, `${q}%`, limit);
 
@@ -338,12 +348,12 @@ module.exports = function (db) {
           c.produto_id as id,
           c.categoria_id,
           c.descricao as name,
-          c.estoque_atual as stock,
-          c.preco_venda as price,
-          c.preco_custo as cost_price,
-          c.preco_promocao as promo_price,
-          c.preco_normal as normal_price,
-          c.curva as curve,
+          COALESCE(ce.saldo, c.estoque_atual) as stock,
+          COALESCE(NULLIF(ce.preco_venda_vigente, 0), c.preco_venda) as price,
+          COALESCE(NULLIF(ce.custo_unitario, 0), NULLIF(ce.preco_unitario_ult_compra, 0), c.preco_custo) as cost_price,
+          COALESCE(ce.preco_promocional, c.preco_promocao) as promo_price,
+          COALESCE(NULLIF(ce.preco_normal, 0), c.preco_normal) as normal_price,
+          COALESCE(ce.curva_abc, c.curva) as curve,
           c.tributacao_monofasica,
           c.cst_pis,
           c.cst_cofins,
@@ -351,16 +361,17 @@ module.exports = function (db) {
           c.imposto_aliq,
           c.ncm,
           c.cest,
-          c.atualizado_em as cached_at,
+          COALESCE(ce.atualizado_em, c.atualizado_em) as cached_at,
           COALESCE(n.preco_proffer_medio, n.preco_proffer) as region_price,
           COALESCE(n.preco_proffer_baixo, n.preco_proffer) as region_price_baixo,
           COALESCE(n.preco_proffer_medio, n.preco_proffer) as region_price_medio,
           COALESCE(n.preco_proffer_alto, n.preco_proffer) as region_price_alto,
           n.atualizado_em as region_updated_at
         FROM digifarma_products_cache c
+        LEFT JOIN compras_estoque_cache ce ON CAST(c.produto_id AS INTEGER) = ce.produto_id
         LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         ${whereSQL}
-        ORDER BY c.curva ASC, c.descricao ASC
+        ORDER BY COALESCE(ce.curva_abc, c.curva) ASC, c.descricao ASC
         LIMIT ? OFFSET ?
       `;
       
@@ -615,6 +626,14 @@ module.exports = function (db) {
         WHERE produto_id = ?
       `).run(finalPrice, finalPrice, prodId);
 
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_venda_vigente = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ?
+        `).run(finalPrice, finalPrice, prodId);
+      } catch (ceErr) {}
+
       res.json({
         success: true,
         message: `✅ Preço de "${descricao}" alterado para R$ ${finalPrice.toFixed(2)} com backup registrado!`,
@@ -704,6 +723,14 @@ module.exports = function (db) {
         SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
         WHERE produto_id = ?
       `).run(firstStepPrice, firstStepPrice, prodId);
+
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_venda_vigente = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ?
+        `).run(firstStepPrice, firstStepPrice, prodId);
+      } catch (ceErr) {}
 
       // 4. Insere registro de agendamento escalonado
       db.prepare(`
@@ -1405,7 +1432,12 @@ module.exports = function (db) {
       const precoCusto = Number(cmv) || 0;
 
       // Buscar estoque do cache
-      const prodCache = db.prepare('SELECT estoque FROM digifarma_products_cache WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ?').get(String(prodId), prodId);
+      const prodCache = db.prepare(`
+        SELECT COALESCE(ce.saldo, c.estoque_atual, 0) as estoque 
+        FROM digifarma_products_cache c
+        LEFT JOIN compras_estoque_cache ce ON CAST(c.produto_id AS INTEGER) = ce.produto_id
+        WHERE c.produto_id = ? OR CAST(c.produto_id AS INTEGER) = ?
+      `).get(String(prodId), prodId);
       const estoque = prodCache ? (Number(prodCache.estoque) || 0) : 0;
 
       db.prepare(`

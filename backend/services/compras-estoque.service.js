@@ -937,6 +937,30 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     console.error('[Compras Estoque] Erro ao salvar transação no cache SQLite:', eTx.message);
   }
 
+  // Manter digifarma_products_cache sincronizado com compras_estoque_cache
+  try {
+    db.exec(`
+      UPDATE digifarma_products_cache 
+      SET 
+        preco_venda = COALESCE(NULLIF((SELECT preco_venda_vigente FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_venda),
+        preco_promocao = COALESCE((SELECT preco_promocional FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), preco_promocao),
+        preco_normal = COALESCE(NULLIF((SELECT preco_normal FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_normal),
+        preco_custo = COALESCE(
+          NULLIF((SELECT custo_unitario FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
+          NULLIF((SELECT preco_unitario_ult_compra FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
+          preco_custo
+        ),
+        estoque_atual = COALESCE((SELECT saldo FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), estoque_atual),
+        curva = COALESCE((SELECT curva_abc FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), curva),
+        atualizado_em = datetime('now', 'localtime')
+      WHERE EXISTS (
+        SELECT 1 FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)
+      );
+    `);
+  } catch (eSyncCache) {
+    console.warn('[Compras Estoque] Aviso ao sincronizar digifarma_products_cache:', eSyncCache.message);
+  }
+
   let sincronizados = 0;
   if (options.autoSyncDigifarma && listaParaSync.length > 0 && !fromCacheFallback) {
     const resSync = await sincronizarLoteEstoqueMinimoDigifarma(listaParaSync);
