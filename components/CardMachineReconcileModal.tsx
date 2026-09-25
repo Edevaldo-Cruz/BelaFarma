@@ -99,13 +99,17 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [includeOlderPending, setIncludeOlderPending] = useState<boolean>(false);
 
-  // Integração com médias da Gestão de Preço para lembrar % de separação
+  // Integração com médias da Gestão de Preço e Mix de Vendas
   const [pricingAverages, setPricingAverages] = useState<any>(null);
-  const [provisionRateMode, setProvisionRateMode] = useState<'pricing' | 'standard'>(() => {
+  const [salesMixDayData, setSalesMixDayData] = useState<any>(null);
+  const [isLoadingSalesMixDay, setIsLoadingSalesMixDay] = useState<boolean>(false);
+  const [provisionRateMode, setProvisionRateMode] = useState<'mix' | 'pricing' | 'standard'>(() => {
     try {
-      return (localStorage.getItem('belafarma_provision_rate_mode') as 'pricing' | 'standard') || 'pricing';
+      const saved = localStorage.getItem('belafarma_provision_rate_mode') as any;
+      if (saved === 'mix' || saved === 'pricing' || saved === 'standard') return saved;
+      return 'mix';
     } catch (e) {
-      return 'pricing';
+      return 'mix';
     }
   });
 
@@ -121,16 +125,18 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     }
   };
 
-  const handleToggleProvisionRateMode = (mode: 'pricing' | 'standard') => {
+  const handleToggleProvisionRateMode = (mode: 'mix' | 'pricing' | 'standard') => {
     setProvisionRateMode(mode);
     try {
       localStorage.setItem('belafarma_provision_rate_mode', mode);
       window.dispatchEvent(new CustomEvent('belafarma_provision_mode_changed', { detail: mode }));
     } catch (e) {}
     addToast(
-      mode === 'pricing'
-        ? '⚡ Caixinhas atualizadas com as porcentagens da Gestão de Preço!'
-        : '📋 Caixinhas retornaram ao padrão fixo (12% / 4% / 1%).',
+      mode === 'mix'
+        ? '⚡ Caixinhas calculadas sobre o mix real de vendas do dia (excluindo crediário)!'
+        : mode === 'pricing'
+          ? '📊 Caixinhas atualizadas com as porcentagens da Gestão de Preço!'
+          : '📋 Caixinhas retornaram ao padrão fixo (12% / 4% / 1%).',
       'info'
     );
   };
@@ -140,7 +146,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       fetchPricingAverages();
     }
     const handleModeChanged = (e: any) => {
-      if (e.detail && (e.detail === 'pricing' || e.detail === 'standard')) {
+      if (e.detail && (e.detail === 'mix' || e.detail === 'pricing' || e.detail === 'standard')) {
         setProvisionRateMode(e.detail);
       }
     };
@@ -530,10 +536,12 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
   }, [displayedItems]);
 
   // Identifica o fechamento de caixa de referência: EXCLUSIVAMENTE o do dia anterior (ontem) ou o mais recente concluído
-  const { referenceClosingSales, referenceClosingDatesFormatted, effectiveProvisionDates } = useMemo(() => {
+  const { referenceClosingSales, referenceClosingGross, referenceClosingCrediario, referenceClosingDatesFormatted, effectiveProvisionDates } = useMemo(() => {
     if (!internalClosings || internalClosings.length === 0) {
       return {
         referenceClosingSales: 0,
+        referenceClosingGross: 0,
+        referenceClosingCrediario: 0,
         referenceClosingDatesFormatted: '',
         effectiveProvisionDates: []
       };
@@ -545,23 +553,71 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     if (!latestClosing || !latestClosing.date) {
       return {
         referenceClosingSales: 0,
+        referenceClosingGross: 0,
+        referenceClosingCrediario: 0,
         referenceClosingDatesFormatted: '',
         effectiveProvisionDates: []
       };
     }
 
     const dateKey = getLocalDateKey(latestClosing.date);
-    const sales = Number(latestClosing.totalSales) || 0;
+    const gross = Number(latestClosing.totalSales) || 0;
+    const crediario = Number(latestClosing.totalCrediario) || 0;
+    const netSales = Math.max(0, gross - crediario);
 
     return {
-      referenceClosingSales: Number(sales.toFixed(2)),
+      referenceClosingSales: Number(netSales.toFixed(2)),
+      referenceClosingGross: Number(gross.toFixed(2)),
+      referenceClosingCrediario: Number(crediario.toFixed(2)),
       referenceClosingDatesFormatted: formatDate(dateKey),
       effectiveProvisionDates: [dateKey]
     };
   }, [internalClosings]);
 
-  // Taxas ativas (dinâmicas conforme Gestão de Preço ou Padrão)
+  // Busca o mix de vendas item a item do dia de fechamento de referência (excluindo crediário)
+  useEffect(() => {
+    if (isOpen && effectiveProvisionDates.length > 0) {
+      const dateKey = effectiveProvisionDates[0];
+      setIsLoadingSalesMixDay(true);
+      fetch(`/api/provisions/sales-mix?date=${dateKey}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data && data.success) {
+            setSalesMixDayData(data);
+          }
+        })
+        .catch(err => console.error('Erro ao buscar mix de vendas para a data:', err))
+        .finally(() => setIsLoadingSalesMixDay(false));
+    }
+  }, [isOpen, effectiveProvisionDates]);
+
+  // Registro diário do Mix de Vendas para o dia de referência
+  const dayMixRecord = useMemo(() => {
+    if (effectiveProvisionDates.length === 0 || !salesMixDayData?.dailyBreakdown) return null;
+    const dateKey = effectiveProvisionDates[0];
+    return salesMixDayData.dailyBreakdown[dateKey] || null;
+  }, [effectiveProvisionDates, salesMixDayData]);
+
+  // Taxas ativas (dinâmicas conforme Mix de Vendas, Gestão de Preço ou Padrão)
   const activeRates = useMemo(() => {
+    if (provisionRateMode === 'mix' && dayMixRecord) {
+      return {
+        prolabore: dayMixRecord.effectiveProlaborePct / 100,
+        socio1: dayMixRecord.effectiveSocio1Pct / 100,
+        socio2: dayMixRecord.effectiveSocio2Pct / 100,
+        tax: dayMixRecord.effectiveImpostosPct / 100,
+        reserve: dayMixRecord.effectiveLucroPct / 100,
+        prolaborePctDisplay: dayMixRecord.effectiveProlaborePct,
+        socio1PctDisplay: dayMixRecord.effectiveSocio1Pct,
+        socio2PctDisplay: dayMixRecord.effectiveSocio2Pct,
+        taxPctDisplay: dayMixRecord.effectiveImpostosPct,
+        reservePctDisplay: dayMixRecord.effectiveLucroPct,
+        isCustom: dayMixRecord.customCount > 0,
+        totalItems: dayMixRecord.customCount,
+        customItems: dayMixRecord.customItems || []
+      };
+    }
+
     const hasCustom = pricingAverages && pricingAverages.totalModifiedProducts > 0;
     if (provisionRateMode === 'pricing' && hasCustom) {
       const avg = pricingAverages.simpleAverages;
@@ -583,7 +639,8 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
         taxPctDisplay: avg.impostoPct,
         reservePctDisplay: avg.margemLiquidaPct,
         isCustom: true,
-        totalItems: pricingAverages.totalModifiedProducts
+        totalItems: pricingAverages.totalModifiedProducts,
+        customItems: []
       };
     }
 
@@ -599,16 +656,35 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       taxPctDisplay: 4,
       reservePctDisplay: 1,
       isCustom: false,
-      totalItems: pricingAverages?.totalModifiedProducts || 0
+      totalItems: pricingAverages?.totalModifiedProducts || 0,
+      customItems: []
     };
-  }, [provisionRateMode, pricingAverages]);
+  }, [provisionRateMode, dayMixRecord, pricingAverages]);
 
-  // Base de cálculo das provisões: Faturamento do Fechamento do dia anterior (ou repasses caso não haja fechamento)
-  const provisionBaseValue = referenceClosingSales > 0 ? referenceClosingSales : totalsSummary.totalGross;
+  // Base de cálculo das provisões: Faturamento líquido do Fechamento (sem crediário) ou repasses caso não haja fechamento
+  const provisionBaseValue = useMemo(() => {
+    if (provisionRateMode === 'mix' && dayMixRecord && dayMixRecord.sales > 0) {
+      return dayMixRecord.sales;
+    }
+    return referenceClosingSales > 0 ? referenceClosingSales : totalsSummary.totalGross;
+  }, [provisionRateMode, dayMixRecord, referenceClosingSales, totalsSummary.totalGross]);
 
-  // Provisões calculadas sobre o fechamento do dia anterior
+  // Provisões calculadas sobre o fechamento do dia anterior (s/ crediário)
   const provisions = useMemo(() => {
     const base = provisionBaseValue;
+    if (provisionRateMode === 'mix' && dayMixRecord) {
+      return {
+        base,
+        prolabore: dayMixRecord.prolabore,
+        socio1: dayMixRecord.socio1,
+        socio2: dayMixRecord.socio2,
+        impostos: dayMixRecord.impostos,
+        reserva: dayMixRecord.lucro,
+        total: Number((dayMixRecord.prolabore + dayMixRecord.impostos + dayMixRecord.lucro).toFixed(2)),
+        liquidoAposProvisoes: Number((totalsSummary.totalGross - dayMixRecord.prolabore - dayMixRecord.impostos - dayMixRecord.lucro).toFixed(2))
+      };
+    }
+
     const prolabore = base * activeRates.prolabore;
     const socio1 = base * activeRates.socio1;
     const socio2 = base * activeRates.socio2;
@@ -624,7 +700,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       total: Number((prolabore + impostos + reserva).toFixed(2)),
       liquidoAposProvisoes: Number((totalsSummary.totalGross - prolabore - impostos - reserva).toFixed(2))
     };
-  }, [provisionBaseValue, totalsSummary.totalGross, activeRates]);
+  }, [provisionBaseValue, provisionRateMode, dayMixRecord, totalsSummary.totalGross, activeRates]);
 
   // Sincroniza os botões do modal com os registros persistidos de provisão
   useEffect(() => {
@@ -1032,8 +1108,12 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           <h4 className="text-base font-black tracking-tight text-white">
                             Provisões Obrigatórias das Caixinhas
                           </h4>
-                          {activeRates.isCustom ? (
+                          {provisionRateMode === 'mix' ? (
                             <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
+                              ⚡ Mix Real (s/ Crediário) {activeRates.isCustom ? `• ${activeRates.totalItems} produto(s) esp.` : ''}
+                            </span>
+                          ) : activeRates.isCustom ? (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
                               Gestão de Preço (60% Pró-labore / 40% Lucro)
                             </span>
                           ) : (
@@ -1043,26 +1123,40 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           )}
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Calculadas sobre o faturamento do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>. Fica disponível por 2 dias se não tiver sido provisionado.
+                          Calculadas sobre o faturamento à vista do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>
+                          {referenceClosingCrediario > 0 ? ` (crediário de ${formatCurrency(referenceClosingCrediario)} desconsiderado)` : ''}.
                         </p>
                       </div>
                     </div>
 
                     {/* Toggle de Modo + Cards de Destaque */}
                     <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
-                      {/* Toggle de Modo: Precificação vs Padrão */}
+                      {/* Toggle de Modo: Mix Real vs Precificação vs Padrão */}
                       <div className="inline-flex p-1 bg-slate-800/90 rounded-2xl border border-slate-700/80">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleProvisionRateMode('mix')}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                            provisionRateMode === 'mix'
+                              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Calcula sobre os itens vendidos no dia, aplicando a taxa de cada produto e excluindo crediário"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>% Mix Real</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleToggleProvisionRateMode('pricing')}
                           className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
                             provisionRateMode === 'pricing'
-                              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md'
                               : 'text-slate-400 hover:text-white'
                           }`}
-                          title="Usar porcentagens da Gestão de Preço"
+                          title="Usar média geral da Gestão de Preço"
                         >
-                          <Sparkles className="w-3 h-3" />
+                          <Scale className="w-3 h-3" />
                           <span>% Precificação</span>
                         </button>
                         <button
@@ -1076,7 +1170,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           title="Usar padrão fixo 12%/4%/1%"
                         >
                           <Sliders className="w-3 h-3" />
-                          <span>Padrão (12%/4%/1%)</span>
+                          <span>Padrão</span>
                         </button>
                       </div>
 
@@ -1091,7 +1185,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           {formatCurrency(provisionBaseValue)}
                         </span>
                         <span className="text-[10px] text-indigo-400 font-medium">
-                          Base das Provisões
+                          Base à Vista (s/ Crediário)
                         </span>
                       </div>
 

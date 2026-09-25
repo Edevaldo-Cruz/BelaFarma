@@ -53,6 +53,53 @@ interface PricingAverages {
   items: any[];
 }
 
+export interface SalesMixCustomItem {
+  produtoId: number;
+  descricao: string;
+  vendas: number;
+  qtd: number;
+  prolaborePct: number;
+  prolaboreValor: number;
+}
+
+export interface SalesMixDailyRecord {
+  date: string;
+  sales: number;
+  prolabore: number;
+  socio1: number;
+  socio2: number;
+  lucro: number;
+  impostos: number;
+  effectiveProlaborePct: number;
+  effectiveSocio1Pct: number;
+  effectiveSocio2Pct: number;
+  effectiveLucroPct: number;
+  effectiveImpostosPct: number;
+  customCount: number;
+  totalItems: number;
+  customItems: SalesMixCustomItem[];
+}
+
+export interface SalesMixResponse {
+  success: boolean;
+  monthSummary: {
+    totalSales: number;
+    totalProlabore: number;
+    totalSocio1: number;
+    totalSocio2: number;
+    totalLucro: number;
+    totalImpostos: number;
+    effectiveProlaborePct: number;
+    effectiveSocio1Pct: number;
+    effectiveSocio2Pct: number;
+    effectiveLucroPct: number;
+    effectiveImpostosPct: number;
+    totalCustomItemsCount: number;
+  };
+  dailyBreakdown: Record<string, SalesMixDailyRecord>;
+  totalDays: number;
+}
+
 interface ProvisionsPanelProps {
   cashClosings: CashClosingRecord[];
   fixedAccounts?: FixedAccount[];
@@ -116,14 +163,19 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   const [isUpdating, setIsUpdating] = useState(false);
   const [filterMode, setFilterMode] = useState<'provisioned' | 'all' | 'pending'>('provisioned');
 
-  // Integração com as Médias da Gestão de Preço / Precificação
+  // Integração com as Médias da Gestão de Preço / Precificação e Mix de Vendas
   const [pricingAverages, setPricingAverages] = useState<PricingAverages | null>(null);
   const [isLoadingAverages, setIsLoadingAverages] = useState(false);
-  const [provisionRateMode, setProvisionRateMode] = useState<'pricing' | 'standard'>(() => {
+  const [salesMixData, setSalesMixData] = useState<SalesMixResponse | null>(null);
+  const [isLoadingMix, setIsLoadingMix] = useState(false);
+
+  const [provisionRateMode, setProvisionRateMode] = useState<'mix' | 'pricing' | 'standard'>(() => {
     try {
-      return (localStorage.getItem('belafarma_provision_rate_mode') as 'pricing' | 'standard') || 'pricing';
+      const saved = localStorage.getItem('belafarma_provision_rate_mode') as any;
+      if (saved === 'mix' || saved === 'pricing' || saved === 'standard') return saved;
+      return 'mix';
     } catch (e) {
-      return 'pricing';
+      return 'mix';
     }
   });
   const [isPricingExpanded, setIsPricingExpanded] = useState(true);
@@ -165,16 +217,36 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     }
   };
 
-  const handleToggleRateMode = (mode: 'pricing' | 'standard') => {
+  // Busca o mix ponderado de vendas item a item sem crediário
+  const fetchSalesMix = async () => {
+    setIsLoadingMix(true);
+    try {
+      const res = await fetch(`/api/provisions/sales-mix?year=${selectedYear}&month=${selectedMonth}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setSalesMixData(data);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar mix de vendas:', err);
+    } finally {
+      setIsLoadingMix(false);
+    }
+  };
+
+  const handleToggleRateMode = (mode: 'mix' | 'pricing' | 'standard') => {
     setProvisionRateMode(mode);
     try {
       localStorage.setItem('belafarma_provision_rate_mode', mode);
       window.dispatchEvent(new CustomEvent('belafarma_provision_mode_changed', { detail: mode }));
     } catch (e) {}
     addToast(
-      mode === 'pricing' 
-        ? '⚡ Caixinhas agora utilizam as médias salvas na Gestão de Preço!' 
-        : '📋 Caixinhas retornaram ao padrão fixo (12% / 4% / 1%).', 
+      mode === 'mix'
+        ? '⚡ Caixinhas agora calculam sobre o mix real dos itens vendidos no dia (excluindo crediário)!'
+        : mode === 'pricing' 
+          ? '📊 Caixinhas agora utilizam as médias salvas na Gestão de Preço!' 
+          : '📋 Caixinhas retornaram ao padrão fixo (12% / 4% / 1%).', 
       'info'
     );
   };
@@ -182,7 +254,13 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   useEffect(() => {
     fetchPaidDates();
     fetchPricingAverages();
+  }, []);
 
+  useEffect(() => {
+    fetchSalesMix();
+  }, [selectedMonth, selectedYear]);
+
+  useEffect(() => {
     const handleProvisionsUpdated = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
         setPaidProvisionsDates(e.detail);
@@ -192,7 +270,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     };
 
     const handleModeChanged = (e: any) => {
-      if (e.detail && (e.detail === 'pricing' || e.detail === 'standard')) {
+      if (e.detail && (e.detail === 'mix' || e.detail === 'pricing' || e.detail === 'standard')) {
         setProvisionRateMode(e.detail);
       }
     };
@@ -221,10 +299,29 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [cashClosings, selectedMonth, selectedYear]);
 
-  // Faturamento total do mês selecionado
-  const totalMonthSales = useMemo(() => {
+  // Faturamento total do mês selecionado excluindo crediário
+  const totalMonthNetSales = useMemo(() => {
+    return monthClosings.reduce((sum, c) => {
+      const cred = Number(c.totalCrediario) || 0;
+      return sum + Math.max(0, (Number(c.totalSales) || 0) - cred);
+    }, 0);
+  }, [monthClosings]);
+
+  const totalMonthGrossSales = useMemo(() => {
     return monthClosings.reduce((sum, c) => sum + (Number(c.totalSales) || 0), 0);
   }, [monthClosings]);
+
+  const totalMonthCrediario = useMemo(() => {
+    return monthClosings.reduce((sum, c) => sum + (Number(c.totalCrediario) || 0), 0);
+  }, [monthClosings]);
+
+  // Faturamento base para provisões do mês (no mix real, usa o total sem crediário retornado pelo Digifarma)
+  const totalMonthSales = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary && salesMixData.monthSummary.totalSales > 0) {
+      return salesMixData.monthSummary.totalSales;
+    }
+    return totalMonthNetSales;
+  }, [provisionRateMode, salesMixData, totalMonthNetSales]);
 
   // Taxas ativas (dinâmicas conforme Gestão de Preço ou Padrão)
   const activeRates = useMemo(() => {
@@ -274,13 +371,81 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     };
   }, [provisionRateMode, pricingAverages]);
 
-  // Cálculos das Caixinhas
-  const prolaboreTotal = totalMonthSales * activeRates.prolabore;
-  const taxTotal = totalMonthSales * activeRates.tax;
-  const reserveTotal = totalMonthSales * activeRates.reserve;
+  // Cálculos das Caixinhas do Mês
+  const prolaboreTotal = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.totalProlabore;
+    }
+    return totalMonthSales * activeRates.prolabore;
+  }, [provisionRateMode, salesMixData, totalMonthSales, activeRates]);
+
+  const socio1Total = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.totalSocio1;
+    }
+    return prolaboreTotal * (activeRates.socio1 / activeRates.prolabore);
+  }, [provisionRateMode, salesMixData, prolaboreTotal, activeRates]);
+
+  const socio2Total = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.totalSocio2;
+    }
+    return prolaboreTotal * (activeRates.socio2 / activeRates.prolabore);
+  }, [provisionRateMode, salesMixData, prolaboreTotal, activeRates]);
+
+  const taxTotal = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.totalImpostos;
+    }
+    return totalMonthSales * activeRates.tax;
+  }, [provisionRateMode, salesMixData, totalMonthSales, activeRates]);
+
+  const reserveTotal = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.totalLucro;
+    }
+    return totalMonthSales * activeRates.reserve;
+  }, [provisionRateMode, salesMixData, totalMonthSales, activeRates]);
+
   const grandTotalProvisions = prolaboreTotal + taxTotal + reserveTotal;
 
-  // Totais Pagos / Separados (desconsiderando pendências descartadas após o 2º dia útil)
+  // Percentuais efetivos para exibição nos cabeçalhos e cards
+  const displayProlaborePct = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.effectiveProlaborePct;
+    }
+    return activeRates.prolaborePctDisplay;
+  }, [provisionRateMode, salesMixData, activeRates]);
+
+  const displaySocio1Pct = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.effectiveSocio1Pct;
+    }
+    return activeRates.socio1PctDisplay;
+  }, [provisionRateMode, salesMixData, activeRates]);
+
+  const displaySocio2Pct = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.effectiveSocio2Pct;
+    }
+    return activeRates.socio2PctDisplay;
+  }, [provisionRateMode, salesMixData, activeRates]);
+
+  const displayTaxPct = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.effectiveImpostosPct;
+    }
+    return activeRates.taxPctDisplay;
+  }, [provisionRateMode, salesMixData, activeRates]);
+
+  const displayReservePct = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      return salesMixData.monthSummary.effectiveLucroPct;
+    }
+    return activeRates.reservePctDisplay;
+  }, [provisionRateMode, salesMixData, activeRates]);
+
+  // Totais Pagos / Separados (desconsiderando pendências descartadas após o 2º dia útil e excluindo crediário)
   const paidStats = useMemo(() => {
     let paidProlabore = 0;
     let pendingProlabore = 0;
@@ -290,30 +455,42 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     let pendingReserve = 0;
 
     monthClosings.forEach(c => {
-      const sales = Number(c.totalSales) || 0;
+      const cred = Number(c.totalCrediario) || 0;
+      const netSales = Math.max(0, (Number(c.totalSales) || 0) - cred);
       const key = getDateKey(c.date);
       const isPast2ndDay = isDatePastSecondDay(c.date);
+
+      let valP = netSales * activeRates.prolabore;
+      let valT = netSales * activeRates.tax;
+      let valR = netSales * activeRates.reserve;
+
+      if (provisionRateMode === 'mix' && salesMixData?.dailyBreakdown?.[key]) {
+        const d = salesMixData.dailyBreakdown[key];
+        valP = d.prolabore;
+        valT = d.impostos;
+        valR = d.lucro;
+      }
 
       const pPaid = paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
       const tPaid = paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${c.date}`);
       const rPaid = paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
 
       if (pPaid) {
-        paidProlabore += sales * activeRates.prolabore;
+        paidProlabore += valP;
       } else if (!isPast2ndDay) {
-        pendingProlabore += sales * activeRates.prolabore;
+        pendingProlabore += valP;
       }
 
       if (tPaid) {
-        paidTax += sales * activeRates.tax;
+        paidTax += valT;
       } else if (!isPast2ndDay) {
-        pendingTax += sales * activeRates.tax;
+        pendingTax += valT;
       }
 
       if (rPaid) {
-        paidReserve += sales * activeRates.reserve;
+        paidReserve += valR;
       } else if (!isPast2ndDay) {
-        pendingReserve += sales * activeRates.reserve;
+        pendingReserve += valR;
       }
     });
 
@@ -327,7 +504,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       totalPaid: paidProlabore + paidTax + paidReserve,
       totalPending: pendingProlabore + pendingTax + pendingReserve
     };
-  }, [monthClosings, paidProvisionsDates, activeRates]);
+  }, [monthClosings, paidProvisionsDates, activeRates, provisionRateMode, salesMixData]);
 
   const isClosingProvisioned = (date: string) => {
     const key = getDateKey(date);
@@ -423,7 +600,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <PiggyBank className="w-7 h-7 text-emerald-600" /> Caixinhas de Provisão
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Separação diária sobre o faturamento: Pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%), Impostos ({activeRates.taxPctDisplay.toFixed(1)}%) e Lucro/Reserva ({activeRates.reservePctDisplay.toFixed(1)}%).
+            Separação diária sobre o faturamento à vista (s/ crediário): Pró-labore ({displayProlaborePct.toFixed(1)}%), Impostos ({displayTaxPct.toFixed(1)}%) e Lucro/Reserva ({displayReservePct.toFixed(1)}%).
           </p>
         </div>
         
@@ -455,12 +632,13 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             onClick={() => {
               fetchPaidDates();
               fetchPricingAverages();
+              fetchSalesMix();
             }}
-            disabled={isUpdating || isLoadingAverages}
+            disabled={isUpdating || isLoadingAverages || isLoadingMix}
             className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all border border-slate-200 hover:border-emerald-200"
-            title="Atualizar dados de provisões e médias da precificação"
+            title="Atualizar dados de provisões, mix de vendas e médias da precificação"
           >
-            <RefreshCw className={`w-4 h-4 ${isUpdating || isLoadingAverages ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isUpdating || isLoadingAverages || isLoadingMix ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>
@@ -477,36 +655,53 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <h2 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
                   Lembrete de Separação de Dinheiro
                   <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Gestão de Preço
+                    {provisionRateMode === 'mix' ? '⚡ Mix Real Ponderado' : provisionRateMode === 'pricing' ? '📊 Gestão de Preço' : '📋 Padrão'}
                   </span>
                 </h2>
-                {activeRates.isCustom && (
+                {provisionRateMode === 'mix' ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/30 text-emerald-200 border border-emerald-500/40">
+                    {salesMixData?.monthSummary?.totalCustomItemsCount || 0} produtos especiais vendidos no mês (s/ crediário)
+                  </span>
+                ) : activeRates.isCustom ? (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-500/40">
                     {pricingAverages?.totalModifiedProducts} produtos equalizados (60% Pró-labore / 40% Lucro)
                   </span>
-                )}
+                ) : null}
               </div>
               <p className="text-xs text-slate-300 mt-1">
-                Use estas porcentagens para saber exatamente quanto separar em espécie para cada sócio, lucro e tributos.
+                Use estas porcentagens para saber exatamente quanto separar em espécie para cada sócio, lucro e tributos (vendas no crediário desconsideradas).
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Toggle de Modo: Precificação vs Padrão */}
+            {/* Toggle de Modo: Mix Real vs Precificação vs Padrão */}
             <div className="inline-flex p-1 bg-slate-800/80 rounded-2xl border border-slate-700/80">
+              <button
+                type="button"
+                onClick={() => handleToggleRateMode('mix')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                  provisionRateMode === 'mix'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Calcula com base nos itens reais vendidos no dia, aplicando a taxa de cada produto e excluindo crediário"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>⚡ Mix Real (s/ Crediário)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => handleToggleRateMode('pricing')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                   provisionRateMode === 'pricing'
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Aplica as médias da Gestão de Preço nas Caixinhas"
+                title="Aplica a média global da Gestão de Preço nas Caixinhas"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Usar % da Precificação</span>
+                <Scale className="w-3.5 h-3.5" />
+                <span>Média Precificação</span>
               </button>
               <button
                 type="button"
@@ -749,7 +944,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
         {/* Card Faturamento Total */}
         <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm relative overflow-hidden">
           <div className="flex justify-between items-start">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Faturamento do Mês</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Faturamento do Mês (s/ Crediário)</span>
             <div className="p-2 rounded-xl bg-slate-100 text-slate-600">
               <TrendingUp className="w-5 h-5" />
             </div>
@@ -759,6 +954,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <p className="text-xs text-slate-400 font-medium mt-0.5">
               {monthClosings.length} {monthClosings.length === 1 ? 'fechamento registrado' : 'fechamentos registrados'}
             </p>
+            {totalMonthCrediario > 0 && (
+              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold block mt-1.5 w-fit">
+                Crediário excluído: -{formatBRL(totalMonthCrediario)}
+              </span>
+            )}
             {selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear() && (
               <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-tight">
                 * Calculado sobre fechamentos concluídos (as vendas do dia atual entram ao fechar o caixa).
@@ -775,15 +975,15 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <PiggyBank className="w-3.5 h-3.5 text-emerald-600" /> Pró-labore dos Sócios
               </span>
               <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                {activeRates.prolaborePctDisplay.toFixed(1)}% do Faturamento
+                {displayProlaborePct.toFixed(1)}% do Faturamento
               </span>
             </div>
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-black text-emerald-950 tracking-tight">{formatBRL(prolaboreTotal)}</h3>
             <div className="text-[11px] text-emerald-700/80 font-bold mt-1 flex justify-between">
-              <span>S1: {formatBRL(prolaboreTotal * (activeRates.socio1 / activeRates.prolabore))}</span>
-              <span>S2: {formatBRL(prolaboreTotal * (activeRates.socio2 / activeRates.prolabore))}</span>
+              <span>S1 ({displaySocio1Pct.toFixed(1)}%): {formatBRL(socio1Total)}</span>
+              <span>S2 ({displaySocio2Pct.toFixed(1)}%): {formatBRL(socio2Total)}</span>
             </div>
             <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-emerald-200/60 font-semibold">
               <span className="text-emerald-700">Reservado: {formatBRL(paidStats.paidProlabore)}</span>
@@ -800,7 +1000,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <Landmark className="w-3.5 h-3.5 text-blue-600" /> Impostos / Tributos
               </span>
               <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-md">
-                {activeRates.taxPctDisplay.toFixed(1)}% do Faturamento
+                {displayTaxPct.toFixed(1)}% do Faturamento
               </span>
             </div>
           </div>
@@ -821,7 +1021,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 <ShieldCheck className="w-3.5 h-3.5 text-purple-600" /> Lucro / Fundo de Reserva
               </span>
               <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md">
-                {activeRates.reservePctDisplay.toFixed(1)}% do Faturamento
+                {displayReservePct.toFixed(1)}% do Faturamento
               </span>
             </div>
           </div>
@@ -844,7 +1044,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           <div>
             <h3 className="text-lg font-black text-slate-900 tracking-tight">Total Geral de Provisões do Mês</h3>
             <p className="text-xs text-slate-500 font-medium">
-              Soma das reservas destinadas a pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%), impostos ({activeRates.taxPctDisplay.toFixed(1)}%) e lucro/reserva ({activeRates.reservePctDisplay.toFixed(1)}%). Total: {((activeRates.prolabore + activeRates.tax + activeRates.reserve) * 100).toFixed(1)}%.
+              Soma das reservas destinadas a pró-labore ({displayProlaborePct.toFixed(1)}%), impostos ({displayTaxPct.toFixed(1)}%) e lucro/reserva ({displayReservePct.toFixed(1)}%). Total: {((displayProlaborePct + displayTaxPct + displayReservePct)).toFixed(1)}%.
             </p>
           </div>
         </div>
@@ -960,28 +1160,36 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-100">
                   <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest">Data</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Faturamento</th>
+                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Faturamento (s/ Crediário)</th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center">
-                    Pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%)
+                    Pró-labore ({displayProlaborePct.toFixed(1)}%)
                   </th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center">
-                    Impostos ({activeRates.taxPctDisplay.toFixed(1)}%)
+                    Impostos ({displayTaxPct.toFixed(1)}%)
                   </th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center">
-                    Reserva/Lucro ({activeRates.reservePctDisplay.toFixed(1)}%)
+                    Reserva/Lucro ({displayReservePct.toFixed(1)}%)
                   </th>
                   <th className="px-6 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Total Provisionado (Dia)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {displayedClosings.map(c => {
-                  const sales = Number(c.totalSales) || 0;
-                  const valProlabore = sales * activeRates.prolabore;
-                  const valTax = sales * activeRates.tax;
-                  const valReserve = sales * activeRates.reserve;
+                  const cred = Number(c.totalCrediario) || 0;
+                  const netSales = Math.max(0, (Number(c.totalSales) || 0) - cred);
+                  const dateKey = getDateKey(c.date);
+                  const dayMix = provisionRateMode === 'mix' ? salesMixData?.dailyBreakdown?.[dateKey] : null;
+
+                  const sales = dayMix ? dayMix.sales : netSales;
+                  const valProlabore = dayMix ? dayMix.prolabore : sales * activeRates.prolabore;
+                  const valTax = dayMix ? dayMix.impostos : sales * activeRates.tax;
+                  const valReserve = dayMix ? dayMix.lucro : sales * activeRates.reserve;
                   const valDayTotal = valProlabore + valTax + valReserve;
 
-                  const dateKey = getDateKey(c.date);
+                  const dayProlaborePct = dayMix ? dayMix.effectiveProlaborePct : activeRates.prolaborePctDisplay;
+                  const dayTaxPct = dayMix ? dayMix.effectiveImpostosPct : activeRates.taxPctDisplay;
+                  const dayReservePct = dayMix ? dayMix.effectiveLucroPct : activeRates.reservePctDisplay;
+
                   const { dateFormatted, weekday } = formatClosingDate(c.date);
 
                   const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
@@ -1037,10 +1245,15 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
                       {/* Faturamento */}
                       <td className="px-6 py-4 text-right font-black text-slate-900 text-sm whitespace-nowrap">
-                        {formatBRL(sales)}
+                        <div>{formatBRL(sales)}</div>
+                        {cred > 0 && (
+                          <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-semibold inline-block mt-0.5">
+                            s/ cred: -{formatBRL(cred)}
+                          </span>
+                        )}
                       </td>
 
-                      {/* Pró-labore (12%) */}
+                      {/* Pró-labore */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
                         {isProlaborePaid ? (
                           <button
@@ -1071,9 +1284,22 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                             <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
                           </button>
                         )}
+                        {dayMix && dayMix.customCount > 0 ? (
+                          <div 
+                            className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md mt-1 cursor-help inline-flex items-center gap-1 justify-center"
+                            title={dayMix.customItems.map(ci => `${ci.descricao}: ${ci.prolaborePct}% (Venda: R$ ${ci.vendas.toFixed(2)})`).join('\n')}
+                          >
+                            <span>⚡ {dayProlaborePct.toFixed(1)}%</span>
+                            <span className="text-[9px] opacity-80">({dayMix.customCount} item{dayMix.customCount > 1 ? 's' : ''} esp.)</span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                            {dayProlaborePct.toFixed(1)}%
+                          </span>
+                        )}
                       </td>
 
-                      {/* Impostos (4%) */}
+                      {/* Impostos */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
                         {isTaxPaid ? (
                           <button
@@ -1104,9 +1330,12 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                             <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
                           </button>
                         )}
+                        <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                          {dayTaxPct.toFixed(1)}%
+                        </span>
                       </td>
 
-                      {/* Reserva (1%) */}
+                      {/* Reserva */}
                       <td className="px-6 py-4 text-center whitespace-nowrap">
                         {isReservePaid ? (
                           <button
@@ -1137,6 +1366,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                             <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
                           </button>
                         )}
+                        <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                          {dayReservePct.toFixed(1)}%
+                        </span>
                       </td>
 
                       {/* Total Dia */}

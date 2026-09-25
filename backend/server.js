@@ -4079,8 +4079,10 @@ marketingScheduler.iniciarScheduler(db);
 console.log('🤖 Agente de Marketing IA inicializado.');
 
 const financeEndpoints = require('./finance-endpoints.js');
-app.use('/api/finance-agent', financeEndpoints(db));
-console.log('🤖 Agente Financeiro IA inicializado.');
+const financeRouter = financeEndpoints(db);
+app.use('/api/finance-agent', financeRouter);
+app.use('/api/provisions', financeRouter);
+console.log('🤖 Agente Financeiro IA e Provisões inicializados.');
 
 const stockEndpoints = require('./stock-endpoints.js');
 app.use('/api/stock', stockEndpoints());

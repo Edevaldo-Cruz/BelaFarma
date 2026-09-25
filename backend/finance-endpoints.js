@@ -860,6 +860,215 @@ module.exports = function (db) {
     }
   });
 
+  /**
+   * GET /api/finance-agent/provisions/sales-mix
+   * GET /api/provisions/sales-mix
+   * Calcula as provisões diárias e mensais ponderadas pelo mix real de itens vendidos,
+   * EXCLUINDO vendas realizadas em Crediário (TIPO_PAGAMENTO_ID = 5).
+   *
+   * Query params:
+   *  - date: 'YYYY-MM-DD' (dia específico)
+   *  - month: 0-11 (mês)
+   *  - year: YYYY (ano)
+   */
+  const handleProvisionsSalesMix = async (req, res) => {
+    try {
+      const { date, month, year } = req.query;
+      let startDateTime, endDateTime;
+
+      if (date) {
+        const cleanDate = String(date).slice(0, 10);
+        startDateTime = `${cleanDate} 00:00:00`;
+        endDateTime = `${cleanDate} 23:59:59`;
+      } else {
+        const targetYear = parseInt(year) || new Date().getFullYear();
+        const targetMonth = month !== undefined ? parseInt(month) : new Date().getMonth();
+        const firstDay = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01 00:00:00`;
+        const lastDayNum = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const lastDay = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')} 23:59:59`;
+        startDateTime = firstDay;
+        endDateTime = lastDay;
+      }
+
+      // 1. Consulta produtos customizados na tabela SQLite
+      const customMap = new Map();
+      if (db) {
+        try {
+          const customRows = db.prepare('SELECT * FROM product_pricing_customizations').all();
+          customRows.forEach(c => customMap.set(c.produto_id, c));
+        } catch (dbErr) {
+          console.warn('[Sales Mix Provisions] Erro ao ler customizações:', dbErr.message);
+        }
+      }
+
+      // 2. Consulta itens vendidos no Digifarma, excluindo Crediário (TIPO_PAGAMENTO_ID = 5)
+      const sql = `
+        SELECT 
+          CAST(v.VENDA_DATA_HORA AS DATE) as DATA_VENDA,
+          iv.PRODUTO_ID,
+          SUM(iv.ITEMVEND_QUANT) as QTD_VENDIDA,
+          SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) as TOTAL_VALOR
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        WHERE (v.CANCELADO IS NULL OR v.CANCELADO <> 'S')
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
+          AND NOT EXISTS (
+            SELECT 1 FROM CAB_VENDAS_FPAGTOS fp
+            WHERE fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+              AND fp.TIPO_PAGAMENTO_ID = 5
+          )
+        GROUP BY 1, 2
+      `;
+
+      let rows = [];
+      try {
+        rows = await queryDigifarma(sql, [startDateTime, endDateTime]);
+      } catch (errQ) {
+        console.error('[Sales Mix Provisions] Erro na query Firebird:', errQ.message);
+        return res.status(500).json({ error: 'Erro ao consultar vendas no Digifarma: ' + errQ.message });
+      }
+
+      // 3. Processa e consolida por data
+      const dailyMap = {};
+      let monthSales = 0;
+      let monthProlabore = 0;
+      let monthSocio1 = 0;
+      let monthSocio2 = 0;
+      let monthLucro = 0;
+      let monthImpostos = 0;
+      let totalCustomItemsCount = 0;
+
+      for (const r of rows) {
+        const dObj = new Date(r.DATA_VENDA);
+        const y = dObj.getFullYear();
+        const m = String(dObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dObj.getDate()).padStart(2, '0');
+        const dateKey = `${y}-${m}-${d}`;
+
+        if (!dailyMap[dateKey]) {
+          dailyMap[dateKey] = {
+            date: dateKey,
+            sales: 0,
+            prolabore: 0,
+            socio1: 0,
+            socio2: 0,
+            lucro: 0,
+            impostos: 0,
+            customCount: 0,
+            totalItems: 0,
+            customItems: []
+          };
+        }
+
+        const salesVal = parseFloat(r.TOTAL_VALOR || 0);
+        dailyMap[dateKey].sales += salesVal;
+        dailyMap[dateKey].totalItems += parseFloat(r.QTD_VENDIDA || 0);
+
+        monthSales += salesVal;
+
+        const cust = customMap.get(r.PRODUTO_ID);
+        if (cust) {
+          const pPct = cust.pro_labore_total_pct || 12;
+          const s1Pct = cust.pro_labore_1_pct || (pPct / 2);
+          const s2Pct = cust.pro_labore_2_pct || (pPct / 2);
+          const lPct = cust.margem_liquida_pct || 1;
+          const iPct = cust.imposto_pct || 4;
+
+          const pVal = salesVal * (pPct / 100);
+          const s1Val = salesVal * (s1Pct / 100);
+          const s2Val = salesVal * (s2Pct / 100);
+          const lVal = salesVal * (lPct / 100);
+          const iVal = salesVal * (iPct / 100);
+
+          dailyMap[dateKey].prolabore += pVal;
+          dailyMap[dateKey].socio1 += s1Val;
+          dailyMap[dateKey].socio2 += s2Val;
+          dailyMap[dateKey].lucro += lVal;
+          dailyMap[dateKey].impostos += iVal;
+          dailyMap[dateKey].customCount++;
+          dailyMap[dateKey].customItems.push({
+            produtoId: r.PRODUTO_ID,
+            descricao: cust.descricao,
+            vendas: salesVal,
+            qtd: r.QTD_VENDIDA,
+            prolaborePct: pPct,
+            prolaboreValor: pVal
+          });
+
+          monthProlabore += pVal;
+          monthSocio1 += s1Val;
+          monthSocio2 += s2Val;
+          monthLucro += lVal;
+          monthImpostos += iVal;
+          totalCustomItemsCount++;
+        } else {
+          // Padrão BelaFarma (12% pró-labore, 1% reserva, 4% DAS)
+          const pVal = salesVal * 0.12;
+          const s1Val = salesVal * 0.06;
+          const s2Val = salesVal * 0.06;
+          const lVal = salesVal * 0.01;
+          const iVal = salesVal * 0.04;
+
+          dailyMap[dateKey].prolabore += pVal;
+          dailyMap[dateKey].socio1 += s1Val;
+          dailyMap[dateKey].socio2 += s2Val;
+          dailyMap[dateKey].lucro += lVal;
+          dailyMap[dateKey].impostos += iVal;
+
+          monthProlabore += pVal;
+          monthSocio1 += s1Val;
+          monthSocio2 += s2Val;
+          monthLucro += lVal;
+          monthImpostos += iVal;
+        }
+      }
+
+      // Calcula percentuais efetivos diários
+      Object.keys(dailyMap).forEach(k => {
+        const d = dailyMap[k];
+        d.effectiveProlaborePct = d.sales > 0 ? parseFloat(((d.prolabore / d.sales) * 100).toFixed(2)) : 12;
+        d.effectiveSocio1Pct = d.sales > 0 ? parseFloat(((d.socio1 / d.sales) * 100).toFixed(2)) : 6;
+        d.effectiveSocio2Pct = d.sales > 0 ? parseFloat(((d.socio2 / d.sales) * 100).toFixed(2)) : 6;
+        d.effectiveLucroPct = d.sales > 0 ? parseFloat(((d.lucro / d.sales) * 100).toFixed(2)) : 1;
+        d.effectiveImpostosPct = d.sales > 0 ? parseFloat(((d.impostos / d.sales) * 100).toFixed(2)) : 4;
+        d.prolabore = parseFloat(d.prolabore.toFixed(2));
+        d.socio1 = parseFloat(d.socio1.toFixed(2));
+        d.socio2 = parseFloat(d.socio2.toFixed(2));
+        d.lucro = parseFloat(d.lucro.toFixed(2));
+        d.impostos = parseFloat(d.impostos.toFixed(2));
+        d.sales = parseFloat(d.sales.toFixed(2));
+      });
+
+      const monthSummary = {
+        totalSales: parseFloat(monthSales.toFixed(2)),
+        totalProlabore: parseFloat(monthProlabore.toFixed(2)),
+        totalSocio1: parseFloat(monthSocio1.toFixed(2)),
+        totalSocio2: parseFloat(monthSocio2.toFixed(2)),
+        totalLucro: parseFloat(monthLucro.toFixed(2)),
+        totalImpostos: parseFloat(monthImpostos.toFixed(2)),
+        effectiveProlaborePct: monthSales > 0 ? parseFloat(((monthProlabore / monthSales) * 100).toFixed(2)) : 12,
+        effectiveSocio1Pct: monthSales > 0 ? parseFloat(((monthSocio1 / monthSales) * 100).toFixed(2)) : 6,
+        effectiveSocio2Pct: monthSales > 0 ? parseFloat(((monthSocio2 / monthSales) * 100).toFixed(2)) : 6,
+        effectiveLucroPct: monthSales > 0 ? parseFloat(((monthLucro / monthSales) * 100).toFixed(2)) : 1,
+        effectiveImpostosPct: monthSales > 0 ? parseFloat(((monthImpostos / monthSales) * 100).toFixed(2)) : 4,
+        totalCustomItemsCount
+      };
+
+      res.json({
+        success: true,
+        monthSummary,
+        dailyBreakdown: dailyMap,
+        totalDays: Object.keys(dailyMap).length
+      });
+    } catch (err) {
+      console.error('[Sales Mix Provisions] Erro geral:', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  router.get('/provisions/sales-mix', handleProvisionsSalesMix);
+  router.get('/sales-mix', handleProvisionsSalesMix);
+
   // Endpoint manual para sincronizar
   router.post('/sync-crediario', async (req, res) => {
     try {
