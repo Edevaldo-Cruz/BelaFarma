@@ -31,7 +31,8 @@ import {
   BarChart2,
   Edit3,
   RotateCcw,
-  Download
+  Download,
+  Scale
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { useToast } from './ToastContext';
@@ -423,6 +424,82 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     const onlyCustom = updated.filter(p => p.isCustom);
     localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(onlyCustom));
     addToast('Preset removido.', 'info');
+  };
+
+  // Equalizar Pró-labore e Lucro Líquido com base no Preço Atual da Loja
+  const handleEqualizeProLaboreAndProfitFromStorePrice = () => {
+    const rawPrice = (currentStorePrice || '').toString().replace(',', '.').trim();
+    const storePrice = parseFloat(rawPrice);
+
+    if (isNaN(storePrice) || storePrice <= 0) {
+      addToast('Informe um Preço Atual da Loja válido (maior que zero) para equalizar.', 'warning');
+      return;
+    }
+
+    const cmv = Number(inputs.cmv) || 0;
+    if (cmv <= 0) {
+      addToast('Informe o CMV (Custo de Compra) para poder calcular a equalização.', 'warning');
+      return;
+    }
+
+    if (storePrice <= cmv) {
+      addToast(`O Preço Atual da Loja (R$ ${storePrice.toFixed(2)}) é menor ou igual ao custo de compra (R$ ${cmv.toFixed(2)}). Não há margem para equalizar.`, 'error');
+      return;
+    }
+
+    // Percentual que o CMV representa sobre o preço de venda da loja
+    const cmvPercent = (cmv / storePrice) * 100;
+
+    // Deduções fixas já definidas (Impostos + Cartão + Outros Variáveis + Custo Fixo)
+    const imposto = Math.max(0, Number(inputs.impostoPercent) || 0);
+    const taxaCartao = Math.max(0, Number(inputs.taxaCartaoPercent) || 0);
+    const custosVar = Math.max(0, Number(inputs.custosVariaveisPercent) || 0);
+    const custoFixo = Math.max(0, Number(inputs.custoFixoPercent) || 0);
+
+    const deducoesFixas = cmvPercent + imposto + taxaCartao + custosVar + custoFixo;
+    const margemDisponivel = 100 - deducoesFixas;
+
+    if (margemDisponivel <= 0) {
+      addToast(
+        `O Preço da Loja (R$ ${storePrice.toFixed(2)}) já é consumido pelas despesas operacionais básicas (${deducoesFixas.toFixed(1)}%). Sobra líquida insuficiente para pró-labore e lucro.`,
+        'error'
+      );
+      return;
+    }
+
+    // Divide 50% da margem disponível para Pró-labore e 50% para Lucro Líquido
+    const proLaboreTotal = Number((margemDisponivel / 2).toFixed(2));
+    const margemLiquida = Number((margemDisponivel - proLaboreTotal).toFixed(2));
+
+    // Distribuição do Pró-labore entre os Sócios
+    let socio1 = 0;
+    let socio2 = 0;
+
+    if (inputs.proLaboreSocio1Percent > 0 && inputs.proLaboreSocio2Percent === 0) {
+      socio1 = proLaboreTotal;
+      socio2 = 0;
+    } else if (inputs.proLaboreSocio1Percent === 0 && inputs.proLaboreSocio2Percent > 0) {
+      socio1 = 0;
+      socio2 = proLaboreTotal;
+    } else {
+      // Padrão BelaFarma: 2 sócios iguais (50% cada)
+      socio1 = Number((proLaboreTotal / 2).toFixed(2));
+      socio2 = Number((proLaboreTotal - socio1).toFixed(2));
+    }
+
+    setInputs(prev => ({
+      ...prev,
+      proLaboreSocio1Percent: socio1,
+      proLaboreSocio2Percent: socio2,
+      margemLiquidaPercent: margemLiquida
+    }));
+
+    setHasSavedCustomization(false);
+
+    addToast(
+      `⚖️ Equalizado pelo preço R$ ${storePrice.toFixed(2)}: Pró-labore ${proLaboreTotal.toFixed(1)}% (S1: ${socio1}% / S2: ${socio2}%) e Lucro Líquido ${margemLiquida.toFixed(1)}%!`,
+      'success'
+    );
   };
 
   // Salvar Parametrização Individual nas Médias
@@ -984,9 +1061,22 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                  Preço Atual Loja (R$)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Preço Atual Loja (R$)
+                  </label>
+                  {parseFloat(currentStorePrice) > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleEqualizeProLaboreAndProfitFromStorePrice}
+                      className="text-[10px] font-black text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 flex items-center gap-1 transition-colors cursor-pointer bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-lg border border-teal-200/80 dark:border-teal-800"
+                      title="Equalizar pró-labore e lucro líquido com base neste preço"
+                    >
+                      <Scale className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                      Equalizar
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">R$</span>
                   <input
@@ -1158,6 +1248,22 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 onChange={(e) => setInputs(prev => ({ ...prev, margemLiquidaPercent: parseFloat(e.target.value) || 0 }))}
                 className="w-full accent-emerald-600 cursor-pointer h-2 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg"
               />
+            </div>
+
+            {/* Botão de Equalizar Pró-labore e Lucro Líquido pelo Preço da Loja */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleEqualizeProLaboreAndProfitFromStorePrice}
+                className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-700 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-black shadow-md shadow-teal-700/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
+                title="Ajusta o Pró-labore e o Lucro Líquido igualmente para fechar exatamente no Preço Atual da Loja"
+              >
+                <Scale className="w-4 h-4 text-emerald-200" />
+                <span>
+                  Equalizar Pró-labore e Lucro Líquido
+                  {parseFloat(currentStorePrice) > 0 ? ` (pelo Preço R$ ${parseFloat(currentStorePrice).toFixed(2)})` : ' pelo Preço da Loja'}
+                </span>
+              </button>
             </div>
 
             {/* Ações de Parametrização para as Médias */}
