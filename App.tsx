@@ -172,9 +172,6 @@ const App: React.FC = () => {
     } catch (e) {}
     setIsTempReminderOpen(false);
     setCurrentView('temperature-map');
-    setTimeout(() => {
-      window.print();
-    }, 600);
   };
 
   const handleReviewSubmitted = (deliveryId?: string) => {

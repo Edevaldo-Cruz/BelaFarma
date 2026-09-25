@@ -12,10 +12,15 @@ import {
   X,
   Layers,
   CheckSquare,
-  Square
+  Square,
+  FileText,
+  Download,
+  FileDown,
+  Loader2
 } from 'lucide-react';
 import { TemperatureRecord, TemperatureConfig } from '../types';
 import { useToast } from './ToastContext';
+import { generateSingleMonthPdf, generateBatchMonthsPdf } from '../utils/temperaturePdf';
 
 interface TemperatureMapProps {
   onBack?: () => void;
@@ -217,6 +222,7 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
     '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'
   ]);
   const [isBatchPrinting, setIsBatchPrinting] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [batchPrintData, setBatchPrintData] = useState<{ monthStr: string; label: string; records: TemperatureRecord[] }[]>([]);
 
   // Formulário de Entrada/Edição
@@ -477,47 +483,60 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
     setIsConfigModalOpen(false);
   };
 
-  // Impressão individual do mês atual
-  const handlePrintCurrentMonth = async () => {
-    setIsBatchPrinting(false);
+  // Gerar e Abrir ou Baixar PDF do Mês Atual
+  const handleGenerateCurrentMonthPdf = async (action: 'open' | 'download' = 'open') => {
     try {
-      await fetch('/api/temperature/mark-printed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month: currentYearMonth })
-      });
-    } catch (e) {}
-    window.print();
+      setIsGeneratingPdf(true);
+      try {
+        await fetch('/api/temperature/mark-printed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ month: currentYearMonth })
+        });
+      } catch (e) {}
+
+      generateSingleMonthPdf(currentYearMonth, records, config, action);
+      if (action === 'download') {
+        addToast(`PDF de ${monthLabel} baixado com sucesso!`, 'success');
+      } else {
+        addToast(`PDF de ${monthLabel} aberto para impressão!`, 'info');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Erro ao gerar PDF do mês.', 'error');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
-  // Preparar e disparar impressão em lote de todos os meses selecionados
-  const handleTriggerBatchPrint = async () => {
+  // Gerar PDF em Lote com todos os meses selecionados (1 página por mês)
+  const handleBatchPdfAction = (action: 'open' | 'download' = 'open') => {
     if (selectedBatchMonths.length === 0) {
-      addToast('Selecione pelo menos um mês para imprimir', 'warning');
+      addToast('Selecione pelo menos um mês para gerar o PDF', 'warning');
       return;
     }
 
-    setIsBatchPrinting(true);
-    const sorted = [...selectedBatchMonths].sort(); // Janeiro -> Setembro
-
-    const preparedData = sorted.map(ym => {
-      const [y, m] = ym.split('-').map(Number);
-      const label = `${MONTH_NAMES[m - 1]} de ${y}`;
-      const monthRecs = generateMonthRecordsClient(ym);
-      return {
+    try {
+      setIsGeneratingPdf(true);
+      const sorted = [...selectedBatchMonths].sort(); // 2026-01 -> 2026-09
+      const monthsData = sorted.map(ym => ({
         monthStr: ym,
-        label,
-        records: monthRecs
-      };
-    });
+        records: generateMonthRecordsClient(ym)
+      }));
 
-    setBatchPrintData(preparedData);
-    setIsBatchPrintModalOpen(false);
-
-    // Timeout para permitir a renderização das folhas antes de chamar window.print
-    setTimeout(() => {
-      window.print();
-    }, 400);
+      generateBatchMonthsPdf(monthsData, config, action);
+      setIsBatchPrintModalOpen(false);
+      if (action === 'download') {
+        addToast(`PDF consolidado com ${monthsData.length} meses baixado com sucesso!`, 'success');
+      } else {
+        addToast(`PDF consolidado com ${monthsData.length} meses aberto para impressão!`, 'info');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Erro ao gerar PDF em lote.', 'error');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   const toggleMonthBatch = (val: string) => {
@@ -556,7 +575,7 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
-          .no-print, header, aside, nav, .sidebar {
+          .no-print, header, aside, nav, .sidebar, footer, .footer {
             display: none !important;
           }
           .print-month-sheet {
@@ -650,29 +669,42 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
 
           <button
             onClick={handleOpenNewEntry}
-            className="flex items-center gap-2 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Lançar Medição</span>
           </button>
 
+          {/* Botão de Visualizar / Imprimir PDF do Mês Atual */}
           <button
-            onClick={handlePrintCurrentMonth}
-            className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
-            title="Imprimir folha do mês atual selecionado"
+            onClick={() => handleGenerateCurrentMonthPdf('open')}
+            disabled={isGeneratingPdf}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-60"
+            title="Abrir folha em PDF deste mês para imprimir na impressora com qualidade perfeita e sem cortes"
           >
-            <Printer className="w-4 h-4" />
-            <span>Imprimir Mês</span>
+            {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+            <span>Imprimir PDF (Mês)</span>
           </button>
 
-          {/* Botão de Impressão em Lote */}
+          {/* Botão de Baixar PDF do Mês Atual */}
+          <button
+            onClick={() => handleGenerateCurrentMonthPdf('download')}
+            disabled={isGeneratingPdf}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-600 transition-colors cursor-pointer disabled:opacity-60"
+            title="Fazer download do arquivo PDF deste mês"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Baixar PDF</span>
+          </button>
+
+          {/* Botão de Gerar PDF em Lote */}
           <button
             onClick={() => setIsBatchPrintModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
-            title="Imprimir todos os meses em lote para encadernação/pasta de fiscalização"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+            title="Gerar PDF com todos os meses (Janeiro a Setembro) para imprimir de uma vez"
           >
             <Layers className="w-4 h-4" />
-            <span>Imprimir em Lote</span>
+            <span>PDF em Lote (Todos os Meses)</span>
           </button>
         </div>
       </div>
@@ -1103,24 +1135,36 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 text-[11px] text-slate-500 dark:text-slate-400">
-                💡 Cada mês selecionado será impresso em sua própria folha A4 oficial com cabeçalho da BelaFarma, tabela completa e parecer do Responsável Técnico.
+                💡 Cada mês selecionado será gerado em sua própria página A4 oficial com cabeçalho da BelaFarma, tabela completa e parecer do Responsável Técnico, sem cortes de dias e com alta resolução vetorial.
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsBatchPrintModalOpen(false)}
-                  className="px-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer"
+                  className="px-4 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
-                  onClick={handleTriggerBatchPrint}
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-colors cursor-pointer"
+                  disabled={isGeneratingPdf || selectedBatchMonths.length === 0}
+                  onClick={() => handleBatchPdfAction('download')}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 cursor-pointer disabled:opacity-50"
+                  title="Baixar arquivo PDF com todas as folhas"
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>Imprimir ({selectedBatchMonths.length} Folhas)</span>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Baixar Arquivo PDF</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isGeneratingPdf || selectedBatchMonths.length === 0}
+                  onClick={() => handleBatchPdfAction('open')}
+                  className="flex items-center justify-center gap-1.5 px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-colors cursor-pointer disabled:opacity-50"
+                  title="Abrir PDF em nova aba pronto para imprimir"
+                >
+                  {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                  <span>Abrir PDF para Impressão ({selectedBatchMonths.length} Meses)</span>
                 </button>
               </div>
             </div>

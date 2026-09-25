@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "7e13ec6",
-  "commitMessage": "feat(temperatura): impressao em lote de todos os meses, seletor dropdown rapido e gerador com fallback resiliente",
-  "buildTime": "25/09/2026, 11:32:06"
+  "commitHash": "59c7585",
+  "commitMessage": "build: bundle atualizado com index-BdQB8RnK.js",
+  "buildTime": "25/09/2026, 14:26:41"
 }
