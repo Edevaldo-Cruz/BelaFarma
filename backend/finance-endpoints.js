@@ -44,6 +44,13 @@ const handleDigifarmaError = (err, res, route, mockFallback) => {
         horarios: [],
         isOffline: true
       });
+    } else if (route === '/sold-products-report') {
+      return res.json({
+        totalItens: 0,
+        totalQtdGeral: 0,
+        categorias: [],
+        isOffline: true
+      });
     }
     return res.json({ isOffline: true });
   }
@@ -521,6 +528,180 @@ module.exports = function (db) {
         ticketsDiarios: mockTicketsDiarios
       };
       return handleDigifarmaError(err, res, '/sales-report', mockReport);
+    }
+  });
+
+  // Rota de produtos vendidos agrupados por categoria
+  router.get('/sold-products-report', async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      let start = startDate;
+      let end = endDate;
+
+      if (!start || !end) {
+        const today = new Date();
+        const past = new Date();
+        past.setDate(today.getDate() - 30);
+
+        const pad = (num) => String(num).padStart(2, '0');
+        start = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+        end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+      }
+
+      // Otimização de range para permitir uso de índice (SARGable)
+      const startDateTime = `${start} 03:00:00`;
+
+      const endParts = end.split('-');
+      const endDateObj = new Date(Number(endParts[0]), Number(endParts[1]) - 1, Number(endParts[2]));
+      endDateObj.setDate(endDateObj.getDate() + 1);
+      const pad = (num) => String(num).padStart(2, '0');
+      const endDateTime = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())} 02:59:59`;
+
+      const sql = `
+        SELECT 
+          p.PRODUTO_ID,
+          p.PRODUTO,
+          p.APRESENTACAO,
+          p.COD_BARRAS,
+          COALESCE(c.CATEGORIA, 'OUTROS') AS CATEGORIA_NOME,
+          SUM(iv.ITEMVEND_QUANT) AS QTD_VENDIDA,
+          COALESCE(p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA, 0) AS ULTIMO_PRECO_DIGIFARMA
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        WHERE v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
+        GROUP BY p.PRODUTO_ID, p.PRODUTO, p.APRESENTACAO, p.COD_BARRAS, c.CATEGORIA, p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA
+        ORDER BY CATEGORIA_NOME ASC, QTD_VENDIDA DESC
+      `;
+
+      const results = await queryDigifarma(sql, [startDateTime, endDateTime]);
+
+      if (!results || results.length === 0) {
+        return res.json({
+          period: { startDate: start, endDate: end },
+          totalItens: 0,
+          totalQtdGeral: 0,
+          categorias: []
+        });
+      }
+
+      // Busca dados de último fornecedor e preço de custo no cache SQLite
+      const productIds = results.map(r => r.PRODUTO_ID).filter(Boolean);
+      const cacheMap = new Map();
+
+      if (db && productIds.length > 0) {
+        try {
+          const chunkSize = 500;
+          for (let i = 0; i < productIds.length; i += chunkSize) {
+            const chunk = productIds.slice(i, i + chunkSize);
+            const placeholders = chunk.map(() => '?').join(',');
+            const rows = db.prepare(`
+              SELECT produto_id, ultima_compra_fornecedor, preco_unitario_ult_compra, custo_unitario, ultima_compra_valor
+              FROM compras_estoque_cache
+              WHERE produto_id IN (${placeholders})
+            `).all(chunk);
+            rows.forEach(r => cacheMap.set(r.produto_id, r));
+          }
+        } catch (errDb) {
+          console.warn('[Finance] Erro ao buscar cache de fornecedor/custo:', errDb.message);
+        }
+      }
+
+      // Agrupa por categoria
+      const categoriaMap = new Map();
+      let totalQtdGeral = 0;
+
+      for (const r of results) {
+        const catNome = (r.CATEGORIA_NOME || 'OUTROS').trim().toUpperCase() || 'OUTROS';
+        const cached = cacheMap.get(r.PRODUTO_ID);
+
+        const qtdVendida = parseFloat(r.QTD_VENDIDA) || 0;
+        totalQtdGeral += qtdVendida;
+
+        // Determina último fornecedor
+        let ultimoFornecedor = cached?.ultima_compra_fornecedor ? String(cached.ultima_compra_fornecedor).trim() : null;
+        if (!ultimoFornecedor || ultimoFornecedor === 'Cadastro Geral Digifarma') {
+          ultimoFornecedor = 'Cadastro Geral / Não inf.';
+        }
+
+        // Determina último preço de custo
+        let ultimoPreco = 0;
+        if (cached && (cached.preco_unitario_ult_compra > 0 || cached.custo_unitario > 0 || cached.ultima_compra_valor > 0)) {
+          ultimoPreco = cached.preco_unitario_ult_compra || cached.custo_unitario || cached.ultima_compra_valor;
+        } else if (r.ULTIMO_PRECO_DIGIFARMA) {
+          ultimoPreco = parseFloat(r.ULTIMO_PRECO_DIGIFARMA) || 0;
+        }
+
+        const item = {
+          produtoId: r.PRODUTO_ID,
+          produto: (r.PRODUTO || '').trim(),
+          apresentacao: (r.APRESENTACAO || '').trim(),
+          codBarras: (r.COD_BARRAS || '').trim(),
+          qtdVendida: qtdVendida,
+          ultimoFornecedor: ultimoFornecedor,
+          ultimoPreco: ultimoPreco
+        };
+
+        if (!categoriaMap.has(catNome)) {
+          categoriaMap.set(catNome, {
+            categoria: catNome,
+            totalProdutos: 0,
+            totalQtd: 0,
+            produtos: []
+          });
+        }
+
+        const catObj = categoriaMap.get(catNome);
+        catObj.totalProdutos += 1;
+        catObj.totalQtd += qtdVendida;
+        catObj.produtos.push(item);
+      }
+
+      // Converte para array ordenado
+      const categoriasArray = Array.from(categoriaMap.values()).map(cat => ({
+        ...cat,
+        totalQtd: Math.round(cat.totalQtd * 100) / 100,
+        produtos: cat.produtos.sort((a, b) => b.qtdVendida - a.qtdVendida)
+      }));
+
+      // Ordena as categorias por total de quantidade vendida DESC
+      categoriasArray.sort((a, b) => b.totalQtd - a.totalQtd);
+
+      return res.json({
+        period: { startDate: start, endDate: end },
+        totalItens: results.length,
+        totalQtdGeral: Math.round(totalQtdGeral * 100) / 100,
+        categorias: categoriasArray
+      });
+    } catch (err) {
+      const mockSoldReport = {
+        period: { startDate: req.query.startDate || '', endDate: req.query.endDate || '' },
+        totalItens: 3,
+        totalQtdGeral: 45,
+        categorias: [
+          {
+            categoria: 'GENERICOS',
+            totalProdutos: 2,
+            totalQtd: 35,
+            produtos: [
+              { produtoId: 101, produto: 'DIPIRONA SODICA 500MG/ML', apresentacao: 'GTS 20ML', codBarras: '7891234567890', qtdVendida: 25, ultimoFornecedor: 'PROFARMA DIST.', ultimoPreco: 2.85 },
+              { produtoId: 102, produto: 'PARACETAMOL 750MG', apresentacao: 'CX 20 COMP', codBarras: '7891234567891', qtdVendida: 10, ultimoFornecedor: 'PANPHARMA', ultimoPreco: 4.20 }
+            ]
+          },
+          {
+            categoria: 'PERFUMARIA',
+            totalProdutos: 1,
+            totalQtd: 10,
+            produtos: [
+              { produtoId: 201, produto: 'FRALDA PAMPERS CONFORT SEC G', apresentacao: 'PCT 32 UN', codBarras: '7891234567892', qtdVendida: 10, ultimoFornecedor: 'COFARMA', ultimoPreco: 45.90 }
+            ]
+          }
+        ]
+      };
+      return handleDigifarmaError(err, res, '/sold-products-report', mockSoldReport);
     }
   });
 

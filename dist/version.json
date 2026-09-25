@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "a8fcc9f",
-  "commitMessage": "feat: adicionar gravacao de percentuais por produto e painel de medias consolidadas na gestao de precos",
-  "buildTime": "25/09/2026, 15:46:01"
+  "commitHash": "6c50d1a",
+  "commitMessage": "fix: importar useCallback no PricingSimulator e atualizar bundle",
+  "buildTime": "25/09/2026, 16:03:05"
 }
