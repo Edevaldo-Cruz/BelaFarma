@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "6f68dbb",
-  "commitMessage": "feat: modulo Mapa de Temperatura com controle de termo-higrometro para Loja e Almoxarifado",
-  "buildTime": "25/09/2026, 11:18:45"
+  "commitHash": "923fbf5",
+  "commitMessage": "fix: preenchimento retroativo desde 02/01, correcao de toast no mapa de temperatura, remocao de cards e campos de RT nas configuracoes",
+  "buildTime": "25/09/2026, 11:28:13"
 }
