@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "2ae896c",
-  "commitMessage": "refactor(provisions): remover seletor manual mantendo mix real automatico por padrao",
-  "buildTime": "25/09/2026, 19:37:42"
+  "commitHash": "a53d359",
+  "commitMessage": "fix(settings): persistencia definitiva do farmaceutico na tabela universal system_settings e cache local",
+  "buildTime": "26/09/2026, 12:45:39"
 }

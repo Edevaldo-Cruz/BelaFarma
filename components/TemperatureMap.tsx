@@ -292,34 +292,40 @@ export const TemperatureMap: React.FC<TemperatureMapProps> = () => {
       const savedCfg = localStorage.getItem('belafarma_temp_config');
       if (savedCfg) {
         const parsed = JSON.parse(savedCfg);
-        setConfig(parsed);
-        setConfigForm(parsed);
+        if (parsed && typeof parsed === 'object') {
+          setConfig(prev => ({ ...prev, ...parsed }));
+          setConfigForm(prev => ({ ...prev, ...parsed }));
+        }
       }
     } catch (e) {}
 
     // 2. Consulta a rota universal de settings no backend (/api/settings/temperature_config)
     try {
       const res = await fetch('/api/settings/temperature_config');
-      if (res.ok) {
+      const ct = res.headers.get('content-type');
+      if (res.ok && ct && ct.includes('application/json')) {
         const settingData = await res.json();
         if (settingData && settingData.value) {
           const parsed = JSON.parse(settingData.value);
-          setConfig(parsed);
-          setConfigForm(parsed);
-          localStorage.setItem('belafarma_temp_config', JSON.stringify(parsed));
-          return;
+          if (parsed && typeof parsed === 'object') {
+            setConfig(prev => ({ ...prev, ...parsed }));
+            setConfigForm(prev => ({ ...prev, ...parsed }));
+            localStorage.setItem('belafarma_temp_config', JSON.stringify(parsed));
+            return;
+          }
         }
       }
     } catch (e) {}
 
-    // 3. Fallback: consulta /api/temperature/config apenas se não for o valor default genérico
+    // 3. Fallback: consulta /api/temperature/config
     try {
       const res = await fetch('/api/temperature/config');
-      if (res.ok) {
+      const ct = res.headers.get('content-type');
+      if (res.ok && ct && ct.includes('application/json')) {
         const data = await res.json();
-        if (data && data.farmaceutico_nome && data.farmaceutico_nome !== 'Farmacêutico(a) Responsável') {
-          setConfig(data);
-          setConfigForm(data);
+        if (data && (data.farmaceutico_nome || data.farmaceutico_crf)) {
+          setConfig(prev => ({ ...prev, ...data }));
+          setConfigForm(prev => ({ ...prev, ...data }));
           localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
         }
       }

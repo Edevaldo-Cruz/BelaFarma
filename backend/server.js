@@ -3875,6 +3875,31 @@ app.put('/api/settings/:key', (req, res) => {
       db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), now);
     }
 
+    // Se a chave for temperature_config, sincroniza também na tabela temperature_config
+    if (key === 'temperature_config') {
+      try {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+        if (parsed && typeof parsed === 'object') {
+          db.prepare(`
+            UPDATE temperature_config SET
+              farmaceutico_nome = COALESCE(?, farmaceutico_nome),
+              farmaceutico_crf = COALESCE(?, farmaceutico_crf),
+              termometro_modelo = COALESCE(?, termometro_modelo),
+              termometro_certificado = COALESCE(?, termometro_certificado),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = 'default'
+          `).run(
+            parsed.farmaceutico_nome !== undefined ? String(parsed.farmaceutico_nome).trim() : null,
+            parsed.farmaceutico_crf !== undefined ? String(parsed.farmaceutico_crf).trim() : null,
+            parsed.termometro_modelo !== undefined ? String(parsed.termometro_modelo).trim() : null,
+            parsed.termometro_certificado !== undefined ? String(parsed.termometro_certificado).trim() : null
+          );
+        }
+      } catch (errSync) {
+        console.warn('[Temperatura] Aviso ao sincronizar temperature_config via /api/settings:', errSync.message);
+      }
+    }
+
     const updated = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
     res.json(updated);
   } catch (err) {

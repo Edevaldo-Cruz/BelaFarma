@@ -54,45 +54,61 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
 
   React.useEffect(() => {
     // 1. Carrega imediatamente do localStorage para resposta instantânea
+    const applyConfig = (data: any) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.farmaceutico_nome !== undefined) setFarmaceuticoNome(data.farmaceutico_nome);
+      if (data.farmaceutico_crf !== undefined) setFarmaceuticoCrf(data.farmaceutico_crf);
+      if (data.termometro_modelo !== undefined) setTermometroModelo(data.termometro_modelo);
+      if (data.termometro_certificado !== undefined) setTermometroCertificado(data.termometro_certificado);
+    };
+
     try {
       const cached = localStorage.getItem('belafarma_temp_config');
       if (cached) {
-        const data = JSON.parse(cached);
-        if (data.farmaceutico_nome) setFarmaceuticoNome(data.farmaceutico_nome);
-        if (data.farmaceutico_crf) setFarmaceuticoCrf(data.farmaceutico_crf);
-        if (data.termometro_modelo) setTermometroModelo(data.termometro_modelo);
-        if (data.termometro_certificado) setTermometroCertificado(data.termometro_certificado);
+        applyConfig(JSON.parse(cached));
       }
     } catch (e) {}
 
-    // 2. Consulta a rota universal de settings no backend (/api/settings/temperature_config)
-    fetch('/api/settings/temperature_config')
-      .then(res => res.ok ? res.json() : null)
-      .then(settingData => {
-        if (settingData && settingData.value) {
-          const data = JSON.parse(settingData.value);
-          if (data.farmaceutico_nome) setFarmaceuticoNome(data.farmaceutico_nome);
-          if (data.farmaceutico_crf) setFarmaceuticoCrf(data.farmaceutico_crf);
-          if (data.termometro_modelo) setTermometroModelo(data.termometro_modelo);
-          if (data.termometro_certificado) setTermometroCertificado(data.termometro_certificado);
-          localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
-          return;
+    // 2. Consulta o backend de forma resiliente
+    const fetchBackendConfig = async () => {
+      try {
+        const resSettings = await fetch('/api/settings/temperature_config');
+        const ctSettings = resSettings.headers.get('content-type');
+        if (resSettings.ok && ctSettings && ctSettings.includes('application/json')) {
+          const settingData = await resSettings.json();
+          if (settingData && settingData.value) {
+            const data = JSON.parse(settingData.value);
+            applyConfig(data);
+            localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
+            return;
+          }
         }
+      } catch (e) {}
 
-        // 3. Fallback: consulta /api/temperature/config apenas se não for o valor default genérico
-        return fetch('/api/temperature/config')
-          .then(res => res.ok ? res.json() : null)
-          .then(data => {
-            if (data && data.farmaceutico_nome && data.farmaceutico_nome !== 'Farmacêutico(a) Responsável') {
-              setFarmaceuticoNome(data.farmaceutico_nome);
-              if (data.farmaceutico_crf) setFarmaceuticoCrf(data.farmaceutico_crf);
-              if (data.termometro_modelo) setTermometroModelo(data.termometro_modelo);
-              if (data.termometro_certificado) setTermometroCertificado(data.termometro_certificado);
-              localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
-            }
-          });
-      })
-      .catch(err => console.warn('[Temperatura] Aviso ao carregar config:', err));
+      try {
+        const resTemp = await fetch('/api/temperature/config');
+        const ctTemp = resTemp.headers.get('content-type');
+        if (resTemp.ok && ctTemp && ctTemp.includes('application/json')) {
+          const data = await resTemp.json();
+          if (data && (data.farmaceutico_nome || data.farmaceutico_crf)) {
+            applyConfig(data);
+            localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
+          }
+        }
+      } catch (err) {}
+    };
+
+    fetchBackendConfig();
+
+    const handleConfigUpdated = () => {
+      try {
+        const cached = localStorage.getItem('belafarma_temp_config');
+        if (cached) applyConfig(JSON.parse(cached));
+      } catch (e) {}
+    };
+
+    window.addEventListener('belafarma_temp_config_updated', handleConfigUpdated);
+    return () => window.removeEventListener('belafarma_temp_config_updated', handleConfigUpdated);
   }, []);
 
   const handleSaveFarmaceuticoConfig = async () => {
@@ -112,7 +128,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
       console.error('Erro ao salvar no localStorage:', e);
     }
 
-    // 2. Salva na rota universal /api/settings/temperature_config (funciona em qualquer versão do backend)
+    // 2. Salva na rota universal /api/settings/temperature_config (garantido no SQLite)
     try {
       await fetch('/api/settings/temperature_config', {
         method: 'PUT',
@@ -123,14 +139,16 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
       console.warn('[Temperatura] Aviso ao salvar em /api/settings/temperature_config:', e);
     }
 
-    // 3. Tenta persistir também no endpoint dedicado de temperatura
+    // 3. Persiste no endpoint dedicado de temperatura
     try {
       await fetch('/api/temperature/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig)
       });
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Temperatura] Aviso ao salvar em /api/temperature/config:', e);
+    }
 
     setIsSavingFarmaceutico(false);
     addToast('Dados do Farmacêutico Responsável atualizados com sucesso!', 'success');
