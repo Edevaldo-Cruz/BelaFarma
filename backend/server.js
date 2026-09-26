@@ -4194,12 +4194,14 @@ setInterval(async () => {
 // ============================================================================
 const purchasingEndpoints = require('./purchasing-endpoints.js');
 const comprasEndpoints = require('./compras-endpoints.js');
+const replenishmentEndpoints = require('./replenishment-endpoints.js');
 const filesEndpoints = require('./files-endpoints.js');
 const recipeEndpoints = require('./recipe-endpoints.js');
 const systemEndpoints = require('./system-endpoints.js');
 
 app.use('/api/purchasing', purchasingEndpoints(db));
 app.use('/api/central-compras', comprasEndpoints(db));
+app.use('/api/replenishment', replenishmentEndpoints(db));
 app.use('/api/files', filesEndpoints(db));
 app.use('/api/recipes', recipeEndpoints(db));
 app.use('/api/system', systemEndpoints(db));

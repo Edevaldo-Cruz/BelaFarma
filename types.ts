@@ -500,7 +500,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map';
+export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map' | 'reposicao-tabela';
 
 export interface TemperatureRecord {
   id: string;
@@ -1296,6 +1296,36 @@ declare global {
   const __BUILD_TIME__: string;
 }
 
+export interface ReplenishmentItem {
+  id: string;
+  codigo: string;
+  produto: string;
+  apresentacao: string;
+  saldo: number;
+  estMin: number;
+  saldoEquiv: number;
+  totalVenda: number;
+  media: number;
+  ciclo: number;
+  curvaAbc: string;
+  lucroObtido: number;
+  pedir: number;
+  ultimaCompra: string;
+  ultimoPrLiquido: number;
+  valorTotalEstimado: number; // pedir * ultimoPrLiquido
+  fabricante: string;
+  categoria: string;
+  codBarras: string;
+  codBarrasHospitalar?: string;
+  ultimoFornecedor?: string;
+}
 
-
-
+export interface ReplenishmentAnalysis {
+  id: string;
+  title: string;
+  createdAt: string;
+  totalItems: number;
+  totalPedir: number;
+  totalValor: number;
+  items: ReplenishmentItem[];
+}

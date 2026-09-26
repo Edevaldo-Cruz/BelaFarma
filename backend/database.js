@@ -663,6 +663,21 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_ean ON napp_prices(ean);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_prod_id ON napp_prices(produto_id);'); } catch(e) {}
 
+    const createReplenishmentTable = `
+      CREATE TABLE IF NOT EXISTS replenishment_analyses (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        total_items INTEGER DEFAULT 0,
+        total_pedir REAL DEFAULT 0,
+        total_valor REAL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        created_by TEXT
+      );
+    `;
+    db.exec(createReplenishmentTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_replenish_created ON replenishment_analyses(created_at);'); } catch(e) {}
+
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN match_score INTEGER DEFAULT 0'); } catch(e) {}

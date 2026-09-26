@@ -65,6 +65,7 @@ import { useToast } from "./components/ToastContext";
 import { StartupModalManager, StartupModalItem, StartupModalType } from "./components/StartupModalManager";
 import { TemperatureMap } from "./components/TemperatureMap";
 import { TemperaturePrintReminderModal } from "./components/TemperaturePrintReminderModal";
+import { AnaliseReposicao } from "./components/AnaliseReposicao";
 
 
 import {
@@ -1441,6 +1442,9 @@ const App: React.FC = () => {
               {currentView === 'anvisa-alerts' && <AnvisaAlerts theme={theme} />}
               {currentView === 'notes' && <NotesManager user={user} theme={theme} />}
               {currentView === 'temperature-map' && <TemperatureMap />}
+              {currentView === 'reposicao-tabela' && (
+                <AnaliseReposicao user={user} onNavigate={handleNavigate} />
+              )}
               {currentView === 'card-machines' && user.role === UserRole.ADM && (
                 <CardMachinesManager user={user} />
               )}

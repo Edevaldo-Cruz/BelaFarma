@@ -46,6 +46,7 @@ import {
   ShoppingBag, // Added for Central de Compras
   Trash2, // Added for Perdas e Avarias
   Thermometer, // Added for Mapa de Temperatura
+  TableProperties, // Added for Análise de Reposição / Importador Digifarma
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -262,6 +263,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
+    { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
     { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
