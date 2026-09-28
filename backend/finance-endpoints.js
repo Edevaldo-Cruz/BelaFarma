@@ -966,15 +966,47 @@ module.exports = function (db) {
         ORDER BY cr.CONTREC_DATAPAG ASC
       `;
 
+      // 2.3 Consulta regras de DESCONTO ESCALONADO (promoções por quantidade / atacado, ex: leve 3 por R$ 5 cada)
+      const sqlEscalonado = `
+        SELECT PRODUTO_ID, QUANTIDADE, VALOR_PACOTE
+        FROM DESCONTO_ESCALONADO
+        ORDER BY PRODUTO_ID, QUANTIDADE DESC
+      `;
+
       let amRows = [];
       let crediarioRows = [];
+      let escalonadoRows = [];
       try {
-        [amRows, crediarioRows] = await Promise.all([
+        [amRows, crediarioRows, escalonadoRows] = await Promise.all([
           queryDigifarma(sqlAM, [startDateTime, endDateTime]),
-          queryDigifarma(sqlCrediario, [startDateTime, endDateTime])
+          queryDigifarma(sqlCrediario, [startDateTime, endDateTime]),
+          queryDigifarma(sqlEscalonado)
         ]);
       } catch (errCred) {
-        console.warn('[Sales Mix Provisions] Aviso: Erro ao consultar ARQUIVO_MORTO/CONTAS_RECEBIDAS no Digifarma:', errCred.message);
+        console.warn('[Sales Mix Provisions] Aviso: Erro ao consultar tabelas auxiliares no Digifarma:', errCred.message);
+      }
+
+      // Mapeia regras de desconto escalonado por PRODUTO_ID
+      const escalonadoMap = new Map();
+      if (escalonadoRows && escalonadoRows.length > 0) {
+        for (const esc of escalonadoRows) {
+          const pId = esc.PRODUTO_ID;
+          if (!escalonadoMap.has(pId)) {
+            escalonadoMap.set(pId, []);
+          }
+          const q = parseFloat(esc.QUANTIDADE || 0);
+          const vPacote = parseFloat(esc.VALOR_PACOTE || 0);
+          if (q > 0 && vPacote > 0) {
+            escalonadoMap.get(pId).push({
+              quantidade: q,
+              valorPacote: vPacote,
+              precoUnitario: vPacote / q
+            });
+          }
+        }
+        for (const tiers of escalonadoMap.values()) {
+          tiers.sort((a, b) => b.quantidade - a.quantidade);
+        }
       }
 
       // 3. Processa e consolida por data
@@ -1030,6 +1062,16 @@ module.exports = function (db) {
         }
         if (cust && cust.preco_venda && cust.preco_venda < refPrice) {
           refPrice = cust.preco_venda;
+        }
+
+        // Se a quantidade vendida atingir regra de DESCONTO ESCALONADO oficial (ex: leve 3 por R$ 15 = R$ 5 cada),
+        // o preço de referência é o valor da promoção escalonada, evitando tratar como desconto indevido de balcão
+        const escTiers = escalonadoMap.get(r.PRODUTO_ID);
+        if (escTiers && escTiers.length > 0) {
+          const matchedTier = escTiers.find(t => qtd >= t.quantidade);
+          if (matchedTier && matchedTier.precoUnitario < refPrice) {
+            refPrice = matchedTier.precoUnitario;
+          }
         }
 
         const unitDiscount = Math.max(0, refPrice - parseFloat(r.ITEMVEND_PRVENDA || 0));
@@ -1145,6 +1187,15 @@ module.exports = function (db) {
           }
           if (cust && cust.preco_venda && cust.preco_venda < refPrice) {
             refPrice = cust.preco_venda;
+          }
+
+          // Se a quantidade vendida atingir regra de DESCONTO ESCALONADO oficial
+          const escTiers = escalonadoMap.get(item.PRODUTO_ID);
+          if (escTiers && escTiers.length > 0) {
+            const matchedTier = escTiers.find(t => qtd >= t.quantidade);
+            if (matchedTier && matchedTier.precoUnitario < refPrice) {
+              refPrice = matchedTier.precoUnitario;
+            }
           }
 
           const unitPrice = qtd > 0 ? (valPago / qtd) : valPago;
