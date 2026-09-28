@@ -901,15 +901,20 @@ module.exports = function (db) {
         }
       }
 
-      // 2. Consulta itens vendidos no Digifarma, excluindo Crediário (TIPO_PAGAMENTO_ID = 5)
+      // 2. Consulta itens vendidos no Digifarma com preço de venda e promocional
       const sql = `
         SELECT 
           CAST(v.VENDA_DATA_HORA AS DATE) as DATA_VENDA,
           iv.PRODUTO_ID,
+          p.PRODUTO as NOME_PRODUTO,
+          p.PROD_PRVENDA,
+          p.PROD_PRPROMOCAO,
+          iv.ITEMVEND_PRVENDA,
           SUM(iv.ITEMVEND_QUANT) as QTD_VENDIDA,
           SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) as TOTAL_VALOR
         FROM ITEM_VENDAS iv
         JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
         WHERE (v.CANCELADO IS NULL OR v.CANCELADO <> 'S')
           AND v.VENDA_DATA_HORA BETWEEN ? AND ?
           AND NOT EXISTS (
@@ -917,7 +922,7 @@ module.exports = function (db) {
             WHERE fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
               AND fp.TIPO_PAGAMENTO_ID = 5
           )
-        GROUP BY 1, 2
+        GROUP BY 1, 2, 3, 4, 5, 6
       `;
 
       let rows = [];
@@ -928,13 +933,15 @@ module.exports = function (db) {
         return res.status(500).json({ error: 'Erro ao consultar vendas no Digifarma: ' + errQ.message });
       }
 
-      // 2.1 Consulta itens de Crediário quitados no Digifarma (ARQUIVO_MORTO)
+      // 2.1 Consulta itens de Crediário quitados no Digifarma (ARQUIVO_MORTO) com preços de referência
       const sqlAM = `
         SELECT 
           CAST(am.ARQ_DATAPAG AS DATE) as DATA_PAGAMENTO,
           am.CONTREC_ID,
           am.PRODUTO_ID,
           p.PRODUTO as NOME_PRODUTO,
+          p.PROD_PRVENDA,
+          p.PROD_PRPROMOCAO,
           am.ARQ_QUANTIDADE as QTD,
           am.ARQ_VALORPAG as VALOR_PAGO,
           c.CLIENTE as NOME_CLIENTE
@@ -980,6 +987,7 @@ module.exports = function (db) {
       let monthImpostos = 0;
       let totalCustomItemsCount = 0;
       let monthCrediarioReceived = 0;
+      let monthTotalDiscounts = 0;
 
       for (const r of rows) {
         const dObj = new Date(r.DATA_VENDA);
@@ -999,6 +1007,7 @@ module.exports = function (db) {
             impostos: 0,
             customCount: 0,
             totalItems: 0,
+            totalDiscounts: 0,
             customItems: [],
             crediarioReceived: 0,
             crediarioPayments: []
@@ -1006,73 +1015,89 @@ module.exports = function (db) {
         }
 
         const salesVal = parseFloat(r.TOTAL_VALOR || 0);
+        const qtd = parseFloat(r.QTD_VENDIDA || 0);
         dailyMap[dateKey].sales += salesVal;
-        dailyMap[dateKey].totalItems += parseFloat(r.QTD_VENDIDA || 0);
+        dailyMap[dateKey].totalItems += qtd;
 
         monthSales += salesVal;
 
         const cust = customMap.get(r.PRODUTO_ID);
+        
+        // Determina preço de referência (promocional ativo ou venda normal)
+        let refPrice = parseFloat(r.PROD_PRVENDA || 0);
+        if (r.PROD_PRPROMOCAO > 0 && r.PROD_PRPROMOCAO < refPrice) {
+          refPrice = parseFloat(r.PROD_PRPROMOCAO);
+        }
+        if (cust && cust.preco_venda && cust.preco_venda < refPrice) {
+          refPrice = cust.preco_venda;
+        }
+
+        const unitDiscount = Math.max(0, refPrice - parseFloat(r.ITEMVEND_PRVENDA || 0));
+        const totalDiscount = unitDiscount * qtd;
+
+        const pPct = cust ? (cust.pro_labore_total_pct || 12) : 12;
+        const s1Pct = cust ? (cust.pro_labore_1_pct || (pPct / 2)) : 6;
+        const s2Pct = cust ? (cust.pro_labore_2_pct || (pPct / 2)) : 6;
+        const lPct = cust ? (cust.margem_liquida_pct || 1) : 1;
+        const iPct = cust ? (cust.imposto_pct || 4) : 4;
+
+        const iVal = salesVal * (iPct / 100);
+        let lVal = salesVal * (lPct / 100);
+        let pVal = salesVal * (pPct / 100);
+
+        // REGRA DE DESCONTO:
+        // Descontar do lucro livre. Se o desconto for superior ao lucro líquido, descontar o restante do pró-labore.
+        if (totalDiscount > 0) {
+          dailyMap[dateKey].totalDiscounts = parseFloat(((dailyMap[dateKey].totalDiscounts || 0) + totalDiscount).toFixed(2));
+          monthTotalDiscounts += totalDiscount;
+
+          if (totalDiscount <= lVal) {
+            lVal -= totalDiscount;
+          } else {
+            const sobraDesconto = totalDiscount - lVal;
+            lVal = 0;
+            pVal = Math.max(0, pVal - sobraDesconto);
+          }
+        }
+
+        const s1Ratio = pPct > 0 ? (s1Pct / pPct) : 0.5;
+        const s2Ratio = pPct > 0 ? (s2Pct / pPct) : 0.5;
+        const s1Val = pVal * s1Ratio;
+        const s2Val = pVal * s2Ratio;
+
+        dailyMap[dateKey].prolabore += pVal;
+        dailyMap[dateKey].socio1 += s1Val;
+        dailyMap[dateKey].socio2 += s2Val;
+        dailyMap[dateKey].lucro += lVal;
+        dailyMap[dateKey].impostos += iVal;
+
         if (cust) {
-          const pPct = cust.pro_labore_total_pct || 12;
-          const s1Pct = cust.pro_labore_1_pct || (pPct / 2);
-          const s2Pct = cust.pro_labore_2_pct || (pPct / 2);
-          const lPct = cust.margem_liquida_pct || 1;
-          const iPct = cust.imposto_pct || 4;
-
-          const pVal = salesVal * (pPct / 100);
-          const s1Val = salesVal * (s1Pct / 100);
-          const s2Val = salesVal * (s2Pct / 100);
-          const lVal = salesVal * (lPct / 100);
-          const iVal = salesVal * (iPct / 100);
-
-          dailyMap[dateKey].prolabore += pVal;
-          dailyMap[dateKey].socio1 += s1Val;
-          dailyMap[dateKey].socio2 += s2Val;
-          dailyMap[dateKey].lucro += lVal;
-          dailyMap[dateKey].impostos += iVal;
           dailyMap[dateKey].customCount++;
           dailyMap[dateKey].customItems.push({
             produtoId: r.PRODUTO_ID,
-            descricao: cust.descricao,
+            descricao: (r.NOME_PRODUTO || cust.descricao || '').trim(),
             vendas: salesVal,
-            qtd: r.QTD_VENDIDA,
+            qtd,
             prolaborePct: pPct,
-            prolaboreValor: pVal
+            prolaboreValor: pVal,
+            descontoAplicado: totalDiscount
           });
-
-          monthProlabore += pVal;
-          monthSocio1 += s1Val;
-          monthSocio2 += s2Val;
-          monthLucro += lVal;
-          monthImpostos += iVal;
           totalCustomItemsCount++;
-        } else {
-          // Padrão BelaFarma (12% pró-labore, 1% reserva, 4% DAS)
-          const pVal = salesVal * 0.12;
-          const s1Val = salesVal * 0.06;
-          const s2Val = salesVal * 0.06;
-          const lVal = salesVal * 0.01;
-          const iVal = salesVal * 0.04;
-
-          dailyMap[dateKey].prolabore += pVal;
-          dailyMap[dateKey].socio1 += s1Val;
-          dailyMap[dateKey].socio2 += s2Val;
-          dailyMap[dateKey].lucro += lVal;
-          dailyMap[dateKey].impostos += iVal;
-
-          monthProlabore += pVal;
-          monthSocio1 += s1Val;
-          monthSocio2 += s2Val;
-          monthLucro += lVal;
-          monthImpostos += iVal;
         }
+
+        monthProlabore += pVal;
+        monthSocio1 += s1Val;
+        monthSocio2 += s2Val;
+        monthLucro += lVal;
+        monthImpostos += iVal;
       }
 
-      // 4. Processa itens de Crediário pagos (item a item de acordo com a porcentagem gravada ou padrão)
+      // 4. Processa itens de Crediário pagos (item a item de acordo com a porcentagem gravada ou padrão e absorção de desconto)
       const processedContrecIds = new Set();
       if (amRows && amRows.length > 0) {
         for (const item of amRows) {
           const valPago = parseFloat(item.VALOR_PAGO || 0);
+          const qtd = parseFloat(item.QTD || 1);
           if (valPago <= 0) continue;
 
           let dateKey;
@@ -1095,6 +1120,7 @@ module.exports = function (db) {
               impostos: 0,
               customCount: 0,
               totalItems: 0,
+              totalDiscounts: 0,
               customItems: [],
               crediarioReceived: 0,
               crediarioPayments: []
@@ -1102,7 +1128,7 @@ module.exports = function (db) {
           }
 
           dailyMap[dateKey].sales += valPago;
-          dailyMap[dateKey].totalItems += parseFloat(item.QTD || 1);
+          dailyMap[dateKey].totalItems += qtd;
           dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
           monthSales += valPago;
           monthCrediarioReceived += valPago;
@@ -1112,62 +1138,74 @@ module.exports = function (db) {
           }
 
           const cust = customMap.get(item.PRODUTO_ID);
+          
+          let refPrice = parseFloat(item.PROD_PRVENDA || 0);
+          if (item.PROD_PRPROMOCAO > 0 && item.PROD_PRPROMOCAO < refPrice) {
+            refPrice = parseFloat(item.PROD_PRPROMOCAO);
+          }
+          if (cust && cust.preco_venda && cust.preco_venda < refPrice) {
+            refPrice = cust.preco_venda;
+          }
+
+          const unitPrice = qtd > 0 ? (valPago / qtd) : valPago;
+          const unitDiscount = Math.max(0, refPrice - unitPrice);
+          const totalDiscount = unitDiscount * qtd;
+
+          const pPct = cust ? (cust.pro_labore_total_pct || 12) : 12;
+          const s1Pct = cust ? (cust.pro_labore_1_pct || (pPct / 2)) : 6;
+          const s2Pct = cust ? (cust.pro_labore_2_pct || (pPct / 2)) : 6;
+          const lPct = cust ? (cust.margem_liquida_pct || 1) : 1;
+          const iPct = cust ? (cust.imposto_pct || 4) : 4;
+
+          const iVal = valPago * (iPct / 100);
+          let lVal = valPago * (lPct / 100);
+          let pVal = valPago * (pPct / 100);
+
+          // REGRA DE DESCONTO:
+          if (totalDiscount > 0) {
+            dailyMap[dateKey].totalDiscounts = parseFloat(((dailyMap[dateKey].totalDiscounts || 0) + totalDiscount).toFixed(2));
+            monthTotalDiscounts += totalDiscount;
+
+            if (totalDiscount <= lVal) {
+              lVal -= totalDiscount;
+            } else {
+              const sobraDesconto = totalDiscount - lVal;
+              lVal = 0;
+              pVal = Math.max(0, pVal - sobraDesconto);
+            }
+          }
+
+          const s1Ratio = pPct > 0 ? (s1Pct / pPct) : 0.5;
+          const s2Ratio = pPct > 0 ? (s2Pct / pPct) : 0.5;
+          const s1Val = pVal * s1Ratio;
+          const s2Val = pVal * s2Ratio;
+
+          dailyMap[dateKey].prolabore += pVal;
+          dailyMap[dateKey].socio1 += s1Val;
+          dailyMap[dateKey].socio2 += s2Val;
+          dailyMap[dateKey].lucro += lVal;
+          dailyMap[dateKey].impostos += iVal;
+
           if (cust) {
-            // Percentuais gravados no produto
-            const pPct = cust.pro_labore_total_pct || 12;
-            const s1Pct = cust.pro_labore_1_pct || (pPct / 2);
-            const s2Pct = cust.pro_labore_2_pct || (pPct / 2);
-            const lPct = cust.margem_liquida_pct || 1;
-            const iPct = cust.imposto_pct || 4;
-
-            const pVal = valPago * (pPct / 100);
-            const s1Val = valPago * (s1Pct / 100);
-            const s2Val = valPago * (s2Pct / 100);
-            const lVal = valPago * (lPct / 100);
-            const iVal = valPago * (iPct / 100);
-
-            dailyMap[dateKey].prolabore += pVal;
-            dailyMap[dateKey].socio1 += s1Val;
-            dailyMap[dateKey].socio2 += s2Val;
-            dailyMap[dateKey].lucro += lVal;
-            dailyMap[dateKey].impostos += iVal;
             dailyMap[dateKey].customCount++;
             dailyMap[dateKey].customItems.push({
               produtoId: item.PRODUTO_ID,
               descricao: (item.NOME_PRODUTO || cust.descricao || 'Item Crediário').trim(),
               vendas: valPago,
-              qtd: parseFloat(item.QTD || 1),
+              qtd,
               prolaborePct: pPct,
               prolaboreValor: pVal,
-              isCrediario: true
+              isCrediario: true,
+              descontoAplicado: totalDiscount
             });
-
-            monthProlabore += pVal;
-            monthSocio1 += s1Val;
-            monthSocio2 += s2Val;
-            monthLucro += lVal;
-            monthImpostos += iVal;
             totalCustomItemsCount++;
-          } else {
-            // Padrão BelaFarma (12% pró-labore, 1% reserva, 4% DAS)
-            const pVal = valPago * 0.12;
-            const s1Val = valPago * 0.06;
-            const s2Val = valPago * 0.06;
-            const lVal = valPago * 0.01;
-            const iVal = valPago * 0.04;
-
-            dailyMap[dateKey].prolabore += pVal;
-            dailyMap[dateKey].socio1 += s1Val;
-            dailyMap[dateKey].socio2 += s2Val;
-            dailyMap[dateKey].lucro += lVal;
-            dailyMap[dateKey].impostos += iVal;
-
-            monthProlabore += pVal;
-            monthSocio1 += s1Val;
-            monthSocio2 += s2Val;
-            monthLucro += lVal;
-            monthImpostos += iVal;
           }
+
+          monthProlabore += pVal;
+          monthSocio1 += s1Val;
+          monthSocio2 += s2Val;
+          monthLucro += lVal;
+          monthImpostos += iVal;
         }
       }
 
@@ -1251,6 +1289,7 @@ module.exports = function (db) {
         d.impostos = parseFloat(d.impostos.toFixed(2));
         d.sales = parseFloat(d.sales.toFixed(2));
         d.crediarioReceived = parseFloat((d.crediarioReceived || 0).toFixed(2));
+        d.totalDiscounts = parseFloat((d.totalDiscounts || 0).toFixed(2));
       });
 
       const monthSummary = {
@@ -1266,7 +1305,8 @@ module.exports = function (db) {
         effectiveLucroPct: monthSales > 0 ? parseFloat(((monthLucro / monthSales) * 100).toFixed(2)) : 1,
         effectiveImpostosPct: monthSales > 0 ? parseFloat(((monthImpostos / monthSales) * 100).toFixed(2)) : 4,
         totalCustomItemsCount,
-        totalCrediarioReceived: parseFloat(monthCrediarioReceived.toFixed(2))
+        totalCrediarioReceived: parseFloat(monthCrediarioReceived.toFixed(2)),
+        totalDiscounts: parseFloat(monthTotalDiscounts.toFixed(2))
       };
 
       res.json({

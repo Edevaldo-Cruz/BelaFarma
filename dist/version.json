@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3183cd5",
-  "commitMessage": "feat(provisoes): incluir recebimentos de crediario na base de calculo das provisoes",
-  "buildTime": "28/09/2026, 09:53:48"
+  "commitHash": "0341b21",
+  "commitMessage": "feat(provisoes): calcular provisoes do crediario item a item respeitando porcentagens individuais dos produtos",
+  "buildTime": "28/09/2026, 10:11:45"
 }

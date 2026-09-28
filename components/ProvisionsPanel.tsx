@@ -80,6 +80,7 @@ export interface SalesMixDailyRecord {
   customItems: SalesMixCustomItem[];
   crediarioReceived?: number;
   crediarioPayments?: Array<{ id: number; cliente: string; valor: number }>;
+  totalDiscounts?: number;
 }
 
 export interface SalesMixResponse {
@@ -98,6 +99,7 @@ export interface SalesMixResponse {
     effectiveImpostosPct: number;
     totalCustomItemsCount: number;
     totalCrediarioReceived?: number;
+    totalDiscounts?: number;
   };
   dailyBreakdown: Record<string, SalesMixDailyRecord>;
   totalDays: number;
@@ -918,6 +920,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 Crediário recebido: +{formatBRL(salesMixData.monthSummary.totalCrediarioReceived)}
               </span>
             )}
+            {(salesMixData?.monthSummary?.totalDiscounts || 0) > 0 && (
+              <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-bold block mt-1 w-fit" title="Descontos concedidos abaixo do preço promocional ou de venda, absorvidos do lucro livre e pró-labore">
+                Descontos absorvidos: -{formatBRL(salesMixData.monthSummary.totalDiscounts)}
+              </span>
+            )}
             {selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear() && (
               <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-tight">
                 * Calculado sobre fechamentos concluídos (as vendas do dia atual entram ao fechar o caixa).
@@ -1216,6 +1223,14 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                             title={`Recebimentos de Crediário:\n${(dayMix.crediarioPayments || []).map(p => `${p.cliente}: R$ ${p.valor.toFixed(2)}`).join('\n')}`}
                           >
                             +{formatBRL(dayMix.crediarioReceived)} cred. rec.
+                          </span>
+                        )}
+                        {dayMix && (dayMix.totalDiscounts || 0) > 0 && (
+                          <span 
+                            className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-bold block mt-0.5 cursor-help"
+                            title={`Descontos concedidos abaixo do preço promocional ou de venda: -${formatBRL(dayMix.totalDiscounts)} (absorvidos do lucro livre e pró-labore)`}
+                          >
+                            -{formatBRL(dayMix.totalDiscounts)} desc.
                           </span>
                         )}
                       </td>
