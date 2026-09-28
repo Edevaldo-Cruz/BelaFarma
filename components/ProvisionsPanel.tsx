@@ -328,8 +328,34 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     return totalMonthNetSales;
   }, [provisionRateMode, salesMixData, totalMonthNetSales]);
 
-  // Taxas ativas (dinâmicas conforme Gestão de Preço ou Padrão)
+  // Taxas ativas (dinâmicas conforme Mix de Vendas, Gestão de Preço ou Padrão)
   const activeRates = useMemo(() => {
+    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
+      const summary = salesMixData.monthSummary;
+      const prolabore = (summary.effectiveProlaborePct || 12) / 100;
+      const socio1 = (summary.effectiveSocio1Pct || 6) / 100;
+      const socio2 = (summary.effectiveSocio2Pct || 6) / 100;
+      const tax = (summary.effectiveImpostosPct || 4) / 100;
+      const reserve = (summary.effectiveLucroPct || 1) / 100;
+
+      return {
+        prolabore,
+        socio1,
+        socio2,
+        tax,
+        reserve,
+        custoFixo: 0,
+        prolaborePctDisplay: summary.effectiveProlaborePct,
+        socio1PctDisplay: summary.effectiveSocio1Pct,
+        socio2PctDisplay: summary.effectiveSocio2Pct,
+        taxPctDisplay: summary.effectiveImpostosPct,
+        reservePctDisplay: summary.effectiveLucroPct,
+        custoFixoPctDisplay: 0,
+        isCustom: true,
+        totalItems: summary.totalCustomItemsCount
+      };
+    }
+
     const hasCustom = pricingAverages && pricingAverages.totalModifiedProducts > 0;
     if (provisionRateMode === 'pricing' && hasCustom) {
       const avg = pricingAverages.simpleAverages;
@@ -374,7 +400,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       isCustom: false,
       totalItems: pricingAverages?.totalModifiedProducts || 0
     };
-  }, [provisionRateMode, pricingAverages]);
+  }, [provisionRateMode, salesMixData, pricingAverages]);
 
   // Cálculos das Caixinhas do Mês
   const prolaboreTotal = useMemo(() => {
@@ -814,32 +840,75 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
               </div>
 
               {(() => {
-                const defaultRefValue = monthClosings[0] ? Number(monthClosings[0].totalSales) || 1000 : 1000;
+                const latestClosing = monthClosings[0];
+                const defaultRefValue = latestClosing ? Number(latestClosing.totalSales) || 1000 : 1000;
                 const calcBase = parseFloat(simClosingValue) > 0 ? parseFloat(simClosingValue) : defaultRefValue;
-                const simProlabore = calcBase * activeRates.prolabore;
-                const simSocio1 = calcBase * activeRates.socio1;
-                const simSocio2 = calcBase * activeRates.socio2;
-                const simTax = calcBase * activeRates.tax;
-                const simReserve = calcBase * activeRates.reserve;
-                const simTotal = simProlabore + simTax + simReserve;
+
+                // Se o modo for 'mix' e o valor corresponder ao último fechamento de caixa,
+                // usa os valores exatos calculados item a item para evitar qualquer divergência com a modal (ex: 322,03 vs 266,46)
+                const isLatestClosing = latestClosing && (!simClosingValue || parseFloat(simClosingValue) === Number(latestClosing.totalSales));
+                const latestDateKey = latestClosing ? getDateKey(latestClosing.date) : '';
+                const latestDayMix = (provisionRateMode === 'mix' && isLatestClosing && latestDateKey) 
+                  ? salesMixData?.dailyBreakdown?.[latestDateKey] 
+                  : null;
+
+                let simProlabore = 0;
+                let simSocio1 = 0;
+                let simSocio2 = 0;
+                let simTax = 0;
+                let simReserve = 0;
+                let simTotal = 0;
+                let effectiveTotalPct = 0;
+                let displayPcts = {
+                  prolabore: activeRates.prolaborePctDisplay,
+                  socio1: activeRates.socio1PctDisplay,
+                  socio2: activeRates.socio2PctDisplay,
+                  tax: activeRates.taxPctDisplay,
+                  reserve: activeRates.reservePctDisplay
+                };
+
+                if (latestDayMix) {
+                  simProlabore = latestDayMix.prolabore;
+                  simSocio1 = latestDayMix.socio1;
+                  simSocio2 = latestDayMix.socio2;
+                  simTax = latestDayMix.impostos;
+                  simReserve = latestDayMix.lucro;
+                  simTotal = Number((simProlabore + simTax + simReserve).toFixed(2));
+                  effectiveTotalPct = calcBase > 0 ? (simTotal / calcBase) * 100 : 0;
+                  displayPcts = {
+                    prolabore: latestDayMix.effectiveProlaborePct,
+                    socio1: latestDayMix.effectiveSocio1Pct,
+                    socio2: latestDayMix.effectiveSocio2Pct,
+                    tax: latestDayMix.effectiveImpostosPct,
+                    reserve: latestDayMix.effectiveLucroPct
+                  };
+                } else {
+                  simProlabore = calcBase * activeRates.prolabore;
+                  simSocio1 = calcBase * activeRates.socio1;
+                  simSocio2 = calcBase * activeRates.socio2;
+                  simTax = calcBase * activeRates.tax;
+                  simReserve = calcBase * activeRates.reserve;
+                  simTotal = simProlabore + simTax + simReserve;
+                  effectiveTotalPct = (activeRates.prolabore + activeRates.reserve + activeRates.tax) * 100;
+                }
 
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
                     {/* Caixinha Pró-labore */}
                     <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3.5">
                       <div className="flex justify-between items-center text-xs font-black text-emerald-300">
-                        <span>🟣 Caixinha Pró-labore ({activeRates.prolaborePctDisplay.toFixed(1)}%)</span>
+                        <span>🟣 Caixinha Pró-labore ({displayPcts.prolabore.toFixed(1)}%)</span>
                       </div>
                       <div className="text-xl font-black text-white mt-1">
                         {formatBRL(simProlabore)}
                       </div>
                       <div className="mt-2 pt-2 border-t border-emerald-500/30 space-y-0.5 text-[11px] text-emerald-200">
                         <div className="flex justify-between">
-                          <span>Sócio 1 ({activeRates.socio1PctDisplay.toFixed(1)}%):</span>
+                          <span>Sócio 1 ({displayPcts.socio1.toFixed(1)}%):</span>
                           <strong>{formatBRL(simSocio1)}</strong>
                         </div>
                         <div className="flex justify-between">
-                          <span>Sócio 2 ({activeRates.socio2PctDisplay.toFixed(1)}%):</span>
+                          <span>Sócio 2 ({displayPcts.socio2.toFixed(1)}%):</span>
                           <strong>{formatBRL(simSocio2)}</strong>
                         </div>
                       </div>
@@ -848,7 +917,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                     {/* Caixinha Lucro / Reserva */}
                     <div className="bg-purple-950/40 border border-purple-500/40 rounded-xl p-3.5">
                       <div className="flex justify-between items-center text-xs font-black text-purple-300">
-                        <span>🟢 Caixinha Lucro ({activeRates.reservePctDisplay.toFixed(1)}%)</span>
+                        <span>🟢 Caixinha Lucro ({displayPcts.reserve.toFixed(1)}%)</span>
                       </div>
                       <div className="text-xl font-black text-white mt-1">
                         {formatBRL(simReserve)}
@@ -861,7 +930,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                     {/* Caixinha Impostos */}
                     <div className="bg-blue-950/40 border border-blue-500/40 rounded-xl p-3.5">
                       <div className="flex justify-between items-center text-xs font-black text-blue-300">
-                        <span>🔵 Caixinha Impostos ({activeRates.taxPctDisplay.toFixed(1)}%)</span>
+                        <span>🔵 Caixinha Impostos ({displayPcts.tax.toFixed(1)}%)</span>
                       </div>
                       <div className="text-xl font-black text-white mt-1">
                         {formatBRL(simTax)}
@@ -876,14 +945,14 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       <div className="flex justify-between items-center text-xs font-black text-indigo-300">
                         <span>💰 Total a Separar Hoje</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/30 text-indigo-200">
-                          {((activeRates.prolabore + activeRates.reserve + activeRates.tax) * 100).toFixed(1)}%
+                          {effectiveTotalPct.toFixed(1)}%
                         </span>
                       </div>
                       <div className="text-xl font-black text-emerald-300 mt-1">
                         {formatBRL(simTotal)}
                       </div>
                       <div className="mt-2 pt-2 border-t border-indigo-500/30 text-[11px] text-indigo-200 flex justify-between">
-                        <span>Sobre faturamento de:</span>
+                        <span>{latestDayMix ? `Fechamento ${formatClosingDate(latestClosing.date).dateFormatted} (Mix Real):` : 'Sobre faturamento de:'}</span>
                         <strong>{formatBRL(calcBase)}</strong>
                       </div>
                     </div>

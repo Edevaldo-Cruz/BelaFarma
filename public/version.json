@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0341b21",
-  "commitMessage": "feat(provisoes): calcular provisoes do crediario item a item respeitando porcentagens individuais dos produtos",
-  "buildTime": "28/09/2026, 10:11:45"
+  "commitHash": "ddcade4",
+  "commitMessage": "feat(provisoes): integrar DESCONTO_ESCALONADO do Digifarma ao calculo de provisoes",
+  "buildTime": "28/09/2026, 17:40:11"
 }
