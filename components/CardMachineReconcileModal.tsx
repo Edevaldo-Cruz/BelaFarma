@@ -1114,7 +1114,8 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Calculadas sobre o faturamento à vista do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>
-                          {referenceClosingCrediario > 0 ? ` (crediário de ${formatCurrency(referenceClosingCrediario)} desconsiderado)` : ''}.
+                          {referenceClosingCrediario > 0 ? ` (crediário vendido de ${formatCurrency(referenceClosingCrediario)} desconsiderado)` : ''}
+                          {dayMixRecord && (dayMixRecord.crediarioReceived || 0) > 0 ? ` (+ ${formatCurrency(dayMixRecord.crediarioReceived)} de crediário recebido no dia)` : ''}.
                         </p>
                       </div>
                     </div>

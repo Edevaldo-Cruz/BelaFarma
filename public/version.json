@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3a47f99",
-  "commitMessage": "fix(temperatura): corrigir salvamento e carregamento das configuracoes do farmaceutico",
-  "buildTime": "26/09/2026, 18:55:51"
+  "commitHash": "b41a90d",
+  "commitMessage": "feat(crediario): adiciona scripts de simulacao e atualizacao de precos de crediario no Digifarma",
+  "buildTime": "28/09/2026, 09:37:17"
 }

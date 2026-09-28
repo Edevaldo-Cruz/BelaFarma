@@ -928,6 +928,30 @@ module.exports = function (db) {
         return res.status(500).json({ error: 'Erro ao consultar vendas no Digifarma: ' + errQ.message });
       }
 
+      // 2.1 Consulta recebimentos de Crediário no Digifarma (CONTAS_RECEBIDAS)
+      const sqlCrediario = `
+        SELECT 
+          CAST(cr.CONTREC_DATAPAG AS DATE) as DATA_PAGAMENTO,
+          cr.CONTREC_ID,
+          cr.CLIENTE_ID,
+          c.CLIENTE as NOME_CLIENTE,
+          COALESCE(cr.CONTREC_VALORPAG, 0) as VALOR_PAGO,
+          cr.DINHEIRO,
+          cr.CARTAO,
+          cr.OUTROS
+        FROM CONTAS_RECEBIDAS cr
+        LEFT JOIN CLIENTES c ON cr.CLIENTE_ID = c.CLIENTE_ID
+        WHERE cr.CONTREC_DATAPAG BETWEEN ? AND ?
+        ORDER BY cr.CONTREC_DATAPAG ASC
+      `;
+
+      let crediarioRows = [];
+      try {
+        crediarioRows = await queryDigifarma(sqlCrediario, [startDateTime, endDateTime]);
+      } catch (errCred) {
+        console.warn('[Sales Mix Provisions] Aviso: Erro ao consultar CONTAS_RECEBIDAS no Digifarma:', errCred.message);
+      }
+
       // 3. Processa e consolida por data
       const dailyMap = {};
       let monthSales = 0;
@@ -937,6 +961,7 @@ module.exports = function (db) {
       let monthLucro = 0;
       let monthImpostos = 0;
       let totalCustomItemsCount = 0;
+      let monthCrediarioReceived = 0;
 
       for (const r of rows) {
         const dObj = new Date(r.DATA_VENDA);
@@ -956,7 +981,9 @@ module.exports = function (db) {
             impostos: 0,
             customCount: 0,
             totalItems: 0,
-            customItems: []
+            customItems: [],
+            crediarioReceived: 0,
+            crediarioPayments: []
           };
         }
 
@@ -1023,6 +1050,68 @@ module.exports = function (db) {
         }
       }
 
+      // 4. Processa recebimentos de Crediário do período
+      for (const cr of crediarioRows) {
+        const valPago = parseFloat(cr.VALOR_PAGO || 0);
+        if (valPago <= 0) continue;
+
+        let dateKey;
+        if (cr.DATA_PAGAMENTO instanceof Date) {
+          dateKey = cr.DATA_PAGAMENTO.toISOString().slice(0, 10);
+        } else if (typeof cr.DATA_PAGAMENTO === 'string') {
+          dateKey = cr.DATA_PAGAMENTO.slice(0, 10);
+        } else {
+          continue;
+        }
+
+        if (!dailyMap[dateKey]) {
+          dailyMap[dateKey] = {
+            date: dateKey,
+            sales: 0,
+            prolabore: 0,
+            socio1: 0,
+            socio2: 0,
+            lucro: 0,
+            impostos: 0,
+            customCount: 0,
+            totalItems: 0,
+            customItems: [],
+            crediarioReceived: 0,
+            crediarioPayments: []
+          };
+        }
+
+        // Provisão padrão BelaFarma sobre o crediário recebido (12% pró-labore, 4% DAS, 1% reserva)
+        const pVal = valPago * 0.12;
+        const s1Val = valPago * 0.06;
+        const s2Val = valPago * 0.06;
+        const lVal = valPago * 0.01;
+        const iVal = valPago * 0.04;
+
+        dailyMap[dateKey].sales += valPago;
+        dailyMap[dateKey].prolabore += pVal;
+        dailyMap[dateKey].socio1 += s1Val;
+        dailyMap[dateKey].socio2 += s2Val;
+        dailyMap[dateKey].lucro += lVal;
+        dailyMap[dateKey].impostos += iVal;
+
+        dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
+        if (!dailyMap[dateKey].crediarioPayments) dailyMap[dateKey].crediarioPayments = [];
+        dailyMap[dateKey].crediarioPayments.push({
+          id: cr.CONTREC_ID,
+          cliente: (cr.NOME_CLIENTE || 'Cliente Crediário').trim(),
+          valor: valPago
+        });
+
+        monthSales += valPago;
+        monthProlabore += pVal;
+        monthSocio1 += s1Val;
+        monthSocio2 += s2Val;
+        monthLucro += lVal;
+        monthImpostos += iVal;
+        monthCrediarioReceived += valPago;
+      }
+
       // Calcula percentuais efetivos diários
       Object.keys(dailyMap).forEach(k => {
         const d = dailyMap[k];
@@ -1037,6 +1126,7 @@ module.exports = function (db) {
         d.lucro = parseFloat(d.lucro.toFixed(2));
         d.impostos = parseFloat(d.impostos.toFixed(2));
         d.sales = parseFloat(d.sales.toFixed(2));
+        d.crediarioReceived = parseFloat((d.crediarioReceived || 0).toFixed(2));
       });
 
       const monthSummary = {
@@ -1051,7 +1141,8 @@ module.exports = function (db) {
         effectiveSocio2Pct: monthSales > 0 ? parseFloat(((monthSocio2 / monthSales) * 100).toFixed(2)) : 6,
         effectiveLucroPct: monthSales > 0 ? parseFloat(((monthLucro / monthSales) * 100).toFixed(2)) : 1,
         effectiveImpostosPct: monthSales > 0 ? parseFloat(((monthImpostos / monthSales) * 100).toFixed(2)) : 4,
-        totalCustomItemsCount
+        totalCustomItemsCount,
+        totalCrediarioReceived: parseFloat(monthCrediarioReceived.toFixed(2))
       };
 
       res.json({

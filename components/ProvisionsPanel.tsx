@@ -78,6 +78,8 @@ export interface SalesMixDailyRecord {
   customCount: number;
   totalItems: number;
   customItems: SalesMixCustomItem[];
+  crediarioReceived?: number;
+  crediarioPayments?: Array<{ id: number; cliente: string; valor: number }>;
 }
 
 export interface SalesMixResponse {
@@ -95,6 +97,7 @@ export interface SalesMixResponse {
     effectiveLucroPct: number;
     effectiveImpostosPct: number;
     totalCustomItemsCount: number;
+    totalCrediarioReceived?: number;
   };
   dailyBreakdown: Record<string, SalesMixDailyRecord>;
   totalDays: number;
@@ -910,6 +913,11 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                 Crediário excluído: -{formatBRL(totalMonthCrediario)}
               </span>
             )}
+            {(salesMixData?.monthSummary?.totalCrediarioReceived || 0) > 0 && (
+              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold block mt-1 w-fit">
+                Crediário recebido: +{formatBRL(salesMixData.monthSummary.totalCrediarioReceived)}
+              </span>
+            )}
             {selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear() && (
               <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-tight">
                 * Calculado sobre fechamentos concluídos (as vendas do dia atual entram ao fechar o caixa).
@@ -1200,6 +1208,14 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                         {cred > 0 && (
                           <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-semibold inline-block mt-0.5">
                             s/ cred: -{formatBRL(cred)}
+                          </span>
+                        )}
+                        {dayMix && (dayMix.crediarioReceived || 0) > 0 && (
+                          <span 
+                            className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold block mt-0.5 cursor-help"
+                            title={`Recebimentos de Crediário:\n${(dayMix.crediarioPayments || []).map(p => `${p.cliente}: R$ ${p.valor.toFixed(2)}`).join('\n')}`}
+                          >
+                            +{formatBRL(dayMix.crediarioReceived)} cred. rec.
                           </span>
                         )}
                       </td>
