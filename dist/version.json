@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "b41a90d",
-  "commitMessage": "feat(crediario): adiciona scripts de simulacao e atualizacao de precos de crediario no Digifarma",
-  "buildTime": "28/09/2026, 09:37:17"
+  "commitHash": "3183cd5",
+  "commitMessage": "feat(provisoes): incluir recebimentos de crediario na base de calculo das provisoes",
+  "buildTime": "28/09/2026, 09:53:48"
 }

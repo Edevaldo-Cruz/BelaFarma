@@ -928,28 +928,46 @@ module.exports = function (db) {
         return res.status(500).json({ error: 'Erro ao consultar vendas no Digifarma: ' + errQ.message });
       }
 
-      // 2.1 Consulta recebimentos de Crediário no Digifarma (CONTAS_RECEBIDAS)
+      // 2.1 Consulta itens de Crediário quitados no Digifarma (ARQUIVO_MORTO)
+      const sqlAM = `
+        SELECT 
+          CAST(am.ARQ_DATAPAG AS DATE) as DATA_PAGAMENTO,
+          am.CONTREC_ID,
+          am.PRODUTO_ID,
+          p.PRODUTO as NOME_PRODUTO,
+          am.ARQ_QUANTIDADE as QTD,
+          am.ARQ_VALORPAG as VALOR_PAGO,
+          c.CLIENTE as NOME_CLIENTE
+        FROM ARQUIVO_MORTO am
+        LEFT JOIN PRODUTOS p ON am.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN CLIENTES c ON am.CLIENTE_ID = c.CLIENTE_ID
+        WHERE am.ARQ_DATAPAG BETWEEN ? AND ?
+        ORDER BY am.ARQ_DATAPAG ASC
+      `;
+
+      // 2.2 Consulta recibos de quitação (CONTAS_RECEBIDAS) para rastrear clientes e valores pagos
       const sqlCrediario = `
         SELECT 
           CAST(cr.CONTREC_DATAPAG AS DATE) as DATA_PAGAMENTO,
           cr.CONTREC_ID,
           cr.CLIENTE_ID,
           c.CLIENTE as NOME_CLIENTE,
-          COALESCE(cr.CONTREC_VALORPAG, 0) as VALOR_PAGO,
-          cr.DINHEIRO,
-          cr.CARTAO,
-          cr.OUTROS
+          COALESCE(cr.CONTREC_VALORPAG, 0) as VALOR_PAGO
         FROM CONTAS_RECEBIDAS cr
         LEFT JOIN CLIENTES c ON cr.CLIENTE_ID = c.CLIENTE_ID
         WHERE cr.CONTREC_DATAPAG BETWEEN ? AND ?
         ORDER BY cr.CONTREC_DATAPAG ASC
       `;
 
+      let amRows = [];
       let crediarioRows = [];
       try {
-        crediarioRows = await queryDigifarma(sqlCrediario, [startDateTime, endDateTime]);
+        [amRows, crediarioRows] = await Promise.all([
+          queryDigifarma(sqlAM, [startDateTime, endDateTime]),
+          queryDigifarma(sqlCrediario, [startDateTime, endDateTime])
+        ]);
       } catch (errCred) {
-        console.warn('[Sales Mix Provisions] Aviso: Erro ao consultar CONTAS_RECEBIDAS no Digifarma:', errCred.message);
+        console.warn('[Sales Mix Provisions] Aviso: Erro ao consultar ARQUIVO_MORTO/CONTAS_RECEBIDAS no Digifarma:', errCred.message);
       }
 
       // 3. Processa e consolida por data
@@ -1050,11 +1068,111 @@ module.exports = function (db) {
         }
       }
 
-      // 4. Processa recebimentos de Crediário do período
-      for (const cr of crediarioRows) {
-        const valPago = parseFloat(cr.VALOR_PAGO || 0);
-        if (valPago <= 0) continue;
+      // 4. Processa itens de Crediário pagos (item a item de acordo com a porcentagem gravada ou padrão)
+      const processedContrecIds = new Set();
+      if (amRows && amRows.length > 0) {
+        for (const item of amRows) {
+          const valPago = parseFloat(item.VALOR_PAGO || 0);
+          if (valPago <= 0) continue;
 
+          let dateKey;
+          if (item.DATA_PAGAMENTO instanceof Date) {
+            dateKey = item.DATA_PAGAMENTO.toISOString().slice(0, 10);
+          } else if (typeof item.DATA_PAGAMENTO === 'string') {
+            dateKey = item.DATA_PAGAMENTO.slice(0, 10);
+          } else {
+            continue;
+          }
+
+          if (!dailyMap[dateKey]) {
+            dailyMap[dateKey] = {
+              date: dateKey,
+              sales: 0,
+              prolabore: 0,
+              socio1: 0,
+              socio2: 0,
+              lucro: 0,
+              impostos: 0,
+              customCount: 0,
+              totalItems: 0,
+              customItems: [],
+              crediarioReceived: 0,
+              crediarioPayments: []
+            };
+          }
+
+          dailyMap[dateKey].sales += valPago;
+          dailyMap[dateKey].totalItems += parseFloat(item.QTD || 1);
+          dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
+          monthSales += valPago;
+          monthCrediarioReceived += valPago;
+
+          if (item.CONTREC_ID) {
+            processedContrecIds.add(item.CONTREC_ID);
+          }
+
+          const cust = customMap.get(item.PRODUTO_ID);
+          if (cust) {
+            // Percentuais gravados no produto
+            const pPct = cust.pro_labore_total_pct || 12;
+            const s1Pct = cust.pro_labore_1_pct || (pPct / 2);
+            const s2Pct = cust.pro_labore_2_pct || (pPct / 2);
+            const lPct = cust.margem_liquida_pct || 1;
+            const iPct = cust.imposto_pct || 4;
+
+            const pVal = valPago * (pPct / 100);
+            const s1Val = valPago * (s1Pct / 100);
+            const s2Val = valPago * (s2Pct / 100);
+            const lVal = valPago * (lPct / 100);
+            const iVal = valPago * (iPct / 100);
+
+            dailyMap[dateKey].prolabore += pVal;
+            dailyMap[dateKey].socio1 += s1Val;
+            dailyMap[dateKey].socio2 += s2Val;
+            dailyMap[dateKey].lucro += lVal;
+            dailyMap[dateKey].impostos += iVal;
+            dailyMap[dateKey].customCount++;
+            dailyMap[dateKey].customItems.push({
+              produtoId: item.PRODUTO_ID,
+              descricao: (item.NOME_PRODUTO || cust.descricao || 'Item Crediário').trim(),
+              vendas: valPago,
+              qtd: parseFloat(item.QTD || 1),
+              prolaborePct: pPct,
+              prolaboreValor: pVal,
+              isCrediario: true
+            });
+
+            monthProlabore += pVal;
+            monthSocio1 += s1Val;
+            monthSocio2 += s2Val;
+            monthLucro += lVal;
+            monthImpostos += iVal;
+            totalCustomItemsCount++;
+          } else {
+            // Padrão BelaFarma (12% pró-labore, 1% reserva, 4% DAS)
+            const pVal = valPago * 0.12;
+            const s1Val = valPago * 0.06;
+            const s2Val = valPago * 0.06;
+            const lVal = valPago * 0.01;
+            const iVal = valPago * 0.04;
+
+            dailyMap[dateKey].prolabore += pVal;
+            dailyMap[dateKey].socio1 += s1Val;
+            dailyMap[dateKey].socio2 += s2Val;
+            dailyMap[dateKey].lucro += lVal;
+            dailyMap[dateKey].impostos += iVal;
+
+            monthProlabore += pVal;
+            monthSocio1 += s1Val;
+            monthSocio2 += s2Val;
+            monthLucro += lVal;
+            monthImpostos += iVal;
+          }
+        }
+      }
+
+      // Adiciona o resumo dos pagamentos dos clientes por data
+      for (const cr of crediarioRows) {
         let dateKey;
         if (cr.DATA_PAGAMENTO instanceof Date) {
           dateKey = cr.DATA_PAGAMENTO.toISOString().slice(0, 10);
@@ -1064,52 +1182,58 @@ module.exports = function (db) {
           continue;
         }
 
-        if (!dailyMap[dateKey]) {
-          dailyMap[dateKey] = {
-            date: dateKey,
-            sales: 0,
-            prolabore: 0,
-            socio1: 0,
-            socio2: 0,
-            lucro: 0,
-            impostos: 0,
-            customCount: 0,
-            totalItems: 0,
-            customItems: [],
-            crediarioReceived: 0,
-            crediarioPayments: []
-          };
+        if (dailyMap[dateKey]) {
+          if (!dailyMap[dateKey].crediarioPayments) dailyMap[dateKey].crediarioPayments = [];
+          dailyMap[dateKey].crediarioPayments.push({
+            id: cr.CONTREC_ID,
+            cliente: (cr.NOME_CLIENTE || 'Cliente Crediário').trim(),
+            valor: parseFloat(cr.VALOR_PAGO || 0)
+          });
         }
 
-        // Provisão padrão BelaFarma sobre o crediário recebido (12% pró-labore, 4% DAS, 1% reserva)
-        const pVal = valPago * 0.12;
-        const s1Val = valPago * 0.06;
-        const s2Val = valPago * 0.06;
-        const lVal = valPago * 0.01;
-        const iVal = valPago * 0.04;
+        // Se o CONTREC_ID não tiver itens no ARQUIVO_MORTO (ex: pagamento avulso residual)
+        if (!processedContrecIds.has(cr.CONTREC_ID)) {
+          const valPago = parseFloat(cr.VALOR_PAGO || 0);
+          if (valPago > 0) {
+            if (!dailyMap[dateKey]) {
+              dailyMap[dateKey] = {
+                date: dateKey,
+                sales: 0,
+                prolabore: 0,
+                socio1: 0,
+                socio2: 0,
+                lucro: 0,
+                impostos: 0,
+                customCount: 0,
+                totalItems: 0,
+                customItems: [],
+                crediarioReceived: 0,
+                crediarioPayments: []
+              };
+            }
+            const pVal = valPago * 0.12;
+            const s1Val = valPago * 0.06;
+            const s2Val = valPago * 0.06;
+            const lVal = valPago * 0.01;
+            const iVal = valPago * 0.04;
 
-        dailyMap[dateKey].sales += valPago;
-        dailyMap[dateKey].prolabore += pVal;
-        dailyMap[dateKey].socio1 += s1Val;
-        dailyMap[dateKey].socio2 += s2Val;
-        dailyMap[dateKey].lucro += lVal;
-        dailyMap[dateKey].impostos += iVal;
+            dailyMap[dateKey].sales += valPago;
+            dailyMap[dateKey].prolabore += pVal;
+            dailyMap[dateKey].socio1 += s1Val;
+            dailyMap[dateKey].socio2 += s2Val;
+            dailyMap[dateKey].lucro += lVal;
+            dailyMap[dateKey].impostos += iVal;
+            dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
 
-        dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
-        if (!dailyMap[dateKey].crediarioPayments) dailyMap[dateKey].crediarioPayments = [];
-        dailyMap[dateKey].crediarioPayments.push({
-          id: cr.CONTREC_ID,
-          cliente: (cr.NOME_CLIENTE || 'Cliente Crediário').trim(),
-          valor: valPago
-        });
-
-        monthSales += valPago;
-        monthProlabore += pVal;
-        monthSocio1 += s1Val;
-        monthSocio2 += s2Val;
-        monthLucro += lVal;
-        monthImpostos += iVal;
-        monthCrediarioReceived += valPago;
+            monthSales += valPago;
+            monthProlabore += pVal;
+            monthSocio1 += s1Val;
+            monthSocio2 += s2Val;
+            monthLucro += lVal;
+            monthImpostos += iVal;
+            monthCrediarioReceived += valPago;
+          }
+        }
       }
 
       // Calcula percentuais efetivos diários
