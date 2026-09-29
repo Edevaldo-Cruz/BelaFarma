@@ -20,7 +20,9 @@ import {
   TrendingDown, 
   ShieldCheck, 
   Clock,
-  X
+  X,
+  Eye,
+  Filter
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -95,6 +97,18 @@ interface LiquidacaoCaixaProps {
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
+// Helper para calcular último dia do mês que vem
+const getFimMesQueVem = () => {
+  const agora = new Date();
+  const ano = agora.getFullYear();
+  const mes = agora.getMonth();
+  const ultimoDia = new Date(ano, mes + 2, 0);
+  const yyyy = ultimoDia.getFullYear();
+  const mm = String(ultimoDia.getMonth() + 1).padStart(2, '0');
+  const dd = String(ultimoDia.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const { addToast } = useToast();
 
@@ -108,6 +122,12 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [savingItem, setSavingItem] = useState(false);
   const [skippingItem, setSkippingItem] = useState(false);
   const [revertingId, setRevertingId] = useState<string | null>(null);
+
+  // Filtro de Categoria
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('TODOS');
+
+  // Controle de visualização da etiqueta
+  const [mostrarEtiqueta, setMostrarEtiqueta] = useState<boolean>(true);
 
   // Campos de edição do item atual
   const [customPrice, setCustomPrice] = useState<string>('');
@@ -147,18 +167,23 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   }, []);
 
-  // 2. Carrega Próximo Candidato
-  const fetchProximoCandidato = useCallback(async () => {
+  // 2. Carrega Próximo Candidato com filtro opcional de categoria
+  const fetchProximoCandidato = useCallback(async (cat?: string) => {
     setLoadingItem(true);
     setSemCandidatos(false);
     try {
-      const res = await fetch('/api/liquidacao/proximo-item');
+      const categoriaAtiva = cat !== undefined ? cat : categoriaFiltro;
+      const url = categoriaAtiva && categoriaAtiva !== 'TODOS'
+        ? `/api/liquidacao/proximo-item?categoria=${encodeURIComponent(categoriaAtiva)}`
+        : '/api/liquidacao/proximo-item';
+
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.disponivel && data.produto) {
           setCandidato(data.produto);
           setCustomPrice(data.produto.preco_sugerido.toFixed(2));
-          setDataTermino(data.produto.vigencia_padrao.data_termino);
+          setDataTermino(data.produto.vigencia_padrao.data_termino || getFimMesQueVem());
         } else {
           setCandidato(null);
           setSemCandidatos(true);
@@ -169,7 +194,141 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     } finally {
       setLoadingItem(false);
     }
-  }, []);
+  }, [categoriaFiltro]);
+
+  const handleTrocarCategoria = (novaCat: string) => {
+    setCategoriaFiltro(novaCat);
+    fetchProximoCandidato(novaCat);
+  };
+
+  // Impressão individual da etiqueta do produto atual
+  const imprimirEtiquetaAtual = () => {
+    if (!candidato) return;
+    const printWindow = window.open('', '_blank', 'width=500,height=550');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+    const valFinal = parseFloat(customPrice.replace(',', '.')) || candidato.preco_sugerido;
+    const descPct = candidato.preco_normal > 0 ? Math.round(((candidato.preco_normal - valFinal) / candidato.preco_normal) * 100) : 0;
+    const validadeFormatada = dataTermino ? dataTermino.split('-').reverse().join('/') : '';
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Etiqueta de Oferta - ${candidato.descricao}</title>
+        <style>
+          @page { size: auto; margin: 10mm; }
+          body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }
+          .tag-card {
+            width: 320px;
+            border: 3px solid #dc2626;
+            border-radius: 14px;
+            padding: 16px;
+            text-align: center;
+            box-sizing: border-box;
+            background: #fff;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          }
+          .tag-header {
+            background: #dc2626;
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+          }
+          .tag-title {
+            font-size: 15px;
+            font-weight: 900;
+            color: #111827;
+            line-height: 1.2;
+            margin: 6px 0;
+            text-transform: uppercase;
+          }
+          .tag-sub {
+            font-size: 11px;
+            font-weight: 600;
+            color: #4b5563;
+            margin-bottom: 8px;
+          }
+          .tag-box {
+            background: #fef2f2;
+            border-radius: 10px;
+            padding: 12px;
+            margin: 12px 0;
+            border: 2px dashed #ef4444;
+          }
+          .tag-de {
+            font-size: 13px;
+            color: #6b7280;
+            text-decoration: line-through;
+            font-weight: bold;
+          }
+          .tag-por-label {
+            font-size: 11px;
+            font-weight: 900;
+            color: #dc2626;
+            text-transform: uppercase;
+            margin-top: 4px;
+          }
+          .tag-por {
+            font-size: 36px;
+            font-weight: 900;
+            color: #dc2626;
+            line-height: 1;
+            margin: 4px 0;
+          }
+          .tag-badge {
+            display: inline-block;
+            background: #f59e0b;
+            color: #111827;
+            font-weight: 900;
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 6px;
+            margin-top: 4px;
+          }
+          .tag-footer {
+            border-top: 1px solid #e5e7eb;
+            padding-top: 10px;
+            font-size: 10px;
+            color: #6b7280;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="tag-card">
+          <div class="tag-header">🔥 OFERTA RELÂMPAGO 🔥</div>
+          <div class="tag-title">${candidato.descricao}</div>
+          ${candidato.apresentacao ? `<div class="tag-sub">${candidato.apresentacao}</div>` : ''}
+          <div class="tag-box">
+            <div class="tag-de">DE: R$ ${candidato.preco_normal.toFixed(2).replace('.', ',')}</div>
+            <div class="tag-por-label">POR APENAS</div>
+            <div class="tag-por">R$ ${valFinal.toFixed(2).replace('.', ',')}</div>
+            ${descPct > 0 ? `<div class="tag-badge">${descPct}% DE DESCONTO</div>` : ''}
+          </div>
+          <div class="tag-footer">
+            <span>DROGARIA BELAFARMA</span>
+            <span>VÁLIDO ATÉ: ${validadeFormatada}</span>
+          </div>
+          ${candidato.cod_barras ? `<div style="font-size: 9px; color: #9ca3af; margin-top: 6px; font-family: monospace;">EAN: ${candidato.cod_barras} | CÓD: ${candidato.produto_id}</div>` : ''}
+        </div>
+        <script>
+          window.onload = function() { window.print(); };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
   useEffect(() => {
     fetchResumo();
@@ -325,9 +484,9 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             Liquidação & Resgate de Caixa
           </h1>
           <p className="text-sm text-white/90 max-w-2xl leading-relaxed">
-            Selecione 20 produtos parados há mais de 90 dias por semana. O preço promocional é gravado 
-            diretamente no <strong>Digifarma Firebird</strong> com vigência automática de 7 dias, transformando estoque 
-            imobilizado em dinheiro limpo para <strong>zerar o Cheque Especial</strong>.
+            Selecione quantos produtos desejar para liquidar o estoque parado há mais de 90 dias (sem limite semanal).
+            O preço promocional é gravado diretamente no <strong>Digifarma Firebird</strong> com vigência até o 
+            <strong> último dia do mês que vem</strong>, transformando estoque imobilizado em dinheiro limpo para <strong>zerar o Cheque Especial</strong>.
           </p>
         </div>
 
@@ -437,11 +596,11 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* Card 3: Seleção dos 20 Itens */}
+        {/* Card 3: Seleção sem limite */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Seleção da Semana
+              Produtos na Liquidação
             </span>
             <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
               <Sparkles size={18} />
@@ -453,12 +612,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               <span className="text-3xl font-black text-amber-600 dark:text-amber-400">
                 {resumo?.progressoSelecao.aprovados || 0}
               </span>
-              <span className="text-sm font-bold text-slate-400">/ 20 produtos</span>
+              <span className="text-sm font-bold text-slate-400">produtos aprovados</span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              {resumo?.progressoSelecao.completo 
-                ? '✅ Meta de 20 produtos da semana atingida!'
-                : `Faltam ${20 - (resumo?.progressoSelecao.aprovados || 0)} itens para fechar o lote`}
+              🔥 Queima contínua sem limite semanal — liquide o máximo possível!
             </p>
           </div>
 
@@ -471,7 +628,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
       {/* ─── ÁREA CENTRAL: FLUXO DE APROVAÇÃO "UM A UM" ─── */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-md p-6 md:p-8">
-        <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h2 className="text-lg md:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
               <Tag className="w-5 h-5 text-orange-500" />
@@ -482,8 +639,43 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             </p>
           </div>
 
-          <div className="text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-            Item {((resumo?.progressoSelecao.aprovados || 0) + 1)} de 20
+          <div className="text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 self-start sm:self-auto">
+            {resumo?.progressoSelecao.aprovados || 0} aprovados (Sem limite)
+          </div>
+        </div>
+
+        {/* ─── BARRA DE FILTRO POR CATEGORIA ─── */}
+        <div className="mb-6 pb-5 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-3.5 h-3.5 text-orange-500" />
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Filtrar por Categoria:
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'TODOS', label: 'Todos os Produtos', icon: '📦' },
+              { id: 'PERFUMARIA', label: 'Perfumaria & Higiene', icon: '🧴' },
+              { id: 'GENERICO', label: 'Genéricos', icon: '💊' },
+              { id: 'MARCA', label: 'Medicamentos Marca/Ref.', icon: '🏷️' },
+              { id: 'SIMILAR', label: 'Similares', icon: '🔬' },
+              { id: 'OUTROS', label: 'Outros', icon: '✨' },
+            ].map(cat => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => handleTrocarCategoria(cat.id)}
+                disabled={loadingItem}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  categoriaFiltro === cat.id
+                    ? 'bg-orange-500 text-white shadow-md shadow-orange-500/25 scale-[1.02]'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <span>{cat.icon}</span>
+                <span>{cat.label}</span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -662,28 +854,13 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                     className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 3);
-                      setDataTermino(d.toISOString().split('T')[0]);
-                    }}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
+                    onClick={() => setDataTermino(getFimMesQueVem())}
+                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 hover:bg-orange-200 transition-colors"
                   >
-                    3 dias
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 7);
-                      setDataTermino(d.toISOString().split('T')[0]);
-                    }}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
-                  >
-                    7 dias (Padrão)
+                    Fim do Mês que Vem (Padrão)
                   </button>
                   <button
                     type="button"
@@ -696,8 +873,114 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   >
                     15 dias
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 30);
+                      setDataTermino(d.toISOString().split('T')[0]);
+                    }}
+                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
+                  >
+                    30 dias
+                  </button>
                 </div>
               </div>
+            </div>
+
+            {/* ─── PRÉ-VISUALIZAÇÃO DA ETIQUETA DE OFERTA / GÔNDOLA ─── */}
+            <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-950/60 text-orange-600">
+                    <Tag size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                      Etiqueta de Preço de Gôndola / Balcão
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                        Ao Vivo
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Veja em tempo real como a etiqueta de oferta física será impressa para colar na prateleira ou produto.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMostrarEtiqueta(!mostrarEtiqueta)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Eye size={13} />
+                    {mostrarEtiqueta ? 'Ocultar Prévia' : 'Ver Etiqueta'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={imprimirEtiquetaAtual}
+                    className="px-4 py-1.5 rounded-xl text-xs font-black bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer size={13} />
+                    Imprimir Esta Etiqueta
+                  </button>
+                </div>
+              </div>
+
+              {mostrarEtiqueta && (
+                <div className="flex justify-center p-4 bg-slate-200/60 dark:bg-slate-950 rounded-2xl">
+                  {/* Cartão de Etiqueta Física */}
+                  <div className="w-full max-w-sm bg-white text-slate-900 border-2 border-red-600 rounded-2xl shadow-xl p-5 text-center flex flex-col justify-between relative overflow-hidden transition-all duration-200">
+                    <div className="bg-red-600 text-white py-1 px-3 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 mb-3">
+                      <Flame size={14} className="fill-white animate-pulse" />
+                      OFERTA RELÂMPAGO BELAFARMA
+                    </div>
+
+                    <div className="space-y-1 mb-3">
+                      <h3 className="text-base font-black uppercase leading-tight line-clamp-2 text-slate-900">
+                        {candidato.descricao}
+                      </h3>
+                      {candidato.apresentacao && (
+                        <p className="text-xs font-semibold text-slate-500">
+                          {candidato.apresentacao}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="bg-red-50/90 border border-red-200 rounded-xl p-3 my-2 space-y-1">
+                      <div className="text-xs font-bold text-slate-400 line-through">
+                        DE: {fmt(candidato.preco_normal)}
+                      </div>
+                      <div className="text-[10px] font-black uppercase text-red-600 tracking-wider">
+                        POR APENAS:
+                      </div>
+                      <div className="text-3xl font-black text-red-600 tracking-tight">
+                        {fmt(parsedPrice || candidato.preco_sugerido)}
+                      </div>
+                      {currentDiscountPercent > 0 && (
+                        <div className="inline-block bg-amber-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-md mt-1">
+                          ECONOMIZE {fmt(currentDiscountReais)} ({currentDiscountPercent}% OFF)
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                      <span>DROGARIA BELAFARMA</span>
+                      <span>ATÉ {dataTermino ? dataTermino.split('-').reverse().join('/') : '-'}</span>
+                    </div>
+
+                    {candidato.cod_barras && (
+                      <div className="mt-2 text-[9px] font-mono text-slate-400 flex items-center justify-center gap-2">
+                        <span>EAN: {candidato.cod_barras}</span>
+                        <span>•</span>
+                        <span>CÓD: #{candidato.produto_id}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Botões de Ação Final */}

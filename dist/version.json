@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ca9cd60",
-  "commitMessage": "feat(liquidacao): adicionar modulo de liquidacao e aceleracao de caixa com sync Digifarma e metas de eliminacao do cheque especial",
-  "buildTime": "29/09/2026, 14:32:26"
+  "commitHash": "0bab1e7",
+  "commitMessage": "fix(liquidacao): considerar preco promocional ativo do Digifarma e corrigir custo unitario fracionado",
+  "buildTime": "29/09/2026, 18:46:31"
 }

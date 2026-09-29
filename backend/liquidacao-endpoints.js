@@ -42,6 +42,17 @@ function getSemanaAno() {
   return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
+function getUltimoDiaMesQueVem() {
+  const agora = new Date();
+  const ano = agora.getFullYear();
+  const mes = agora.getMonth(); // 0 = Jan, 8 = Set, etc.
+  const ultimoDia = new Date(ano, mes + 2, 0); // Dia 0 do segundo mês à frente dá o último dia do próximo mês
+  const yyyy = ultimoDia.getFullYear();
+  const mm = String(ultimoDia.getMonth() + 1).padStart(2, '0');
+  const dd = String(ultimoDia.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 module.exports = function (db) {
   const router = express.Router();
 
@@ -120,7 +131,7 @@ module.exports = function (db) {
         progressoSelecao: {
           aprovados,
           meta: 20,
-          completo: aprovados >= 20,
+          completo: false, // Sem trava: o usuário pode liquidar o máximo possível
           pulados
         }
       });
@@ -135,6 +146,7 @@ module.exports = function (db) {
   router.get('/proximo-item', async (req, res) => {
     try {
       const campanha = getOrCreateCampanhaAtiva();
+      const catParam = req.query.categoria ? String(req.query.categoria).trim().toUpperCase() : 'TODOS';
 
       // IDs já aprovados ou pulados nesta campanha
       const ignorarIdsRows = db.prepare(`
@@ -144,21 +156,52 @@ module.exports = function (db) {
       `).all(campanha.id);
       const ignorarIds = new Set(ignorarIdsRows.map(r => Number(r.produto_id)));
 
-      // 1ª Tentativa: Mural de produtos parados (> 90d)
+      // 1ª Tentativa: Mural de produtos parados (> 90d) com filtro de categoria
+      let muralWhere = "WHERE status = 'pendente' AND saldo > 0 AND preco_venda > 0";
+      const muralParams = [];
+      if (catParam && catParam !== 'TODOS') {
+        if (catParam === 'OUTROS') {
+          muralWhere += " AND (UPPER(categoria) NOT IN ('PERFUMARIA', 'GENERICO', 'MARCA', 'SIMILAR') OR categoria IS NULL)";
+        } else {
+          muralWhere += " AND UPPER(categoria) = ?";
+          muralParams.push(catParam);
+        }
+      }
+
       let candidatos = db.prepare(`
         SELECT 
           produto_id, descricao, cod_barras, apresentacao, categoria,
           saldo, preco_venda, preco_compra, valor_total_parado, dias_parado
         FROM mural_produtos_parados
-        WHERE status = 'pendente' AND saldo > 0 AND preco_venda > 0
+        ${muralWhere}
         ORDER BY valor_total_parado DESC, saldo DESC
-        LIMIT 60
-      `).all();
+        LIMIT 100
+      `).all(...muralParams);
 
-      let itemEscolhido = candidatos.find(c => !ignorarIds.has(Number(c.produto_id)));
+      let candidatosFiltrados = candidatos.filter(c => !ignorarIds.has(Number(c.produto_id)));
 
-      // 2ª Tentativa (fallback): Se não encontrou no mural, busca no compras_estoque_cache itens sem venda 90d
-      if (!itemEscolhido) {
+      // 2ª Tentativa (fallback): Se não encontrou no mural, busca no compras_estoque_cache itens sem venda 90d E comprados há mais de 90d
+      if (candidatosFiltrados.length === 0) {
+        let fbWhere = `
+          WHERE saldo > 0 
+            AND preco_normal > 0
+            AND (vendas_30d = 0 OR vendas_30d IS NULL)
+            AND (vendas_31_60d = 0 OR vendas_31_60d IS NULL)
+            AND (vendas_61_90d = 0 OR vendas_61_90d IS NULL)
+            AND ultima_compra_data IS NOT NULL 
+            AND date(ultima_compra_data) <= date('now', '-90 days')
+        `;
+        const fbParams = [];
+        if (catParam && catParam !== 'TODOS') {
+          if (catParam === 'PERFUMARIA') {
+            fbWhere += ` AND (categoria_id LIKE '%PERF%' OR UPPER(descricao) LIKE '%SHAMPOO%' OR UPPER(descricao) LIKE '%SABONETE%' OR UPPER(descricao) LIKE '%DESOD%' OR UPPER(descricao) LIKE '%CREME%' OR UPPER(descricao) LIKE '%FRALDA%')`;
+          } else if (catParam === 'GENERICO') {
+            fbWhere += ` AND (categoria_id LIKE '%GEN%' OR UPPER(descricao) LIKE '%GENERICO%' OR UPPER(descricao) LIKE '%GEN%')`;
+          } else if (catParam === 'MARCA') {
+            fbWhere += ` AND (categoria_id NOT LIKE '%PERF%' AND categoria_id NOT LIKE '%GEN%')`;
+          }
+        }
+
         const fallbackCandidatos = db.prepare(`
           SELECT 
             produto_id, descricao, ean as cod_barras, apresentacao, categoria_id as categoria,
@@ -167,41 +210,76 @@ module.exports = function (db) {
             (saldo * preco_normal) as valor_total_parado,
             90 as dias_parado
           FROM compras_estoque_cache
-          WHERE saldo > 0 
-            AND preco_normal > 0
-            AND (vendas_30d = 0 OR vendas_30d IS NULL)
-            AND (vendas_31_60d = 0 OR vendas_31_60d IS NULL)
-            AND (vendas_61_90d = 0 OR vendas_61_90d IS NULL)
+          ${fbWhere}
           ORDER BY valor_total_parado DESC
           LIMIT 100
-        `).all();
+        `).all(...fbParams);
 
-        itemEscolhido = fallbackCandidatos.find(c => !ignorarIds.has(Number(c.produto_id)));
+        candidatosFiltrados = fallbackCandidatos.filter(c => !ignorarIds.has(Number(c.produto_id)));
+      }
+
+      // Validação ativa contra compras recentes no Firebird
+      let itemEscolhido = null;
+      let fbData = null;
+
+      for (const cand of candidatosFiltrados) {
+        const candId = Number(cand.produto_id);
+
+        // Checagem no Firebird: Houve nota de entrada nos últimos 90 dias?
+        let teveEntradaRecente = false;
+        try {
+          const checkEntrada = await queryDigifarma(
+            `SELECT FIRST 1 inp.PRODUTO_ID 
+             FROM ITEM_NOTAS inp
+             JOIN CAB_NOTAS cnp ON inp.CAB_NOTA_ID = cnp.CAB_NOTA_ID
+             WHERE inp.PRODUTO_ID = ? AND cnp.ENTRADA_SAIDA = 'E'
+               AND (cnp.CANCELAMENTO = 'N' OR cnp.CANCELAMENTO IS NULL)
+               AND cnp.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - 90`,
+            [candId],
+            4000
+          );
+          if (checkEntrada && checkEntrada.length > 0) {
+            teveEntradaRecente = true;
+          }
+        } catch (errCheck) {
+          // Em caso de falha de conexão temporária, prossegue
+        }
+
+        if (teveEntradaRecente) {
+          console.warn(`[Liquidação API] ⚠️ Produto ${candId} (${cand.descricao}) possui compra recente (<90d). Descartando.`);
+          try {
+            db.prepare("UPDATE mural_produtos_parados SET status = 'ignorado_compra_recente' WHERE produto_id = ?").run(candId);
+          } catch (e) {}
+          ignorarIds.add(candId);
+          continue;
+        }
+
+        // Consulta dados atualizados do produto no Firebird
+        try {
+          const fbRows = await queryDigifarma(
+            'SELECT PRODUTO_ID, PRODUTO, COD_BARRAS, PROD_SALDO, PROD_PRVENDA, PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO, PROD_PRCOMPRA, PROD_CMV, VALOR_ULT_COMPRA FROM PRODUTOS WHERE PRODUTO_ID = ?',
+            [candId],
+            6000
+          );
+          if (fbRows && fbRows.length > 0) {
+            fbData = fbRows[0];
+          }
+        } catch (errFb) {
+          console.warn(`[Liquidação API] Consulta Firebird para produto ${candId} falhou, usando cache SQLite:`, errFb.message);
+        }
+
+        itemEscolhido = cand;
+        break;
       }
 
       if (!itemEscolhido) {
         return res.json({
           disponivel: false,
-          mensagem: 'Nenhum outro produto parado há mais de 90 dias encontrado para liquidação no momento.'
+          mensagem: 'Nenhum outro produto parado há mais de 90 dias (sem compras recentes) encontrado para liquidação no momento.'
         });
       }
 
       const pId = Number(itemEscolhido.produto_id);
-
-      // Consulta dados ao vivo no Digifarma Firebird para garantir preço promocional atual e CMV unitário
-      let fbData = null;
-      try {
-        const fbRows = await queryDigifarma(
-          'SELECT PRODUTO_ID, PRODUTO, COD_BARRAS, PROD_SALDO, PROD_PRVENDA, PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO, PROD_PRCOMPRA, PROD_CMV, VALOR_ULT_COMPRA FROM PRODUTOS WHERE PRODUTO_ID = ?',
-          [pId],
-          6000
-        );
-        if (fbRows && fbRows.length > 0) {
-          fbData = fbRows[0];
-        }
-      } catch (errFb) {
-        console.warn(`[Liquidação API] Consulta Firebird para produto ${pId} falhou, usando cache SQLite:`, errFb.message);
-      }
 
       const saldoAtual = fbData ? Number(fbData.PROD_SALDO) : (Number(itemEscolhido.saldo) || 0);
       const prVendaTabela = fbData ? Number(fbData.PROD_PRVENDA) : (Number(itemEscolhido.preco_venda) || 0);
@@ -226,7 +304,7 @@ module.exports = function (db) {
         }
       }
 
-      // Se custo for maior que o preço de venda atual (ex: R$ 62,89 da caixa vs R$ 5,00/8,13 do blister), ajusta para o custo unitário correto
+      // Se custo for maior que o preço de venda atual, ajusta para o custo unitário correto
       if (precoCusto <= 0 || precoCusto >= precoVendaVigente) {
         if (fbData && Number(fbData.PROD_CMV) > 0 && Number(fbData.PROD_CMV) < precoVendaVigente) {
           precoCusto = Number(fbData.PROD_CMV);
@@ -239,7 +317,7 @@ module.exports = function (db) {
       const taxaSimples = 0.07;
       let precoSugerido = roundUpToAcceptedCents(precoCusto * (1 + taxaSimples));
 
-      // A sugestão deve ser SEMPRE inferior ao preço vigente atual (R$ 5,00) para criar a queima real!
+      // A sugestão deve ser SEMPRE inferior ao preço vigente atual para criar a queima real!
       if (precoSugerido >= precoVendaVigente) {
         precoSugerido = roundUpToAcceptedCents(precoVendaVigente * 0.80);
       }
@@ -254,9 +332,9 @@ module.exports = function (db) {
 
       const valorTotalImobilizado = Number((saldoAtual * precoVendaVigente).toFixed(2));
 
-      // Datas padrão de vigência (7 dias a partir de hoje)
+      // Datas padrão de vigência: Início hoje, Término no último dia do mês que vem
       const hoje = new Date();
-      const termino = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const terminoStr = getUltimoDiaMesQueVem();
 
       res.json({
         disponivel: true,
@@ -269,7 +347,7 @@ module.exports = function (db) {
           saldo: saldoAtual,
           preco_custo: precoCusto,
           preco_tabela: prVendaTabela,
-          preco_normal: precoVendaVigente, // Preço vigente atual (5,00)
+          preco_normal: precoVendaVigente,
           tem_promocao_ativa: temPromocaoAtiva,
           preco_promocional_atual: prPromocionalAtual,
           preco_sugerido: precoSugerido,
@@ -279,7 +357,7 @@ module.exports = function (db) {
           dias_parado: itemEscolhido.dias_parado || 90,
           vigencia_padrao: {
             data_inicio: hoje.toISOString().split('T')[0],
-            data_termino: termino.toISOString().split('T')[0]
+            data_termino: terminoStr
           }
         }
       });

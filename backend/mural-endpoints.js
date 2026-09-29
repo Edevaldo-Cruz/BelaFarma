@@ -7,31 +7,36 @@ function categorizarProduto(descricao = '', categoriaNome = '') {
   const desc = (descricao || '').toUpperCase();
   const cat = (categoriaNome || '').toUpperCase();
 
-  if (desc.includes('GENERICO') || desc.includes('GENÉRIC') || desc.includes(' GEN ') || desc.startsWith('GEN ')) {
+  if (desc.includes('GENERICO') || desc.includes('GENÉRIC') || desc.includes(' GEN ') || desc.startsWith('GEN ') || cat.includes('GENERICO')) {
     return 'GENERICO';
   }
-  if (desc.includes('SIMILAR')) {
+  if (desc.includes('SIMILAR') || cat.includes('SIMILAR')) {
     return 'SIMILAR';
   }
   if (
     cat.includes('PERFUMARIA') ||
+    cat.includes('COSMET') ||
     desc.includes('SHAMPOO') ||
     desc.includes('SABONETE') ||
     desc.includes('DESODORANTE') ||
+    desc.includes('DESOD ') ||
     desc.includes('CREME') ||
     desc.includes('FRALDA') ||
     desc.includes('PERFUME') ||
     desc.includes('ESCOVA') ||
     desc.includes('PASTA') ||
     desc.includes('CONDICIONADOR') ||
-    desc.includes('HIDRATANTE')
+    desc.includes('HIDRATANTE') ||
+    desc.includes('ESMALTE') ||
+    desc.includes('TINTURA') ||
+    desc.includes('ABSORVENTE')
   ) {
     return 'PERFUMARIA';
   }
   if (cat.includes('MEDICAMENTO') || cat.includes('ETICO') || cat.includes('REFERENCIA') || cat.includes('MARCA')) {
     return 'MARCA';
   }
-  return 'MARCA';
+  return 'OUTROS';
 }
 
 module.exports = function (db) {
@@ -129,6 +134,20 @@ module.exports = function (db) {
             WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
               AND v.CANCELADO <> 'S'
               AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 90
+          )
+          AND NOT EXISTS (
+            SELECT FIRST 1 1 FROM ITEM_NOTAS inp
+            JOIN CAB_NOTAS cnp ON inp.CAB_NOTA_ID = cnp.CAB_NOTA_ID
+            WHERE inp.PRODUTO_ID = p.PRODUTO_ID AND cnp.ENTRADA_SAIDA = 'E'
+              AND (cnp.CANCELAMENTO = 'N' OR cnp.CANCELAMENTO IS NULL)
+              AND cnp.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - 90
+          )
+          AND EXISTS (
+            SELECT FIRST 1 1 FROM ITEM_NOTAS iant
+            JOIN CAB_NOTAS cant ON iant.CAB_NOTA_ID = cant.CAB_NOTA_ID
+            WHERE iant.PRODUTO_ID = p.PRODUTO_ID AND cant.ENTRADA_SAIDA = 'E'
+              AND (cant.CANCELAMENTO = 'N' OR cant.CANCELAMENTO IS NULL)
+              AND cant.DATA_EMISSAO < CAST('NOW' AS TIMESTAMP) - 90
           )
         ORDER BY VALOR_TOTAL_PARADO DESC, p.PROD_SALDO DESC
       `;
