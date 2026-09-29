@@ -54,7 +54,10 @@ interface ProdutoCandidato {
   categoria: string;
   saldo: number;
   preco_custo: number;
-  preco_normal: number;
+  preco_tabela?: number;
+  preco_normal: number; // Preço vigente efetivo (R$ 5,00 se em promoção)
+  tem_promocao_ativa?: boolean;
+  preco_promocional_atual?: number;
   preco_sugerido: number;
   desconto_reais: number;
   desconto_percentual: number;
@@ -543,31 +546,39 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               </div>
             </div>
 
-            {/* Comparativo de Preço: Custo -> Normal -> Sugerido */}
+            {/* Comparativo de Preço: Custo -> Vigente (Promocional/Normal) -> Sugerido */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Preço de Custo */}
+              {/* Preço de Custo Real Unitário */}
               <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  1. Preço de Custo (Base)
+                  1. Preço de Custo Unitário
                 </div>
                 <div className="text-xl font-bold text-slate-700 dark:text-slate-300">
                   {fmt(candidato.preco_custo)}
                 </div>
                 <div className="text-[11px] text-slate-400 mt-1">
-                  Valor pago ao distribuidor
+                  Custo real por unidade/blister
                 </div>
               </div>
 
-              {/* Preço Normal de Venda */}
-              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              {/* Preço de Venda Vigente no Digifarma */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 relative">
+                {candidato.tem_promocao_ativa && (
+                  <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                    Promoção Ativa
+                  </span>
+                )}
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  2. Preço Normal Atual
+                  2. Preço Vigente no Digifarma
                 </div>
-                <div className="text-xl font-bold text-slate-400 line-through">
+                <div className="text-xl font-black text-slate-800 dark:text-white">
                   {fmt(candidato.preco_normal)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  Preço padrão cadastrado
+                <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                  {candidato.preco_tabela && candidato.preco_tabela > candidato.preco_normal && (
+                    <span>Tabela: <span className="line-through">{fmt(candidato.preco_tabela)}</span></span>
+                  )}
+                  <span>(Preço cobrado hoje no PDV)</span>
                 </div>
               </div>
 
@@ -579,14 +590,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   </span>
                 </div>
                 <div className="text-xs font-black text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-1">
-                  3. Sugestão (Custo + Simples)
+                  3. Nova Sugestão (Custo + Simples)
                 </div>
                 <div className="text-2xl font-black text-orange-600 dark:text-orange-400">
                   {fmt(candidato.preco_sugerido)}
                 </div>
                 <div className="text-[11px] font-bold text-orange-700 dark:text-orange-300 mt-1 flex items-center gap-1">
                   <Percent size={12} />
-                  Economia de {fmt(candidato.desconto_reais)} ({candidato.desconto_percentual}% OFF)
+                  Economia de {fmt(candidato.desconto_reais)} ({candidato.desconto_percentual}% abaixo do preço atual)
                 </div>
               </div>
             </div>

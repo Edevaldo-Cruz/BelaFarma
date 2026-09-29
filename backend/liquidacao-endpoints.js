@@ -132,7 +132,7 @@ module.exports = function (db) {
 
   // 2. GET /api/liquidacao/proximo-item
   // Busca o próximo candidato parado há mais de 90 dias para aprovação Um a Um
-  router.get('/proximo-item', (req, res) => {
+  router.get('/proximo-item', async (req, res) => {
     try {
       const campanha = getOrCreateCampanhaAtiva();
 
@@ -187,17 +187,51 @@ module.exports = function (db) {
       }
 
       const pId = Number(itemEscolhido.produto_id);
-      const precoVendaNormal = Number(itemEscolhido.preco_venda) || 0;
-      let precoCusto = Number(itemEscolhido.preco_compra) || 0;
 
-      // Se custo estiver zerado, tenta obter de digifarma_ultimas_compras_cache
+      // Consulta dados ao vivo no Digifarma Firebird para garantir preço promocional atual e CMV unitário
+      let fbData = null;
+      try {
+        const fbRows = await queryDigifarma(
+          'SELECT PRODUTO_ID, PRODUTO, COD_BARRAS, PROD_SALDO, PROD_PRVENDA, PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO, PROD_PRCOMPRA, PROD_CMV, VALOR_ULT_COMPRA FROM PRODUTOS WHERE PRODUTO_ID = ?',
+          [pId],
+          6000
+        );
+        if (fbRows && fbRows.length > 0) {
+          fbData = fbRows[0];
+        }
+      } catch (errFb) {
+        console.warn(`[Liquidação API] Consulta Firebird para produto ${pId} falhou, usando cache SQLite:`, errFb.message);
+      }
+
+      const saldoAtual = fbData ? Number(fbData.PROD_SALDO) : (Number(itemEscolhido.saldo) || 0);
+      const prVendaTabela = fbData ? Number(fbData.PROD_PRVENDA) : (Number(itemEscolhido.preco_venda) || 0);
+      const prPromocionalAtual = fbData ? Number(fbData.PROD_PRPROMOCAO) : 0;
+
+      // Se o produto já estiver em promoção no Digifarma, o preço de venda efetivo é o promocional!
+      const precoVendaVigente = (prPromocionalAtual > 0) ? prPromocionalAtual : prVendaTabela;
+      const temPromocaoAtiva = prPromocionalAtual > 0;
+
+      // Apuração do Preço de Custo Real Unitário (corrige distorções de caixa fechada vs unidade fracionada)
+      let precoCusto = 0;
+      if (fbData && Number(fbData.PROD_CMV) > 0) {
+        precoCusto = Number(fbData.PROD_CMV);
+      } else if (fbData && Number(fbData.VALOR_ULT_COMPRA) > 0) {
+        precoCusto = Number(fbData.VALOR_ULT_COMPRA);
+      }
+
       if (precoCusto <= 0) {
         const uc = db.prepare('SELECT preco_unitario_ult_compra FROM digifarma_ultimas_compras_cache WHERE produto_id = ?').get(pId);
         if (uc && Number(uc.preco_unitario_ult_compra) > 0) {
           precoCusto = Number(uc.preco_unitario_ult_compra);
+        }
+      }
+
+      // Se custo for maior que o preço de venda atual (ex: R$ 62,89 da caixa vs R$ 5,00/8,13 do blister), ajusta para o custo unitário correto
+      if (precoCusto <= 0 || precoCusto >= precoVendaVigente) {
+        if (fbData && Number(fbData.PROD_CMV) > 0 && Number(fbData.PROD_CMV) < precoVendaVigente) {
+          precoCusto = Number(fbData.PROD_CMV);
         } else {
-          // Fallback estimado: 60% do preço de venda
-          precoCusto = Number((precoVendaNormal * 0.60).toFixed(2));
+          precoCusto = Number((precoVendaVigente * 0.60).toFixed(2));
         }
       }
 
@@ -205,18 +239,20 @@ module.exports = function (db) {
       const taxaSimples = 0.07;
       let precoSugerido = roundUpToAcceptedCents(precoCusto * (1 + taxaSimples));
 
-      // Trava de segurança: se custo + 7% for >= preço normal, dá 20% sobre o preço normal
-      if (precoSugerido >= precoVendaNormal) {
-        precoSugerido = roundUpToAcceptedCents(precoVendaNormal * 0.80);
+      // A sugestão deve ser SEMPRE inferior ao preço vigente atual (R$ 5,00) para criar a queima real!
+      if (precoSugerido >= precoVendaVigente) {
+        precoSugerido = roundUpToAcceptedCents(precoVendaVigente * 0.80);
       }
       if (precoSugerido <= 0) {
-        precoSugerido = roundUpToAcceptedCents(precoVendaNormal * 0.70);
+        precoSugerido = roundUpToAcceptedCents(precoVendaVigente * 0.70);
       }
 
-      const descontoReais = Math.max(0, precoVendaNormal - precoSugerido);
-      const descontoPercentual = precoVendaNormal > 0 
-        ? Math.round((descontoReais / precoVendaNormal) * 100) 
+      const descontoReais = Math.max(0, precoVendaVigente - precoSugerido);
+      const descontoPercentual = precoVendaVigente > 0 
+        ? Math.round((descontoReais / precoVendaVigente) * 100) 
         : 0;
+
+      const valorTotalImobilizado = Number((saldoAtual * precoVendaVigente).toFixed(2));
 
       // Datas padrão de vigência (7 dias a partir de hoje)
       const hoje = new Date();
@@ -226,17 +262,20 @@ module.exports = function (db) {
         disponivel: true,
         produto: {
           produto_id: pId,
-          descricao: itemEscolhido.descricao,
+          descricao: (fbData && fbData.PRODUTO) || itemEscolhido.descricao,
           apresentacao: itemEscolhido.apresentacao || '',
-          cod_barras: itemEscolhido.cod_barras || '',
+          cod_barras: (fbData && fbData.COD_BARRAS) || itemEscolhido.cod_barras || '',
           categoria: itemEscolhido.categoria || 'Geral',
-          saldo: Number(itemEscolhido.saldo) || 0,
+          saldo: saldoAtual,
           preco_custo: precoCusto,
-          preco_normal: precoVendaNormal,
+          preco_tabela: prVendaTabela,
+          preco_normal: precoVendaVigente, // Preço vigente atual (5,00)
+          tem_promocao_ativa: temPromocaoAtiva,
+          preco_promocional_atual: prPromocionalAtual,
           preco_sugerido: precoSugerido,
           desconto_reais: descontoReais,
           desconto_percentual: descontoPercentual,
-          valor_total_parado: Number(itemEscolhido.valor_total_parado) || (Number(itemEscolhido.saldo) * precoVendaNormal),
+          valor_total_parado: valorTotalImobilizado,
           dias_parado: itemEscolhido.dias_parado || 90,
           vigencia_padrao: {
             data_inicio: hoje.toISOString().split('T')[0],

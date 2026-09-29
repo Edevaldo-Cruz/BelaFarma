@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3421f6c",
-  "commitMessage": "fix(provisoes): sincronizar simulador rapido do financeiro com o mix real da modal",
-  "buildTime": "29/09/2026, 14:14:57"
+  "commitHash": "ca9cd60",
+  "commitMessage": "feat(liquidacao): adicionar modulo de liquidacao e aceleracao de caixa com sync Digifarma e metas de eliminacao do cheque especial",
+  "buildTime": "29/09/2026, 14:32:26"
 }
