@@ -47,6 +47,7 @@ import {
   Trash2, // Added for Perdas e Avarias
   Thermometer, // Added for Mapa de Temperatura
   TableProperties, // Added for Análise de Reposição / Importador Digifarma
+  Flame, // Added for Liquidação & Aceleração de Caixa
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -303,13 +304,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
     { id: 'system-watcher', label: 'Vigilante', icon: Activity },
     { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp },
+    { id: 'liquidacao-caixa', label: 'Liquidação & Caixa', icon: Flame },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines']; 
+    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

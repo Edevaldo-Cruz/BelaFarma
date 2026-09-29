@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ddcade4",
-  "commitMessage": "feat(provisoes): integrar DESCONTO_ESCALONADO do Digifarma ao calculo de provisoes",
-  "buildTime": "28/09/2026, 17:40:11"
+  "commitHash": "3421f6c",
+  "commitMessage": "fix(provisoes): sincronizar simulador rapido do financeiro com o mix real da modal",
+  "buildTime": "29/09/2026, 14:14:57"
 }

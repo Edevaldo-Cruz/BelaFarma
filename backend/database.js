@@ -2582,6 +2582,51 @@ try {
 
     console.log('✅ Central de Compras: Todas as tabelas e configurações criadas/verificadas com sucesso!');
 
+    // Tabelas do Módulo Liquidação & Aceleração de Caixa (Sair do Cheque Especial)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS liquidacao_campanhas (
+        id TEXT PRIMARY KEY,
+        semana_ano TEXT NOT NULL,
+        data_inicio TEXT NOT NULL,
+        data_fim TEXT NOT NULL,
+        meta_semanal REAL DEFAULT 450.00,
+        total_resgatado REAL DEFAULT 0,
+        status TEXT DEFAULT 'ativa',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS liquidacao_campanhas_itens (
+        id TEXT PRIMARY KEY,
+        campanha_id TEXT,
+        produto_id INTEGER NOT NULL,
+        descricao TEXT NOT NULL,
+        apresentacao TEXT,
+        ean TEXT,
+        categoria TEXT,
+        saldo_estoque REAL DEFAULT 0,
+        preco_custo REAL DEFAULT 0,
+        preco_normal REAL DEFAULT 0,
+        preco_promocional REAL NOT NULL,
+        desconto_percentual REAL DEFAULT 0,
+        data_inicio TEXT NOT NULL,
+        data_termino TEXT NOT NULL,
+        status TEXT DEFAULT 'ativo',
+        sincronizado_digifarma INTEGER DEFAULT 0,
+        aprovado_por TEXT,
+        aprovado_em TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS liquidacao_itens_pulados (
+        produto_id INTEGER PRIMARY KEY,
+        campanha_id TEXT,
+        pulado_em TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_liq_itens_status ON liquidacao_campanhas_itens(status);
+      CREATE INDEX IF NOT EXISTS idx_liq_itens_prod ON liquidacao_campanhas_itens(produto_id);
+    `);
+    console.log('🔥 Módulo Liquidação & Aceleração de Caixa: Tabelas criadas/verificadas com sucesso.');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 

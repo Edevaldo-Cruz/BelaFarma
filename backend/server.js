@@ -4140,6 +4140,10 @@ const pricingEngineEndpoints = require('./pricing-engine-endpoints.js');
 app.use('/api/pricing-engine', pricingEngineEndpoints(db));
 console.log('🤖 Módulo Belinha Pricing Engine (Motor de Precificação Inteligente) inicializado.');
 
+const liquidacaoEndpoints = require('./liquidacao-endpoints.js');
+app.use('/api/liquidacao', liquidacaoEndpoints(db));
+console.log('🔥 Módulo Liquidação & Aceleração de Caixa (Sair do Cheque Especial) inicializado.');
+
 // Rotina agendada diária para simulação do motor fora do horário de pico (03:30 AM)
 const { runPricingEngine } = require('./services/pricing-engine.service');
 let lastPricingCronDate = '';

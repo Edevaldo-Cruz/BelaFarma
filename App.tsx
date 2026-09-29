@@ -66,6 +66,7 @@ import { StartupModalManager, StartupModalItem, StartupModalType } from "./compo
 import { TemperatureMap } from "./components/TemperatureMap";
 import { TemperaturePrintReminderModal } from "./components/TemperaturePrintReminderModal";
 import { AnaliseReposicao } from "./components/AnaliseReposicao";
+import { LiquidacaoCaixa } from "./components/LiquidacaoCaixa";
 
 
 import {
@@ -1450,6 +1451,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager user={user} />
+              )}
+              {currentView === 'liquidacao-caixa' && user.role === UserRole.ADM && (
+                <LiquidacaoCaixa user={user} />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>
