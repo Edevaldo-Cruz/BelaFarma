@@ -201,126 +201,388 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     fetchProximoCandidato(novaCat);
   };
 
-  // Impressão individual da etiqueta do produto atual
-  const imprimirEtiquetaAtual = () => {
-    if (!candidato) return;
-    const printWindow = window.open('', '_blank', 'width=500,height=550');
+  // Impressão individual da etiqueta com medida estrita de 39x39mm
+  interface DadosEtiqueta39 {
+    descricao: string;
+    apresentacao?: string;
+    preco_normal: number;
+    preco_promocional: number;
+    cod_barras?: string;
+    produto_id?: number;
+    data_termino?: string;
+  }
+
+  const imprimirEtiqueta39x39 = (dadosCustom?: DadosEtiqueta39) => {
+    let dados: DadosEtiqueta39;
+
+    if (dadosCustom) {
+      dados = dadosCustom;
+    } else {
+      if (!candidato) return;
+      const valFinal = parseFloat(customPrice.replace(',', '.')) || candidato.preco_sugerido;
+      dados = {
+        descricao: candidato.descricao,
+        apresentacao: candidato.apresentacao,
+        preco_normal: candidato.preco_normal,
+        preco_promocional: valFinal,
+        cod_barras: candidato.cod_barras,
+        produto_id: candidato.produto_id,
+        data_termino: dataTermino || candidato.vigencia_padrao?.data_termino
+      };
+    }
+
+    const printWindow = window.open('', '_blank', 'width=450,height=450');
     if (!printWindow) {
       window.print();
       return;
     }
-    const valFinal = parseFloat(customPrice.replace(',', '.')) || candidato.preco_sugerido;
-    const descPct = candidato.preco_normal > 0 ? Math.round(((candidato.preco_normal - valFinal) / candidato.preco_normal) * 100) : 0;
-    const validadeFormatada = dataTermino ? dataTermino.split('-').reverse().join('/') : '';
+
+    const valNormal = dados.preco_normal || 0;
+    const valPromo = dados.preco_promocional || 0;
+    const descPct = valNormal > 0 ? Math.round(((valNormal - valPromo) / valNormal) * 100) : 0;
+    const validadeFormatada = dados.data_termino ? dados.data_termino.split('-').reverse().join('/') : '';
+    const eanLimpo = dados.cod_barras ? dados.cod_barras.trim() : '';
 
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Etiqueta de Oferta - ${candidato.descricao}</title>
+        <title>Etiqueta 39x39mm - ${dados.descricao}</title>
+        <meta charset="utf-8" />
         <style>
-          @page { size: auto; margin: 10mm; }
-          body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }
-          .tag-card {
-            width: 320px;
-            border: 3px solid #dc2626;
-            border-radius: 14px;
-            padding: 16px;
-            text-align: center;
-            box-sizing: border-box;
+          @page {
+            size: 39mm 39mm;
+            margin: 0mm;
+          }
+          * {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            margin: 0;
+            padding: 0;
+            width: 39mm;
+            height: 39mm;
+            max-width: 39mm;
+            max-height: 39mm;
+            overflow: hidden;
+            font-family: Arial, Helvetica, sans-serif;
             background: #fff;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          }
+          .tag-39mm {
+            width: 39mm;
+            height: 39mm;
+            max-width: 39mm;
+            max-height: 39mm;
+            box-sizing: border-box;
+            padding: 1.2mm 1.2mm 0.8mm 1.2mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border: 0.4mm solid #dc2626;
+            border-radius: 1.2mm;
+            text-align: center;
+            background: #fff;
+            overflow: hidden;
           }
           .tag-header {
             background: #dc2626;
-            color: #fff;
-            padding: 8px 10px;
-            border-radius: 8px;
-            font-size: 13px;
+            color: #ffffff;
+            font-size: 2.1mm;
             font-weight: 900;
+            padding: 0.4mm 0.6mm;
+            border-radius: 0.6mm;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 12px;
+            letter-spacing: 0.2mm;
+            line-height: 1;
           }
           .tag-title {
-            font-size: 15px;
+            font-size: 2.3mm;
             font-weight: 900;
-            color: #111827;
-            line-height: 1.2;
-            margin: 6px 0;
+            color: #0f172a;
+            line-height: 1.15;
+            max-height: 5.5mm;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
             text-transform: uppercase;
-          }
-          .tag-sub {
-            font-size: 11px;
-            font-weight: 600;
-            color: #4b5563;
-            margin-bottom: 8px;
+            margin: 0.3mm 0;
+            word-break: break-word;
           }
           .tag-box {
-            background: #fef2f2;
-            border-radius: 10px;
-            padding: 12px;
-            margin: 12px 0;
-            border: 2px dashed #ef4444;
+            background: #fff1f2;
+            border: 0.3mm dashed #ef4444;
+            border-radius: 1mm;
+            padding: 0.5mm 0.8mm;
+            margin: 0.2mm 0;
           }
           .tag-de {
-            font-size: 13px;
-            color: #6b7280;
+            font-size: 1.9mm;
+            color: #64748b;
             text-decoration: line-through;
-            font-weight: bold;
+            font-weight: 700;
+            line-height: 1;
+          }
+          .tag-por-container {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 0.6mm;
+            margin-top: 0.2mm;
+            line-height: 1;
           }
           .tag-por-label {
-            font-size: 11px;
+            font-size: 2mm;
             font-weight: 900;
             color: #dc2626;
-            text-transform: uppercase;
-            margin-top: 4px;
           }
-          .tag-por {
-            font-size: 36px;
+          .tag-por-val {
+            font-size: 5mm;
             font-weight: 900;
             color: #dc2626;
+            letter-spacing: -0.2mm;
             line-height: 1;
-            margin: 4px 0;
-          }
-          .tag-badge {
-            display: inline-block;
-            background: #f59e0b;
-            color: #111827;
-            font-weight: 900;
-            font-size: 12px;
-            padding: 3px 10px;
-            border-radius: 6px;
-            margin-top: 4px;
           }
           .tag-footer {
-            border-top: 1px solid #e5e7eb;
-            padding-top: 10px;
-            font-size: 10px;
-            color: #6b7280;
             display: flex;
             justify-content: space-between;
-            font-weight: bold;
+            align-items: center;
+            border-top: 0.2mm solid #e2e8f0;
+            padding-top: 0.4mm;
+            font-size: 1.7mm;
+            font-weight: 800;
+            color: #475569;
+            line-height: 1;
+          }
+          .tag-badge {
+            background: #f59e0b;
+            color: #000;
+            padding: 0.2mm 0.6mm;
+            border-radius: 0.5mm;
+            font-size: 1.8mm;
+            font-weight: 900;
+          }
+          .tag-ean {
+            font-size: 1.5mm;
+            font-family: monospace;
+            color: #94a3b8;
+            line-height: 1;
+            margin-top: 0.2mm;
+            white-space: nowrap;
+            overflow: hidden;
           }
         </style>
       </head>
       <body>
-        <div class="tag-card">
-          <div class="tag-header">🔥 OFERTA RELÂMPAGO 🔥</div>
-          <div class="tag-title">${candidato.descricao}</div>
-          ${candidato.apresentacao ? `<div class="tag-sub">${candidato.apresentacao}</div>` : ''}
+        <div class="tag-39mm">
+          <div class="tag-header">BELAFARMA OFERTA</div>
+          <div class="tag-title">${dados.descricao}${dados.apresentacao ? ' ' + dados.apresentacao : ''}</div>
           <div class="tag-box">
-            <div class="tag-de">DE: R$ ${candidato.preco_normal.toFixed(2).replace('.', ',')}</div>
-            <div class="tag-por-label">POR APENAS</div>
-            <div class="tag-por">R$ ${valFinal.toFixed(2).replace('.', ',')}</div>
-            ${descPct > 0 ? `<div class="tag-badge">${descPct}% DE DESCONTO</div>` : ''}
+            <div class="tag-de">DE: R$ ${valNormal.toFixed(2).replace('.', ',')}</div>
+            <div class="tag-por-container">
+              <span class="tag-por-label">POR:</span>
+              <span class="tag-por-val">R$ ${valPromo.toFixed(2).replace('.', ',')}</span>
+            </div>
           </div>
           <div class="tag-footer">
-            <span>DROGARIA BELAFARMA</span>
-            <span>VÁLIDO ATÉ: ${validadeFormatada}</span>
+            ${descPct > 0 ? `<span class="tag-badge">${descPct}% OFF</span>` : '<span>OFERTA</span>'}
+            <span>ATÉ ${validadeFormatada}</span>
           </div>
-          ${candidato.cod_barras ? `<div style="font-size: 9px; color: #9ca3af; margin-top: 6px; font-family: monospace;">EAN: ${candidato.cod_barras} | CÓD: ${candidato.produto_id}</div>` : ''}
+          ${eanLimpo ? `<div class="tag-ean">EAN: ${eanLimpo} | CÓD: ${dados.produto_id || ''}</div>` : ''}
         </div>
+        <script>
+          window.onload = function() { window.print(); };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // Impressão em lote de todas as etiquetas com medida estrita de 39x39mm
+  const imprimirLote39x39 = (itens: ItemAtivo[]) => {
+    if (!itens || itens.length === 0) return;
+
+    const printWindow = window.open('', '_blank', 'width=500,height=600');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+
+    const tagsHtml = itens.map(item => {
+      const valNormal = item.preco_normal || 0;
+      const valPromo = item.preco_promocional || 0;
+      const descPct = item.desconto_percentual || (valNormal > 0 ? Math.round(((valNormal - valPromo) / valNormal) * 100) : 0);
+      const validadeFormatada = item.data_termino ? item.data_termino.split('-').reverse().join('/') : '';
+      const eanLimpo = item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '');
+
+      return `
+        <div class="tag-page">
+          <div class="tag-39mm">
+            <div class="tag-header">BELAFARMA OFERTA</div>
+            <div class="tag-title">${item.descricao}${item.apresentacao ? ' ' + item.apresentacao : ''}</div>
+            <div class="tag-box">
+              <div class="tag-de">DE: R$ ${valNormal.toFixed(2).replace('.', ',')}</div>
+              <div class="tag-por-container">
+                <span class="tag-por-label">POR:</span>
+                <span class="tag-por-val">R$ ${valPromo.toFixed(2).replace('.', ',')}</span>
+              </div>
+            </div>
+            <div class="tag-footer">
+              ${descPct > 0 ? `<span class="tag-badge">${descPct}% OFF</span>` : '<span>OFERTA</span>'}
+              <span>ATÉ ${validadeFormatada}</span>
+            </div>
+            ${eanLimpo ? `<div class="tag-ean">EAN: ${eanLimpo} | CÓD: ${item.produto_id || ''}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Etiquetas 39x39mm (${itens.length} itens) - BelaFarma</title>
+        <meta charset="utf-8" />
+        <style>
+          @page {
+            size: 39mm 39mm;
+            margin: 0mm;
+          }
+          * {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            font-family: Arial, Helvetica, sans-serif;
+          }
+          .tag-page {
+            width: 39mm;
+            height: 39mm;
+            max-width: 39mm;
+            max-height: 39mm;
+            overflow: hidden;
+            page-break-after: always;
+            break-after: page;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .tag-39mm {
+            width: 39mm;
+            height: 39mm;
+            max-width: 39mm;
+            max-height: 39mm;
+            box-sizing: border-box;
+            padding: 1.2mm 1.2mm 0.8mm 1.2mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border: 0.4mm solid #dc2626;
+            border-radius: 1.2mm;
+            text-align: center;
+            background: #fff;
+            overflow: hidden;
+          }
+          .tag-header {
+            background: #dc2626;
+            color: #ffffff;
+            font-size: 2.1mm;
+            font-weight: 900;
+            padding: 0.4mm 0.6mm;
+            border-radius: 0.6mm;
+            text-transform: uppercase;
+            letter-spacing: 0.2mm;
+            line-height: 1;
+          }
+          .tag-title {
+            font-size: 2.3mm;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.15;
+            max-height: 5.5mm;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            text-transform: uppercase;
+            margin: 0.3mm 0;
+            word-break: break-word;
+          }
+          .tag-box {
+            background: #fff1f2;
+            border: 0.3mm dashed #ef4444;
+            border-radius: 1mm;
+            padding: 0.5mm 0.8mm;
+            margin: 0.2mm 0;
+          }
+          .tag-de {
+            font-size: 1.9mm;
+            color: #64748b;
+            text-decoration: line-through;
+            font-weight: 700;
+            line-height: 1;
+          }
+          .tag-por-container {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 0.6mm;
+            margin-top: 0.2mm;
+            line-height: 1;
+          }
+          .tag-por-label {
+            font-size: 2mm;
+            font-weight: 900;
+            color: #dc2626;
+          }
+          .tag-por-val {
+            font-size: 5mm;
+            font-weight: 900;
+            color: #dc2626;
+            letter-spacing: -0.2mm;
+            line-height: 1;
+          }
+          .tag-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 0.2mm solid #e2e8f0;
+            padding-top: 0.4mm;
+            font-size: 1.7mm;
+            font-weight: 800;
+            color: #475569;
+            line-height: 1;
+          }
+          .tag-badge {
+            background: #f59e0b;
+            color: #000;
+            padding: 0.2mm 0.6mm;
+            border-radius: 0.5mm;
+            font-size: 1.8mm;
+            font-weight: 900;
+          }
+          .tag-ean {
+            font-size: 1.5mm;
+            font-family: monospace;
+            color: #94a3b8;
+            line-height: 1;
+            margin-top: 0.2mm;
+            white-space: nowrap;
+            overflow: hidden;
+          }
+        </style>
+      </head>
+      <body>
+        ${tagsHtml}
         <script>
           window.onload = function() { window.print(); };
         </script>
@@ -888,7 +1150,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               </div>
             </div>
 
-            {/* ─── PRÉ-VISUALIZAÇÃO DA ETIQUETA DE OFERTA / GÔNDOLA ─── */}
+            {/* ─── PRÉ-VISUALIZAÇÃO DA ETIQUETA DE OFERTA / GÔNDOLA (39x39mm) ─── */}
             <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -897,13 +1159,13 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   </div>
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                      Etiqueta de Preço de Gôndola / Balcão
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                        Ao Vivo
+                      Etiqueta de Gôndola (39mm × 39mm)
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300">
+                        Medida Exata 39×39mm
                       </span>
                     </h4>
                     <p className="text-[11px] text-slate-500">
-                      Veja em tempo real como a etiqueta de oferta física será impressa para colar na prateleira ou produto.
+                      Formato calibrado rigorosamente para 39×39mm, não ultrapassa o limite da etiqueta de prateleira.
                     </p>
                   </div>
                 </div>
@@ -920,62 +1182,68 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
                   <button
                     type="button"
-                    onClick={imprimirEtiquetaAtual}
+                    onClick={() => imprimirEtiqueta39x39()}
                     className="px-4 py-1.5 rounded-xl text-xs font-black bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
                   >
                     <Printer size={13} />
-                    Imprimir Esta Etiqueta
+                    Imprimir Etiqueta (39x39mm)
                   </button>
                 </div>
               </div>
 
               {mostrarEtiqueta && (
-                <div className="flex justify-center p-4 bg-slate-200/60 dark:bg-slate-950 rounded-2xl">
-                  {/* Cartão de Etiqueta Física */}
-                  <div className="w-full max-w-sm bg-white text-slate-900 border-2 border-red-600 rounded-2xl shadow-xl p-5 text-center flex flex-col justify-between relative overflow-hidden transition-all duration-200">
-                    <div className="bg-red-600 text-white py-1 px-3 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 mb-3">
-                      <Flame size={14} className="fill-white animate-pulse" />
-                      OFERTA RELÂMPAGO BELAFARMA
+                <div className="flex flex-col items-center justify-center p-6 bg-slate-200/60 dark:bg-slate-950 rounded-2xl gap-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>📏 Pré-visualização da Etiqueta Física (39mm × 39mm):</span>
+                  </div>
+
+                  {/* Cartão de Etiqueta Física 39x39mm (Proporção Exata 1:1) */}
+                  <div 
+                    style={{ width: '156px', height: '156px' }}
+                    className="bg-white text-slate-900 border-2 border-red-600 rounded-lg shadow-xl p-2 text-center flex flex-col justify-between overflow-hidden select-none"
+                  >
+                    <div className="bg-red-600 text-white py-0.5 px-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
+                      <Flame size={10} className="fill-white" />
+                      BELAFARMA OFERTA
                     </div>
 
-                    <div className="space-y-1 mb-3">
-                      <h3 className="text-base font-black uppercase leading-tight line-clamp-2 text-slate-900">
+                    <div className="my-0.5">
+                      <h3 className="text-[9px] font-black uppercase leading-tight line-clamp-2 text-slate-900">
                         {candidato.descricao}
                       </h3>
                       {candidato.apresentacao && (
-                        <p className="text-xs font-semibold text-slate-500">
+                        <p className="text-[7.5px] font-semibold text-slate-500 line-clamp-1">
                           {candidato.apresentacao}
                         </p>
                       )}
                     </div>
 
-                    <div className="bg-red-50/90 border border-red-200 rounded-xl p-3 my-2 space-y-1">
-                      <div className="text-xs font-bold text-slate-400 line-through">
+                    <div className="bg-red-50/90 border border-dashed border-red-300 rounded p-1 my-0.5">
+                      <div className="text-[8px] font-bold text-slate-400 line-through leading-tight">
                         DE: {fmt(candidato.preco_normal)}
                       </div>
-                      <div className="text-[10px] font-black uppercase text-red-600 tracking-wider">
-                        POR APENAS:
+                      <div className="flex items-baseline justify-center gap-1 leading-tight">
+                        <span className="text-[8px] font-black text-red-600 uppercase">POR:</span>
+                        <span className="text-[17px] font-black text-red-600 tracking-tight">
+                          {fmt(parsedPrice || candidato.preco_sugerido)}
+                        </span>
                       </div>
-                      <div className="text-3xl font-black text-red-600 tracking-tight">
-                        {fmt(parsedPrice || candidato.preco_sugerido)}
-                      </div>
-                      {currentDiscountPercent > 0 && (
-                        <div className="inline-block bg-amber-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-md mt-1">
-                          ECONOMIZE {fmt(currentDiscountReais)} ({currentDiscountPercent}% OFF)
-                        </div>
-                      )}
                     </div>
 
-                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] font-bold text-slate-500">
-                      <span>DROGARIA BELAFARMA</span>
+                    <div className="pt-1 border-t border-slate-200 flex items-center justify-between text-[7.5px] font-bold text-slate-500 leading-tight">
+                      {currentDiscountPercent > 0 ? (
+                        <span className="bg-amber-400 text-slate-950 px-1 rounded font-black text-[7.5px]">
+                          {currentDiscountPercent}% OFF
+                        </span>
+                      ) : (
+                        <span>OFERTA</span>
+                      )}
                       <span>ATÉ {dataTermino ? dataTermino.split('-').reverse().join('/') : '-'}</span>
                     </div>
 
                     {candidato.cod_barras && (
-                      <div className="mt-2 text-[9px] font-mono text-slate-400 flex items-center justify-center gap-2">
-                        <span>EAN: {candidato.cod_barras}</span>
-                        <span>•</span>
-                        <span>CÓD: #{candidato.produto_id}</span>
+                      <div className="text-[6.5px] font-mono text-slate-400 truncate mt-0.5">
+                        EAN: {candidato.cod_barras} | ID: {candidato.produto_id}
                       </div>
                     )}
                   </div>
@@ -1067,7 +1335,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   <th className="pb-3 text-right">Desconto</th>
                   <th className="pb-3 text-center">Válido até</th>
                   <th className="pb-3 text-center">Digifarma</th>
-                  <th className="pb-3 text-center">Ações</th>
+                  <th className="pb-3 text-center">Desfazer Preço / Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
@@ -1104,18 +1372,42 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                       </span>
                     </td>
                     <td className="py-3 text-center">
-                      <button
-                        onClick={() => handleReverter(item)}
-                        disabled={revertingId === item.id}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                        title="Encerrar promoção e voltar ao preço original"
-                      >
-                        {revertingId === item.id ? (
-                          <Loader2 size={14} className="animate-spin text-red-600" />
-                        ) : (
-                          <X size={14} />
-                        )}
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleReverter(item)}
+                          disabled={revertingId === item.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-all active:scale-95 cursor-pointer shadow-sm disabled:opacity-50"
+                          title="Desfazer alteração e voltar ao preço original no Digifarma"
+                        >
+                          {revertingId === item.id ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin text-red-600" />
+                              <span>Desfazendo...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RotateCcw size={13} />
+                              <span>Desfazer Preço</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => imprimirEtiqueta39x39({
+                            descricao: item.descricao,
+                            apresentacao: item.apresentacao,
+                            preco_normal: item.preco_normal,
+                            preco_promocional: item.preco_promocional,
+                            cod_barras: item.ean || item.cod_barras,
+                            produto_id: item.produto_id,
+                            data_termino: item.data_termino
+                          })}
+                          className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm cursor-pointer"
+                          title="Imprimir Etiqueta 39x39mm deste item"
+                        >
+                          <Printer size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1140,10 +1432,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* ─── MODAL DE IMPRESSÃO DE ETIQUETAS DE OFERTA RELÂMPAGO ─── */}
+      {/* ─── MODAL DE IMPRESSÃO DE ETIQUETAS DE GÔNDOLA (39x39mm) ─── */}
       {showPrintModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-5xl max-h-[90vh] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -1151,76 +1443,106 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   <Flame size={20} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                    Etiquetas de Oferta Relâmpago ({itensAtivos.length} itens)
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    Etiquetas de Gôndola (39mm × 39mm)
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300">
+                      Medida Estrita 39×39mm
+                    </span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Visualização pronta para impressão em papel comum A4 ou folhas adesivas.
+                    {itensAtivos.length} etiqueta(s) calibrada(s) exatamente para 39×39mm. Não ultrapassa a prateleira.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => window.print()}
+                  onClick={() => imprimirLote39x39(itensAtivos)}
                   className="px-5 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
                 >
                   <Printer size={15} />
-                  Imprimir Agora
+                  Imprimir Todas (39x39mm)
                 </button>
                 <button
                   onClick={() => setShowPrintModal(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   <X size={20} />
                 </button>
               </div>
             </div>
 
-            {/* Modal Body: Pré-visualização da folha de etiquetas */}
+            {/* Modal Body: Pré-visualização das etiquetas 39x39mm */}
             <div className="flex-1 overflow-y-auto p-6 bg-slate-100 dark:bg-slate-950">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 print:grid-cols-3 print:gap-3">
-                {itensAtivos.map((item) => (
-                  <div 
-                    key={item.id}
-                    className="p-4 rounded-2xl border-2 border-dashed border-red-500 bg-white text-slate-900 shadow-sm flex flex-col justify-between space-y-3"
-                  >
-                    <div className="flex items-center justify-between border-b border-red-100 pb-2">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-red-600 flex items-center gap-1">
-                        <Flame size={12} className="fill-red-600" />
-                        Oferta Relâmpago
-                      </span>
-                      <span className="text-[9px] font-bold bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-mono">
-                        {item.desconto_percentual}% OFF
-                      </span>
-                    </div>
+              <div className="flex flex-wrap gap-4 items-center justify-center">
+                {itensAtivos.map((item) => {
+                  const eanLimpo = item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '');
+                  return (
+                    <div 
+                      key={item.id}
+                      style={{ width: '160px', height: '160px' }}
+                      className="bg-white text-slate-900 border-2 border-red-600 rounded-lg shadow-md p-2 text-center flex flex-col justify-between overflow-hidden select-none relative group"
+                    >
+                      <div className="bg-red-600 text-white py-0.5 px-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
+                        <Flame size={9} className="fill-white" />
+                        BELAFARMA OFERTA
+                      </div>
 
-                    <div>
-                      <h4 className="text-xs font-black line-clamp-2 leading-tight uppercase">
-                        {item.descricao}
-                      </h4>
-                      {item.apresentacao && (
-                        <p className="text-[10px] text-slate-500 font-semibold line-clamp-1 mt-0.5">
-                          {item.apresentacao}
-                        </p>
+                      <div className="my-0.5">
+                        <h4 className="text-[9px] font-black uppercase leading-tight line-clamp-2 text-slate-900">
+                          {item.descricao}
+                        </h4>
+                        {item.apresentacao && (
+                          <p className="text-[7.5px] font-semibold text-slate-500 line-clamp-1">
+                            {item.apresentacao}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="bg-red-50/90 border border-dashed border-red-300 rounded p-1 my-0.5">
+                        <div className="text-[8px] font-bold text-slate-400 line-through leading-tight">
+                          DE: {fmt(item.preco_normal)}
+                        </div>
+                        <div className="flex items-baseline justify-center gap-1 leading-tight">
+                          <span className="text-[8px] font-black text-red-600 uppercase">POR:</span>
+                          <span className="text-[16px] font-black text-red-600 tracking-tight">
+                            {fmt(item.preco_promocional)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-1 border-t border-slate-200 flex items-center justify-between text-[7.5px] font-bold text-slate-500 leading-tight">
+                        <span className="bg-amber-400 text-slate-950 px-1 rounded font-black text-[7.5px]">
+                          {item.desconto_percentual}% OFF
+                        </span>
+                        <span>ATÉ {item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
+                      </div>
+
+                      {eanLimpo && (
+                        <div className="text-[6.5px] font-mono text-slate-400 truncate mt-0.5">
+                          EAN: {eanLimpo} | ID: {item.produto_id}
+                        </div>
                       )}
-                    </div>
 
-                    <div className="bg-red-50 p-2.5 rounded-xl text-center space-y-0.5">
-                      <div className="text-[10px] text-slate-400 line-through font-bold">
-                        De: {fmt(item.preco_normal)}
-                      </div>
-                      <div className="text-xl font-black text-red-600 leading-tight">
-                        {fmt(item.preco_promocional)}
-                      </div>
+                      {/* Botão de impressão unitária no hover */}
+                      <button
+                        onClick={() => imprimirEtiqueta39x39({
+                          descricao: item.descricao,
+                          apresentacao: item.apresentacao,
+                          preco_normal: item.preco_normal,
+                          preco_promocional: item.preco_promocional,
+                          cod_barras: eanLimpo,
+                          produto_id: item.produto_id,
+                          data_termino: item.data_termino
+                        })}
+                        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-white/90 hover:bg-white text-slate-700 p-1 rounded shadow transition-opacity"
+                        title="Imprimir somente esta etiqueta 39x39mm"
+                      >
+                        <Printer size={12} />
+                      </button>
                     </div>
-
-                    <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 border-t border-slate-100 pt-2">
-                      <span>BelaFarma</span>
-                      <span>Válido até: {item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

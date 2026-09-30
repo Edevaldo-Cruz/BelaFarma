@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0bab1e7",
-  "commitMessage": "fix(liquidacao): considerar preco promocional ativo do Digifarma e corrigir custo unitario fracionado",
-  "buildTime": "29/09/2026, 18:46:31"
+  "commitHash": "951d6a8",
+  "commitMessage": "feat(liquidacao): trava compras >90d, filtro categoria, sem limite semanal, validade mes seguinte e preview etiqueta",
+  "buildTime": "30/09/2026, 13:49:23"
 }
