@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "951d6a8",
-  "commitMessage": "feat(liquidacao): trava compras >90d, filtro categoria, sem limite semanal, validade mes seguinte e preview etiqueta",
-  "buildTime": "30/09/2026, 13:49:23"
+  "commitHash": "8b3dd91",
+  "commitMessage": "feat(liquidacao): adicionar botao desfazer preco e estrita calibracao de etiqueta 39x39mm",
+  "buildTime": "30/09/2026, 13:58:07"
 }

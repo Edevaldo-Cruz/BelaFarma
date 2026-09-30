@@ -133,8 +133,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [customPrice, setCustomPrice] = useState<string>('');
   const [dataTermino, setDataTermino] = useState<string>('');
 
-  // Modais de aceleração
+  // Modais e opções de impressão
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [modoImpressao, setModoImpressao] = useState<'tabela_a4' | 'termica'>('tabela_a4');
+  const [tipoQtdImpressao, setTipoQtdImpressao] = useState<'preencher' | '1' | '2' | '3'>('preencher');
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
   const [loadingWhatsapp, setLoadingWhatsapp] = useState(false);
 
@@ -402,8 +404,289 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     printWindow.document.close();
   };
 
-  // Impressão em lote de todas as etiquetas com medida estrita de 39x39mm
-  const imprimirLote39x39 = (itens: ItemAtivo[]) => {
+  // Gera o HTML interno de uma etiqueta 39x39mm
+  const gerarTagHtml = (item: ItemAtivo) => {
+    const valNormal = item.preco_normal || 0;
+    const valPromo = item.preco_promocional || 0;
+    const descPct = item.desconto_percentual || (valNormal > 0 ? Math.round(((valNormal - valPromo) / valNormal) * 100) : 0);
+    const validadeFormatada = item.data_termino ? item.data_termino.split('-').reverse().join('/') : '';
+    const eanLimpo = item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '');
+
+    return `
+      <div class="tag-39mm">
+        <div class="tag-header">BELAFARMA OFERTA</div>
+        <div class="tag-title">${item.descricao}${item.apresentacao ? ' ' + item.apresentacao : ''}</div>
+        <div class="tag-box">
+          <div class="tag-de">DE: R$ ${valNormal.toFixed(2).replace('.', ',')}</div>
+          <div class="tag-por-container">
+            <span class="tag-por-label">POR:</span>
+            <span class="tag-por-val">R$ ${valPromo.toFixed(2).replace('.', ',')}</span>
+          </div>
+        </div>
+        <div class="tag-footer">
+          ${descPct > 0 ? `<span class="tag-badge">${descPct}% OFF</span>` : '<span>OFERTA</span>'}
+          <span>ATÉ ${validadeFormatada}</span>
+        </div>
+        ${eanLimpo ? `<div class="tag-ean">EAN: ${eanLimpo} | CÓD: ${item.produto_id || ''}</div>` : ''}
+      </div>
+    `;
+  };
+
+  // Helper para gerar lista de etiquetas conforme quantidade escolhida
+  const expandirItensPorQtd = (itens: ItemAtivo[], modoQtd: 'preencher' | '1' | '2' | '3') => {
+    if (!itens || itens.length === 0) return [];
+    if (modoQtd === '1') return [...itens];
+    if (modoQtd === '2') return itens.flatMap(it => [it, it]);
+    if (modoQtd === '3') return itens.flatMap(it => [it, it, it]);
+    
+    // 'preencher': preenche múltiplos exatos de 35 (folha A4 completa 5x7)
+    const porFolha = 35;
+    const totalFolhas = Math.max(1, Math.ceil(itens.length / porFolha));
+    const totalDesejado = totalFolhas * porFolha;
+    const resultado: ItemAtivo[] = [];
+    let i = 0;
+    while (resultado.length < totalDesejado) {
+      resultado.push(itens[i % itens.length]);
+      i++;
+    }
+    return resultado;
+  };
+
+  // Impressão em Folha A4 em formato de TABELA com até 35 etiquetas de 39x39mm por folha
+  const imprimirTabelaFolhaA4 = (itensOriginais: ItemAtivo[], modoQtd: 'preencher' | '1' | '2' | '3') => {
+    if (!itensOriginais || itensOriginais.length === 0) return;
+
+    const printWindow = window.open('', '_blank', 'width=950,height=950');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+
+    const listaFinal = expandirItensPorQtd(itensOriginais, modoQtd);
+    const itensPorFolha = 35; // 5 colunas x 7 linhas
+    const totalFolhas = Math.ceil(listaFinal.length / itensPorFolha);
+    const folhasHtml: string[] = [];
+
+    for (let f = 0; f < totalFolhas; f++) {
+      const itensDestaFolha = listaFinal.slice(f * itensPorFolha, (f + 1) * itensPorFolha);
+      let trsHtml = '';
+
+      for (let r = 0; r < 7; r++) {
+        let tdsHtml = '';
+        for (let c = 0; c < 5; c++) {
+          const idx = r * 5 + c;
+          const item = itensDestaFolha[idx];
+          if (item) {
+            tdsHtml += `<td class="celula-39mm">${gerarTagHtml(item)}</td>`;
+          } else {
+            tdsHtml += `<td class="celula-39mm celula-vazia"><div class="vazia-guia">39×39mm</div></td>`;
+          }
+        }
+        trsHtml += `<tr class="linha-39mm">${tdsHtml}</tr>`;
+      }
+
+      folhasHtml.push(`
+        <div class="folha-a4">
+          <table class="tabela-folha">
+            <tbody>
+              ${trsHtml}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Tabela de Etiquetas 39x39mm (Folha A4) - BelaFarma</title>
+        <meta charset="utf-8" />
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 12mm 7.5mm 12mm 7.5mm;
+          }
+          * {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            font-family: Arial, Helvetica, sans-serif;
+          }
+          .folha-a4 {
+            width: 195mm;
+            height: 273mm;
+            max-width: 195mm;
+            max-height: 273mm;
+            margin: 0 auto;
+            page-break-after: always;
+            break-after: page;
+            box-sizing: border-box;
+            overflow: hidden;
+          }
+          .folha-a4:last-child {
+            page-break-after: avoid;
+            break-after: avoid;
+          }
+          .tabela-folha {
+            width: 195mm;
+            height: 273mm;
+            border-collapse: collapse;
+            table-layout: fixed;
+            margin: 0;
+            padding: 0;
+          }
+          .linha-39mm {
+            height: 39mm;
+            max-height: 39mm;
+          }
+          .celula-39mm {
+            width: 39mm;
+            height: 39mm;
+            max-width: 39mm;
+            max-height: 39mm;
+            min-width: 39mm;
+            min-height: 39mm;
+            box-sizing: border-box;
+            padding: 0.5mm;
+            vertical-align: middle;
+            border: 0.15mm dashed #94a3b8;
+          }
+          .celula-vazia {
+            border: 0.15mm dashed #e2e8f0;
+            background: #f8fafc;
+            text-align: center;
+          }
+          .vazia-guia {
+            font-size: 1.5mm;
+            color: #cbd5e1;
+            font-family: monospace;
+          }
+          .tag-39mm {
+            width: 38mm;
+            height: 38mm;
+            max-width: 38mm;
+            max-height: 38mm;
+            box-sizing: border-box;
+            padding: 0.9mm 0.9mm 0.6mm 0.9mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border: 0.35mm solid #dc2626;
+            border-radius: 0.9mm;
+            text-align: center;
+            background: #fff;
+            overflow: hidden;
+            margin: 0 auto;
+          }
+          .tag-header {
+            background: #dc2626;
+            color: #ffffff;
+            font-size: 2mm;
+            font-weight: 900;
+            padding: 0.3mm 0.5mm;
+            border-radius: 0.4mm;
+            text-transform: uppercase;
+            letter-spacing: 0.15mm;
+            line-height: 1;
+          }
+          .tag-title {
+            font-size: 2.1mm;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.12;
+            max-height: 5.2mm;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            text-transform: uppercase;
+            margin: 0.2mm 0;
+            word-break: break-word;
+          }
+          .tag-box {
+            background: #fff1f2;
+            border: 0.25mm dashed #ef4444;
+            border-radius: 0.8mm;
+            padding: 0.4mm 0.6mm;
+            margin: 0.1mm 0;
+          }
+          .tag-de {
+            font-size: 1.8mm;
+            color: #64748b;
+            text-decoration: line-through;
+            font-weight: 700;
+            line-height: 1;
+          }
+          .tag-por-container {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 0.5mm;
+            margin-top: 0.15mm;
+            line-height: 1;
+          }
+          .tag-por-label {
+            font-size: 1.9mm;
+            font-weight: 900;
+            color: #dc2626;
+          }
+          .tag-por-val {
+            font-size: 4.6mm;
+            font-weight: 900;
+            color: #dc2626;
+            letter-spacing: -0.2mm;
+            line-height: 1;
+          }
+          .tag-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 0.2mm solid #e2e8f0;
+            padding-top: 0.3mm;
+            font-size: 1.6mm;
+            font-weight: 800;
+            color: #475569;
+            line-height: 1;
+          }
+          .tag-badge {
+            background: #f59e0b;
+            color: #000;
+            padding: 0.15mm 0.5mm;
+            border-radius: 0.4mm;
+            font-size: 1.7mm;
+            font-weight: 900;
+          }
+          .tag-ean {
+            font-size: 1.4mm;
+            font-family: monospace;
+            color: #94a3b8;
+            line-height: 1;
+            margin-top: 0.15mm;
+            white-space: nowrap;
+            overflow: hidden;
+          }
+        </style>
+      </head>
+      <body>
+        ${folhasHtml.join('')}
+        <script>
+          window.onload = function() { window.print(); };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // Impressão em rolo térmico (1 por página 39x39mm)
+  const imprimirLoteTermica = (itens: ItemAtivo[]) => {
     if (!itens || itens.length === 0) return;
 
     const printWindow = window.open('', '_blank', 'width=500,height=600');
@@ -413,30 +696,9 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
 
     const tagsHtml = itens.map(item => {
-      const valNormal = item.preco_normal || 0;
-      const valPromo = item.preco_promocional || 0;
-      const descPct = item.desconto_percentual || (valNormal > 0 ? Math.round(((valNormal - valPromo) / valNormal) * 100) : 0);
-      const validadeFormatada = item.data_termino ? item.data_termino.split('-').reverse().join('/') : '';
-      const eanLimpo = item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '');
-
       return `
         <div class="tag-page">
-          <div class="tag-39mm">
-            <div class="tag-header">BELAFARMA OFERTA</div>
-            <div class="tag-title">${item.descricao}${item.apresentacao ? ' ' + item.apresentacao : ''}</div>
-            <div class="tag-box">
-              <div class="tag-de">DE: R$ ${valNormal.toFixed(2).replace('.', ',')}</div>
-              <div class="tag-por-container">
-                <span class="tag-por-label">POR:</span>
-                <span class="tag-por-val">R$ ${valPromo.toFixed(2).replace('.', ',')}</span>
-              </div>
-            </div>
-            <div class="tag-footer">
-              ${descPct > 0 ? `<span class="tag-badge">${descPct}% OFF</span>` : '<span>OFERTA</span>'}
-              <span>ATÉ ${validadeFormatada}</span>
-            </div>
-            ${eanLimpo ? `<div class="tag-ean">EAN: ${eanLimpo} | CÓD: ${item.produto_id || ''}</div>` : ''}
-          </div>
+          ${gerarTagHtml(item)}
         </div>
       `;
     }).join('');
@@ -1432,122 +1694,317 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* ─── MODAL DE IMPRESSÃO DE ETIQUETAS DE GÔNDOLA (39x39mm) ─── */}
-      {showPrintModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-5xl max-h-[90vh] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-950/60 text-orange-600">
-                  <Flame size={20} />
+      {/* ─── MODAL DE IMPRESSÃO: TABELA EM FOLHA A4 (35 POR FOLHA) & ROLO TÉRMICO ─── */}
+      {showPrintModal && (() => {
+        const listaParaImprimir = expandirItensPorQtd(itensAtivos, tipoQtdImpressao);
+        const totalPorFolha = 35;
+        const totalFolhasA4 = Math.max(1, Math.ceil(listaParaImprimir.length / totalPorFolha));
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-6xl max-h-[94vh] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Modal Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-orange-100 dark:bg-orange-950/60 text-orange-600">
+                    <Flame size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      Impressão de Etiquetas (39mm × 39mm)
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                        {modoImpressao === 'tabela_a4' ? 'Tabela: 35 por Folha A4' : 'Rolo Térmico'}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {modoImpressao === 'tabela_a4'
+                        ? 'Agrupa o máximo de etiquetas na mesma folha: 5 colunas × 7 linhas = 35 etiquetas de 39×39mm com linhas de corte.'
+                        : 'Formato contínuo de 1 etiqueta por página para impressoras térmicas (Argox, Zebra, Elgin).'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    Etiquetas de Gôndola (39mm × 39mm)
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300">
-                      Medida Estrita 39×39mm
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    {itensAtivos.length} etiqueta(s) calibrada(s) exatamente para 39×39mm. Não ultrapassa a prateleira.
-                  </p>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    onClick={() => {
+                      if (modoImpressao === 'tabela_a4') {
+                        imprimirTabelaFolhaA4(itensAtivos, tipoQtdImpressao);
+                      } else {
+                        imprimirLoteTermica(listaParaImprimir);
+                      }
+                    }}
+                    className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Printer size={16} />
+                    {modoImpressao === 'tabela_a4' 
+                      ? `Imprimir Tabela Folha A4 (${listaParaImprimir.length} etiquetas)` 
+                      : `Imprimir Rolo Térmico (${listaParaImprimir.length} etiquetas)`}
+                  </button>
+                  <button
+                    onClick={() => setShowPrintModal(false)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <X size={20} />
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => imprimirLote39x39(itensAtivos)}
-                  className="px-5 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
-                >
-                  <Printer size={15} />
-                  Imprimir Todas (39x39mm)
-                </button>
-                <button
-                  onClick={() => setShowPrintModal(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body: Pré-visualização das etiquetas 39x39mm */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-100 dark:bg-slate-950">
-              <div className="flex flex-wrap gap-4 items-center justify-center">
-                {itensAtivos.map((item) => {
-                  const eanLimpo = item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '');
-                  return (
-                    <div 
-                      key={item.id}
-                      style={{ width: '160px', height: '160px' }}
-                      className="bg-white text-slate-900 border-2 border-red-600 rounded-lg shadow-md p-2 text-center flex flex-col justify-between overflow-hidden select-none relative group"
+              {/* Barra de Controles: Formato & Quantidade */}
+              <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+                {/* Seletor de Modo */}
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-500 uppercase tracking-wider text-[11px]">Tipo:</span>
+                  <div className="inline-flex rounded-xl bg-slate-200/80 dark:bg-slate-800 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setModoImpressao('tabela_a4')}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                        modoImpressao === 'tabela_a4'
+                          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
                     >
-                      <div className="bg-red-600 text-white py-0.5 px-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
-                        <Flame size={9} className="fill-white" />
-                        BELAFARMA OFERTA
-                      </div>
+                      📄 Folha A4 em Tabela (35 por folha)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModoImpressao('termica')}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                        modoImpressao === 'termica'
+                          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      🏷️ Rolo Térmico Contínuo
+                    </button>
+                  </div>
+                </div>
 
-                      <div className="my-0.5">
-                        <h4 className="text-[9px] font-black uppercase leading-tight line-clamp-2 text-slate-900">
-                          {item.descricao}
-                        </h4>
-                        {item.apresentacao && (
-                          <p className="text-[7.5px] font-semibold text-slate-500 line-clamp-1">
-                            {item.apresentacao}
-                          </p>
-                        )}
-                      </div>
+                {/* Seletor de Quantidade / Distribuição */}
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-500 uppercase tracking-wider text-[11px]">Distribuição:</span>
+                  <div className="inline-flex rounded-xl bg-slate-200/80 dark:bg-slate-800 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setTipoQtdImpressao('preencher')}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 ${
+                        tipoQtdImpressao === 'preencher'
+                          ? 'bg-emerald-500 text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                      title="Preenche a folha completa (35 etiquetas) sem desperdiçar papel"
+                    >
+                      <Sparkles size={12} />
+                      Preencher Folha (35 un)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoQtdImpressao('1')}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition-all ${
+                        tipoQtdImpressao === '1'
+                          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      1 de cada
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoQtdImpressao('2')}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition-all ${
+                        tipoQtdImpressao === '2'
+                          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      2 de cada
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoQtdImpressao('3')}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition-all ${
+                        tipoQtdImpressao === '3'
+                          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      3 de cada
+                    </button>
+                  </div>
+                </div>
 
-                      <div className="bg-red-50/90 border border-dashed border-red-300 rounded p-1 my-0.5">
-                        <div className="text-[8px] font-bold text-slate-400 line-through leading-tight">
-                          DE: {fmt(item.preco_normal)}
-                        </div>
-                        <div className="flex items-baseline justify-center gap-1 leading-tight">
-                          <span className="text-[8px] font-black text-red-600 uppercase">POR:</span>
-                          <span className="text-[16px] font-black text-red-600 tracking-tight">
-                            {fmt(item.preco_promocional)}
-                          </span>
-                        </div>
-                      </div>
+                {/* Badge Informativo de Rendimento */}
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold flex items-center gap-2">
+                  <span className="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-md font-bold">
+                    {listaParaImprimir.length} etiquetas
+                  </span>
+                  {modoImpressao === 'tabela_a4' && (
+                    <span className="text-slate-500">
+                      ({totalFolhasA4} folha{totalFolhasA4 > 1 ? 's' : ''} A4 de 35 un)
+                    </span>
+                  )}
+                </div>
+              </div>
 
-                      <div className="pt-1 border-t border-slate-200 flex items-center justify-between text-[7.5px] font-bold text-slate-500 leading-tight">
-                        <span className="bg-amber-400 text-slate-950 px-1 rounded font-black text-[7.5px]">
-                          {item.desconto_percentual}% OFF
-                        </span>
-                        <span>ATÉ {item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
-                      </div>
-
-                      {eanLimpo && (
-                        <div className="text-[6.5px] font-mono text-slate-400 truncate mt-0.5">
-                          EAN: {eanLimpo} | ID: {item.produto_id}
-                        </div>
-                      )}
-
-                      {/* Botão de impressão unitária no hover */}
-                      <button
-                        onClick={() => imprimirEtiqueta39x39({
-                          descricao: item.descricao,
-                          apresentacao: item.apresentacao,
-                          preco_normal: item.preco_normal,
-                          preco_promocional: item.preco_promocional,
-                          cod_barras: eanLimpo,
-                          produto_id: item.produto_id,
-                          data_termino: item.data_termino
-                        })}
-                        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-white/90 hover:bg-white text-slate-700 p-1 rounded shadow transition-opacity"
-                        title="Imprimir somente esta etiqueta 39x39mm"
-                      >
-                        <Printer size={12} />
-                      </button>
+              {/* Modal Body: Pré-visualização da Folha com Tabela 5x7 */}
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-200/70 dark:bg-slate-950 flex flex-col items-center">
+                {modoImpressao === 'tabela_a4' ? (
+                  <div className="space-y-6 w-full max-w-4xl flex flex-col items-center">
+                    <div className="text-center space-y-1">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        📄 Pré-visualização da Folha A4 (Tabela 5 colunas × 7 linhas = 35 etiquetas de 39×39mm)
+                      </span>
                     </div>
-                  );
-                })}
+
+                    {/* Simulação da Folha A4 em formato de Tabela */}
+                    <div className="bg-white text-slate-900 rounded-2xl shadow-xl p-4 border border-slate-300 overflow-x-auto w-full flex justify-center">
+                      <table className="border-collapse table-fixed w-full max-w-[850px]">
+                        <tbody>
+                          {Array.from({ length: 7 }).map((_, row) => (
+                            <tr key={row} className="h-[120px]">
+                              {Array.from({ length: 5 }).map((_, col) => {
+                                const idx = row * 5 + col;
+                                const item = listaParaImprimir[idx];
+                                const eanLimpo = item ? (item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '')) : '';
+
+                                return (
+                                  <td
+                                    key={col}
+                                    className="p-1 border border-dashed border-slate-300 align-top w-1/5"
+                                  >
+                                    {item ? (
+                                      <div className="h-full bg-white text-slate-900 border border-red-600 rounded p-1 text-center flex flex-col justify-between overflow-hidden select-none shadow-xs text-[8px]">
+                                        <div className="bg-red-600 text-white py-0.5 px-1 rounded text-[7px] font-black uppercase tracking-wider truncate">
+                                          BELAFARMA OFERTA
+                                        </div>
+
+                                        <div className="my-0.5">
+                                          <h5 className="text-[7.5px] font-black uppercase leading-tight line-clamp-2 text-slate-900">
+                                            {item.descricao}
+                                          </h5>
+                                          {item.apresentacao && (
+                                            <p className="text-[6.5px] font-semibold text-slate-500 line-clamp-1">
+                                              {item.apresentacao}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="bg-red-50/90 border border-dashed border-red-300 rounded p-0.5 my-0.5">
+                                          <div className="text-[6.5px] font-bold text-slate-400 line-through leading-none">
+                                            DE: {fmt(item.preco_normal)}
+                                          </div>
+                                          <div className="flex items-baseline justify-center gap-0.5 leading-tight">
+                                            <span className="text-[6.5px] font-black text-red-600">POR:</span>
+                                            <span className="text-[11px] font-black text-red-600 tracking-tight">
+                                              {fmt(item.preco_promocional)}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <div className="border-t border-slate-200 pt-0.5 flex items-center justify-between text-[6.5px] font-bold text-slate-500 leading-none">
+                                          <span className="bg-amber-400 text-slate-950 px-0.5 rounded font-black text-[6.5px]">
+                                            {item.desconto_percentual}% OFF
+                                          </span>
+                                          <span>ATÉ {item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
+                                        </div>
+
+                                        {eanLimpo && (
+                                          <div className="text-[5.5px] font-mono text-slate-400 truncate mt-0.5">
+                                            EAN: {eanLimpo}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="h-full rounded border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[8px] text-slate-300 font-mono">
+                                        39×39mm
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  /* Modo Térmico / Cartões Individuais */
+                  <div className="flex flex-wrap gap-4 items-center justify-center">
+                    {listaParaImprimir.map((item, idx) => {
+                      const eanLimpo = item.ean ? item.ean.trim() : (item.cod_barras ? item.cod_barras.trim() : '');
+                      return (
+                        <div 
+                          key={idx}
+                          style={{ width: '156px', height: '156px' }}
+                          className="bg-white text-slate-900 border-2 border-red-600 rounded-lg shadow-md p-2 text-center flex flex-col justify-between overflow-hidden select-none relative group"
+                        >
+                          <div className="bg-red-600 text-white py-0.5 px-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
+                            <Flame size={9} className="fill-white" />
+                            BELAFARMA OFERTA
+                          </div>
+
+                          <div className="my-0.5">
+                            <h4 className="text-[9px] font-black uppercase leading-tight line-clamp-2 text-slate-900">
+                              {item.descricao}
+                            </h4>
+                            {item.apresentacao && (
+                              <p className="text-[7.5px] font-semibold text-slate-500 line-clamp-1">
+                                {item.apresentacao}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="bg-red-50/90 border border-dashed border-red-300 rounded p-1 my-0.5">
+                            <div className="text-[8px] font-bold text-slate-400 line-through leading-tight">
+                              DE: {fmt(item.preco_normal)}
+                            </div>
+                            <div className="flex items-baseline justify-center gap-1 leading-tight">
+                              <span className="text-[8px] font-black text-red-600 uppercase">POR:</span>
+                              <span className="text-[16px] font-black text-red-600 tracking-tight">
+                                {fmt(item.preco_promocional)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="pt-1 border-t border-slate-200 flex items-center justify-between text-[7.5px] font-bold text-slate-500 leading-tight">
+                            <span className="bg-amber-400 text-slate-950 px-1 rounded font-black text-[7.5px]">
+                              {item.desconto_percentual}% OFF
+                            </span>
+                            <span>ATÉ {item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
+                          </div>
+
+                          {eanLimpo && (
+                            <div className="text-[6.5px] font-mono text-slate-400 truncate mt-0.5">
+                              EAN: {eanLimpo} | ID: {item.produto_id}
+                            </div>
+                          )}
+
+                          <button
+                            onClick={() => imprimirEtiqueta39x39({
+                              descricao: item.descricao,
+                              apresentacao: item.apresentacao,
+                              preco_normal: item.preco_normal,
+                              preco_promocional: item.preco_promocional,
+                              cod_barras: eanLimpo,
+                              produto_id: item.produto_id,
+                              data_termino: item.data_termino
+                            })}
+                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-white/90 hover:bg-white text-slate-700 p-1 rounded shadow transition-opacity cursor-pointer"
+                            title="Imprimir somente esta etiqueta 39x39mm"
+                          >
+                            <Printer size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
