@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "8b3dd91",
-  "commitMessage": "feat(liquidacao): adicionar botao desfazer preco e estrita calibracao de etiqueta 39x39mm",
-  "buildTime": "30/09/2026, 13:58:07"
+  "commitHash": "75dc183",
+  "commitMessage": "feat(liquidacao): criar tabela agrupando o maximo de etiquetas (35 un) por folha A4 com medida 39x39mm",
+  "buildTime": "30/09/2026, 16:59:58"
 }

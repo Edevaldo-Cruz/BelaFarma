@@ -22,7 +22,9 @@ import {
   Clock,
   X,
   Eye,
-  Filter
+  Filter,
+  Pencil,
+  Save
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -139,6 +141,12 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [tipoQtdImpressao, setTipoQtdImpressao] = useState<'preencher' | '1' | '2' | '3'>('preencher');
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
   const [loadingWhatsapp, setLoadingWhatsapp] = useState(false);
+
+  // Estados para edição direta na lista de ofertas ativas
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editPreco, setEditPreco] = useState<string>('');
+  const [editDataTermino, setEditDataTermino] = useState<string>('');
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
 
   // 1. Carrega Resumo e Itens Ativos
   const fetchResumo = useCallback(async () => {
@@ -961,6 +969,80 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   };
 
+  // Ação: Iniciar Edição Direta na Lista
+  const handleIniciarEdicao = (item: ItemAtivo) => {
+    setEditingItemId(item.id);
+    setEditPreco(item.preco_promocional.toFixed(2));
+    setEditDataTermino(item.data_termino || getFimMesQueVem());
+  };
+
+  // Ação: Cancelar Edição
+  const handleCancelarEdicao = () => {
+    setEditingItemId(null);
+    setEditPreco('');
+    setEditDataTermino('');
+  };
+
+  // Ação: Salvar Edição Direta no Digifarma
+  const handleSalvarEdicao = async (item: ItemAtivo) => {
+    const finalPrice = parseFloat(editPreco.replace(',', '.'));
+    if (isNaN(finalPrice) || finalPrice <= 0) {
+      addToast('Por favor, informe um preço promocional válido.', 'error');
+      return;
+    }
+
+    if (!editDataTermino) {
+      addToast('Por favor, selecione uma data de término válida.', 'error');
+      return;
+    }
+
+    if (finalPrice < item.preco_custo) {
+      const confirma = window.confirm(
+        `Atenção: O valor de ${fmt(finalPrice)} é menor que o custo (${fmt(item.preco_custo)}). Deseja salvar mesmo assim?`
+      );
+      if (!confirma) return;
+    }
+
+    setSavingEditId(item.id);
+    try {
+      const res = await fetch('/api/liquidacao/atualizar-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: item.id,
+          produto_id: item.produto_id,
+          preco_promocional: finalPrice,
+          data_termino: editDataTermino
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`✅ Oferta de "${item.descricao}" atualizada para ${fmt(finalPrice)} até ${editDataTermino.split('-').reverse().join('/')} no Digifarma!`, 'success');
+        setItensAtivos(prev => prev.map(it => {
+          if (it.id === item.id) {
+            return {
+              ...it,
+              preco_promocional: finalPrice,
+              desconto_percentual: data.desconto_percentual !== undefined ? data.desconto_percentual : it.desconto_percentual,
+              data_termino: editDataTermino
+            };
+          }
+          return it;
+        }));
+        setEditingItemId(null);
+        fetchResumo();
+      } else {
+        addToast(data.error || 'Erro ao atualizar no Digifarma.', 'error');
+      }
+    } catch (e) {
+      console.error('Erro ao atualizar oferta:', e);
+      addToast('Falha na comunicação com o servidor.', 'error');
+    } finally {
+      setSavingEditId(null);
+    }
+  };
+
   // Ação: Copiar Mensagem de WhatsApp
   const handleCopiarWhatsApp = async () => {
     setLoadingWhatsapp(true);
@@ -1597,82 +1679,188 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   <th className="pb-3 text-right">Desconto</th>
                   <th className="pb-3 text-center">Válido até</th>
                   <th className="pb-3 text-center">Digifarma</th>
-                  <th className="pb-3 text-center">Desfazer Preço / Ações</th>
+                  <th className="pb-3 text-center">Editar / Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                {itensAtivos.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 pr-2">
-                      <div className="font-bold text-slate-900 dark:text-white truncate max-w-xs md:max-w-md">
-                        {item.descricao}
-                      </div>
-                      {item.apresentacao && (
-                        <div className="text-[11px] text-slate-400 truncate max-w-xs">
-                          {item.apresentacao}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 text-right font-bold text-slate-700 dark:text-slate-300">
-                      {item.saldo_estoque} un
-                    </td>
-                    <td className="py-3 text-right text-slate-400 line-through">
-                      {fmt(item.preco_normal)}
-                    </td>
-                    <td className="py-3 text-right font-black text-orange-600 dark:text-orange-400 text-sm">
-                      {fmt(item.preco_promocional)}
-                    </td>
-                    <td className="py-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                      {item.desconto_percentual}% OFF
-                    </td>
-                    <td className="py-3 text-center text-slate-500 dark:text-slate-400">
-                      {item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}
-                    </td>
-                    <td className="py-3 text-center">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                        <Check size={10} /> Ativo
-                      </span>
-                    </td>
-                    <td className="py-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => handleReverter(item)}
-                          disabled={revertingId === item.id}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-all active:scale-95 cursor-pointer shadow-sm disabled:opacity-50"
-                          title="Desfazer alteração e voltar ao preço original no Digifarma"
-                        >
-                          {revertingId === item.id ? (
-                            <>
-                              <Loader2 size={13} className="animate-spin text-red-600" />
-                              <span>Desfazendo...</span>
-                            </>
-                          ) : (
-                            <>
-                              <RotateCcw size={13} />
-                              <span>Desfazer Preço</span>
-                            </>
-                          )}
-                        </button>
+                {itensAtivos.map((item) => {
+                  const isEditing = editingItemId === item.id;
+                  const isSaving = savingEditId === item.id;
 
-                        <button
-                          onClick={() => imprimirEtiqueta39x39({
-                            descricao: item.descricao,
-                            apresentacao: item.apresentacao,
-                            preco_normal: item.preco_normal,
-                            preco_promocional: item.preco_promocional,
-                            cod_barras: item.ean || item.cod_barras,
-                            produto_id: item.produto_id,
-                            data_termino: item.data_termino
-                          })}
-                          className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm cursor-pointer"
-                          title="Imprimir Etiqueta 39x39mm deste item"
-                        >
-                          <Printer size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                  // Desconto calculado em tempo real durante a edição
+                  const tempPrice = isEditing ? (parseFloat(editPreco.replace(',', '.')) || 0) : item.preco_promocional;
+                  const tempDescPct = item.preco_normal > 0 && tempPrice > 0
+                    ? Math.max(0, Math.round(((item.preco_normal - tempPrice) / item.preco_normal) * 100))
+                    : item.desconto_percentual;
+
+                  return (
+                    <tr 
+                      key={item.id} 
+                      className={`transition-colors ${
+                        isEditing 
+                          ? 'bg-amber-50/90 dark:bg-amber-950/40 ring-2 ring-amber-400 dark:ring-amber-500/70 z-10' 
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <td className="py-3 pr-2">
+                        <div className="font-bold text-slate-900 dark:text-white truncate max-w-xs md:max-w-md">
+                          {item.descricao}
+                        </div>
+                        {item.apresentacao && (
+                          <div className="text-[11px] text-slate-400 truncate max-w-xs">
+                            {item.apresentacao}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3 text-right font-bold text-slate-700 dark:text-slate-300">
+                        {item.saldo_estoque} un
+                      </td>
+
+                      <td className="py-3 text-right text-slate-400 line-through">
+                        {fmt(item.preco_normal)}
+                      </td>
+
+                      {/* Coluna: Por (Promo) com edição inline */}
+                      <td className="py-3 text-right">
+                        {isEditing ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-xs font-bold text-slate-400">R$</span>
+                            <input
+                              type="text"
+                              autoFocus
+                              value={editPreco}
+                              onChange={(e) => setEditPreco(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSalvarEdicao(item);
+                                if (e.key === 'Escape') handleCancelarEdicao();
+                              }}
+                              className="w-20 px-2 py-1 text-right font-black text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-800 border-2 border-orange-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              placeholder="0,00"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => handleIniciarEdicao(item)}
+                            className="group/price flex items-center justify-end gap-1 cursor-pointer font-black text-orange-600 dark:text-orange-400 text-sm hover:underline"
+                            title="Clique para editar valor"
+                          >
+                            <span>{fmt(item.preco_promocional)}</span>
+                            <Pencil size={11} className="text-slate-400 opacity-0 group-hover/price:opacity-100 transition-opacity" />
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Coluna: Desconto recalculado dinamicamente */}
+                      <td className="py-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                        {tempDescPct}% OFF
+                      </td>
+
+                      {/* Coluna: Válido até com seletor de data inline */}
+                      <td className="py-3 text-center">
+                        {isEditing ? (
+                          <input
+                            type="date"
+                            value={editDataTermino}
+                            onChange={(e) => setEditDataTermino(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSalvarEdicao(item);
+                              if (e.key === 'Escape') handleCancelarEdicao();
+                            }}
+                            className="px-2 py-1 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border-2 border-orange-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        ) : (
+                          <div
+                            onClick={() => handleIniciarEdicao(item)}
+                            className="group/date inline-flex items-center justify-center gap-1 cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:underline"
+                            title="Clique para editar data de vencimento"
+                          >
+                            <span>{item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
+                            <Pencil size={11} className="text-slate-400 opacity-0 group-hover/date:opacity-100 transition-opacity" />
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Coluna: Status Digifarma */}
+                      <td className="py-3 text-center">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                          <Check size={10} /> Ativo
+                        </span>
+                      </td>
+
+                      {/* Coluna: Ações / Edição */}
+                      <td className="py-3 text-center">
+                        {isEditing ? (
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleSalvarEdicao(item)}
+                              disabled={isSaving}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                              title="Salvar alterações no Digifarma"
+                            >
+                              {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                              <span>Salvar</span>
+                            </button>
+                            <button
+                              onClick={handleCancelarEdicao}
+                              disabled={isSaving}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                              title="Cancelar edição"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleIniciarEdicao(item)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all active:scale-95 cursor-pointer shadow-xs"
+                              title="Editar valor ou data de vencimento direto na lista"
+                            >
+                              <Pencil size={12} />
+                              <span>Editar</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleReverter(item)}
+                              disabled={revertingId === item.id}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-all active:scale-95 cursor-pointer shadow-xs disabled:opacity-50"
+                              title="Desfazer alteração e voltar ao preço original no Digifarma"
+                            >
+                              {revertingId === item.id ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin text-red-600" />
+                                  <span>Desfazendo...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <RotateCcw size={12} />
+                                  <span>Desfazer</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => imprimirEtiqueta39x39({
+                                descricao: item.descricao,
+                                apresentacao: item.apresentacao,
+                                preco_normal: item.preco_normal,
+                                preco_promocional: item.preco_promocional,
+                                cod_barras: item.ean || item.cod_barras,
+                                produto_id: item.produto_id,
+                                data_termino: item.data_termino
+                              })}
+                              className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-xs cursor-pointer"
+                              title="Imprimir Etiqueta 39x39mm deste item"
+                            >
+                              <Printer size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

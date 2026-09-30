@@ -2,6 +2,13 @@ const express = require('express');
 const { queryDigifarma } = require('./services/digifarma.service');
 
 function formatarDataFirebird(date, isEnd = false) {
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
+    const [yyyy, mm, dd] = date.trim().split('-');
+    const hours = isEnd ? '23' : '00';
+    const minutes = isEnd ? '59' : '00';
+    const seconds = isEnd ? '59' : '00';
+    return `${yyyy}-${mm}-${dd} ${hours}:${minutes}:${seconds}`;
+  }
   const d = new Date(date);
   if (isNaN(d.getTime())) return null;
   const pad = (n) => String(n).padStart(2, '0');
@@ -570,6 +577,95 @@ module.exports = function (db) {
       res.json({ success: true, message: 'Promoção revertida no Digifarma e sistema!', firebirdSincronizado: fbOk });
     } catch (err) {
       console.error('[Liquidação API] Erro em /reverter:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6.1 POST /api/liquidacao/atualizar-item
+  // Atualiza preço promocional e data de término de uma oferta ativa diretamente da lista
+  router.post('/atualizar-item', async (req, res) => {
+    try {
+      const { id, produto_id, preco_promocional, data_termino } = req.body;
+      const pId = Number(produto_id);
+      const prPromo = parseFloat(preco_promocional);
+
+      if (!pId || isNaN(prPromo) || prPromo <= 0 || !data_termino) {
+        return res.status(400).json({ error: 'Parâmetros inválidos (produto_id, preco_promocional e data_termino são obrigatórios).' });
+      }
+
+      // Busca item atual no SQLite
+      const itemAtual = (id 
+        ? db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE id = ?").get(id)
+        : null) || db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE produto_id = ? AND status = 'ativo'").get(pId);
+
+      const precoNormal = itemAtual ? Number(itemAtual.preco_normal) : prPromo;
+      const descPct = precoNormal > 0 ? Math.max(0, Math.round(((precoNormal - prPromo) / precoNormal) * 100)) : 0;
+
+      // 1. Atualiza no Digifarma Firebird
+      let fbOk = false;
+      const fbTermino = formatarDataFirebird(data_termino, true);
+      try {
+        await queryDigifarma(
+          `UPDATE PRODUTOS 
+           SET PROD_PRPROMOCAO = ?, 
+               TERMINO_PROMOCAO = ? 
+           WHERE PRODUTO_ID = ?`,
+          [prPromo, fbTermino, pId]
+        );
+        fbOk = true;
+        console.log(`[Liquidação API] ✅ Oferta atualizada no Digifarma Firebird para produto ${pId}: R$ ${prPromo} até ${fbTermino}`);
+      } catch (fbErr) {
+        console.warn(`[Liquidação API] ⚠️ Aviso: Falha ao atualizar Firebird (${fbErr.message}). Alteração gravada no cache SQLite local.`);
+      }
+
+      // 2. Atualiza na tabela liquidacao_campanhas_itens
+      if (itemAtual && itemAtual.id) {
+        db.prepare(`
+          UPDATE liquidacao_campanhas_itens 
+          SET preco_promocional = ?, 
+              desconto_percentual = ?, 
+              data_termino = ?, 
+              sincronizado_digifarma = ? 
+          WHERE id = ?
+        `).run(prPromo, descPct, data_termino, fbOk ? 1 : 0, itemAtual.id);
+      } else {
+        db.prepare(`
+          UPDATE liquidacao_campanhas_itens 
+          SET preco_promocional = ?, 
+              desconto_percentual = ?, 
+              data_termino = ?, 
+              sincronizado_digifarma = ? 
+          WHERE produto_id = ? AND status = 'ativo'
+        `).run(prPromo, descPct, data_termino, fbOk ? 1 : 0, pId);
+      }
+
+      // 3. Atualiza caches SQLite locais
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_promocional = ?, termino_promocao = ?
+          WHERE produto_id = ?
+        `).run(prPromo, data_termino, pId);
+      } catch (e) {}
+
+      try {
+        db.prepare(`
+          UPDATE digifarma_products_cache 
+          SET preco_promocao = ?, termino_promocao = ?
+          WHERE produto_id = ?
+        `).run(prPromo, data_termino, pId);
+      } catch (e) {}
+
+      res.json({
+        success: true,
+        message: 'Oferta atualizada com sucesso no Digifarma!',
+        firebirdSincronizado: fbOk,
+        preco_promocional: prPromo,
+        desconto_percentual: descPct,
+        data_termino
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /atualizar-item:', err);
       res.status(500).json({ error: err.message });
     }
   });
