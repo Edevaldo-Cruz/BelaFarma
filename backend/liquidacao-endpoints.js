@@ -523,9 +523,13 @@ module.exports = function (db) {
     try {
       const campanha = getOrCreateCampanhaAtiva();
       const itens = db.prepare(`
-        SELECT * FROM liquidacao_campanhas_itens 
-        WHERE campanha_id = ? AND status = 'ativo'
-        ORDER BY aprovado_em DESC
+        SELECT 
+          lci.*,
+          COALESCE(NULLIF(lci.preco_custo, 0), NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), 0) as preco_custo
+        FROM liquidacao_campanhas_itens lci
+        LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
+        WHERE lci.campanha_id = ? AND lci.status = 'ativo'
+        ORDER BY lci.aprovado_em DESC
       `).all(campanha.id);
 
       res.json({

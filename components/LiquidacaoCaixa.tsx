@@ -1674,6 +1674,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 uppercase tracking-wider font-bold">
                   <th className="pb-3">Produto</th>
                   <th className="pb-3 text-right">Saldo</th>
+                  <th className="pb-3 text-right text-blue-600 dark:text-blue-400 font-black">Custo</th>
                   <th className="pb-3 text-right">De (Normal)</th>
                   <th className="pb-3 text-right">Por (Promo)</th>
                   <th className="pb-3 text-right">Desconto</th>
@@ -1715,6 +1716,11 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
                       <td className="py-3 text-right font-bold text-slate-700 dark:text-slate-300">
                         {item.saldo_estoque} un
+                      </td>
+
+                      {/* Coluna: Valor de Custo do Produto (em negrito e azul) */}
+                      <td className="py-3 text-right font-black text-blue-600 dark:text-blue-400">
+                        {fmt(item.preco_custo)}
                       </td>
 
                       <td className="py-3 text-right text-slate-400 line-through">

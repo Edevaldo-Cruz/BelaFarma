@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "75dc183",
-  "commitMessage": "feat(liquidacao): criar tabela agrupando o maximo de etiquetas (35 un) por folha A4 com medida 39x39mm",
-  "buildTime": "30/09/2026, 16:59:58"
+  "commitHash": "4f39c9e",
+  "commitMessage": "feat(liquidacao): permitir editar valor promocional e vencimento direto na lista com sincronizacao Digifarma",
+  "buildTime": "30/09/2026, 19:30:41"
 }
