@@ -518,19 +518,50 @@ module.exports = function (db) {
   });
 
   // 5. GET /api/liquidacao/itens-ativos
-  // Retorna os produtos que já estão com promoção ativa na campanha
+  // Retorna os produtos selecionados para a campanha com dias parado e sugestões inteligentes
   router.get('/itens-ativos', (req, res) => {
     try {
       const campanha = getOrCreateCampanhaAtiva();
-      const itens = db.prepare(`
+      const rows = db.prepare(`
         SELECT 
           lci.*,
-          COALESCE(NULLIF(lci.preco_custo, 0), NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), 0) as preco_custo
+          COALESCE(NULLIF(lci.preco_custo, 0), NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), 0) as preco_custo,
+          COALESCE(
+            NULLIF(m.dias_parado, 0),
+            NULLIF(CAST((julianday('now') - julianday(cec.ultima_compra_data)) AS INTEGER), 0),
+            120
+          ) as dias_parado
         FROM liquidacao_campanhas_itens lci
         LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
+        LEFT JOIN mural_produtos_parados m ON lci.produto_id = m.produto_id
         WHERE lci.campanha_id = ? AND lci.status = 'ativo'
-        ORDER BY lci.aprovado_em DESC
+        GROUP BY lci.id
+        ORDER BY dias_parado DESC, lci.aprovado_em DESC
       `).all(campanha.id);
+
+      const itens = rows.map(item => {
+        const dias = Number(item.dias_parado) || 90;
+        let sugestao = 30;
+        let motivoSugestao = '';
+
+        if (dias > 240) {
+          sugestao = 70;
+          motivoSugestao = `Parado há ${dias} dias (> 8 meses). Queima total de 1º Aniversário necessária para evitar vencimento e juros.`;
+        } else if (dias >= 151) {
+          sugestao = 50;
+          motivoSugestao = `Parado há ${dias} dias (5 a 8 meses). Desconto de 50% cria percepção irresistível de 'metade do preço'.`;
+        } else {
+          sugestao = 30;
+          motivoSugestao = `Parado há ${dias} dias (3 a 5 meses). Desconto de 30% acelera o giro preservando a margem.`;
+        }
+
+        return {
+          ...item,
+          dias_parado: dias,
+          sugestao_desconto: sugestao,
+          motivo_sugestao: motivoSugestao
+        };
+      });
 
       res.json({
         campanhaId: campanha.id,
@@ -539,6 +570,110 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[Liquidação API] Erro em /itens-ativos:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.1 POST /api/liquidacao/gravar-lote
+  // Grava em lote as ofertas avaliadas pela Nayane diretamente no Digifarma Firebird
+  router.post('/gravar-lote', async (req, res) => {
+    try {
+      const { itens } = req.body;
+      if (!Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ error: 'Nenhum item fornecido para gravação em lote.' });
+      }
+
+      let sucessos = 0;
+      let falhas = 0;
+      const hoje = new Date().toISOString().split('T')[0];
+
+      for (const it of itens) {
+        const pId = Number(it.produto_id);
+        const prPromo = parseFloat(it.preco_promocional);
+        const dtFim = it.data_termino || getUltimoDiaMesQueVem();
+
+        if (!pId || isNaN(prPromo) || prPromo <= 0) continue;
+
+        let fbOk = false;
+        const fbTermino = formatarDataFirebird(dtFim, true);
+        const fbInicio = formatarDataFirebird(it.data_inicio || hoje, false);
+
+        try {
+          await queryDigifarma(
+            `UPDATE PRODUTOS 
+             SET PROD_PRPROMOCAO = ?, 
+                 INICIO_PROMOCAO = ?, 
+                 TERMINO_PROMOCAO = ? 
+             WHERE PRODUTO_ID = ?`,
+            [prPromo, fbInicio, fbTermino, pId]
+          );
+          fbOk = true;
+          sucessos++;
+        } catch (e) {
+          console.warn(`[Liquidação Lote] Falha Firebird produto ${pId}:`, e.message);
+          falhas++;
+        }
+
+        // Atualiza no SQLite
+        const descPct = it.preco_normal > 0 ? Math.max(0, Math.round(((it.preco_normal - prPromo) / it.preco_normal) * 100)) : 0;
+        try {
+          db.prepare(`
+            UPDATE liquidacao_campanhas_itens 
+            SET preco_promocional = ?, 
+                desconto_percentual = ?, 
+                data_termino = ?, 
+                sincronizado_digifarma = ? 
+            WHERE id = ? OR (produto_id = ? AND status = 'ativo')
+          `).run(prPromo, descPct, dtFim, fbOk ? 1 : 0, it.id || '', pId);
+        } catch (e) {}
+
+        try {
+          db.prepare('UPDATE compras_estoque_cache SET preco_promocional = ?, termino_promocao = ? WHERE produto_id = ?')
+            .run(prPromo, dtFim, pId);
+        } catch (e) {}
+      }
+
+      res.json({
+        success: true,
+        message: `${sucessos} ofertas gravadas com sucesso no Digifarma Firebird!` + (falhas > 0 ? ` (${falhas} falhas)` : ''),
+        sucessos,
+        falhas
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /gravar-lote:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.2 POST /api/liquidacao/reset-digifarma
+  // Reseta todos os preços promocionais no Firebird mantendo a lista de trabalho no SQLite
+  router.post('/reset-digifarma', async (req, res) => {
+    try {
+      const campanha = getOrCreateCampanhaAtiva();
+      const itens = db.prepare("SELECT produto_id FROM liquidacao_campanhas_itens WHERE status = 'ativo'").all();
+      
+      let sucessos = 0;
+      for (const it of itens) {
+        try {
+          await queryDigifarma(
+            "UPDATE PRODUTOS SET PROD_PRPROMOCAO = 0, INICIO_PROMOCAO = NULL, TERMINO_PROMOCAO = NULL WHERE PRODUTO_ID = ?",
+            [Number(it.produto_id)]
+          );
+          sucessos++;
+        } catch (e) {}
+      }
+
+      db.prepare("UPDATE liquidacao_campanhas_itens SET sincronizado_digifarma = 0 WHERE status = 'ativo'").run();
+      try { db.prepare("UPDATE compras_estoque_cache SET preco_promocional = 0").run(); } catch(e) {}
+      try { db.prepare("UPDATE digifarma_products_cache SET preco_promocao = 0").run(); } catch(e) {}
+
+      res.json({
+        success: true,
+        message: `Digifarma resetado para os preços normais (${sucessos} itens). Lista mantida para revisão da Nayane!`,
+        total: sucessos
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /reset-digifarma:', err);
       res.status(500).json({ error: err.message });
     }
   });
