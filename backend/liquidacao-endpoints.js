@@ -407,9 +407,30 @@ module.exports = function (db) {
 
       const precoNormal = Number(cacheProd.preco_normal) || prPromo;
       const precoCusto = Number(cacheProd.custo_unitario) || (prPromo * 0.9);
-      const descontoPct = precoNormal > 0 ? Math.round(((precoNormal - prPromo) / precoNormal) * 100) : 0;
+      // 1. Antes de sobrescrever, captura valores originais existentes no Firebird
+      let precoPromoOriginal = 0;
+      let inicioPromoOriginal = null;
+      let terminoPromoOriginal = null;
+      try {
+        const prodAtualFb = await queryDigifarma(
+          "SELECT PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO FROM PRODUTOS WHERE PRODUTO_ID = ?",
+          [pId],
+          3000
+        );
+        if (prodAtualFb && prodAtualFb.length > 0) {
+          precoPromoOriginal = Number(prodAtualFb[0].PROD_PRPROMOCAO) || 0;
+          inicioPromoOriginal = prodAtualFb[0].INICIO_PROMOCAO || null;
+          terminoPromoOriginal = prodAtualFb[0].TERMINO_PROMOCAO || null;
+        }
+      } catch (e) {
+        console.warn(`[Liquidação API] Não foi possível obter preço promocional prévio do produto ${pId}:`, e.message);
+      }
 
-      // 1. Tenta gravar no Digifarma Firebird
+      // Se o produto já tinha preço promocional ativo, o preço normal praticado é esse valor promocional!
+      const precoVendaRealPraticado = precoPromoOriginal > 0 ? precoPromoOriginal : precoNormal;
+      const descontoPct = precoVendaRealPraticado > 0 ? Math.round(((precoVendaRealPraticado - prPromo) / precoVendaRealPraticado) * 100) : 0;
+
+      // 2. Grava no Digifarma Firebird
       let firebirdOk = false;
       const fbInicio = formatarDataFirebird(data_inicio, false);
       const fbTermino = formatarDataFirebird(data_termino, true);
@@ -429,22 +450,25 @@ module.exports = function (db) {
         console.warn(`[Liquidação API] ⚠️ Aviso: Não foi possível sincronizar imediatamente com Firebird (${fbErr.message}). Promoção gravada no cache SQLite local.`);
       }
 
-      // 2. Grava na tabela de itens da campanha
+      // 3. Grava na tabela de itens da campanha
       const itemId = 'liq_' + pId + '_' + Date.now();
       db.prepare(`
         INSERT OR REPLACE INTO liquidacao_campanhas_itens (
           id, campanha_id, produto_id, descricao, apresentacao, ean, categoria,
           saldo_estoque, preco_custo, preco_normal, preco_promocional, desconto_percentual,
-          data_inicio, data_termino, status, sincronizado_digifarma, aprovado_por
+          data_inicio, data_termino, status, sincronizado_digifarma, aprovado_por,
+          preco_promocao_original, inicio_promocao_original, termino_promocao_original
         ) VALUES (
           ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?,
-          ?, ?, 'ativo', ?, ?
+          ?, ?, 'ativo', ?, ?,
+          ?, ?, ?
         )
       `).run(
         itemId, campanha.id, pId, cacheProd.descricao, cacheProd.apresentacao || '', cacheProd.cod_barras || '', String(cacheProd.categoria || 'Geral'),
-        Number(cacheProd.saldo) || 0, precoCusto, precoNormal, prPromo, descontoPct,
-        data_inicio, data_termino, firebirdOk ? 1 : 0, aprovado_por || 'Edevaldo Cruz'
+        Number(cacheProd.saldo) || 0, precoCusto, precoVendaRealPraticado, prPromo, descontoPct,
+        data_inicio, data_termino, firebirdOk ? 1 : 0, aprovado_por || 'Edevaldo Cruz',
+        precoPromoOriginal, inicioPromoOriginal, terminoPromoOriginal
       );
 
       // 3. Atualiza caches SQLite
@@ -646,30 +670,35 @@ module.exports = function (db) {
   });
 
   // 5.2 POST /api/liquidacao/reset-digifarma
-  // Reseta todos os preços promocionais no Firebird mantendo a lista de trabalho no SQLite
+  // Reseta todos os preços no Firebird de volta para os preços originais pré-liquidação
   router.post('/reset-digifarma', async (req, res) => {
     try {
-      const campanha = getOrCreateCampanhaAtiva();
-      const itens = db.prepare("SELECT produto_id FROM liquidacao_campanhas_itens WHERE status = 'ativo'").all();
+      const itens = db.prepare(`
+        SELECT produto_id, preco_promocao_original, inicio_promocao_original, termino_promocao_original 
+        FROM liquidacao_campanhas_itens 
+        WHERE status = 'ativo'
+      `).all();
       
       let sucessos = 0;
       for (const it of itens) {
         try {
+          const promoOrig = Number(it.preco_promocao_original) || 0;
+          const dtIni = it.inicio_promocao_original ? formatarDataFirebird(it.inicio_promocao_original, false) : null;
+          const dtFim = it.termino_promocao_original ? formatarDataFirebird(it.termino_promocao_original, true) : null;
+
           await queryDigifarma(
-            "UPDATE PRODUTOS SET PROD_PRPROMOCAO = 0, INICIO_PROMOCAO = NULL, TERMINO_PROMOCAO = NULL WHERE PRODUTO_ID = ?",
-            [Number(it.produto_id)]
+            "UPDATE PRODUTOS SET PROD_PRPROMOCAO = ?, INICIO_PROMOCAO = ?, TERMINO_PROMOCAO = ? WHERE PRODUTO_ID = ?",
+            [promoOrig, dtIni, dtFim, Number(it.produto_id)]
           );
           sucessos++;
         } catch (e) {}
       }
 
       db.prepare("UPDATE liquidacao_campanhas_itens SET sincronizado_digifarma = 0 WHERE status = 'ativo'").run();
-      try { db.prepare("UPDATE compras_estoque_cache SET preco_promocional = 0").run(); } catch(e) {}
-      try { db.prepare("UPDATE digifarma_products_cache SET preco_promocao = 0").run(); } catch(e) {}
 
       res.json({
         success: true,
-        message: `Digifarma resetado para os preços normais (${sucessos} itens). Lista mantida para revisão da Nayane!`,
+        message: `Digifarma restaurado com precisão para os preços originais pré-liquidação (${sucessos} itens). Lista mantida para revisão da Nayane!`,
         total: sucessos
       });
     } catch (err) {
@@ -679,22 +708,30 @@ module.exports = function (db) {
   });
 
   // 6. POST /api/liquidacao/reverter
-  // Reverte e encerra a promoção de um produto no Digifarma
+  // Reverte a promoção de um produto no Digifarma para seu preço original pré-liquidação
   router.post('/reverter', async (req, res) => {
     try {
       const { produto_id, itemId } = req.body;
       const pId = Number(produto_id);
 
-      // Reverte no Firebird
+      const itemCadastrado = (itemId 
+        ? db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE id = ?").get(itemId)
+        : null) || db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE produto_id = ? AND status = 'ativo'").get(pId);
+
+      const promoOrig = itemCadastrado && itemCadastrado.preco_promocao_original != null ? Number(itemCadastrado.preco_promocao_original) : 0;
+      const dtIni = itemCadastrado && itemCadastrado.inicio_promocao_original ? formatarDataFirebird(itemCadastrado.inicio_promocao_original, false) : null;
+      const dtFim = itemCadastrado && itemCadastrado.termino_promocao_original ? formatarDataFirebird(itemCadastrado.termino_promocao_original, true) : null;
+
+      // Reverte no Firebird para o valor original
       let fbOk = false;
       try {
         await queryDigifarma(
           `UPDATE PRODUTOS 
-           SET PROD_PRPROMOCAO = 0, 
-               INICIO_PROMOCAO = NULL, 
-               TERMINO_PROMOCAO = NULL 
+           SET PROD_PRPROMOCAO = ?, 
+               INICIO_PROMOCAO = ?, 
+               TERMINO_PROMOCAO = ? 
            WHERE PRODUTO_ID = ?`,
-          [pId]
+          [promoOrig, dtIni, dtFim, pId]
         );
         fbOk = true;
       } catch (fbErr) {
@@ -708,12 +745,12 @@ module.exports = function (db) {
         db.prepare("UPDATE liquidacao_campanhas_itens SET status = 'revertido' WHERE produto_id = ? AND status = 'ativo'").run(pId);
       }
 
-      // Zera nos caches
+      // Restaura no cache de compras
       try {
-        db.prepare("UPDATE compras_estoque_cache SET preco_promocional = 0 WHERE produto_id = ?").run(pId);
+        db.prepare("UPDATE compras_estoque_cache SET preco_promocional = ? WHERE produto_id = ?").run(promoOrig, pId);
       } catch (e) {}
 
-      res.json({ success: true, message: 'Promoção revertida no Digifarma e sistema!', firebirdSincronizado: fbOk });
+      res.json({ success: true, message: 'Produto revertido para o preço original pré-liquidação no Digifarma!', firebirdSincronizado: fbOk });
     } catch (err) {
       console.error('[Liquidação API] Erro em /reverter:', err);
       res.status(500).json({ error: err.message });
