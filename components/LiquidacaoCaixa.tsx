@@ -1117,6 +1117,52 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     return itensFiltrados.slice(inicio, inicio + itensPorPagina);
   }, [itensFiltrados, paginaAjustada, itensPorPagina]);
 
+  // Simulação de Totais em Tempo Real baseada nos parâmetros atuais (faixas 1, 2 e 3)
+  const simulacaoTotais = useMemo(() => {
+    let totalBrutoOriginal = 0;
+    let totalCustoEstoque = 0;
+    let totalVendaProjetada = 0;
+    let totalUnidades = 0;
+    let itensTravadosNoCusto = 0;
+
+    for (const item of itensAtivos) {
+      const qtd = Math.max(1, Number(item.saldo_estoque) || 1);
+      const normal = Number(item.preco_normal) || 0;
+      const custo = Number(item.preco_custo) || 0;
+      const dias = Number(item.dias_parado) || 45;
+
+      const pct = dias > 180 ? faixa3Pct : (dias >= 91 ? faixa2Pct : faixa1Pct);
+      const precoCalculado = Math.round(normal * (1 - pct / 100) * 100) / 100;
+      const precoFinal = Math.max(custo, precoCalculado);
+
+      if (precoCalculado < custo) {
+        itensTravadosNoCusto++;
+      }
+
+      totalUnidades += qtd;
+      totalBrutoOriginal += normal * qtd;
+      totalCustoEstoque += custo * qtd;
+      totalVendaProjetada += precoFinal * qtd;
+    }
+
+    const totalDescontoConcedido = Math.max(0, totalBrutoOriginal - totalVendaProjetada);
+    const margemLucroReais = totalVendaProjetada - totalCustoEstoque;
+    const percentualMargem = totalVendaProjetada > 0 ? (margemLucroReais / totalVendaProjetada) * 100 : 0;
+    const descontoMedioPct = totalBrutoOriginal > 0 ? (totalDescontoConcedido / totalBrutoOriginal) * 100 : 0;
+
+    return {
+      totalVendaProjetada,
+      totalCustoEstoque,
+      totalBrutoOriginal,
+      totalDescontoConcedido,
+      margemLucroReais,
+      percentualMargem,
+      descontoMedioPct,
+      totalUnidades,
+      itensTravadosNoCusto
+    };
+  }, [itensAtivos, faixa1Pct, faixa2Pct, faixa3Pct]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-12">
       {/* ─── CABEÇALHO DO MÓDULO ─── */}
@@ -1337,8 +1383,8 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* 3 Cards Editáveis de Desconto (Faixas de 45 a 90d, 91 a 180d e +180d) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Cards Editáveis de Desconto + Card de Projeção em Tempo Real */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {/* Card 1: Giro Rápido (45 a 90 dias) */}
           <div className="p-5 rounded-3xl border-2 border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/20 flex flex-col justify-between space-y-4">
             <div>
@@ -1473,6 +1519,68 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 className="w-full py-2 rounded-xl text-xs font-black bg-red-600 hover:bg-red-700 active:scale-95 text-white shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <span>Aplicar {faixa3Pct}% nos +180 dias ({itensAtivos.filter(i => (i.dias_parado || 45) > 180).length})</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Card 4: Projeção de Total se Vendido com Parâmetros Atuais */}
+          <div className="p-5 rounded-3xl border-2 border-emerald-400 dark:border-emerald-600 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-emerald-100/60 dark:from-slate-900 dark:via-emerald-950/25 dark:to-slate-900 flex flex-col justify-between space-y-4 shadow-sm">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-200 dark:bg-emerald-900/60 text-emerald-950 dark:text-emerald-200 flex items-center gap-1">
+                  <Sparkles size={11} className="text-emerald-700 dark:text-emerald-300" />
+                  Simulação em Tempo Real
+                </span>
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  {simulacaoTotais.totalUnidades} un no total
+                </span>
+              </div>
+
+              <h4 className="text-base font-black text-emerald-950 dark:text-white mt-2 flex items-center gap-1.5">
+                <span>💎</span> Total se Vendido (Resgate)
+              </h4>
+              <p className="text-xs text-emerald-800/90 dark:text-emerald-300/80 mt-1 leading-relaxed">
+                Valor estimado no caixa se todos os {itensAtivos.length} produtos forem vendidos com os percentuais atuais.
+              </p>
+              
+              <div className="mt-3 p-3 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-emerald-200 dark:border-emerald-800/60 shadow-xs">
+                <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+                  {fmt(simulacaoTotais.totalVendaProjetada)}
+                </div>
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-between">
+                  <span>De original: <span className="line-through">{fmt(simulacaoTotais.totalBrutoOriginal)}</span></span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-black">
+                    {simulacaoTotais.descontoMedioPct.toFixed(0)}% OFF Médio
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t border-emerald-200/80 dark:border-emerald-800/60 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">Custo Recuperado:</span>
+                <span className="font-black text-blue-600 dark:text-blue-400">{fmt(simulacaoTotais.totalCustoEstoque)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">Margem Bruta Estimada:</span>
+                <span className="font-black text-emerald-700 dark:text-emerald-400">
+                  +{fmt(simulacaoTotais.margemLucroReais)} ({simulacaoTotais.percentualMargem.toFixed(0)}%)
+                </span>
+              </div>
+              {simulacaoTotais.itensTravadosNoCusto > 0 && (
+                <div className="text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-100/80 dark:bg-blue-950/70 px-2 py-1 rounded-lg flex items-center gap-1 border border-blue-200 dark:border-blue-800">
+                  <span>🔒</span> {simulacaoTotais.itensTravadosNoCusto} produtos no piso de Custo
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={aplicarTodasSugestoes}
+                className="w-full py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                title="Aplica exatamente essas faixas nos produtos da tabela"
+              >
+                <Sparkles size={13} />
+                <span>Aplicar em Todos ({itensAtivos.length})</span>
               </button>
             </div>
           </div>

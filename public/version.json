@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "11242a5",
-  "commitMessage": "feat(ui): refatoracao de alta densidade em tabelas - whitespace-nowrap, metadados inline e acoes compactas",
-  "buildTime": "01/10/2026, 14:23:12"
+  "commitHash": "926a2ef",
+  "commitMessage": "style(liquidacao): alterar sinalizacao de desconto timido para linha vermelha",
+  "buildTime": "01/10/2026, 14:47:14"
 }
