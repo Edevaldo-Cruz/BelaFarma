@@ -541,6 +541,161 @@ module.exports = function (db) {
     }
   });
 
+  // 4.9 POST /api/liquidacao/carregar-todos-45d
+  // Reinicia a lista da campanha carregando todos os produtos parados há 45+ dias ordenados por criticidade
+  router.post('/carregar-todos-45d', async (req, res) => {
+    try {
+      const campanha = getOrCreateCampanhaAtiva();
+
+      // Busca todos os produtos elegíveis parados há >= 45 dias com saldo > 0
+      const prods = db.prepare(`
+        SELECT 
+          cec.produto_id,
+          cec.descricao,
+          COALESCE(cec.apresentacao, m.apresentacao, '') as apresentacao,
+          cec.ean,
+          COALESCE(m.categoria, 'Geral') as categoria,
+          cec.saldo,
+          COALESCE(NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), NULLIF(m.preco_compra, 0), 0) as preco_custo,
+          COALESCE(NULLIF(cec.preco_normal, 0), NULLIF(m.preco_venda, 0), 0) as preco_venda_cache,
+          COALESCE(cec.preco_promocional, 0) as preco_promo_cache,
+          cec.ultima_compra_data,
+          CAST((julianday('now') - julianday(cec.ultima_compra_data)) AS INTEGER) as dias_parado
+        FROM compras_estoque_cache cec
+        LEFT JOIN mural_produtos_parados m ON cec.produto_id = m.produto_id
+        WHERE cec.saldo > 0
+          AND cec.ultima_compra_data IS NOT NULL
+          AND (julianday('now') - julianday(cec.ultima_compra_data)) >= 45
+        GROUP BY cec.produto_id
+        ORDER BY dias_parado DESC, (cec.saldo * cec.custo_unitario) DESC
+      `).all();
+
+      if (prods.length === 0) {
+        return res.json({ success: true, count: 0, message: 'Nenhum produto parado há 45+ dias encontrado.' });
+      }
+
+      // Consulta estoque real e preços vigentes no Firebird
+      const ids = prods.map(p => p.produto_id);
+      let fbMap = new Map();
+      try {
+        const fbProds = await queryDigifarma(`
+          SELECT PRODUTO_ID, PROD_SALDO, PROD_PRVENDA, PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO 
+          FROM PRODUTOS 
+          WHERE PRODUTO_ID IN (${ids.join(',')})
+        `);
+        fbMap = new Map((fbProds || []).map(f => [f.PRODUTO_ID, f]));
+      } catch (fbErr) {
+        console.warn('[Liquidação API] Aviso ao buscar dados no Firebird:', fbErr.message);
+      }
+
+      const dataInicio = new Date().toISOString().split('T')[0];
+      const dataTermino = getUltimoDiaMesQueVem();
+
+      // Limpa os itens anteriores da campanha ativa para reiniciar a lista
+      db.prepare("DELETE FROM liquidacao_campanhas_itens WHERE campanha_id = ?").run(campanha.id);
+
+      const insertStmt = db.prepare(`
+        INSERT INTO liquidacao_campanhas_itens (
+          id, campanha_id, produto_id, descricao, apresentacao, ean, categoria,
+          saldo_estoque, preco_custo, preco_normal, preco_promocional, desconto_percentual,
+          data_inicio, data_termino, status, sincronizado_digifarma, aprovado_por,
+          preco_promocao_original, inicio_promocao_original, termino_promocao_original
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, 'ativo', 0, 'Sistema (45+ dias)',
+          ?, ?, ?
+        )
+      `);
+
+      let count = 0;
+      const insertMany = db.transaction((items) => {
+        for (const item of items) {
+          insertStmt.run(
+            String(item.id),
+            String(item.campanha_id),
+            Number(item.produto_id),
+            String(item.descricao || ''),
+            String(item.apresentacao || ''),
+            String(item.ean || ''),
+            String(item.categoria || 'Geral'),
+            Number(item.saldo_estoque) || 0,
+            Number(item.preco_custo) || 0,
+            Number(item.preco_normal) || 0,
+            Number(item.preco_promocional) || 0,
+            Number(item.desconto_percentual) || 0,
+            String(item.data_inicio),
+            String(item.data_termino),
+            item.preco_promocao_original != null ? Number(item.preco_promocao_original) : 0,
+            item.inicio_promocao_original ? String(item.inicio_promocao_original) : null,
+            item.termino_promocao_original ? String(item.termino_promocao_original) : null
+          );
+          count++;
+        }
+      });
+
+      const batchToInsert = [];
+      for (const p of prods) {
+        const fb = fbMap.get(p.produto_id);
+        const saldoReal = fb ? Number(fb.PROD_SALDO) : Number(p.saldo);
+        if (saldoReal <= 0) continue; // Apenas com saldo positivo real
+
+        const fbPromo = fb && fb.PROD_PRPROMOCAO != null ? Number(fb.PROD_PRPROMOCAO.toFixed(2)) : Number(p.preco_promo_cache || 0);
+        const fbVenda = fb && fb.PROD_PRVENDA != null ? Number(fb.PROD_PRVENDA.toFixed(2)) : Number(p.preco_venda_cache || 0);
+        
+        // Valor original praticado: se tem promocional prévio, usa ele; senão usa venda de tabela
+        const precoNormal = fbPromo > 0 ? fbPromo : fbVenda;
+        if (precoNormal <= 0) continue;
+
+        const dias = p.dias_parado || 45;
+
+        // 3 Faixas de desconto sugeridas:
+        let descPct = 30;
+        if (dias > 180) {
+          descPct = 70;
+        } else if (dias >= 91) {
+          descPct = 50;
+        } else {
+          descPct = 30;
+        }
+
+        let precoPromo = Math.round(precoNormal * (1 - descPct / 100) * 100) / 100;
+        if (precoPromo < 0.10) precoPromo = 0.50;
+
+        batchToInsert.push({
+          id: 'liq_' + p.produto_id + '_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          campanha_id: campanha.id,
+          produto_id: p.produto_id,
+          descricao: p.descricao,
+          apresentacao: p.apresentacao || '',
+          ean: p.ean || '',
+          categoria: p.categoria || 'Geral',
+          saldo_estoque: saldoReal,
+          preco_custo: Number(p.preco_custo.toFixed(2)),
+          preco_normal: precoNormal,
+          preco_promocional: precoPromo,
+          desconto_percentual: descPct,
+          data_inicio: dataInicio,
+          data_termino: dataTermino,
+          preco_promocao_original: fbPromo,
+          inicio_promocao_original: fb ? (fb.INICIO_PROMOCAO || null) : null,
+          termino_promocao_original: fb ? (fb.TERMINO_PROMOCAO || null) : null
+        });
+      }
+
+      insertMany(batchToInsert);
+
+      res.json({
+        success: true,
+        message: `Lista inicializada com sucesso com ${count} produtos parados há 45+ dias!`,
+        total: count
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /carregar-todos-45d:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 5. GET /api/liquidacao/itens-ativos
   // Retorna os produtos selecionados para a campanha com dias parado e sugestões inteligentes
   router.get('/itens-ativos', (req, res) => {
@@ -551,32 +706,32 @@ module.exports = function (db) {
           lci.*,
           COALESCE(NULLIF(lci.preco_custo, 0), NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), 0) as preco_custo,
           COALESCE(
-            NULLIF(m.dias_parado, 0),
             NULLIF(CAST((julianday('now') - julianday(cec.ultima_compra_data)) AS INTEGER), 0),
-            120
+            NULLIF(m.dias_parado, 0),
+            90
           ) as dias_parado
         FROM liquidacao_campanhas_itens lci
         LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
         LEFT JOIN mural_produtos_parados m ON lci.produto_id = m.produto_id
         WHERE lci.campanha_id = ? AND lci.status = 'ativo'
         GROUP BY lci.id
-        ORDER BY dias_parado DESC, lci.aprovado_em DESC
+        ORDER BY dias_parado DESC, (lci.saldo_estoque * lci.preco_custo) DESC
       `).all(campanha.id);
 
       const itens = rows.map(item => {
-        const dias = Number(item.dias_parado) || 90;
+        const dias = Number(item.dias_parado) || 45;
         let sugestao = 30;
         let motivoSugestao = '';
 
-        if (dias > 240) {
+        if (dias > 180) {
           sugestao = 70;
-          motivoSugestao = `Parado há ${dias} dias (> 8 meses). Queima total de 1º Aniversário necessária para evitar vencimento e juros.`;
-        } else if (dias >= 151) {
+          motivoSugestao = `Parado há ${dias} dias (> 6 meses). Queima total de 1º Aniversário (70%) para evitar perda total por vencimento e juros corrosivos.`;
+        } else if (dias >= 91) {
           sugestao = 50;
-          motivoSugestao = `Parado há ${dias} dias (5 a 8 meses). Desconto de 50% cria percepção irresistível de 'metade do preço'.`;
+          motivoSugestao = `Parado há ${dias} dias (3 a 6 meses). Sugestão de 50% cria gatilho de 'metade do preço' e resgate imediato de capital.`;
         } else {
           sugestao = 30;
-          motivoSugestao = `Parado há ${dias} dias (3 a 5 meses). Desconto de 30% acelera o giro preservando a margem.`;
+          motivoSugestao = `Parado há ${dias} dias (1,5 a 3 meses). Sugestão de 30% acelera o giro mantendo margem segura.`;
         }
 
         return {

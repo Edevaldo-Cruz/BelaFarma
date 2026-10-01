@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Flame, 
   Target, 
@@ -24,7 +24,10 @@ import {
   Eye,
   Filter,
   Pencil,
-  Save
+  Save,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -117,26 +120,19 @@ const getFimMesQueVem = () => {
 export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const { addToast } = useToast();
 
-  const [resumo, setResumo] = useState<ResumoData | null>(null);
-  const [candidato, setCandidato] = useState<ProdutoCandidato | null>(null);
-  const [semCandidatos, setSemCandidatos] = useState(false);
   const [itensAtivos, setItensAtivos] = useState<ItemAtivo[]>([]);
 
   const [loadingResumo, setLoadingResumo] = useState(true);
-  const [loadingItem, setLoadingItem] = useState(false);
-  const [savingItem, setSavingItem] = useState(false);
-  const [skippingItem, setSkippingItem] = useState(false);
+  const [loadingItens, setLoadingItens] = useState(false);
   const [revertingId, setRevertingId] = useState<string | null>(null);
 
-  // Filtro de Categoria
-  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('TODOS');
-
-  // Controle de visualização da etiqueta
-  const [mostrarEtiqueta, setMostrarEtiqueta] = useState<boolean>(true);
-
-  // Campos de edição do item atual
-  const [customPrice, setCustomPrice] = useState<string>('');
-  const [dataTermino, setDataTermino] = useState<string>('');
+  // Filtros & Busca Instantânea
+  const [termoBusca, setTermoBusca] = useState<string>('');
+  const [filtroCategoria, setFiltroCategoria] = useState<string>('TODOS');
+  const [filtroDias, setFiltroDias] = useState<string>('TODOS');
+  const [itensPorPagina, setItensPorPagina] = useState<number>(50);
+  const [paginaAtual, setPaginaAtual] = useState<number>(1);
+  const [carregandoTodos45d, setCarregandoTodos45d] = useState<boolean>(false);
 
   // Modais e opções de impressão
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -152,9 +148,9 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [savingEditId, setSavingEditId] = useState<string | null>(null);
 
   // 3 Faixas de Descontos Padrões Personalizáveis (editáveis pela Nayane)
-  const [faixa1Pct, setFaixa1Pct] = useState<number>(30); // 90 a 150 dias (Giro Rápido)
-  const [faixa2Pct, setFaixa2Pct] = useState<number>(50); // 151 a 240 dias (Resgate de Caixa)
-  const [faixa3Pct, setFaixa3Pct] = useState<number>(70); // > 240 dias (Queima Total 1º Aniversário)
+  const [faixa1Pct, setFaixa1Pct] = useState<number>(30); // 45 a 90 dias (Giro Rápido)
+  const [faixa2Pct, setFaixa2Pct] = useState<number>(50); // 91 a 180 dias (Resgate de Caixa)
+  const [faixa3Pct, setFaixa3Pct] = useState<number>(70); // > 180 dias (Queima Total 1º Aniversário)
 
   // Gravação e Reset em lote
   const [gravandoLote, setGravandoLote] = useState<boolean>(false);
@@ -176,6 +172,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   }, []);
 
   const fetchItensAtivos = useCallback(async () => {
+    setLoadingItens(true);
     try {
       const res = await fetch('/api/liquidacao/itens-ativos');
       if (res.ok) {
@@ -186,41 +183,41 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       }
     } catch (e) {
       console.error('Erro ao buscar itens ativos:', e);
+    } finally {
+      setLoadingItens(false);
     }
   }, []);
 
-  // 2. Carrega Próximo Candidato com filtro opcional de categoria
-  const fetchProximoCandidato = useCallback(async (cat?: string) => {
-    setLoadingItem(true);
-    setSemCandidatos(false);
-    try {
-      const categoriaAtiva = cat !== undefined ? cat : categoriaFiltro;
-      const url = categoriaAtiva && categoriaAtiva !== 'TODOS'
-        ? `/api/liquidacao/proximo-item?categoria=${encodeURIComponent(categoriaAtiva)}`
-        : '/api/liquidacao/proximo-item';
+  // Recarregar toda a base com produtos parados há 45+ dias
+  const handleCarregarTodos45d = async () => {
+    const confirma = window.confirm(
+      'Deseja carregar todos os produtos do estoque parados há 45 dias ou mais? Os produtos mais críticos virão no topo da lista.'
+    );
+    if (!confirma) return;
 
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.disponivel && data.produto) {
-          setCandidato(data.produto);
-          setCustomPrice(data.produto.preco_sugerido.toFixed(2));
-          setDataTermino(data.produto.vigencia_padrao.data_termino || getFimMesQueVem());
-        } else {
-          setCandidato(null);
-          setSemCandidatos(true);
-        }
+    setCarregandoTodos45d(true);
+    try {
+      const res = await fetch('/api/liquidacao/carregar-todos-45d', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`🔥 ${data.message}`, 'success');
+        await fetchItensAtivos();
+        await fetchResumo();
+        setPaginaAtual(1);
+      } else {
+        addToast(data.error || 'Erro ao carregar produtos parados.', 'error');
       }
     } catch (e) {
-      console.error('Erro ao buscar candidato:', e);
+      console.error('Erro ao recarregar produtos 45d:', e);
+      addToast('Falha na comunicação com o servidor.', 'error');
     } finally {
-      setLoadingItem(false);
+      setCarregandoTodos45d(false);
     }
-  }, [categoriaFiltro]);
+  };
 
   const handleTrocarCategoria = (novaCat: string) => {
-    setCategoriaFiltro(novaCat);
-    fetchProximoCandidato(novaCat);
+    setFiltroCategoria(novaCat);
+    setPaginaAtual(1);
   };
 
   // ─── ETIQUETAS FÍSICAS 39x39mm (ALTO CONTRASTE ATACADO & 1º ANIVERSÁRIO) ───
@@ -470,16 +467,17 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     if (dadosCustom) {
       dados = dadosCustom;
     } else {
-      if (!candidato) return;
-      const valFinal = parseFloat(customPrice.replace(',', '.')) || candidato.preco_sugerido;
+      if (itensAtivos.length === 0) return;
+      const first = itensAtivos[0];
       dados = {
-        descricao: candidato.descricao,
-        apresentacao: candidato.apresentacao,
-        preco_normal: candidato.preco_normal,
-        preco_promocional: valFinal,
-        cod_barras: candidato.cod_barras,
-        produto_id: candidato.produto_id,
-        data_termino: dataTermino || candidato.vigencia_padrao?.data_termino
+        descricao: first.descricao,
+        apresentacao: first.apresentacao,
+        preco_normal: first.preco_normal,
+        preco_promocional: first.preco_promocional,
+        cod_barras: first.ean,
+        ean: first.ean,
+        produto_id: first.produto_id,
+        data_termino: first.data_termino
       };
     }
 
@@ -737,80 +735,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   useEffect(() => {
     fetchResumo();
     fetchItensAtivos();
-    fetchProximoCandidato();
-  }, [fetchResumo, fetchItensAtivos, fetchProximoCandidato]);
-
-  // Ação: Aceitar & Enviar ao Digifarma
-  const handleAceitar = async () => {
-    if (!candidato) return;
-    const finalPrice = parseFloat(customPrice.replace(',', '.'));
-    if (isNaN(finalPrice) || finalPrice <= 0) {
-      addToast('Por favor, informe um preço promocional válido.', 'error');
-      return;
-    }
-
-    if (finalPrice < candidato.preco_custo) {
-      const confirma = window.confirm(
-        `Atenção: O valor de ${fmt(finalPrice)} é menor que o custo (${fmt(candidato.preco_custo)}). Deseja aplicar mesmo assim?`
-      );
-      if (!confirma) return;
-    }
-
-    setSavingItem(true);
-    try {
-      const res = await fetch('/api/liquidacao/aplicar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          produto_id: candidato.produto_id,
-          preco_promocional: finalPrice,
-          data_inicio: candidato.vigencia_padrao.data_inicio,
-          data_termino: dataTermino || candidato.vigencia_padrao.data_termino,
-          aprovado_por: user.name
-        })
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast(
-          `🔥 ${candidato.descricao} inserido por ${fmt(finalPrice)} no Digifarma!`,
-          'success'
-        );
-        fetchResumo();
-        fetchItensAtivos();
-        fetchProximoCandidato();
-      } else {
-        addToast(data.error || 'Erro ao aplicar no Digifarma.', 'error');
-      }
-    } catch (e) {
-      console.error('Erro ao aplicar promoção:', e);
-      addToast('Falha na comunicação com o servidor.', 'error');
-    } finally {
-      setSavingItem(false);
-    }
-  };
-
-  // Ação: Pular / Trocar Produto
-  const handlePular = async () => {
-    if (!candidato) return;
-    setSkippingItem(true);
-    try {
-      const res = await fetch('/api/liquidacao/pular', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ produto_id: candidato.produto_id })
-      });
-      if (res.ok) {
-        addToast(`Produto trocado com sucesso.`, 'info');
-        fetchResumo();
-        fetchProximoCandidato();
-      }
-    } catch (e) {
-      console.error('Erro ao pular produto:', e);
-    } finally {
-      setSkippingItem(false);
-    }
-  };
+  }, [fetchResumo, fetchItensAtivos]);
 
   // Ação: Reverter Promoção
   const handleReverter = async (item: ItemAtivo) => {
@@ -938,14 +863,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
   // ─── ESTRATÉGIA DE MARKETING & JUSTIFICATIVA PERSUASIVA (1º ANIVERSÁRIO) ───
   const getSugestaoParaDias = (dias: number) => {
-    if (dias > 240) return { pct: faixa3Pct, faixaNum: 3, label: 'Queima Total (+240d)' };
-    if (dias >= 151) return { pct: faixa2Pct, faixaNum: 2, label: 'Resgate de Caixa (151-240d)' };
-    return { pct: faixa1Pct, faixaNum: 1, label: 'Giro Rápido (90-150d)' };
+    if (dias > 180) return { pct: faixa3Pct, faixaNum: 3, label: 'Queima Total (+180d)' };
+    if (dias >= 91) return { pct: faixa2Pct, faixaNum: 2, label: 'Resgate de Caixa (91-180d)' };
+    return { pct: faixa1Pct, faixaNum: 1, label: 'Giro Rápido (45-90d)' };
   };
 
   // Gera o texto persuasivo de marketing e finanças de varejo farma
   const gerarJustificativaMarketing = (item: ItemAtivo, pctAtual: number, dias: number, sugestaoPct: number) => {
-    const meses = Math.max(3, Math.round(dias / 30));
+    const meses = Math.max(1, Math.round(dias / 30));
     const precoSugerido = (item.preco_normal * (1 - sugestaoPct / 100)).toFixed(2);
     const economiaAtual = Math.max(0, item.preco_normal - item.preco_promocional);
     const totalParado = item.preco_custo * (item.saldo_estoque || 1);
@@ -997,10 +922,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     const pct = faixa === 3 ? faixa3Pct : faixa === 2 ? faixa2Pct : faixa1Pct;
     let afetados = 0;
     setItensAtivos(prev => prev.map(it => {
-      const d = it.dias_parado || 90;
-      const match = (faixa === 3 && d > 240) ||
-                    (faixa === 2 && d >= 151 && d <= 240) ||
-                    (faixa === 1 && d <= 150);
+      const d = it.dias_parado || 45;
+      const match = (faixa === 3 && d > 180) ||
+                    (faixa === 2 && d >= 91 && d <= 180) ||
+                    (faixa === 1 && d <= 90);
       if (match) {
         afetados++;
         const novoPreco = Math.max(0.1, Math.round(it.preco_normal * (1 - pct / 100) * 100) / 100);
@@ -1013,14 +938,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       }
       return it;
     }));
-    addToast(`⚡ Desconto de ${pct}% aplicado em ${afetados} produtos da Faixa ${faixa}! Clique em 'Gravar no Digifarma' para sincronizar.`, 'success');
+    addToast(`⚡ Desconto de ${pct}% aplicado em ${afetados} produtos da Faixa ${faixa}! Clique em 'Gravar Todas no Digifarma' para sincronizar.`, 'success');
   };
 
   // Ação: Aplica a sugestão inteligente em todos os produtos da lista de acordo com os dias parados
   const aplicarTodasSugestoes = () => {
     setItensAtivos(prev => prev.map(it => {
-      const d = it.dias_parado || 90;
-      const pct = d > 240 ? faixa3Pct : (d >= 151 ? faixa2Pct : faixa1Pct);
+      const d = it.dias_parado || 45;
+      const pct = d > 180 ? faixa3Pct : (d >= 91 ? faixa2Pct : faixa1Pct);
       const novoPreco = Math.max(0.1, Math.round(it.preco_normal * (1 - pct / 100) * 100) / 100);
       return {
         ...it,
@@ -1092,14 +1017,57 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   };
 
-  // Cálculo de desconto dinâmico com base no valor digitado
-  const parsedPrice = parseFloat(customPrice.replace(',', '.')) || 0;
-  const currentDiscountPercent = candidato && candidato.preco_normal > 0 && parsedPrice > 0
-    ? Math.round(((candidato.preco_normal - parsedPrice) / candidato.preco_normal) * 100)
-    : 0;
-  const currentDiscountReais = candidato && parsedPrice > 0
-    ? Math.max(0, candidato.preco_normal - parsedPrice)
-    : 0;
+  // Filtro e paginação da lista de produtos parados há 45+ dias
+  const itensFiltrados = useMemo(() => {
+    return itensAtivos.filter(item => {
+      // 1. Busca textual (ID, Descrição, EAN, Apresentação)
+      if (termoBusca.trim()) {
+        const busca = termoBusca.toLowerCase().trim();
+        const idMatch = String(item.produto_id || '').toLowerCase().includes(busca);
+        const descMatch = (item.descricao || '').toLowerCase().includes(busca);
+        const eanMatch = (item.ean || '').toLowerCase().includes(busca);
+        const apresMatch = (item.apresentacao || '').toLowerCase().includes(busca);
+        if (!idMatch && !descMatch && !eanMatch && !apresMatch) return false;
+      }
+
+      // 2. Filtro Categoria
+      if (filtroCategoria !== 'TODOS') {
+        const cat = (item.categoria || '').toUpperCase();
+        if (filtroCategoria === 'PERFUMARIA') {
+          if (!cat.includes('PERFUMARIA') && !cat.includes('HIGIENE') && !cat.includes('COSMETICO')) return false;
+        } else if (filtroCategoria === 'GENERICO') {
+          if (!cat.includes('GENERICO')) return false;
+        } else if (filtroCategoria === 'MARCA') {
+          if (!cat.includes('MARCA') && !cat.includes('REFERENCIA') && !cat.includes('ETICO')) return false;
+        } else if (filtroCategoria === 'SIMILAR') {
+          if (!cat.includes('SIMILAR')) return false;
+        } else if (filtroCategoria === 'OUTROS') {
+          if (cat.includes('GENERICO') || cat.includes('PERFUMARIA') || cat.includes('MARCA') || cat.includes('SIMILAR')) return false;
+        }
+      }
+
+      // 3. Filtro Faixa de Dias
+      const dias = Number(item.dias_parado) || 45;
+      if (filtroDias === 'FAIXA1') {
+        if (dias < 45 || dias > 90) return false;
+      } else if (filtroDias === 'FAIXA2') {
+        if (dias < 91 || dias > 180) return false;
+      } else if (filtroDias === 'FAIXA3') {
+        if (dias <= 180) return false;
+      }
+
+      return true;
+    });
+  }, [itensAtivos, termoBusca, filtroCategoria, filtroDias]);
+
+  const totalPaginas = itensPorPagina === 0 ? 1 : Math.max(1, Math.ceil(itensFiltrados.length / itensPorPagina));
+  const paginaAjustada = Math.min(Math.max(1, paginaAtual), totalPaginas);
+
+  const itensPaginados = useMemo(() => {
+    if (itensPorPagina === 0) return itensFiltrados;
+    const inicio = (paginaAjustada - 1) * itensPorPagina;
+    return itensFiltrados.slice(inicio, inicio + itensPorPagina);
+  }, [itensFiltrados, paginaAjustada, itensPorPagina]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-12">
@@ -1112,25 +1080,24 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         <div className="relative z-10 space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-xs font-black uppercase tracking-wider text-amber-200">
             <Flame className="w-4 h-4 text-amber-300 fill-amber-300 animate-pulse" />
-            Aceleração Financeira & Queima de Estoque
+            Aceleração Financeira & Queima de Estoque (45+ Dias)
           </div>
           <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-3">
             Liquidação & Resgate de Caixa
           </h1>
           <p className="text-sm text-white/90 max-w-2xl leading-relaxed">
-            Selecione quantos produtos desejar para liquidar o estoque parado há mais de 90 dias (sem limite semanal).
-            O preço promocional é gravado diretamente no <strong>Digifarma Firebird</strong> com vigência até o 
-            <strong> último dia do mês que vem</strong>, transformando estoque imobilizado em dinheiro limpo para <strong>zerar o Cheque Especial</strong>.
+            Todos os produtos parados há <strong>45 dias ou mais sem movimentação recente</strong> listados em uma visão única,
+            com sugestões de desconto calculadas para acelerar a conversão em caixa e <strong>zerar o Cheque Especial</strong>.
           </p>
         </div>
 
         <div className="relative z-10 flex flex-wrap md:flex-col gap-2 shrink-0">
           <button
-            onClick={() => { fetchResumo(); fetchItensAtivos(); fetchProximoCandidato(); }}
-            disabled={loadingResumo || loadingItem}
-            className="px-4 py-2.5 bg-white/10 hover:bg-white/20 active:scale-95 transition-all rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-white/20 backdrop-blur-md"
+            onClick={() => { fetchResumo(); fetchItensAtivos(); }}
+            disabled={loadingResumo || loadingItens}
+            className="px-4 py-2.5 bg-white/10 hover:bg-white/20 active:scale-95 transition-all rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-white/20 backdrop-blur-md cursor-pointer"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingResumo || loadingItem ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingResumo || loadingItens ? 'animate-spin' : ''}`} />
             Atualizar Dados
           </button>
 
@@ -1230,11 +1197,11 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* Card 3: Seleção sem limite */}
+        {/* Card 3: Produtos Parados 45+ Dias */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Produtos na Liquidação
+              Estoque Parado (45+ Dias)
             </span>
             <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
               <Sparkles size={18} />
@@ -1244,418 +1211,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           <div className="my-3">
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-black text-amber-600 dark:text-amber-400">
-                {resumo?.progressoSelecao.aprovados || 0}
+                {itensAtivos.length}
               </span>
-              <span className="text-sm font-bold text-slate-400">produtos aprovados</span>
+              <span className="text-sm font-bold text-slate-400">produtos elegíveis</span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              🔥 Queima contínua sem limite semanal — liquide o máximo possível!
+              🔥 Visão completa ordenada por criticidade (dias sem venda e capital imobilizado).
             </p>
           </div>
 
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-3">
-            <span>Itens pulados: <strong>{resumo?.progressoSelecao.pulados || 0}</strong></span>
-            <span>Ativos no Digifarma: <strong>{itensAtivos.length}</strong></span>
+            <span>No Digifarma: <strong>{itensAtivos.filter(i => i.sincronizado_digifarma === 1).length}</strong></span>
+            <span>Pendentes: <strong>{itensAtivos.filter(i => i.sincronizado_digifarma !== 1).length}</strong></span>
           </div>
         </div>
-      </div>
-
-      {/* ─── ÁREA CENTRAL: FLUXO DE APROVAÇÃO "UM A UM" ─── */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-md p-6 md:p-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div>
-            <h2 className="text-lg md:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <Tag className="w-5 h-5 text-orange-500" />
-              Aprovação Rápida: Um a Um
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Analise a sugestão a Preço de Custo + Simples (7%), ajuste se necessário e envie com 1 clique para o Digifarma.
-            </p>
-          </div>
-
-          <div className="text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 self-start sm:self-auto">
-            {resumo?.progressoSelecao.aprovados || 0} aprovados (Sem limite)
-          </div>
-        </div>
-
-        {/* ─── BARRA DE FILTRO POR CATEGORIA ─── */}
-        <div className="mb-6 pb-5 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2 mb-3">
-            <Filter className="w-3.5 h-3.5 text-orange-500" />
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Filtrar por Categoria:
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'TODOS', label: 'Todos os Produtos', icon: '📦' },
-              { id: 'PERFUMARIA', label: 'Perfumaria & Higiene', icon: '🧴' },
-              { id: 'GENERICO', label: 'Genéricos', icon: '💊' },
-              { id: 'MARCA', label: 'Medicamentos Marca/Ref.', icon: '🏷️' },
-              { id: 'SIMILAR', label: 'Similares', icon: '🔬' },
-              { id: 'OUTROS', label: 'Outros', icon: '✨' },
-            ].map(cat => (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => handleTrocarCategoria(cat.id)}
-                disabled={loadingItem}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  categoriaFiltro === cat.id
-                    ? 'bg-orange-500 text-white shadow-md shadow-orange-500/25 scale-[1.02]'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
-              >
-                <span>{cat.icon}</span>
-                <span>{cat.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {loadingItem ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
-            <span className="text-xs font-bold text-slate-400">Minerando próximo produto parado há mais de 90 dias...</span>
-          </div>
-        ) : semCandidatos || !candidato ? (
-          <div className="py-16 text-center space-y-3">
-            <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center">
-              <CheckCircle2 size={32} />
-            </div>
-            <h3 className="text-base font-black text-slate-900 dark:text-white">
-              Todos os produtos disponíveis foram analisados!
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-              Você já analisou ou pulou os produtos parados elegíveis. Acompanhe a venda dos itens ativos abaixo ou reinicie a campanha.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Header do Card do Produto */}
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300">
-                    +{candidato.dias_parado} dias sem venda
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                    {candidato.categoria}
-                  </span>
-                  {candidato.cod_barras && (
-                    <span className="text-[11px] font-mono font-medium text-slate-400">
-                      EAN: {candidato.cod_barras}
-                    </span>
-                  )}
-                </div>
-
-                <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  {candidato.descricao}
-                </h3>
-                {candidato.apresentacao && (
-                  <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                    {candidato.apresentacao}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-4 shrink-0 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
-                <div className="text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Saldo Parado</div>
-                  <div className="text-lg font-black text-slate-900 dark:text-white">{candidato.saldo} un</div>
-                </div>
-                <div className="w-px h-8 bg-slate-200 dark:bg-slate-800" />
-                <div className="text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Imobilizado</div>
-                  <div className="text-lg font-black text-red-600 dark:text-red-400">{fmt(candidato.valor_total_parado)}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Comparativo de Preço: Custo -> Vigente (Promocional/Normal) -> Sugerido */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Preço de Custo Real Unitário */}
-              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  1. Preço de Custo Unitário
-                </div>
-                <div className="text-xl font-bold text-slate-700 dark:text-slate-300">
-                  {fmt(candidato.preco_custo)}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  Custo real por unidade/blister
-                </div>
-              </div>
-
-              {/* Preço de Venda Vigente no Digifarma */}
-              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 relative">
-                {candidato.tem_promocao_ativa && (
-                  <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                    Promoção Ativa
-                  </span>
-                )}
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  2. Preço Vigente no Digifarma
-                </div>
-                <div className="text-xl font-black text-slate-800 dark:text-white">
-                  {fmt(candidato.preco_normal)}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
-                  {candidato.preco_tabela && candidato.preco_tabela > candidato.preco_normal && (
-                    <span>Tabela: <span className="line-through">{fmt(candidato.preco_tabela)}</span></span>
-                  )}
-                  <span>(Preço cobrado hoje no PDV)</span>
-                </div>
-              </div>
-
-              {/* Preço Sugerido: Custo + Simples (7%) */}
-              <div className="p-4 rounded-2xl border-2 border-orange-500 bg-orange-50/50 dark:bg-orange-950/20 relative overflow-hidden">
-                <div className="absolute top-2 right-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-500 text-white uppercase">
-                    Queima Máxima
-                  </span>
-                </div>
-                <div className="text-xs font-black text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-1">
-                  3. Nova Sugestão (Custo + Simples)
-                </div>
-                <div className="text-2xl font-black text-orange-600 dark:text-orange-400">
-                  {fmt(candidato.preco_sugerido)}
-                </div>
-                <div className="text-[11px] font-bold text-orange-700 dark:text-orange-300 mt-1 flex items-center gap-1">
-                  <Percent size={12} />
-                  Economia de {fmt(candidato.desconto_reais)} ({candidato.desconto_percentual}% abaixo do preço atual)
-                </div>
-              </div>
-            </div>
-
-            {/* Painel de Edição & Vigência */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
-              {/* Ajustar Preço Promocional */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                  <span>Preço Promocional a Aplicar (R$):</span>
-                  {currentDiscountPercent > 0 && (
-                    <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                      {currentDiscountPercent}% de Desconto (-{fmt(currentDiscountReais)})
-                    </span>
-                  )}
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 font-bold">
-                    R$
-                  </div>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={customPrice}
-                    onChange={(e) => setCustomPrice(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-lg font-black text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCustomPrice(candidato.preco_sugerido.toFixed(2))}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
-                  >
-                    Resetar p/ Sugerido ({fmt(candidato.preco_sugerido)})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCustomPrice((candidato.preco_custo * 1.15).toFixed(2))}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
-                  >
-                    Custo + 15% ({fmt(candidato.preco_custo * 1.15)})
-                  </button>
-                </div>
-              </div>
-
-              {/* Ajustar Vigência */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                  <span>Válido até (Reversão Automática no Digifarma):</span>
-                  <span className="text-xs font-semibold text-slate-400 flex items-center gap-1">
-                    <Clock size={12} /> 23:59:59
-                  </span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={dataTermino}
-                    onChange={(e) => setDataTermino(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDataTermino(getFimMesQueVem())}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 hover:bg-orange-200 transition-colors"
-                  >
-                    Fim do Mês que Vem (Padrão)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 15);
-                      setDataTermino(d.toISOString().split('T')[0]);
-                    }}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
-                  >
-                    15 dias
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 30);
-                      setDataTermino(d.toISOString().split('T')[0]);
-                    }}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-colors"
-                  >
-                    30 dias
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* ─── PRÉ-VISUALIZAÇÃO DA ETIQUETA DE OFERTA / GÔNDOLA (39x39mm) ─── */}
-            <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-950/60 text-orange-600">
-                    <Tag size={16} />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                      Etiqueta de Gôndola (39mm × 39mm)
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300">
-                        Medida Exata 39×39mm
-                      </span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      Formato calibrado rigorosamente para 39×39mm, não ultrapassa o limite da etiqueta de prateleira.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMostrarEtiqueta(!mostrarEtiqueta)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Eye size={13} />
-                    {mostrarEtiqueta ? 'Ocultar Prévia' : 'Ver Etiqueta'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => imprimirEtiqueta39x39()}
-                    className="px-4 py-1.5 rounded-xl text-xs font-black bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Printer size={13} />
-                    Imprimir Etiqueta (39x39mm)
-                  </button>
-                </div>
-              </div>
-
-              {mostrarEtiqueta && (
-                <div className="flex flex-col items-center justify-center p-6 bg-slate-200/60 dark:bg-slate-950 rounded-2xl gap-3">
-                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <span>📏 Pré-visualização da Etiqueta Física (39mm × 39mm):</span>
-                  </div>
-
-                  {/* Cartão de Etiqueta Física 39x39mm (Proporção Exata 1:1) */}
-                  <div 
-                    style={{ width: '156px', height: '156px' }}
-                    className="bg-white text-slate-900 border-2 border-red-600 rounded-lg shadow-xl p-2 text-center flex flex-col justify-between overflow-hidden select-none"
-                  >
-                    <div className="bg-red-600 text-white py-0.5 px-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
-                      <Flame size={10} className="fill-white" />
-                      BELAFARMA OFERTA
-                    </div>
-
-                    <div className="my-0.5">
-                      <h3 className="text-[9px] font-black uppercase leading-tight line-clamp-2 text-slate-900">
-                        {candidato.descricao}
-                      </h3>
-                      {candidato.apresentacao && (
-                        <p className="text-[7.5px] font-semibold text-slate-500 line-clamp-1">
-                          {candidato.apresentacao}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="bg-red-50/90 border border-dashed border-red-300 rounded p-1 my-0.5">
-                      <div className="text-[8px] font-bold text-slate-400 line-through leading-tight">
-                        DE: {fmt(candidato.preco_normal)}
-                      </div>
-                      <div className="flex items-baseline justify-center gap-1 leading-tight">
-                        <span className="text-[8px] font-black text-red-600 uppercase">POR:</span>
-                        <span className="text-[17px] font-black text-red-600 tracking-tight">
-                          {fmt(parsedPrice || candidato.preco_sugerido)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-1 border-t border-slate-200 flex items-center justify-between text-[7.5px] font-bold text-slate-500 leading-tight">
-                      {currentDiscountPercent > 0 ? (
-                        <span className="bg-amber-400 text-slate-950 px-1 rounded font-black text-[7.5px]">
-                          {currentDiscountPercent}% OFF
-                        </span>
-                      ) : (
-                        <span>OFERTA</span>
-                      )}
-                      <span>ATÉ {dataTermino ? dataTermino.split('-').reverse().join('/') : '-'}</span>
-                    </div>
-
-                    {candidato.cod_barras && (
-                      <div className="text-[6.5px] font-mono text-slate-400 truncate mt-0.5">
-                        EAN: {candidato.cod_barras} | ID: {candidato.produto_id}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Botões de Ação Final */}
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handlePular}
-                disabled={skippingItem || savingItem}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-750 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {skippingItem ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4 text-slate-400" />}
-                Pular / Trocar Produto
-              </button>
-
-              <button
-                type="button"
-                onClick={handleAceitar}
-                disabled={savingItem || skippingItem}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 via-amber-500 to-emerald-600 hover:from-orange-600 hover:via-amber-600 hover:to-emerald-700 text-white text-sm font-black shadow-lg shadow-orange-500/25 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {savingItem ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Gravando no Digifarma...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-5 h-5" />
-                    Aceitar & Enviar ao Digifarma
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ─── 3 CARDS DE DESCONTOS PADRÕES PERSONALIZÁVEIS ─── */}
@@ -1672,6 +1241,17 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCarregarTodos45d}
+              disabled={carregandoTodos45d}
+              className="px-3.5 py-2 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 shadow-sm active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Recarrega do estoque todos os produtos parados há 45 dias ou mais sem movimentação recente"
+            >
+              {carregandoTodos45d ? <Loader2 size={14} className="animate-spin text-amber-400" /> : <RefreshCw size={14} />}
+              <span>⚡ Recarregar Base 45+ Dias</span>
+            </button>
+
             <button
               type="button"
               onClick={aplicarTodasSugestoes}
@@ -1706,17 +1286,17 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* 3 Cards Editáveis de Desconto */}
+        {/* 3 Cards Editáveis de Desconto (Faixas de 45 a 90d, 91 a 180d e +180d) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Card 1: Giro Rápido (90 a 150 dias) */}
+          {/* Card 1: Giro Rápido (45 a 90 dias) */}
           <div className="p-5 rounded-3xl border-2 border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/20 flex flex-col justify-between space-y-4">
             <div>
               <div className="flex items-center justify-between gap-2">
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
-                  Faixa 1 • 90 a 150 dias
+                  Faixa 1 • 45 a 90 dias
                 </span>
                 <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
-                  {itensAtivos.filter(i => (i.dias_parado || 90) <= 150).length} produtos
+                  {itensAtivos.filter(i => (i.dias_parado || 45) <= 90).length} produtos
                 </span>
               </div>
 
@@ -1749,20 +1329,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 onClick={() => aplicarFaixaLote(1)}
                 className="w-full py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <span>Aplicar {faixa1Pct}% nos 90-150 dias ({itensAtivos.filter(i => (i.dias_parado || 90) <= 150).length})</span>
+                <span>Aplicar {faixa1Pct}% nos 45-90 dias ({itensAtivos.filter(i => (i.dias_parado || 45) <= 90).length})</span>
               </button>
             </div>
           </div>
 
-          {/* Card 2: Resgate de Caixa (151 a 240 dias) */}
+          {/* Card 2: Resgate de Caixa (91 a 180 dias) */}
           <div className="p-5 rounded-3xl border-2 border-orange-300 dark:border-orange-800 bg-orange-50/70 dark:bg-orange-950/20 flex flex-col justify-between space-y-4">
             <div>
               <div className="flex items-center justify-between gap-2">
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-200 dark:bg-orange-900/60 text-orange-900 dark:text-orange-200">
-                  Faixa 2 • 151 a 240 dias
+                  Faixa 2 • 91 a 180 dias
                 </span>
                 <span className="text-xs font-bold text-orange-800 dark:text-orange-300">
-                  {itensAtivos.filter(i => (i.dias_parado || 90) >= 151 && (i.dias_parado || 90) <= 240).length} produtos
+                  {itensAtivos.filter(i => (i.dias_parado || 45) >= 91 && (i.dias_parado || 45) <= 180).length} produtos
                 </span>
               </div>
 
@@ -1795,20 +1375,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 onClick={() => aplicarFaixaLote(2)}
                 className="w-full py-2 rounded-xl text-xs font-black bg-orange-500 hover:bg-orange-600 active:scale-95 text-white shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <span>Aplicar {faixa2Pct}% nos 151-240 dias ({itensAtivos.filter(i => (i.dias_parado || 90) >= 151 && (i.dias_parado || 90) <= 240).length})</span>
+                <span>Aplicar {faixa2Pct}% nos 91-180 dias ({itensAtivos.filter(i => (i.dias_parado || 45) >= 91 && (i.dias_parado || 45) <= 180).length})</span>
               </button>
             </div>
           </div>
 
-          {/* Card 3: Queima Total 1º Aniversário (+240 dias) */}
+          {/* Card 3: Queima Total 1º Aniversário (+180 dias) */}
           <div className="p-5 rounded-3xl border-2 border-red-400 dark:border-red-800 bg-red-50/70 dark:bg-red-950/25 flex flex-col justify-between space-y-4">
             <div>
               <div className="flex items-center justify-between gap-2">
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-200 dark:bg-red-900/60 text-red-900 dark:text-red-200">
-                  Faixa 3 • Mais de 240 dias
+                  Faixa 3 • Mais de 180 dias
                 </span>
                 <span className="text-xs font-bold text-red-800 dark:text-red-300">
-                  {itensAtivos.filter(i => (i.dias_parado || 90) > 240).length} produtos
+                  {itensAtivos.filter(i => (i.dias_parado || 45) > 180).length} produtos
                 </span>
               </div>
 
@@ -1841,10 +1421,108 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 onClick={() => aplicarFaixaLote(3)}
                 className="w-full py-2 rounded-xl text-xs font-black bg-red-600 hover:bg-red-700 active:scale-95 text-white shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <span>Aplicar {faixa3Pct}% nos +240 dias ({itensAtivos.filter(i => (i.dias_parado || 90) > 240).length})</span>
+                <span>Aplicar {faixa3Pct}% nos +180 dias ({itensAtivos.filter(i => (i.dias_parado || 45) > 180).length})</span>
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ─── BARRA DE BUSCA, FILTROS E PAGINAÇÃO ─── */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Campo de Busca Rápida */}
+          <div className="relative flex-1 min-w-[260px]">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={termoBusca}
+              onChange={(e) => { setTermoBusca(e.target.value); setPaginaAtual(1); }}
+              placeholder="Buscar por Cód. ID (ex: 123), Nome do Produto ou EAN..."
+              className="w-full pl-10 pr-9 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            {termoBusca && (
+              <button
+                type="button"
+                onClick={() => { setTermoBusca(''); setPaginaAtual(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Filtro por Faixa de Dias */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl shrink-0 overflow-x-auto">
+            {[
+              { id: 'TODOS', label: `Todos (${itensAtivos.length})` },
+              { id: 'FAIXA1', label: `45-90d (${itensAtivos.filter(i => (i.dias_parado || 45) <= 90).length})` },
+              { id: 'FAIXA2', label: `91-180d (${itensAtivos.filter(i => (i.dias_parado || 45) >= 91 && (i.dias_parado || 45) <= 180).length})` },
+              { id: 'FAIXA3', label: `+180d (${itensAtivos.filter(i => (i.dias_parado || 45) > 180).length})` },
+            ].map(f => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => { setFiltroDias(f.id); setPaginaAtual(1); }}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer whitespace-nowrap ${
+                  filtroDias === f.id
+                    ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Seletor de Itens por Página */}
+          <div className="flex items-center gap-2 shrink-0 text-xs">
+            <span className="text-slate-400 font-bold hidden sm:inline">Exibir:</span>
+            <select
+              value={itensPorPagina}
+              onChange={(e) => { setItensPorPagina(Number(e.target.value)); setPaginaAtual(1); }}
+              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+            >
+              <option value={25}>25 por página</option>
+              <option value={50}>50 por página</option>
+              <option value={100}>100 por página</option>
+              <option value={200}>200 por página</option>
+              <option value={0}>Todos ({itensFiltrados.length})</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Filtros Rápidos de Categorias */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-1 flex items-center gap-1">
+            <Filter size={11} className="text-orange-500" />
+            Categoria:
+          </span>
+          {[
+            { id: 'TODOS', label: 'Todas', icon: '📦' },
+            { id: 'PERFUMARIA', label: 'Perfumaria & Higiene', icon: '🧴' },
+            { id: 'GENERICO', label: 'Genéricos', icon: '💊' },
+            { id: 'MARCA', label: 'Medicamento Marca', icon: '🏷️' },
+            { id: 'SIMILAR', label: 'Similares', icon: '🔬' },
+            { id: 'OUTROS', label: 'Outros', icon: '✨' },
+          ].map(cat => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => handleTrocarCategoria(cat.id)}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                filtroCategoria === cat.id
+                  ? 'bg-orange-500 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+              }`}
+            >
+              <span>{cat.icon}</span>
+              <span>{cat.label}</span>
+            </button>
+          ))}
+          <span className="ml-auto text-[11px] font-bold text-slate-400 shrink-0">
+            Mostrando <strong>{itensFiltrados.length}</strong> de {itensAtivos.length}
+          </span>
         </div>
       </div>
 
@@ -1886,14 +1564,16 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             Nenhuma oferta na lista no momento.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 uppercase tracking-wider font-bold">
+                  <th className="pb-3 text-center w-16">Cód. ID</th>
                   <th className="pb-3">Produto & Tempo Parado</th>
                   <th className="pb-3 text-right">Saldo</th>
                   <th className="pb-3 text-right text-blue-600 dark:text-blue-400 font-black">Custo</th>
-                  <th className="pb-3 text-right">De (Normal)</th>
+                  <th className="pb-3 text-right">De (Original)</th>
                   <th className="pb-3 text-center">Por (Promo) & Atalhos</th>
                   <th className="pb-3 text-right">Desconto & Econ.</th>
                   <th className="pb-3 text-center">Válido até</th>
@@ -1902,10 +1582,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                {itensAtivos.map((item) => {
+                {itensPaginados.map((item) => {
                   const isEditing = editingItemId === item.id;
                   const isSaving = savingEditId === item.id;
-                  const dias = Number(item.dias_parado) || 90;
+                  const dias = Number(item.dias_parado) || 45;
                   const sugestao = getSugestaoParaDias(dias);
 
                   // Desconto calculado em tempo real durante a edição ou seleção
@@ -1926,13 +1606,18 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                             : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                         }`}
                       >
+                        {/* Coluna 1: Código Interno Digifarma */}
+                        <td className="py-3 px-2 text-center font-mono font-black text-xs text-slate-700 dark:text-slate-300">
+                          #{item.produto_id}
+                        </td>
+
                         <td className="py-3 pr-2">
                           <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                            {dias > 240 ? (
+                            {dias > 180 ? (
                               <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 flex items-center gap-1">
                                 <Flame size={11} /> {dias} dias sem venda
                               </span>
-                            ) : dias >= 151 ? (
+                            ) : dias >= 91 ? (
                               <span className="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 flex items-center gap-1">
                                 <AlertTriangle size={11} /> {dias} dias sem venda
                               </span>
@@ -2158,7 +1843,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
                       {/* ─── BOX DE JUSTIFICATIVA PERSUASIVA (MARKETING & FINANÇAS) ─── */}
                       <tr className="border-b-2 border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
-                        <td colSpan={9} className="py-2.5 px-4">
+                        <td colSpan={10} className="py-2.5 px-4">
                           <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
                             justificativa.status === 'aprovado'
                               ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
@@ -2201,6 +1886,41 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               </tbody>
             </table>
           </div>
+
+          {/* ─── CONTROLES DE PAGINAÇÃO RÁPIDA ─── */}
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="text-slate-500 dark:text-slate-400 font-semibold">
+              Mostrando <strong>{itensPaginados.length}</strong> de <strong>{itensFiltrados.length}</strong> produtos
+              {itensFiltrados.length < itensAtivos.length && ` (filtrado de ${itensAtivos.length} total)`}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPaginaAtual(prev => Math.max(1, prev - 1))}
+                disabled={paginaAjustada <= 1}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-50 dark:hover:bg-slate-750 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <ChevronLeft size={14} />
+                <span>Anterior</span>
+              </button>
+
+              <div className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 font-black text-slate-800 dark:text-slate-200">
+                Página {paginaAjustada} de {totalPaginas}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPaginaAtual(prev => Math.min(totalPaginas, prev + 1))}
+                disabled={paginaAjustada >= totalPaginas}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-50 dark:hover:bg-slate-750 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <span>Próxima</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+          </>
         )}
       </div>
 

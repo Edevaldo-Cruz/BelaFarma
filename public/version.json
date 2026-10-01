@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4eebb5a",
-  "commitMessage": "feat(liquidacao): adicionar coluna Custo em negrito e azul na lista de ofertas ativas",
-  "buildTime": "01/10/2026, 08:30:42"
+  "commitHash": "00fff56",
+  "commitMessage": "fix(liquidacao): restaurar precos originais do backup Firebird e preservar precos promocoes previas",
+  "buildTime": "01/10/2026, 10:42:52"
 }
