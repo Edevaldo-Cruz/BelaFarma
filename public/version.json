@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f136091",
-  "commitMessage": "feat(liquidacao): otimizacao visual de espaco com sinalizacao de cores, legenda recolhivel e justificativa sob demanda",
-  "buildTime": "01/10/2026, 13:54:29"
+  "commitHash": "11242a5",
+  "commitMessage": "feat(ui): refatoracao de alta densidade em tabelas - whitespace-nowrap, metadados inline e acoes compactas",
+  "buildTime": "01/10/2026, 14:23:12"
 }

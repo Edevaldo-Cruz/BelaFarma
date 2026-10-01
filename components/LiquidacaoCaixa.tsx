@@ -906,7 +906,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         icone: '⚠️',
         titulo: 'Alerta de Risco Financeiro & Perda por Vencimento',
         badge: 'Desconto Insuficiente p/ Giro',
-        badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300',
+        badgeClass: 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border-red-300',
         texto: `Atenção, Nayane: Este produto já acumula ${dias} dias (${meses} meses) sem venda. Um desconto tímido de apenas ${pctAtual}% não gera o choque visual necessário para compra por impulso, com grande chance de continuar encalhado até vencer — o que significará perda total de 100% do custo (${fmt(totalParado)} jogados fora) enquanto a conta bancária continua acumulando juros de cheque especial. A recomendação profissional é aplicar pelo menos ${sugestaoRealPct}% (venda por ${fmt(Number(precoSugerido))}) para transformar esse produto em dinheiro agora! ${travouNoCusto ? `(Sugestão limitada ao Preço de Custo de ${fmt(pisoCusto)} para não vender no prejuízo).` : ''}`
       };
     }
@@ -1638,8 +1638,8 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 <span className="text-slate-500">Desconto Assertivo (Recomendado para giro rápido)</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0"></span>
-                <span className="font-bold text-slate-700 dark:text-slate-200">Âmbar:</span>
+                <span className="w-3 h-3 rounded-full bg-red-500 shrink-0"></span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">Vermelho:</span>
                 <span className="text-slate-500">Desconto Tímido (Risco de continuar encalhado até vencer)</span>
               </div>
               <div className="flex items-center gap-1.5">
@@ -1707,7 +1707,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               ? 'border-l-blue-500 bg-blue-50/20 dark:bg-blue-950/15 hover:bg-blue-50/40'
                               : justificativa.status === 'aprovado'
                                 ? 'border-l-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10 hover:bg-emerald-50/40'
-                                : 'border-l-amber-500 bg-amber-50/25 dark:bg-amber-950/15 hover:bg-amber-50/45'
+                                : 'border-l-red-500 bg-red-50/30 dark:bg-red-950/20 hover:bg-red-50/50'
                         }`}
                       >
                         {/* Coluna 1: Código Interno Digifarma */}
@@ -1845,7 +1845,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               </span>
                             ) : (
                               <span 
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 cursor-help"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 cursor-help"
                                 title={justificativa.texto}
                               >
                                 ⚠️ Tímido
@@ -1979,7 +1979,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                 ? 'bg-blue-50/90 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200'
                                 : justificativa.status === 'aprovado'
                                   ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
-                                  : 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
+                                  : 'bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800/60 text-red-900 dark:text-red-200'
                             }`}>
                               <div className="flex items-start gap-2.5">
                                 <span className="text-base shrink-0 mt-0.5">{atingiuCusto ? '🔒' : justificativa.icone}</span>
