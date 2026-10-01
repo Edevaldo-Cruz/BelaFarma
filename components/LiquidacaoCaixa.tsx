@@ -1667,17 +1667,17 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 uppercase tracking-wider font-bold">
-                  <th className="pb-3 text-center w-16">Cód. ID</th>
-                  <th className="pb-3">Produto & Tempo Parado</th>
-                  <th className="pb-3 text-right">Saldo</th>
-                  <th className="pb-3 text-right text-blue-600 dark:text-blue-400 font-black">Custo</th>
-                  <th className="pb-3 text-right">De (Original)</th>
-                  <th className="pb-3 text-center">Por (Promo) & Atalhos</th>
-                  <th className="pb-3 text-right">Desconto & Econ.</th>
-                  <th className="pb-3 text-center">Válido até</th>
-                  <th className="pb-3 text-center">Digifarma</th>
-                  <th className="pb-3 text-center">Ações</th>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase tracking-wider text-[11px] font-black">
+                  <th className="py-2.5 px-2 text-center w-14 whitespace-nowrap">Cód.</th>
+                  <th className="py-2.5 px-2 text-left whitespace-nowrap">Produto</th>
+                  <th className="py-2.5 px-2 text-right w-16 whitespace-nowrap">Saldo</th>
+                  <th className="py-2.5 px-2 text-right w-20 text-blue-600 dark:text-blue-400 font-black whitespace-nowrap">Custo</th>
+                  <th className="py-2.5 px-2 text-right w-22 whitespace-nowrap">De (Orig.)</th>
+                  <th className="py-2.5 px-2 text-center w-28 whitespace-nowrap">Por (Promo)</th>
+                  <th className="py-2.5 px-2 text-right w-28 whitespace-nowrap">Desconto</th>
+                  <th className="py-2.5 px-2 text-center w-24 whitespace-nowrap">Válido até</th>
+                  <th className="py-2.5 px-2 text-center w-20 whitespace-nowrap">Digifarma</th>
+                  <th className="py-2.5 px-2 text-center w-20 whitespace-nowrap">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
@@ -1711,61 +1711,50 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                         }`}
                       >
                         {/* Coluna 1: Código Interno Digifarma */}
-                        <td className="py-3 px-2 text-center font-mono font-black text-xs text-slate-700 dark:text-slate-300">
+                        <td className="py-2 px-2 text-center font-mono font-black text-xs text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           #{item.produto_id}
                         </td>
 
-                        <td className="py-3 pr-2">
-                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                            {dias > 180 ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 flex items-center gap-1">
-                                <Flame size={11} /> {dias} dias sem venda
-                              </span>
-                            ) : dias >= 91 ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 flex items-center gap-1">
-                                <AlertTriangle size={11} /> {dias} dias sem venda
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                                <Clock size={11} /> {dias} dias sem venda
-                              </span>
-                            )}
-                            <span className="text-[10px] font-semibold text-slate-400">
-                              {item.categoria}
-                            </span>
-                          </div>
-
-                          <div className="font-bold text-slate-900 dark:text-white truncate max-w-xs md:max-w-md">
+                        <td className="py-2 px-2 max-w-xs md:max-w-sm lg:max-w-md">
+                          <div className="font-bold text-slate-900 dark:text-white truncate" title={item.descricao}>
                             {item.descricao}
                           </div>
-                          {item.apresentacao && (
-                            <div className="text-[11px] text-slate-400 truncate max-w-xs">
-                              {item.apresentacao}
-                            </div>
-                          )}
-                          {item.ean && (
-                            <div className="text-[10px] font-mono text-slate-400">
-                              EAN: {item.ean}
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 truncate">
+                            {dias > 180 ? (
+                              <span className="px-1.5 py-0.2 rounded font-black bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 inline-flex items-center gap-0.5 shrink-0">
+                                <Flame size={10} /> {dias}d
+                              </span>
+                            ) : dias >= 91 ? (
+                              <span className="px-1.5 py-0.2 rounded font-black bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 inline-flex items-center gap-0.5 shrink-0">
+                                <AlertTriangle size={10} /> {dias}d
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.2 rounded font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 inline-flex items-center gap-0.5 shrink-0">
+                                <Clock size={10} /> {dias}d
+                              </span>
+                            )}
+                            {item.categoria && <span className="truncate">{item.categoria}</span>}
+                            {item.apresentacao && <span className="truncate">• {item.apresentacao}</span>}
+                            {item.ean && <span className="font-mono text-[9px] shrink-0">• EAN {item.ean}</span>}
+                          </div>
                         </td>
 
-                        <td className="py-3 text-right font-bold text-slate-700 dark:text-slate-300">
+                        <td className="py-2 px-2 text-right font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           {item.saldo_estoque} un
                         </td>
 
                         {/* Coluna: Valor de Custo do Produto (em negrito e azul) */}
-                        <td className="py-3 text-right font-black text-blue-600 dark:text-blue-400">
+                        <td className="py-2 px-2 text-right font-black text-blue-600 dark:text-blue-400 whitespace-nowrap">
                           {fmt(item.preco_custo)}
                         </td>
 
-                        <td className="py-3 text-right text-slate-400 line-through">
+                        <td className="py-2 px-2 text-right text-slate-400 line-through whitespace-nowrap">
                           {fmt(item.preco_normal)}
                         </td>
 
                         {/* Coluna: Por (Promo) com Botões Rápidos de Desconto */}
-                        <td className="py-3 text-center">
-                          <div className="flex flex-col items-center gap-1.5">
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
+                          <div className="flex flex-col items-center gap-1">
                             {isEditing ? (
                               <div className="flex items-center justify-center gap-1">
                                 <span className="text-xs font-bold text-slate-400">R$</span>
@@ -1778,7 +1767,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                     if (e.key === 'Enter') handleSalvarEdicao(item);
                                     if (e.key === 'Escape') handleCancelarEdicao();
                                   }}
-                                  className="w-20 px-2 py-1 text-center font-black text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-800 border-2 border-orange-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                  className="w-18 px-1.5 py-0.5 text-center font-black text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-slate-800 border-2 border-orange-400 rounded-md shadow-inner focus:outline-none"
                                   placeholder="0,00"
                                 />
                               </div>
@@ -1789,7 +1778,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                 title="Clique para editar valor manualmente"
                               >
                                 <span>{fmt(item.preco_promocional)}</span>
-                                <Pencil size={11} className="text-slate-400 opacity-0 group-hover/price:opacity-100 transition-opacity" />
+                                <Pencil size={10} className="text-slate-400 opacity-0 group-hover/price:opacity-100 transition-opacity" />
                               </div>
                             )}
 
@@ -1801,27 +1790,27 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                 { pct: faixa3Pct, label: `${faixa3Pct}%`, isSug: sugestao.pct === faixa3Pct },
                               ].map(btn => {
                                 const precoComDesc = Math.round(item.preco_normal * (1 - btn.pct / 100) * 100) / 100;
-                                const atingiuCusto = item.preco_custo > 0 && precoComDesc < item.preco_custo;
+                                const atingiuCustoBtn = item.preco_custo > 0 && precoComDesc < item.preco_custo;
 
                                 return (
                                   <button
                                     key={btn.pct}
                                     type="button"
                                     onClick={() => aplicarDescontoRapido(item, btn.pct)}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer flex items-center gap-0.5 ${
+                                    className={`px-1 py-0.5 rounded text-[9px] font-black transition-all cursor-pointer flex items-center gap-0.5 ${
                                       tempDescPct === btn.pct
                                         ? 'bg-slate-900 text-white shadow-xs scale-105'
                                         : btn.isSug
                                           ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border border-amber-400 font-extrabold ring-1 ring-amber-400/50'
                                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                                     }`}
-                                    title={atingiuCusto 
+                                    title={atingiuCustoBtn 
                                       ? `🛡️ Limitado ao Preço de Custo (${fmt(item.preco_custo)}) para não gerar prejuízo` 
                                       : (btn.isSug ? `⭐ Desconto Recomendado para ${dias} dias sem venda` : `Aplicar ${btn.pct}%`)}
                                   >
                                     {btn.isSug && <span className="text-amber-500">⭐</span>}
                                     <span>{btn.label}</span>
-                                    {atingiuCusto && <span className="text-[9px]" title="Limitado ao Custo">🔒</span>}
+                                    {atingiuCustoBtn && <span className="text-[8px]" title="Limitado ao Custo">🔒</span>}
                                   </button>
                                 );
                               })}
@@ -1830,33 +1819,33 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                         </td>
 
                         {/* Coluna: Desconto recalculado dinamicamente & Economia */}
-                        <td className="py-3 text-right">
-                          <div className="font-black text-emerald-600 dark:text-emerald-400">
-                            {tempDescPct}% OFF
+                        <td className="py-2 px-2 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1 font-black text-emerald-600 dark:text-emerald-400">
+                            <span>{tempDescPct}% OFF</span>
+                            {economiaReais > 0 && (
+                              <span className="text-[10px] font-semibold text-slate-400">
+                                (-{fmt(economiaReais)})
+                              </span>
+                            )}
                           </div>
-                          {economiaReais > 0 && (
-                            <div className="text-[10px] font-semibold text-slate-400">
-                              Econ. {fmt(economiaReais)}
-                            </div>
-                          )}
-                          <div className="flex items-center justify-end gap-1 mt-1">
+                          <div className="flex items-center justify-end gap-1 mt-0.5">
                             {atingiuCusto ? (
                               <span 
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 cursor-help"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 cursor-help"
                                 title={justificativa.texto}
                               >
                                 🔒 Custo
                               </span>
                             ) : justificativa.status === 'aprovado' ? (
                               <span 
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 cursor-help"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 cursor-help"
                                 title={justificativa.texto}
                               >
                                 🎯 Ideal
                               </span>
                             ) : (
                               <span 
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 cursor-help"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 cursor-help"
                                 title={justificativa.texto}
                               >
                                 ⚠️ Tímido
@@ -1865,20 +1854,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                             <button
                               type="button"
                               onClick={() => setDetalheItemJustificativa(prev => prev === item.id ? null : item.id)}
-                              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                              className={`p-0.5 rounded transition-colors cursor-pointer ${
                                 detalheItemJustificativa === item.id
                                   ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
                                   : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                               }`}
                               title={detalheItemJustificativa === item.id ? "Ocultar justificativa" : "Ver justificativa detalhada"}
                             >
-                              <Info size={12} />
+                              <Info size={11} />
                             </button>
                           </div>
                         </td>
 
                         {/* Coluna: Válido até com seletor de data inline */}
-                        <td className="py-3 text-center">
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
                           {isEditing ? (
                             <input
                               type="date"
@@ -1888,7 +1877,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                 if (e.key === 'Enter') handleSalvarEdicao(item);
                                 if (e.key === 'Escape') handleCancelarEdicao();
                               }}
-                              className="px-2 py-1 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border-2 border-orange-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              className="px-1.5 py-0.5 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border-2 border-orange-400 rounded-md shadow-inner focus:outline-none"
                             />
                           ) : (
                             <div
@@ -1897,73 +1886,65 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               title="Clique para editar data de vencimento"
                             >
                               <span>{item.data_termino ? item.data_termino.split('-').reverse().join('/') : '-'}</span>
-                              <Pencil size={11} className="text-slate-400 opacity-0 group-hover/date:opacity-100 transition-opacity" />
+                              <Pencil size={10} className="text-slate-400 opacity-0 group-hover/date:opacity-100 transition-opacity" />
                             </div>
                           )}
                         </td>
 
                         {/* Coluna: Status Digifarma */}
-                        <td className="py-3 text-center">
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
                           {item.sincronizado_digifarma === 1 ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800" title="Preço promocional ativo no Digifarma Firebird">
-                              <Check size={11} /> No Digifarma
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800" title="Preço promocional ativo no Digifarma Firebird">
+                              <Check size={10} /> Ativo
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Aguardando envio para o Digifarma Firebird">
-                              <Clock size={11} /> Pendente
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Aguardando envio para o Digifarma Firebird">
+                              <Clock size={10} /> Pendente
                             </span>
                           )}
                         </td>
 
                         {/* Coluna: Ações / Edição */}
-                        <td className="py-3 text-center">
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
                           {isEditing ? (
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center justify-center gap-1">
                               <button
                                 onClick={() => handleSalvarEdicao(item)}
                                 disabled={isSaving}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                                className="p-1.5 rounded-lg text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                                 title="Salvar alterações no Digifarma"
                               >
                                 {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                                <span>Salvar</span>
                               </button>
                               <button
                                 onClick={handleCancelarEdicao}
                                 disabled={isSaving}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                                 title="Cancelar edição"
                               >
                                 <X size={13} />
                               </button>
                             </div>
                           ) : (
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center justify-center gap-1">
                               <button
                                 onClick={() => handleIniciarEdicao(item)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all active:scale-95 cursor-pointer shadow-xs"
+                                className="p-1.5 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all active:scale-95 cursor-pointer shadow-xs"
                                 title="Editar valor ou data de vencimento direto na lista"
                               >
-                                <Pencil size={12} />
-                                <span>Editar</span>
+                                <Pencil size={13} />
                               </button>
 
                               <button
                                 onClick={() => handleReverter(item)}
                                 disabled={revertingId === item.id}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-all active:scale-95 cursor-pointer shadow-xs disabled:opacity-50"
+                                className="p-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-all active:scale-95 cursor-pointer shadow-xs disabled:opacity-50"
                                 title="Desfazer alteração e voltar ao preço original no Digifarma"
                               >
                                 {revertingId === item.id ? (
-                                  <>
-                                    <Loader2 size={12} className="animate-spin text-red-600" />
-                                    <span>Desfazendo...</span>
-                                  </>
+                                  <Loader2 size={13} className="animate-spin text-red-600" />
                                 ) : (
-                                  <>
-                                    <RotateCcw size={12} />
-                                    <span>Desfazer</span>
-                                  </>
+                                  <RotateCcw size={13} />
                                 )}
                               </button>
 
@@ -1979,7 +1960,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                   produto_id: item.produto_id,
                                   data_termino: item.data_termino
                                 })}
-                                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-xs cursor-pointer"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-xs cursor-pointer"
                                 title="Imprimir Etiqueta 39x39mm deste item"
                               >
                                 <Printer size={13} />

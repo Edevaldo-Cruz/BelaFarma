@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f39dbcb",
-  "commitMessage": "feat(liquidacao): blindagem financeira - nenhuma sugestao ou promocao abaixo do preco de custo",
-  "buildTime": "01/10/2026, 13:10:20"
+  "commitHash": "f136091",
+  "commitMessage": "feat(liquidacao): otimizacao visual de espaco com sinalizacao de cores, legenda recolhivel e justificativa sob demanda",
+  "buildTime": "01/10/2026, 13:54:29"
 }
