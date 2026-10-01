@@ -648,19 +648,29 @@ module.exports = function (db) {
         if (precoNormal <= 0) continue;
 
         const dias = p.dias_parado || 45;
+        const precoCusto = Number(p.preco_custo.toFixed(2));
 
-        // 3 Faixas de desconto sugeridas:
-        let descPct = 30;
+        // 3 Faixas de desconto sugeridas nominais:
+        let descPctNominal = 30;
         if (dias > 180) {
-          descPct = 70;
+          descPctNominal = 70;
         } else if (dias >= 91) {
-          descPct = 50;
+          descPctNominal = 50;
         } else {
-          descPct = 30;
+          descPctNominal = 30;
         }
 
-        let precoPromo = Math.round(precoNormal * (1 - descPct / 100) * 100) / 100;
-        if (precoPromo < 0.10) precoPromo = 0.50;
+        const precoCalculado = Math.round(precoNormal * (1 - descPctNominal / 100) * 100) / 100;
+        
+        // REGRA DE BLINDAGEM: A sugestão NUNCA pode ficar abaixo do preço de custo
+        const pisoCusto = precoCusto > 0 ? precoCusto : 0.10;
+        let precoPromo = Math.max(pisoCusto, precoCalculado);
+        if (precoNormal < precoPromo) {
+          precoPromo = precoNormal;
+        }
+
+        // Desconto real efetivo sem prejuízo
+        const descReal = precoNormal > 0 ? Math.max(0, Math.round(((precoNormal - precoPromo) / precoNormal) * 100)) : 0;
 
         batchToInsert.push({
           id: 'liq_' + p.produto_id + '_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
@@ -671,10 +681,10 @@ module.exports = function (db) {
           ean: p.ean || '',
           categoria: p.categoria || 'Geral',
           saldo_estoque: saldoReal,
-          preco_custo: Number(p.preco_custo.toFixed(2)),
+          preco_custo: precoCusto,
           preco_normal: precoNormal,
           preco_promocional: precoPromo,
-          desconto_percentual: descPct,
+          desconto_percentual: descReal,
           data_inicio: dataInicio,
           data_termino: dataTermino,
           preco_promocao_original: fbPromo,
@@ -768,10 +778,16 @@ module.exports = function (db) {
 
       for (const it of itens) {
         const pId = Number(it.produto_id);
-        const prPromo = parseFloat(it.preco_promocional);
+        const custo = Number(it.preco_custo) || 0;
+        let prPromo = parseFloat(it.preco_promocional);
         const dtFim = it.data_termino || getUltimoDiaMesQueVem();
 
         if (!pId || isNaN(prPromo) || prPromo <= 0) continue;
+
+        // REGRA DE BLINDAGEM: Não gravar valor abaixo do custo
+        if (custo > 0 && prPromo < custo) {
+          prPromo = custo;
+        }
 
         let fbOk = false;
         const fbTermino = formatarDataFirebird(dtFim, true);
@@ -928,6 +944,13 @@ module.exports = function (db) {
       const itemAtual = (id 
         ? db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE id = ?").get(id)
         : null) || db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE produto_id = ? AND status = 'ativo'").get(pId);
+
+      const precoCusto = itemAtual ? Number(itemAtual.preco_custo) : 0;
+      if (precoCusto > 0 && prPromo < precoCusto) {
+        return res.status(400).json({ 
+          error: `Bloqueado: O preço promocional (R$ ${prPromo.toFixed(2).replace('.', ',')}) não pode ficar abaixo do preço de custo (R$ ${precoCusto.toFixed(2).replace('.', ',')}).` 
+        });
+      }
 
       const precoNormal = itemAtual ? Number(itemAtual.preco_normal) : prPromo;
       const descPct = precoNormal > 0 ? Math.max(0, Math.round(((precoNormal - prPromo) / precoNormal) * 100)) : 0;

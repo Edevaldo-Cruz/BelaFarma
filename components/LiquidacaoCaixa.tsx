@@ -795,11 +795,9 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       return;
     }
 
-    if (finalPrice < item.preco_custo) {
-      const confirma = window.confirm(
-        `Atenção: O valor de ${fmt(finalPrice)} é menor que o custo (${fmt(item.preco_custo)}). Deseja salvar mesmo assim?`
-      );
-      if (!confirma) return;
+    if (item.preco_custo > 0 && finalPrice < item.preco_custo) {
+      addToast(`Bloqueado: O valor de ${fmt(finalPrice)} não pode ficar abaixo do preço de custo (${fmt(item.preco_custo)}).`, 'error');
+      return;
     }
 
     setSavingEditId(item.id);
@@ -873,18 +871,26 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   // Gera o texto persuasivo de marketing e finanças de varejo farma
   const gerarJustificativaMarketing = (item: ItemAtivo, pctAtual: number, dias: number, sugestaoPct: number) => {
     const meses = Math.max(1, Math.round(dias / 30));
-    const precoSugerido = (item.preco_normal * (1 - sugestaoPct / 100)).toFixed(2);
+    const pisoCusto = Number(item.preco_custo) || 0;
+    const precoCalculado = Math.round(item.preco_normal * (1 - sugestaoPct / 100) * 100) / 100;
+    
+    // REGRA DE BLINDAGEM: Sugestão NUNCA pode ficar abaixo do preço de custo
+    const precoSugeridoNum = Math.max(pisoCusto, precoCalculado);
+    const precoSugerido = precoSugeridoNum.toFixed(2);
+    const sugestaoRealPct = item.preco_normal > 0 ? Math.max(0, Math.round(((item.preco_normal - precoSugeridoNum) / item.preco_normal) * 100)) : sugestaoPct;
+    const travouNoCusto = precoCalculado < pisoCusto;
+
     const economiaAtual = Math.max(0, item.preco_normal - item.preco_promocional);
     const totalParado = item.preco_custo * (item.saldo_estoque || 1);
 
-    if (pctAtual >= sugestaoPct) {
+    if (pctAtual >= sugestaoRealPct) {
       return {
         status: 'aprovado',
         icone: '🎯',
         titulo: 'Decisão Comercial Estratégica (1º Aniversário)',
         badge: 'Recomendação Assertiva',
         badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300',
-        texto: `Excelente escolha, Nayane! Com ${pctAtual}% de desconto, este produto parado há ${dias} dias (${meses} meses) ganha forte apelo de compra por impulso na celebração de 1º Aniversário BelaFarma. O cliente economiza ${fmt(economiaAtual)} na hora, e a farmácia resgata ${fmt(item.preco_promocional * item.saldo_estoque)} em dinheiro vivo para estancar os juros do cheque especial e eliminar de vez o risco de vencimento!`
+        texto: `Excelente escolha, Nayane! Com ${pctAtual}% de desconto, este produto parado há ${dias} dias (${meses} meses) ganha forte apelo de compra por impulso na celebração de 1º Aniversário BelaFarma. O cliente economiza ${fmt(economiaAtual)} na hora, e a farmácia resgata ${fmt(item.preco_promocional * item.saldo_estoque)} em dinheiro vivo para estancar os juros do cheque especial e eliminar de vez o risco de vencimento! ${travouNoCusto ? `(Preço blindado no Custo de ${fmt(pisoCusto)} para garantir zero prejuízo).` : ''}`
       };
     } else {
       return {
@@ -893,20 +899,26 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         titulo: 'Alerta de Risco Financeiro & Perda por Vencimento',
         badge: 'Desconto Insuficiente p/ Giro',
         badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300',
-        texto: `Atenção, Nayane: Este produto já acumula ${dias} dias (${meses} meses) sem venda. Um desconto tímido de apenas ${pctAtual}% não gera o choque visual necessário para compra por impulso, com grande chance de continuar encalhado até vencer — o que significará perda total de 100% do custo (${fmt(totalParado)} jogados fora) enquanto a conta bancária continua acumulando juros de cheque especial. A recomendação profissional é aplicar pelo menos ${sugestaoPct}% (venda por ${fmt(Number(precoSugerido))}) para transformar esse produto em dinheiro agora!`
+        texto: `Atenção, Nayane: Este produto já acumula ${dias} dias (${meses} meses) sem venda. Um desconto tímido de apenas ${pctAtual}% não gera o choque visual necessário para compra por impulso, com grande chance de continuar encalhado até vencer — o que significará perda total de 100% do custo (${fmt(totalParado)} jogados fora) enquanto a conta bancária continua acumulando juros de cheque especial. A recomendação profissional é aplicar pelo menos ${sugestaoRealPct}% (venda por ${fmt(Number(precoSugerido))}) para transformar esse produto em dinheiro agora! ${travouNoCusto ? `(Sugestão limitada ao Preço de Custo de ${fmt(pisoCusto)} para não vender no prejuízo).` : ''}`
       };
     }
   };
 
   // Ação: Aplica desconto rápido em um produto específico da lista
   const aplicarDescontoRapido = (item: ItemAtivo, pct: number) => {
-    const novoPreco = Math.max(0.1, Math.round(item.preco_normal * (1 - pct / 100) * 100) / 100);
+    const precoCalculado = Math.round(item.preco_normal * (1 - pct / 100) * 100) / 100;
+    const pisoCusto = Number(item.preco_custo) || 0;
+    // REGRA DE BLINDAGEM: Preço NUNCA abaixo do custo
+    const novoPreco = Math.max(pisoCusto, precoCalculado);
+    const descReal = item.preco_normal > 0 ? Math.max(0, Math.round(((item.preco_normal - novoPreco) / item.preco_normal) * 100)) : pct;
+    const travouNoCusto = precoCalculado < pisoCusto;
+
     setItensAtivos(prev => prev.map(it => {
       if (it.id === item.id) {
         return {
           ...it,
           preco_promocional: novoPreco,
-          desconto_percentual: pct,
+          desconto_percentual: descReal,
           sincronizado_digifarma: 0
         };
       }
@@ -916,13 +928,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     if (editingItemId === item.id) {
       setEditPreco(novoPreco.toFixed(2));
     }
-    addToast(`Desconto de ${pct}% selecionado para "${item.descricao}". Preço: ${fmt(novoPreco)}.`, 'info');
+
+    if (travouNoCusto) {
+      addToast(`🛡️ ${item.descricao}: Preço limitado a Preço de Custo (${fmt(pisoCusto)} - ${descReal}% OFF) para evitar prejuízo!`, 'warning');
+    } else {
+      addToast(`Desconto de ${descReal}% selecionado para "${item.descricao}". Preço: ${fmt(novoPreco)}.`, 'info');
+    }
   };
 
   // Ação: Aplica desconto em lote para todos os produtos de uma faixa
   const aplicarFaixaLote = (faixa: 1 | 2 | 3) => {
     const pct = faixa === 3 ? faixa3Pct : faixa === 2 ? faixa2Pct : faixa1Pct;
     let afetados = 0;
+    let travadosNoCusto = 0;
+
     setItensAtivos(prev => prev.map(it => {
       const d = it.dias_parado || 45;
       const match = (faixa === 3 && d > 180) ||
@@ -930,33 +949,52 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                     (faixa === 1 && d <= 90);
       if (match) {
         afetados++;
-        const novoPreco = Math.max(0.1, Math.round(it.preco_normal * (1 - pct / 100) * 100) / 100);
+        const precoCalculado = Math.round(it.preco_normal * (1 - pct / 100) * 100) / 100;
+        const pisoCusto = Number(it.preco_custo) || 0;
+        const novoPreco = Math.max(pisoCusto, precoCalculado);
+        if (precoCalculado < pisoCusto) travadosNoCusto++;
+        const descReal = it.preco_normal > 0 ? Math.max(0, Math.round(((it.preco_normal - novoPreco) / it.preco_normal) * 100)) : pct;
+
         return {
           ...it,
           preco_promocional: novoPreco,
-          desconto_percentual: pct,
+          desconto_percentual: descReal,
           sincronizado_digifarma: 0
         };
       }
       return it;
     }));
-    addToast(`⚡ Desconto de ${pct}% aplicado em ${afetados} produtos da Faixa ${faixa}! Clique em 'Gravar Todas no Digifarma' para sincronizar.`, 'success');
+
+    addToast(
+      `⚡ Desconto da Faixa ${faixa} aplicado em ${afetados} produtos! ${travadosNoCusto > 0 ? `(${travadosNoCusto} produtos travados no Preço de Custo para não gerar prejuízo).` : ''}`,
+      'success'
+    );
   };
 
   // Ação: Aplica a sugestão inteligente em todos os produtos da lista de acordo com os dias parados
   const aplicarTodasSugestoes = () => {
+    let travadosNoCusto = 0;
     setItensAtivos(prev => prev.map(it => {
       const d = it.dias_parado || 45;
       const pct = d > 180 ? faixa3Pct : (d >= 91 ? faixa2Pct : faixa1Pct);
-      const novoPreco = Math.max(0.1, Math.round(it.preco_normal * (1 - pct / 100) * 100) / 100);
+      const precoCalculado = Math.round(it.preco_normal * (1 - pct / 100) * 100) / 100;
+      const pisoCusto = Number(it.preco_custo) || 0;
+      const novoPreco = Math.max(pisoCusto, precoCalculado);
+      if (precoCalculado < pisoCusto) travadosNoCusto++;
+      const descReal = it.preco_normal > 0 ? Math.max(0, Math.round(((it.preco_normal - novoPreco) / it.preco_normal) * 100)) : pct;
+
       return {
         ...it,
         preco_promocional: novoPreco,
-        desconto_percentual: pct,
+        desconto_percentual: descReal,
         sincronizado_digifarma: 0
       };
     }));
-    addToast(`⚡ Sugestões inteligentes (${faixa1Pct}%, ${faixa2Pct}%, ${faixa3Pct}%) aplicadas em todos os ${itensAtivos.length} produtos!`, 'success');
+
+    addToast(
+      `⚡ Sugestões inteligentes aplicadas em todos os ${itensAtivos.length} produtos! ${travadosNoCusto > 0 ? `(${travadosNoCusto} produtos mantidos no Preço de Custo sem prejuízo).` : ''}`,
+      'success'
+    );
   };
 
   // Ação: Gravar Todas as Ofertas em Lote no Digifarma Firebird
@@ -1237,8 +1275,11 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               <Sparkles className="w-5 h-5 text-amber-500" />
               Faixas de Desconto Padrões (1º Aniversário BelaFarma)
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Quanto mais tempo parado sem venda, maior a agressividade sugerida para resgatar o caixa e evitar perda por vencimento.
+            <p className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-1.5 mt-0.5">
+              <span>Quanto mais tempo parado sem venda, maior a agressividade sugerida.</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                <ShieldCheck size={11} /> Piso no Custo: Sugestões nunca ficam abaixo do preço de custo
+              </span>
             </p>
           </div>
 
@@ -1691,30 +1732,38 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               </div>
                             )}
 
-                            {/* 3 Botões Rápidos de Desconto com badge de Sugestão */}
+                            {/* 3 Botões Rápidos de Desconto com badge de Sugestão e trava de custo */}
                             <div className="flex items-center gap-1">
                               {[
                                 { pct: faixa1Pct, label: `${faixa1Pct}%`, isSug: sugestao.pct === faixa1Pct },
                                 { pct: faixa2Pct, label: `${faixa2Pct}%`, isSug: sugestao.pct === faixa2Pct },
                                 { pct: faixa3Pct, label: `${faixa3Pct}%`, isSug: sugestao.pct === faixa3Pct },
-                              ].map(btn => (
-                                <button
-                                  key={btn.pct}
-                                  type="button"
-                                  onClick={() => aplicarDescontoRapido(item, btn.pct)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer flex items-center gap-0.5 ${
-                                    tempDescPct === btn.pct
-                                      ? 'bg-slate-900 text-white shadow-xs scale-105'
-                                      : btn.isSug
-                                        ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border border-amber-400 font-extrabold ring-1 ring-amber-400/50'
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                                  }`}
-                                  title={btn.isSug ? `⭐ Desconto Recomendado para ${dias} dias sem venda` : `Aplicar ${btn.pct}%`}
-                                >
-                                  {btn.isSug && <span className="text-amber-500">⭐</span>}
-                                  <span>{btn.label}</span>
-                                </button>
-                              ))}
+                              ].map(btn => {
+                                const precoComDesc = Math.round(item.preco_normal * (1 - btn.pct / 100) * 100) / 100;
+                                const atingiuCusto = item.preco_custo > 0 && precoComDesc < item.preco_custo;
+
+                                return (
+                                  <button
+                                    key={btn.pct}
+                                    type="button"
+                                    onClick={() => aplicarDescontoRapido(item, btn.pct)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer flex items-center gap-0.5 ${
+                                      tempDescPct === btn.pct
+                                        ? 'bg-slate-900 text-white shadow-xs scale-105'
+                                        : btn.isSug
+                                          ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border border-amber-400 font-extrabold ring-1 ring-amber-400/50'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                                    }`}
+                                    title={atingiuCusto 
+                                      ? `🛡️ Limitado ao Preço de Custo (${fmt(item.preco_custo)}) para não gerar prejuízo` 
+                                      : (btn.isSug ? `⭐ Desconto Recomendado para ${dias} dias sem venda` : `Aplicar ${btn.pct}%`)}
+                                  >
+                                    {btn.isSug && <span className="text-amber-500">⭐</span>}
+                                    <span>{btn.label}</span>
+                                    {atingiuCusto && <span className="text-[9px]" title="Limitado ao Custo">🔒</span>}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         </td>

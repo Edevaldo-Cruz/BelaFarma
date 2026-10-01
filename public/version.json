@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5800574",
-  "commitMessage": "feat(liquidacao): lista completa 45+ dias sem questionario, codigo ID, preco original, busca e paginacao",
-  "buildTime": "01/10/2026, 10:50:26"
+  "commitHash": "4495b1d",
+  "commitMessage": "fix(liquidacao): restaurar estado resumo e tipagem cod_barras para corrigir erro de renderizacao",
+  "buildTime": "01/10/2026, 12:03:52"
 }
