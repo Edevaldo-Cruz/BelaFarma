@@ -68,6 +68,7 @@ module.exports = function (db) {
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN inicio_promocao_original TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN termino_promocao_original TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN dias_parado INTEGER DEFAULT 45'); } catch (e) {}
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN selecionado INTEGER DEFAULT 0'); } catch (e) {}
 
   // Helper para obter ou criar a campanha da semana ativa
   function getOrCreateCampanhaAtiva() {
@@ -797,7 +798,8 @@ module.exports = function (db) {
           ...item,
           dias_parado: dias,
           sugestao_desconto: sugestao,
-          motivo_sugestao: motivoSugestao
+          motivo_sugestao: motivoSugestao,
+          selecionado: Number(item.selecionado) === 1
         };
       });
 
@@ -808,6 +810,46 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[Liquidação API] Erro em /itens-ativos:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.01 POST /api/liquidacao/toggle-selecionado
+  // Alterna o status de seleção do produto para aplicação promocional e geração de etiqueta
+  router.post('/toggle-selecionado', (req, res) => {
+    try {
+      const { id, selecionado } = req.body;
+      if (!id) return res.status(400).json({ error: 'id é obrigatório' });
+      const val = selecionado ? 1 : 0;
+      db.prepare('UPDATE liquidacao_campanhas_itens SET selecionado = ? WHERE id = ?').run(val, id);
+      res.json({ success: true, id, selecionado: val === 1 });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /toggle-selecionado:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.02 POST /api/liquidacao/selecionar-todos
+  // Marca ou desmarca múltiplos itens de uma vez
+  router.post('/selecionar-todos', (req, res) => {
+    try {
+      const { campanha_id, selecionado, ids } = req.body;
+      const campanha = campanha_id ? { id: campanha_id } : getOrCreateCampanhaAtiva();
+      const val = selecionado ? 1 : 0;
+      if (Array.isArray(ids) && ids.length > 0) {
+        const stmt = db.prepare('UPDATE liquidacao_campanhas_itens SET selecionado = ? WHERE id = ?');
+        const updateMany = db.transaction((idList) => {
+          for (const itId of idList) {
+            stmt.run(val, itId);
+          }
+        });
+        updateMany(ids);
+      } else {
+        db.prepare('UPDATE liquidacao_campanhas_itens SET selecionado = ? WHERE campanha_id = ?').run(val, campanha.id);
+      }
+      res.json({ success: true, selecionado: val === 1 });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /selecionar-todos:', err);
       res.status(500).json({ error: err.message });
     }
   });

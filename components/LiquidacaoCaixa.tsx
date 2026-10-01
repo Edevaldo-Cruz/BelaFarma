@@ -31,7 +31,8 @@ import {
   Info,
   HelpCircle,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  CheckSquare
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -101,6 +102,7 @@ interface ItemAtivo {
   dias_parado?: number;
   sugestao_desconto?: number;
   motivo_sugestao?: string;
+  selecionado?: boolean;
 }
 
 interface LiquidacaoCaixaProps {
@@ -1005,11 +1007,15 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     );
   };
 
-  // Ação: Gravar Todas as Ofertas em Lote no Digifarma Firebird
+  // Ação: Gravar Ofertas Selecionadas no Digifarma Firebird
   const handleGravarTodasNoDigifarma = async () => {
-    if (itensAtivos.length === 0) return;
+    const itensParaGravar = itensAtivos.filter(it => it.selecionado);
+    if (itensParaGravar.length === 0) {
+      addToast('⚠️ Nenhum produto checado! Marque no botão de check (✓) os produtos que deseja gravar no Digifarma.', 'warning');
+      return;
+    }
     const confirma = window.confirm(
-      `Confirma a gravação de ${itensAtivos.length} ofertas promocionais diretamente no Digifarma Firebird com vigência até ${getFimDesteMes().split('-').reverse().join('/')}?`
+      `Confirma a gravação de ${itensParaGravar.length} ofertas promocionais SELECIONADAS diretamente no Digifarma Firebird com vigência até ${getFimDesteMes().split('-').reverse().join('/')}?`
     );
     if (!confirma) return;
 
@@ -1018,12 +1024,13 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       const res = await fetch('/api/liquidacao/gravar-lote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itens: itensAtivos })
+        body: JSON.stringify({ itens: itensParaGravar })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         addToast(`🚀 ${data.message}`, 'success');
-        setItensAtivos(prev => prev.map(it => ({ ...it, sincronizado_digifarma: 1 })));
+        const gravadosIds = new Set(itensParaGravar.map(it => it.id));
+        setItensAtivos(prev => prev.map(it => gravadosIds.has(it.id) ? { ...it, sincronizado_digifarma: 1 } : it));
         fetchResumo();
       } else {
         addToast(data.error || 'Erro ao gravar ofertas no Digifarma.', 'error');
@@ -1116,6 +1123,77 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     const inicio = (paginaAjustada - 1) * itensPorPagina;
     return itensFiltrados.slice(inicio, inicio + itensPorPagina);
   }, [itensFiltrados, paginaAjustada, itensPorPagina]);
+
+  // Itens Selecionados (Checados para aplicar promoção e gerar etiqueta)
+  const itensSelecionados = useMemo(() => {
+    return itensAtivos.filter(it => it.selecionado);
+  }, [itensAtivos]);
+
+  const idsPaginaAtual = useMemo(() => {
+    return itensPaginados.map(it => it.id);
+  }, [itensPaginados]);
+
+  const todosDaPaginaSelecionados = useMemo(() => {
+    if (itensPaginados.length === 0) return false;
+    return itensPaginados.every(it => it.selecionado);
+  }, [itensPaginados]);
+
+  const algunsDaPaginaSelecionados = useMemo(() => {
+    return itensPaginados.some(it => it.selecionado);
+  }, [itensPaginados]);
+
+  // Ação: Alterna seleção de um único produto
+  const handleToggleItemSelecionado = async (itemId: string) => {
+    const item = itensAtivos.find(it => it.id === itemId);
+    if (!item) return;
+    const novoStatus = !item.selecionado;
+
+    // Atualização otimista imediata na interface
+    setItensAtivos(prev => prev.map(it => it.id === itemId ? { ...it, selecionado: novoStatus } : it));
+
+    try {
+      await fetch('/api/liquidacao/toggle-selecionado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: itemId, selecionado: novoStatus })
+      });
+    } catch (e) {
+      console.error('Erro ao salvar seleção:', e);
+    }
+  };
+
+  // Ação: Selecionar ou desmarcar todos os produtos da página atual
+  const toggleSelecionarTodosPagina = async () => {
+    const novoStatus = !todosDaPaginaSelecionados;
+    const targetIds = new Set(idsPaginaAtual);
+
+    setItensAtivos(prev => prev.map(it => targetIds.has(it.id) ? { ...it, selecionado: novoStatus } : it));
+
+    try {
+      await fetch('/api/liquidacao/selecionar-todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: idsPaginaAtual, selecionado: novoStatus ? 1 : 0 })
+      });
+    } catch (e) {
+      console.error('Erro ao selecionar todos da página:', e);
+    }
+  };
+
+  // Ação: Marcar ou desmarcar todos os produtos da campanha ativa
+  const handleMarcarTodosGeral = async (marcar: boolean) => {
+    setItensAtivos(prev => prev.map(it => ({ ...it, selecionado: marcar })));
+
+    try {
+      await fetch('/api/liquidacao/selecionar-todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selecionado: marcar ? 1 : 0 })
+      });
+    } catch (e) {
+      console.error('Erro ao marcar/desmarcar todos:', e);
+    }
+  };
 
   // Simulação de Totais em Tempo Real baseada nos parâmetros atuais (faixas 1, 2 e 3)
   const simulacaoTotais = useMemo(() => {
@@ -1362,12 +1440,12 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             <button
               type="button"
               onClick={handleGravarTodasNoDigifarma}
-              disabled={gravandoLote || itensAtivos.length === 0}
+              disabled={gravandoLote || itensSelecionados.length === 0}
               className="px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              title="Grava todos os preços promocionais diretamente no Digifarma Firebird"
+              title="Grava os produtos checados diretamente no Digifarma Firebird"
             >
               {gravandoLote ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              <span>🚀 Gravar Todas no Digifarma ({itensAtivos.length})</span>
+              <span>🚀 Gravar Selecionados no Digifarma ({itensSelecionados.length})</span>
             </button>
 
             <button
@@ -1716,11 +1794,18 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               </button>
 
               <button
-                onClick={() => setShowPrintModal(true)}
+                onClick={() => {
+                  if (itensSelecionados.length === 0) {
+                    addToast('⚠️ Nenhum produto checado! Marque no botão de check (✓) os produtos que deseja gerar etiquetas.', 'warning');
+                    return;
+                  }
+                  setShowPrintModal(true);
+                }}
                 className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Gera etiquetas térmicas ou A4 para os produtos checados"
               >
                 <Printer size={14} />
-                Gerar Etiquetas (39x39mm)
+                <span>Gerar Etiquetas ({itensSelecionados.length})</span>
               </button>
               <button
                 onClick={handleCopiarWhatsApp}
@@ -1732,6 +1817,34 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             </div>
           )}
         </div>
+
+        {/* ─── BARRA INFORMATIVA DE PRODUTOS CHECADOS PARA LIQUIDAÇÃO & ETIQUETAS ─── */}
+        {itensSelecionados.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 text-xs animate-in fade-in duration-150">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+              <span className="font-bold text-emerald-900 dark:text-emerald-200">
+                <strong>{itensSelecionados.length}</strong> {itensSelecionados.length === 1 ? 'produto checado' : 'produtos checados'} para aplicar promoção e gerar etiquetas
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleMarcarTodosGeral(false)}
+                className="px-2.5 py-1 text-[11px] font-bold rounded-lg text-slate-600 dark:text-slate-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer"
+              >
+                Desmarcar todos
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMarcarTodosGeral(true)}
+                className="px-2.5 py-1 text-[11px] font-bold rounded-lg text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors cursor-pointer"
+              >
+                Marcar todos ({itensAtivos.length})
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ─── PAINEL DE LEGENDA RECOLHÍVEL / OCULTA ─── */}
         {mostrarLegenda && (
@@ -1776,6 +1889,26 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase tracking-wider text-[11px] font-black">
+                  {/* Coluna Master de Seleção */}
+                  <th className="py-2.5 px-2 text-center w-10 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={toggleSelecionarTodosPagina}
+                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors inline-flex items-center justify-center cursor-pointer"
+                      title={todosDaPaginaSelecionados ? "Desmarcar todos desta página" : "Selecionar todos desta página"}
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                        todosDaPaginaSelecionados 
+                          ? 'bg-emerald-600 border-emerald-600 text-white' 
+                          : algunsDaPaginaSelecionados 
+                            ? 'bg-emerald-100 border-emerald-500 text-emerald-700' 
+                            : 'border-slate-400 bg-white dark:bg-slate-800'
+                      }`}>
+                        {todosDaPaginaSelecionados && <Check size={12} strokeWidth={3} />}
+                        {!todosDaPaginaSelecionados && algunsDaPaginaSelecionados && <span className="w-2 h-0.5 bg-emerald-600 block"></span>}
+                      </div>
+                    </button>
+                  </th>
                   <th className="py-2.5 px-2 text-center w-14 whitespace-nowrap">Cód.</th>
                   <th className="py-2.5 px-2 text-left whitespace-nowrap">Produto</th>
                   <th className="py-2.5 px-2 text-right w-16 whitespace-nowrap">Saldo</th>
@@ -1816,8 +1949,28 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               : justificativa.status === 'aprovado'
                                 ? 'border-l-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10 hover:bg-emerald-50/40'
                                 : 'border-l-red-500 bg-red-50/30 dark:bg-red-950/20 hover:bg-red-50/50'
-                        }`}
+                        } ${item.selecionado ? 'ring-1 ring-inset ring-emerald-500/40 bg-emerald-50/20 dark:bg-emerald-950/10' : ''}`}
                       >
+                        {/* Coluna 0: Botão de Check / Seleção para Promoção & Etiqueta */}
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleItemSelecionado(item.id)}
+                            className={`w-6 h-6 rounded-md flex items-center justify-center transition-all cursor-pointer ${
+                              item.selecionado
+                                ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/40 hover:bg-emerald-700 active:scale-90'
+                                : 'border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 text-transparent hover:text-emerald-500/40 active:scale-90'
+                            }`}
+                            title={
+                              item.selecionado
+                                ? '✓ Selecionado para Promoção e Etiqueta (Clique para desmarcar)'
+                                : 'Clique para selecionar este produto (para aplicar promoção e gerar etiqueta)'
+                            }
+                          >
+                            <Check size={14} strokeWidth={3} className={item.selecionado ? 'opacity-100' : 'opacity-0'} />
+                          </button>
+                        </td>
+
                         {/* Coluna 1: Código Interno Digifarma */}
                         <td className="py-2 px-2 text-center font-mono font-black text-xs text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           #{item.produto_id}
@@ -2081,7 +2234,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                       {/* ─── BOX DE JUSTIFICATIVA PERSUASIVA (EXIBIDA SOB DEMANDA PARA O PRODUTO) ─── */}
                       {detalheItemJustificativa === item.id && (
                         <tr className="border-b-2 border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 animate-in fade-in duration-200">
-                          <td colSpan={10} className="py-2.5 px-4">
+                          <td colSpan={11} className="py-2.5 px-4">
                             <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
                               atingiuCusto
                                 ? 'bg-blue-50/90 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200'
@@ -2191,7 +2344,8 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
       {/* ─── MODAL DE IMPRESSÃO: TABELA EM FOLHA A4 (35 POR FOLHA) & ROLO TÉRMICO ─── */}
       {showPrintModal && (() => {
-        const listaParaImprimir = expandirItensPorQtd(itensAtivos, tipoQtdImpressao);
+        const baseParaImprimir = itensSelecionados.length > 0 ? itensSelecionados : itensPaginados;
+        const listaParaImprimir = expandirItensPorQtd(baseParaImprimir, tipoQtdImpressao);
         const totalPorFolha = 35;
         const totalFolhasA4 = Math.max(1, Math.ceil(listaParaImprimir.length / totalPorFolha));
 
@@ -2208,7 +2362,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                     <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
                       Impressão de Etiquetas (39mm × 39mm)
                       <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                        {modoImpressao === 'tabela_a4' ? 'Tabela: 35 por Folha A4' : 'Rolo Térmico'}
+                        {itensSelecionados.length > 0 ? `${itensSelecionados.length} itens checados` : 'Todos da página'} • {modoImpressao === 'tabela_a4' ? 'Tabela: 35 por Folha A4' : 'Rolo Térmico'}
                       </span>
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -2223,7 +2377,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   <button
                     onClick={() => {
                       if (modoImpressao === 'tabela_a4') {
-                        imprimirTabelaFolhaA4(itensAtivos, tipoQtdImpressao);
+                        imprimirTabelaFolhaA4(baseParaImprimir, tipoQtdImpressao);
                       } else {
                         imprimirLoteTermica(listaParaImprimir);
                       }
