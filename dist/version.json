@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4495b1d",
-  "commitMessage": "fix(liquidacao): restaurar estado resumo e tipagem cod_barras para corrigir erro de renderizacao",
-  "buildTime": "01/10/2026, 12:03:52"
+  "commitHash": "f39dbcb",
+  "commitMessage": "feat(liquidacao): blindagem financeira - nenhuma sugestao ou promocao abaixo do preco de custo",
+  "buildTime": "01/10/2026, 13:10:20"
 }

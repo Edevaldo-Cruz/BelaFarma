@@ -27,7 +27,11 @@ import {
   Save,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Info,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -157,6 +161,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   // Gravação e Reset em lote
   const [gravandoLote, setGravandoLote] = useState<boolean>(false);
   const [resetandoLote, setResetandoLote] = useState<boolean>(false);
+
+  // Sinalização de cores de alerta e legenda oculta/recolhível
+  const [mostrarLegenda, setMostrarLegenda] = useState<boolean>(false);
+  const [detalheItemJustificativa, setDetalheItemJustificativa] = useState<string | null>(null);
 
   // 1. Carrega Resumo e Itens Ativos
   const fetchResumo = useCallback(async () => {
@@ -1578,12 +1586,27 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               Ofertas da Liquidação ({itensAtivos.length} produtos mantidos para revisão)
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Revise e altere os preços promocionais com auxílio da justificativa persuasiva do sistema.
+              Revise e altere os preços promocionais. Linhas sinalizadas com cores de alerta visual.
             </p>
           </div>
 
           {itensAtivos.length > 0 && (
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMostrarLegenda(prev => !prev)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  mostrarLegenda
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                }`}
+                title="Exibir / ocultar legenda de cores das linhas"
+              >
+                <HelpCircle size={14} />
+                <span>Legenda</span>
+                {mostrarLegenda ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              </button>
+
               <button
                 onClick={() => setShowPrintModal(true)}
                 className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -1601,6 +1624,39 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             </div>
           )}
         </div>
+
+        {/* ─── PAINEL DE LEGENDA RECOLHÍVEL / OCULTA ─── */}
+        {mostrarLegenda && (
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                Cores de Alerta da Linha:
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0"></span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">Verde:</span>
+                <span className="text-slate-500">Desconto Assertivo (Recomendado para giro rápido)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0"></span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">Âmbar:</span>
+                <span className="text-slate-500">Desconto Tímido (Risco de continuar encalhado até vencer)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-blue-500 shrink-0"></span>
+                <span className="font-bold text-slate-700 dark:text-slate-200">Azul (🔒):</span>
+                <span className="text-slate-500">Preço Travado no Custo (Proteção contra prejuízo)</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMostrarLegenda(false)}
+              className="text-[11px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer ml-auto"
+            >
+              Fechar Legenda ✕
+            </button>
+          </div>
+        )}
 
         {itensAtivos.length === 0 ? (
           <div className="py-10 text-center text-xs text-slate-400 font-semibold">
@@ -1639,14 +1695,19 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
                   const economiaReais = Math.max(0, item.preco_normal - (tempPrice || item.preco_promocional));
                   const justificativa = gerarJustificativaMarketing(item, tempDescPct, dias, sugestao.pct);
+                  const atingiuCusto = item.preco_custo > 0 && (tempPrice || item.preco_promocional) <= item.preco_custo + 0.001;
 
                   return (
                     <React.Fragment key={item.id}>
                       <tr 
-                        className={`transition-colors ${
+                        className={`transition-colors border-l-4 ${
                           isEditing 
-                            ? 'bg-amber-50/90 dark:bg-amber-950/40 ring-2 ring-amber-400 dark:ring-amber-500/70 z-10' 
-                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                            ? 'bg-amber-50/90 dark:bg-amber-950/40 ring-2 ring-amber-400 dark:ring-amber-500/70 z-10 border-l-amber-500' 
+                            : atingiuCusto
+                              ? 'border-l-blue-500 bg-blue-50/20 dark:bg-blue-950/15 hover:bg-blue-50/40'
+                              : justificativa.status === 'aprovado'
+                                ? 'border-l-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10 hover:bg-emerald-50/40'
+                                : 'border-l-amber-500 bg-amber-50/25 dark:bg-amber-950/15 hover:bg-amber-50/45'
                         }`}
                       >
                         {/* Coluna 1: Código Interno Digifarma */}
@@ -1778,6 +1839,42 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               Econ. {fmt(economiaReais)}
                             </div>
                           )}
+                          <div className="flex items-center justify-end gap-1 mt-1">
+                            {atingiuCusto ? (
+                              <span 
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 cursor-help"
+                                title={justificativa.texto}
+                              >
+                                🔒 Custo
+                              </span>
+                            ) : justificativa.status === 'aprovado' ? (
+                              <span 
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 cursor-help"
+                                title={justificativa.texto}
+                              >
+                                🎯 Ideal
+                              </span>
+                            ) : (
+                              <span 
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 cursor-help"
+                                title={justificativa.texto}
+                              >
+                                ⚠️ Tímido
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setDetalheItemJustificativa(prev => prev === item.id ? null : item.id)}
+                              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                                detalheItemJustificativa === item.id
+                                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                                  : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                              title={detalheItemJustificativa === item.id ? "Ocultar justificativa" : "Ver justificativa detalhada"}
+                            >
+                              <Info size={12} />
+                            </button>
+                          </div>
                         </td>
 
                         {/* Coluna: Válido até com seletor de data inline */}
@@ -1892,45 +1989,58 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                         </td>
                       </tr>
 
-                      {/* ─── BOX DE JUSTIFICATIVA PERSUASIVA (MARKETING & FINANÇAS) ─── */}
-                      <tr className="border-b-2 border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
-                        <td colSpan={10} className="py-2.5 px-4">
-                          <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
-                            justificativa.status === 'aprovado'
-                              ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
-                              : 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
-                          }`}>
-                            <div className="flex items-start gap-2.5">
-                              <span className="text-base shrink-0 mt-0.5">{justificativa.icone}</span>
-                              <div className="space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-black uppercase tracking-wider text-[11px]">
-                                    {justificativa.titulo}
-                                  </span>
-                                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold border ${justificativa.badgeClass}`}>
-                                    {justificativa.badge}
-                                  </span>
+                      {/* ─── BOX DE JUSTIFICATIVA PERSUASIVA (EXIBIDA SOB DEMANDA PARA O PRODUTO) ─── */}
+                      {detalheItemJustificativa === item.id && (
+                        <tr className="border-b-2 border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 animate-in fade-in duration-200">
+                          <td colSpan={10} className="py-2.5 px-4">
+                            <div className={`p-3 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
+                              atingiuCusto
+                                ? 'bg-blue-50/90 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200'
+                                : justificativa.status === 'aprovado'
+                                  ? 'bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200'
+                                  : 'bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
+                            }`}>
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-base shrink-0 mt-0.5">{atingiuCusto ? '🔒' : justificativa.icone}</span>
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-black uppercase tracking-wider text-[11px]">
+                                      {atingiuCusto ? 'BLINDAGEM FINANCEIRA ATIVA' : justificativa.titulo}
+                                    </span>
+                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold border ${justificativa.badgeClass}`}>
+                                      {atingiuCusto ? '🔒 Preço Travado no Custo' : justificativa.badge}
+                                    </span>
+                                  </div>
+                                  <p className="leading-relaxed font-normal opacity-95">
+                                    {justificativa.texto}
+                                  </p>
                                 </div>
-                                <p className="leading-relaxed font-normal opacity-95">
-                                  {justificativa.texto}
-                                </p>
+                              </div>
+
+                              {/* Botões de Ação Imediata & Fechar */}
+                              <div className="flex items-center gap-2 shrink-0 self-start md:self-center">
+                                {justificativa.status === 'alerta' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => aplicarDescontoRapido(item, sugestao.pct)}
+                                    className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 shadow-sm transition-all cursor-pointer flex items-center gap-1"
+                                  >
+                                    <Sparkles size={12} />
+                                    <span>⚡ Aplicar Sugestão ({sugestao.pct}%)</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setDetalheItemJustificativa(null)}
+                                  className="text-[11px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-2 py-1 cursor-pointer"
+                                >
+                                  Fechar ✕
+                                </button>
                               </div>
                             </div>
-
-                            {/* Botão de Correção Imediata caso Nayane tenha reduzido o desconto abaixo da sugestão */}
-                            {justificativa.status === 'alerta' && (
-                              <button
-                                type="button"
-                                onClick={() => aplicarDescontoRapido(item, sugestao.pct)}
-                                className="shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-black bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 shadow-sm transition-all cursor-pointer flex items-center gap-1 self-start md:self-center"
-                              >
-                                <Sparkles size={12} />
-                                <span>⚡ Aplicar Sugestão ({sugestao.pct}%)</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                        </tr>
+                      )}
                     </React.Fragment>
                   );
                 })}
