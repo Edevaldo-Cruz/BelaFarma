@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "00fff56",
-  "commitMessage": "fix(liquidacao): restaurar precos originais do backup Firebird e preservar precos promocoes previas",
-  "buildTime": "01/10/2026, 10:42:52"
+  "commitHash": "5800574",
+  "commitMessage": "feat(liquidacao): lista completa 45+ dias sem questionario, codigo ID, preco original, busca e paginacao",
+  "buildTime": "01/10/2026, 10:50:26"
 }

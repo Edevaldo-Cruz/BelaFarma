@@ -82,6 +82,7 @@ interface ItemAtivo {
   descricao: string;
   apresentacao: string;
   ean: string;
+  cod_barras?: string;
   categoria: string;
   saldo_estoque: number;
   preco_custo: number;
@@ -120,6 +121,7 @@ const getFimMesQueVem = () => {
 export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const { addToast } = useToast();
 
+  const [resumo, setResumo] = useState<ResumoData | null>(null);
   const [itensAtivos, setItensAtivos] = useState<ItemAtivo[]>([]);
 
   const [loadingResumo, setLoadingResumo] = useState(true);
