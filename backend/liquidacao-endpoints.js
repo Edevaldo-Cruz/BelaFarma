@@ -779,7 +779,7 @@ module.exports = function (db) {
       `).all(campanha.id);
 
       const itens = rows.map(item => {
-        const dias = Number(item.dias_parado) || 45;
+        const dias = (item.dias_parado !== null && item.dias_parado !== undefined) ? Number(item.dias_parado) : 45;
         let sugestao = 30;
         let motivoSugestao = '';
 
@@ -789,9 +789,12 @@ module.exports = function (db) {
         } else if (dias >= 91) {
           sugestao = 50;
           motivoSugestao = `Parado há ${dias} dias (3 a 6 meses). Sugestão de 50% cria gatilho de 'metade do preço' e resgate imediato de capital.`;
-        } else {
+        } else if (dias >= 45) {
           sugestao = 30;
           motivoSugestao = `Parado há ${dias} dias (1,5 a 3 meses). Sugestão de 30% acelera o giro mantendo margem segura.`;
+        } else {
+          sugestao = 30;
+          motivoSugestao = `Produto avulso incluído livremente do estoque.`;
         }
 
         return {
@@ -850,6 +853,284 @@ module.exports = function (db) {
       res.json({ success: true, selecionado: val === 1 });
     } catch (err) {
       console.error('[Liquidação API] Erro em /selecionar-todos:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.03 GET /api/liquidacao/pesquisar-estoque
+  // Pesquisa qualquer produto livremente no estoque/catálogo do Digifarma (compras_estoque_cache)
+  router.get('/pesquisar-estoque', (req, res) => {
+    try {
+      const q = req.query.q ? String(req.query.q).trim() : '';
+      if (!q || q.length < 2) {
+        return res.json({ produtos: [] });
+      }
+
+      const isNumeric = /^\d+$/.test(q);
+      let rows = [];
+
+      if (isNumeric) {
+        const num = Number(q);
+        rows = db.prepare(`
+          SELECT 
+            produto_id, descricao, apresentacao, ean, categoria_id,
+            saldo, preco_normal, preco_promocional, 
+            COALESCE(NULLIF(custo_unitario, 0), NULLIF(ultima_compra_valor, 0), 0) as preco_custo
+          FROM compras_estoque_cache
+          WHERE produto_id = ? OR ean = ? OR ean LIKE ?
+          ORDER BY saldo DESC, descricao ASC
+          LIMIT 25
+        `).all(num, q, `${q}%`);
+      } else {
+        const words = q.split(/\s+/).filter(w => w.length > 0);
+        const whereClauses = words.map(() => `descricao LIKE ?`);
+        const params = words.map(w => `%${w}%`);
+
+        rows = db.prepare(`
+          SELECT 
+            produto_id, descricao, apresentacao, ean, categoria_id,
+            saldo, preco_normal, preco_promocional, 
+            COALESCE(NULLIF(custo_unitario, 0), NULLIF(ultima_compra_valor, 0), 0) as preco_custo
+          FROM compras_estoque_cache
+          WHERE ${whereClauses.join(' AND ')}
+          ORDER BY saldo DESC, descricao ASC
+          LIMIT 25
+        `).all(...params);
+      }
+
+      const produtos = rows.map(r => {
+        const precoNormal = Number(r.preco_normal) || 0;
+        const precoPromo = Number(r.preco_promocional) || 0;
+        const precoCusto = Number(r.preco_custo) || 0;
+        const precoVigente = precoPromo > 0 ? precoPromo : precoNormal;
+
+        return {
+          produto_id: r.produto_id,
+          descricao: r.descricao,
+          apresentacao: r.apresentacao || '',
+          ean: r.ean || '',
+          categoria: String(r.categoria_id || 'Geral'),
+          saldo: Number(r.saldo) || 0,
+          preco_tabela: precoNormal,
+          preco_promocional_atual: precoPromo,
+          preco_normal: precoVigente,
+          preco_custo: precoCusto
+        };
+      });
+
+      res.json({ produtos });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /pesquisar-estoque:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.04 POST /api/liquidacao/incluir-avulso
+  // Inclui livremente qualquer produto do estoque na campanha com seleção e blindagem de custo
+  router.post('/incluir-avulso', async (req, res) => {
+    try {
+      const { 
+        produto_id, 
+        preco_promocional, 
+        desconto_percentual, 
+        data_termino, 
+        sincronizar_digifarma 
+      } = req.body;
+
+      const pId = Number(produto_id);
+      if (!pId || isNaN(pId)) {
+        return res.status(400).json({ error: 'produto_id é obrigatório.' });
+      }
+
+      const campanha = getOrCreateCampanhaAtiva();
+
+      // 1. Busca dados atualizados no Digifarma Firebird (com fallback no compras_estoque_cache)
+      let fbData = null;
+      try {
+        const fbRows = await queryDigifarma(
+          `SELECT FIRST 1 
+             PRODUTO_ID, PRODUTO, APRESENTACAO, COD_BARRAS, PROD_SALDO, 
+             PROD_PRVENDA, PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO, 
+             PROD_CMV, PROD_PRCOMPRA, VALOR_ULT_COMPRA 
+           FROM PRODUTOS WHERE PRODUTO_ID = ?`,
+          [pId],
+          4000
+        );
+        if (fbRows && fbRows.length > 0) {
+          fbData = fbRows[0];
+        }
+      } catch (e) {
+        console.warn(`[Liquidação API] Firebird indisponível para produto avulso ${pId}, usando SQLite:`, e.message);
+      }
+
+      const cacheProd = db.prepare(`
+        SELECT produto_id, descricao, apresentacao, ean as cod_barras, categoria_id, saldo, preco_normal, custo_unitario, ultima_compra_valor
+        FROM compras_estoque_cache
+        WHERE produto_id = ?
+      `).get(pId) || {};
+
+      const descricao = (fbData && fbData.PRODUTO) || cacheProd.descricao || `Produto #${pId}`;
+      const apresentacao = (fbData && fbData.APRESENTACAO) || cacheProd.apresentacao || '';
+      const codBarras = (fbData && fbData.COD_BARRAS) || cacheProd.cod_barras || '';
+      const saldo = fbData ? Number(fbData.PROD_SALDO || 0) : Number(cacheProd.saldo || 0);
+
+      const prVendaTabela = fbData ? Number(fbData.PROD_PRVENDA || 0) : Number(cacheProd.preco_normal || 0);
+      const prPromoAtual = fbData ? Number(fbData.PROD_PRPROMOCAO || 0) : 0;
+      const inicioPromoOriginal = fbData ? fbData.INICIO_PROMOCAO : null;
+      const terminoPromoOriginal = fbData ? fbData.TERMINO_PROMOCAO : null;
+
+      // Preço de venda vigente
+      const precoNormalRef = prPromoAtual > 0 ? prPromoAtual : prVendaTabela;
+
+      // Custo Real Unitário
+      let precoCusto = 0;
+      if (fbData && Number(fbData.PROD_CMV) > 0) {
+        precoCusto = Number(fbData.PROD_CMV);
+      } else if (fbData && Number(fbData.VALOR_ULT_COMPRA) > 0) {
+        precoCusto = Number(fbData.VALOR_ULT_COMPRA);
+      } else if (cacheProd.custo_unitario && Number(cacheProd.custo_unitario) > 0) {
+        precoCusto = Number(cacheProd.custo_unitario);
+      } else if (cacheProd.ultima_compra_valor && Number(cacheProd.ultima_compra_valor) > 0) {
+        precoCusto = Number(cacheProd.ultima_compra_valor);
+      }
+
+      if (precoCusto <= 0 || (precoNormalRef > 0 && precoCusto >= precoNormalRef)) {
+        if (fbData && Number(fbData.PROD_CMV) > 0 && Number(fbData.PROD_CMV) < precoNormalRef) {
+          precoCusto = Number(fbData.PROD_CMV);
+        } else {
+          precoCusto = Number((precoNormalRef * 0.60).toFixed(2));
+        }
+      }
+      precoCusto = Number(precoCusto.toFixed(2));
+
+      // Determina o preço promocional
+      let prPromo = parseFloat(preco_promocional);
+      if (isNaN(prPromo) || prPromo <= 0) {
+        const descPct = parseFloat(desconto_percentual) || 30;
+        prPromo = Math.round(precoNormalRef * (1 - descPct / 100) * 100) / 100;
+      }
+
+      // REGRA DE BLINDAGEM: O preço promocional NUNCA pode ficar abaixo do custo
+      const pisoCusto = precoCusto > 0 ? precoCusto : 0.10;
+      if (prPromo < pisoCusto) {
+        prPromo = pisoCusto;
+      }
+      prPromo = roundUpToAcceptedCents(prPromo);
+
+      const descPctReal = precoNormalRef > 0 
+        ? Math.max(0, Math.round(((precoNormalRef - prPromo) / precoNormalRef) * 100)) 
+        : 0;
+
+      const hoje = new Date().toISOString().split('T')[0];
+      const dtFim = data_termino || getUltimoDiaDesteMes();
+
+      // Sincroniza com o Digifarma se solicitado
+      let fbOk = false;
+      if (sincronizar_digifarma) {
+        const fbInicio = formatarDataFirebird(hoje, false);
+        const fbTermino = formatarDataFirebird(dtFim, true);
+        try {
+          await queryDigifarma(
+            `UPDATE PRODUTOS 
+             SET PROD_PRPROMOCAO = ?, 
+                 INICIO_PROMOCAO = ?, 
+                 TERMINO_PROMOCAO = ? 
+             WHERE PRODUTO_ID = ?`,
+            [prPromo, fbInicio, fbTermino, pId]
+          );
+          fbOk = true;
+          console.log(`[Liquidação API] ✅ Produto avulso ${pId} gravado no Digifarma Firebird: R$ ${prPromo} até ${fbTermino}`);
+        } catch (fbErr) {
+          console.warn(`[Liquidação API] Falha Firebird produto avulso ${pId}:`, fbErr.message);
+        }
+      }
+
+      // 3. Insere ou atualiza na tabela de liquidação
+      const existing = db.prepare(`
+        SELECT id FROM liquidacao_campanhas_itens 
+        WHERE campanha_id = ? AND produto_id = ? AND status = 'ativo'
+      `).get(campanha.id, pId);
+
+      const itemId = existing ? existing.id : ('liq_' + pId + '_' + Date.now());
+
+      if (existing) {
+        db.prepare(`
+          UPDATE liquidacao_campanhas_itens 
+          SET preco_promocional = ?,
+              desconto_percentual = ?,
+              preco_custo = ?,
+              preco_normal = ?,
+              saldo_estoque = ?,
+              data_inicio = ?,
+              data_termino = ?,
+              sincronizado_digifarma = ?,
+              selecionado = 1
+          WHERE id = ?
+        `).run(
+          prPromo, descPctReal, precoCusto, precoNormalRef, saldo,
+          hoje, dtFim, fbOk ? 1 : 0, itemId
+        );
+      } else {
+        db.prepare(`
+          INSERT INTO liquidacao_campanhas_itens (
+            id, campanha_id, produto_id, descricao, apresentacao, ean, categoria,
+            saldo_estoque, preco_custo, preco_normal, preco_promocional, desconto_percentual,
+            data_inicio, data_termino, status, sincronizado_digifarma, aprovado_por,
+            preco_promocao_original, inicio_promocao_original, termino_promocao_original,
+            dias_parado, selecionado
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, 'ativo', ?, 'Manual (Avulso)',
+            ?, ?, ?,
+            0, 1
+          )
+        `).run(
+          itemId, campanha.id, pId, descricao, apresentacao, codBarras, String(cacheProd.categoria_id || 'Geral'),
+          saldo, precoCusto, precoNormalRef, prPromo, descPctReal,
+          hoje, dtFim, fbOk ? 1 : 0,
+          prPromoAtual, inicioPromoOriginal, terminoPromoOriginal
+        );
+      }
+
+      // Atualiza caches locais
+      try {
+        db.prepare('UPDATE compras_estoque_cache SET preco_promocional = ?, termino_promocao = ? WHERE produto_id = ?')
+          .run(prPromo, dtFim, pId);
+      } catch (e) {}
+
+      const itemRetorno = {
+        id: itemId,
+        campanha_id: campanha.id,
+        produto_id: pId,
+        descricao,
+        apresentacao,
+        ean: codBarras,
+        cod_barras: codBarras,
+        categoria: String(cacheProd.categoria_id || 'Geral'),
+        saldo_estoque: saldo,
+        preco_custo: precoCusto,
+        preco_normal: precoNormalRef,
+        preco_promocional: prPromo,
+        desconto_percentual: descPctReal,
+        data_inicio: hoje,
+        data_termino: dtFim,
+        status: 'ativo',
+        sincronizado_digifarma: fbOk ? 1 : 0,
+        dias_parado: 0,
+        sugestao_desconto: 30,
+        motivo_sugestao: 'Produto avulso incluído livremente do estoque.',
+        selecionado: true
+      };
+
+      res.json({
+        success: true,
+        message: `Produto "${descricao}" incluído na liquidação por R$ ${prPromo.toFixed(2)} (${descPctReal}% OFF)!`,
+        item: itemRetorno,
+        sincronizado_digifarma: fbOk
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /incluir-avulso:', err);
       res.status(500).json({ error: err.message });
     }
   });

@@ -32,7 +32,8 @@ import {
   HelpCircle,
   ChevronDown,
   ChevronUp,
-  CheckSquare
+  CheckSquare,
+  PlusCircle
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -167,6 +168,141 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   // Sinalização de cores de alerta e legenda oculta/recolhível
   const [mostrarLegenda, setMostrarLegenda] = useState<boolean>(false);
   const [detalheItemJustificativa, setDetalheItemJustificativa] = useState<string | null>(null);
+
+  // Inclusão Avulsa Livre de Produtos do Estoque
+  const [showModalIncluirAvulso, setShowModalIncluirAvulso] = useState<boolean>(false);
+  const [termoBuscaEstoque, setTermoBuscaEstoque] = useState<string>('');
+  const [resultadosBuscaEstoque, setResultadosBuscaEstoque] = useState<any[]>([]);
+  const [buscandoEstoque, setBuscandoEstoque] = useState<boolean>(false);
+  const [produtoSelecionadoParaInclusao, setProdutoSelecionadoParaInclusao] = useState<any | null>(null);
+  const [avulsoDescontoPct, setAvulsoDescontoPct] = useState<number>(30);
+  const [avulsoPrecoPromo, setAvulsoPrecoPromo] = useState<string>('');
+  const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>(getFimDesteMes());
+  const [avulsoSincronizarDigifarma, setAvulsoSincronizarDigifarma] = useState<boolean>(true);
+  const [salvandoAvulso, setSalvandoAvulso] = useState<boolean>(false);
+
+  // Debounce para busca no estoque
+  useEffect(() => {
+    if (!showModalIncluirAvulso || produtoSelecionadoParaInclusao) return;
+    const q = termoBuscaEstoque.trim();
+    if (q.length < 2) {
+      setResultadosBuscaEstoque([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setBuscandoEstoque(true);
+      try {
+        const res = await fetch(`/api/liquidacao/pesquisar-estoque?q=${encodeURIComponent(q)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setResultadosBuscaEstoque(data.produtos || []);
+        }
+      } catch (err) {
+        console.error('Erro ao pesquisar produto no estoque:', err);
+      } finally {
+        setBuscandoEstoque(false);
+      }
+    }, 280);
+
+    return () => clearTimeout(timer);
+  }, [termoBuscaEstoque, showModalIncluirAvulso, produtoSelecionadoParaInclusao]);
+
+  const handleSelecionarProdutoEstoque = (prod: any) => {
+    setProdutoSelecionadoParaInclusao(prod);
+    const precoNormal = Number(prod.preco_normal) || Number(prod.preco_tabela) || 0;
+    const precoCusto = Number(prod.preco_custo) || (precoNormal * 0.6);
+    const pct = 30;
+    const precoCalc = Math.round(precoNormal * (1 - pct / 100) * 100) / 100;
+    const precoFinal = Math.max(precoCusto, precoCalc);
+    const descReal = precoNormal > 0 ? Math.max(0, Math.round(((precoNormal - precoFinal) / precoNormal) * 100)) : pct;
+
+    setAvulsoDescontoPct(descReal);
+    setAvulsoPrecoPromo(precoFinal.toFixed(2));
+    setAvulsoDataTermino(getFimDesteMes());
+  };
+
+  const handleMudarDescontoAvulso = (novoPct: number) => {
+    setAvulsoDescontoPct(novoPct);
+    if (!produtoSelecionadoParaInclusao) return;
+    const precoNormal = Number(produtoSelecionadoParaInclusao.preco_normal) || Number(produtoSelecionadoParaInclusao.preco_tabela) || 0;
+    const precoCusto = Number(produtoSelecionadoParaInclusao.preco_custo) || 0;
+    const precoCalc = Math.round(precoNormal * (1 - novoPct / 100) * 100) / 100;
+    const precoFinal = Math.max(precoCusto, precoCalc);
+    setAvulsoPrecoPromo(precoFinal.toFixed(2));
+  };
+
+  const handleMudarPrecoPromoAvulso = (novoPrecoStr: string) => {
+    setAvulsoPrecoPromo(novoPrecoStr);
+    if (!produtoSelecionadoParaInclusao) return;
+    const precoNormal = Number(produtoSelecionadoParaInclusao.preco_normal) || Number(produtoSelecionadoParaInclusao.preco_tabela) || 0;
+    const val = parseFloat(novoPrecoStr.replace(',', '.'));
+    if (!isNaN(val) && val > 0 && precoNormal > 0) {
+      const descReal = Math.max(0, Math.round(((precoNormal - val) / precoNormal) * 100));
+      setAvulsoDescontoPct(descReal);
+    }
+  };
+
+  const handleSalvarProdutoAvulso = async () => {
+    if (!produtoSelecionadoParaInclusao) return;
+    const precoVal = parseFloat(avulsoPrecoPromo.replace(',', '.'));
+    if (isNaN(precoVal) || precoVal <= 0) {
+      addToast('Informe um preço promocional válido.', 'warning');
+      return;
+    }
+
+    const precoCusto = Number(produtoSelecionadoParaInclusao.preco_custo) || 0;
+    if (precoCusto > 0 && precoVal < precoCusto) {
+      addToast(`Bloqueado: Preço promocional não pode ficar abaixo do custo (${fmt(precoCusto)}).`, 'warning');
+      return;
+    }
+
+    setSalvandoAvulso(true);
+    try {
+      const res = await fetch('/api/liquidacao/incluir-avulso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produto_id: produtoSelecionadoParaInclusao.produto_id,
+          preco_promocional: precoVal,
+          desconto_percentual: avulsoDescontoPct,
+          data_termino: avulsoDataTermino || getFimDesteMes(),
+          sincronizar_digifarma: avulsoSincronizarDigifarma
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.item) {
+        addToast(`🔥 ${data.message}`, 'success');
+        
+        // Atualiza estado local imediatamente: se já existia, atualiza; senão, adiciona no topo
+        setItensAtivos(prev => {
+          const index = prev.findIndex(i => Number(i.produto_id) === Number(data.item.produto_id));
+          if (index >= 0) {
+            const copia = [...prev];
+            copia[index] = { ...copia[index], ...data.item, selecionado: true };
+            return copia;
+          } else {
+            return [{ ...data.item, selecionado: true }, ...prev];
+          }
+        });
+
+        fetchResumo();
+
+        // Reseta busca para permitir incluir outros produtos sem fechar
+        setProdutoSelecionadoParaInclusao(null);
+        setTermoBuscaEstoque('');
+        setResultadosBuscaEstoque([]);
+      } else {
+        addToast(data.error || 'Erro ao incluir produto.', 'error');
+      }
+    } catch (e) {
+      console.error('Erro ao incluir produto avulso:', e);
+      addToast('Falha na comunicação com o servidor.', 'error');
+    } finally {
+      setSalvandoAvulso(false);
+    }
+  };
 
   // 1. Carrega Resumo e Itens Ativos
   const fetchResumo = useCallback(async () => {
@@ -1776,46 +1912,63 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             </p>
           </div>
 
-          {itensAtivos.length > 0 && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setMostrarLegenda(prev => !prev)}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  mostrarLegenda
-                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-                title="Exibir / ocultar legenda de cores das linhas"
-              >
-                <HelpCircle size={14} />
-                <span>Legenda</span>
-                {mostrarLegenda ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowModalIncluirAvulso(true);
+                setTermoBuscaEstoque('');
+                setResultadosBuscaEstoque([]);
+                setProdutoSelecionadoParaInclusao(null);
+              }}
+              className="px-3.5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white shadow-md shadow-orange-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Pesquisar livremente qualquer produto do estoque do Digifarma e incluir com desconto na liquidação"
+            >
+              <PlusCircle size={15} />
+              <span>Incluir do Estoque</span>
+            </button>
 
-              <button
-                onClick={() => {
-                  if (itensSelecionados.length === 0) {
-                    addToast('⚠️ Nenhum produto checado! Marque no botão de check (✓) os produtos que deseja gerar etiquetas.', 'warning');
-                    return;
-                  }
-                  setShowPrintModal(true);
-                }}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition-colors flex items-center gap-1.5 cursor-pointer"
-                title="Gera etiquetas térmicas ou A4 para os produtos checados"
-              >
-                <Printer size={14} />
-                <span>Gerar Etiquetas ({itensSelecionados.length})</span>
-              </button>
-              <button
-                onClick={handleCopiarWhatsApp}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                <Copy size={14} />
-                WhatsApp
-              </button>
-            </div>
-          )}
+            {itensAtivos.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMostrarLegenda(prev => !prev)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    mostrarLegenda
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                  }`}
+                  title="Exibir / ocultar legenda de cores das linhas"
+                >
+                  <HelpCircle size={14} />
+                  <span>Legenda</span>
+                  {mostrarLegenda ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (itensSelecionados.length === 0) {
+                      addToast('⚠️ Nenhum produto checado! Marque no botão de check (✓) os produtos que deseja gerar etiquetas.', 'warning');
+                      return;
+                    }
+                    setShowPrintModal(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Gera etiquetas térmicas ou A4 para os produtos checados"
+                >
+                  <Printer size={14} />
+                  <span>Gerar Etiquetas ({itensSelecionados.length})</span>
+                </button>
+                <button
+                  onClick={handleCopiarWhatsApp}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Copy size={14} />
+                  WhatsApp
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* ─── BARRA INFORMATIVA DE PRODUTOS CHECADOS PARA LIQUIDAÇÃO & ETIQUETAS ─── */}
@@ -1989,9 +2142,13 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                               <span className="px-1.5 py-0.2 rounded font-black bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 inline-flex items-center gap-0.5 shrink-0">
                                 <AlertTriangle size={10} /> {dias}d
                               </span>
-                            ) : (
+                            ) : dias >= 45 ? (
                               <span className="px-1.5 py-0.2 rounded font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 inline-flex items-center gap-0.5 shrink-0">
                                 <Clock size={10} /> {dias}d
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.2 rounded font-black bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 inline-flex items-center gap-0.5 shrink-0" title="Item avulso incluído livremente do estoque">
+                                <Sparkles size={10} /> Avulso
                               </span>
                             )}
                             {item.categoria && <span className="truncate">{item.categoria}</span>}
@@ -2718,6 +2875,366 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
         );
       })()}
+
+      {/* ─── MODAL: INCLUIR PRODUTO AVULSO DO ESTOQUE ─── */}
+      {showModalIncluirAvulso && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-orange-50 via-amber-50 to-white dark:from-slate-850 dark:to-slate-900">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-orange-500 text-white shadow-md shadow-orange-500/30">
+                  <PlusCircle size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Incluir Produto do Estoque na Liquidação
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Pesquise livremente qualquer produto do catálogo para definir o desconto e incluir na queima.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModalIncluirAvulso(false);
+                  setProdutoSelecionadoParaInclusao(null);
+                  setTermoBuscaEstoque('');
+                  setResultadosBuscaEstoque([]);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {!produtoSelecionadoParaInclusao ? (
+                /* Etapa 1: Busca de Produto no Estoque */
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                      Pesquisar no Catálogo / Estoque da Loja:
+                    </label>
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        autoFocus
+                        value={termoBuscaEstoque}
+                        onChange={(e) => setTermoBuscaEstoque(e.target.value)}
+                        placeholder="Digite o Nome do Medicamento, Cód. Digifarma ou EAN..."
+                        className="w-full pl-10 pr-9 py-3 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:bg-white dark:focus:bg-slate-900 transition-all"
+                      />
+                      {termoBuscaEstoque && (
+                        <button
+                          type="button"
+                          onClick={() => { setTermoBuscaEstoque(''); setResultadosBuscaEstoque([]); }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-slate-400 mt-1 block">
+                      Dica: Digite pelo menos 2 letras ou o código numérico (ex: &quot;DIPIRONA&quot;, &quot;NEO&quot;, &quot;123&quot; ou código de barras).
+                    </span>
+                  </div>
+
+                  {/* Lista de Resultados */}
+                  <div className="min-h-[220px]">
+                    {buscandoEstoque ? (
+                      <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+                        <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+                        <span className="text-xs font-bold">Consultando catálogo do estoque...</span>
+                      </div>
+                    ) : termoBuscaEstoque.trim().length >= 2 && resultadosBuscaEstoque.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-slate-400 font-semibold space-y-1">
+                        <p>Nenhum produto encontrado com &quot;<strong>{termoBuscaEstoque}</strong>&quot; no catálogo.</p>
+                        <p className="text-[11px] text-slate-400">Tente buscar por parte do nome, princípio ativo ou código de barras.</p>
+                      </div>
+                    ) : resultadosBuscaEstoque.length > 0 ? (
+                      <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                        <div className="text-[11px] font-bold text-slate-400 mb-1 flex items-center justify-between">
+                          <span>{resultadosBuscaEstoque.length} produtos encontrados:</span>
+                          <span>Clique para selecionar</span>
+                        </div>
+                        {resultadosBuscaEstoque.map((prod) => (
+                          <div
+                            key={prod.produto_id}
+                            onClick={() => handleSelecionarProdutoEstoque(prod)}
+                            className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-orange-400 hover:bg-orange-50/40 dark:hover:bg-orange-950/20 transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-black text-slate-500 dark:text-slate-400">
+                                  #{prod.produto_id}
+                                </span>
+                                <h4 className="text-xs font-black text-slate-900 dark:text-white truncate group-hover:text-orange-600 transition-colors">
+                                  {prod.descricao}
+                                </h4>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                {prod.apresentacao && <span className="truncate">{prod.apresentacao}</span>}
+                                {prod.ean && <span className="font-mono truncate">• EAN {prod.ean}</span>}
+                                <span className="truncate">• {prod.categoria}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0 text-right">
+                              <div>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                  prod.saldo > 0 
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
+                                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                }`}>
+                                  {prod.saldo} un
+                                </span>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-1">
+                                  {fmt(prod.preco_normal)}
+                                </div>
+                                <div className="text-[10px] font-black text-blue-600 dark:text-blue-400">
+                                  Custo: {fmt(prod.preco_custo)}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                className="px-3 py-1.5 rounded-xl text-xs font-black bg-orange-500 hover:bg-orange-600 text-white shadow-xs group-hover:scale-105 transition-all cursor-pointer"
+                              >
+                                Selecionar
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center text-slate-400 space-y-2">
+                        <Package className="w-10 h-10 mx-auto opacity-30 text-orange-500" />
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                          Digite o nome ou código de qualquer produto para pesquisar no estoque.
+                        </p>
+                        <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                          Mesmo produtos novos ou que tiveram venda recente podem ser incluídos livremente com o desconto desejado.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Etapa 2: Configuração do Desconto e Preço Promocional */
+                <div className="space-y-5 animate-in fade-in duration-150">
+                  <button
+                    type="button"
+                    onClick={() => setProdutoSelecionadoParaInclusao(null)}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-orange-600 hover:text-orange-700 cursor-pointer"
+                  >
+                    <ChevronLeft size={14} /> Voltar para a pesquisa
+                  </button>
+
+                  {/* Card do Produto Selecionado */}
+                  <div className="p-4 rounded-2xl bg-orange-50/60 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/60 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono font-black text-orange-700 dark:text-orange-400">
+                            #{produtoSelecionadoParaInclusao.produto_id}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-200 dark:bg-orange-900 text-orange-900 dark:text-orange-200">
+                            {produtoSelecionadoParaInclusao.categoria}
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1">
+                          {produtoSelecionadoParaInclusao.descricao}
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {produtoSelecionadoParaInclusao.apresentacao} {produtoSelecionadoParaInclusao.ean ? `• EAN: ${produtoSelecionadoParaInclusao.ean}` : ''}
+                        </p>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Estoque Atual</span>
+                        <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                          {produtoSelecionadoParaInclusao.saldo} un
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-orange-200/80 dark:border-orange-800/40 text-xs">
+                      <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-orange-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Preço Normal Atual (De)</span>
+                        <span className="text-sm font-black text-slate-700 dark:text-slate-300">
+                          {fmt(produtoSelecionadoParaInclusao.preco_normal)}
+                        </span>
+                      </div>
+
+                      <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200 dark:border-blue-900">
+                        <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase block flex items-center gap-1">
+                          <ShieldCheck size={11} /> Preço de Custo (Piso)
+                        </span>
+                        <span className="text-sm font-black text-blue-600 dark:text-blue-400">
+                          {fmt(produtoSelecionadoParaInclusao.preco_custo)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Configuração da Promoção */}
+                  <div className="space-y-4">
+                    <h5 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Flame size={14} className="text-orange-500" />
+                      Definir Desconto e Preço de Liquidação
+                    </h5>
+
+                    {/* Atalhos Rápidos de % */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-slate-500">Atalhos:</span>
+                      {[20, 30, 40, 50, 70].map(pct => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => handleMudarDescontoAvulso(pct)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                            avulsoDescontoPct === pct
+                              ? 'bg-orange-500 text-white shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                          }`}
+                        >
+                          {pct}% OFF
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const custo = Number(produtoSelecionadoParaInclusao.preco_custo) || 0;
+                          handleMudarPrecoPromoAvulso(custo.toFixed(2));
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-black bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 hover:bg-blue-200 transition-all cursor-pointer"
+                        title="Vender a preço de custo (sem lucro e sem prejuízo)"
+                      >
+                        🔒 No Custo (Piso)
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Desconto % */}
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
+                          Desconto Desejado (%):
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="1"
+                            max="99"
+                            value={avulsoDescontoPct}
+                            onChange={(e) => handleMudarDescontoAvulso(Number(e.target.value) || 0)}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:border-orange-500"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 font-black text-slate-400 text-sm">%</span>
+                        </div>
+                      </div>
+
+                      {/* Preço Promocional R$ */}
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
+                          Preço Promocional (Por R$):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-400 text-xs">R$</span>
+                          <input
+                            type="text"
+                            value={avulsoPrecoPromo}
+                            onChange={(e) => handleMudarPrecoPromoAvulso(e.target.value)}
+                            placeholder="0,00"
+                            className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-orange-400 dark:border-orange-500 bg-white dark:bg-slate-800 text-sm font-black text-orange-600 dark:text-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Alerta de Custo se bater no piso */}
+                    {(() => {
+                      const precoDigitado = parseFloat(avulsoPrecoPromo.replace(',', '.')) || 0;
+                      const custo = Number(produtoSelecionadoParaInclusao.preco_custo) || 0;
+                      if (custo > 0 && precoDigitado <= custo + 0.001) {
+                        return (
+                          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 text-blue-800 dark:text-blue-300 text-xs font-bold flex items-center gap-2">
+                            <ShieldCheck size={16} className="shrink-0 text-blue-600" />
+                            <span>Blindagem ativada: O preço está no piso de Custo ({fmt(custo)}). Protegido contra prejuízo!</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
+                    {/* Data de Término */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
+                          Válido até (Término):
+                        </label>
+                        <input
+                          type="date"
+                          value={avulsoDataTermino}
+                          onChange={(e) => setAvulsoDataTermino(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">
+                          Padrão: Último dia deste mês ({getFimDesteMes().split('-').reverse().join('/')})
+                        </span>
+                      </div>
+
+                      {/* Opção de Sincronização Imediata com Digifarma */}
+                      <div className="flex items-center gap-2 pt-5">
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700 dark:text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={avulsoSincronizarDigifarma}
+                            onChange={(e) => setAvulsoSincronizarDigifarma(e.target.checked)}
+                            className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer"
+                          />
+                          <span>Gravar imediatamente no Digifarma Firebird</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModalIncluirAvulso(false);
+                  setProdutoSelecionadoParaInclusao(null);
+                  setTermoBuscaEstoque('');
+                  setResultadosBuscaEstoque([]);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              {produtoSelecionadoParaInclusao && (
+                <button
+                  type="button"
+                  onClick={handleSalvarProdutoAvulso}
+                  disabled={salvandoAvulso}
+                  className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white shadow-lg shadow-orange-500/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {salvandoAvulso ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check size={16} strokeWidth={3} />}
+                  <span>{salvandoAvulso ? 'Incluindo...' : 'Adicionar à Liquidação'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
