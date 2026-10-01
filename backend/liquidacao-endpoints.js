@@ -49,11 +49,11 @@ function getSemanaAno() {
   return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
-function getUltimoDiaMesQueVem() {
+function getUltimoDiaDesteMes() {
   const agora = new Date();
   const ano = agora.getFullYear();
-  const mes = agora.getMonth(); // 0 = Jan, 8 = Set, etc.
-  const ultimoDia = new Date(ano, mes + 2, 0); // Dia 0 do segundo mês à frente dá o último dia do próximo mês
+  const mes = agora.getMonth(); // 0 = Jan, 9 = Out, etc.
+  const ultimoDia = new Date(ano, mes + 1, 0); // Dia 0 do próximo mês = último dia deste mês
   const yyyy = ultimoDia.getFullYear();
   const mm = String(ultimoDia.getMonth() + 1).padStart(2, '0');
   const dd = String(ultimoDia.getDate()).padStart(2, '0');
@@ -62,6 +62,12 @@ function getUltimoDiaMesQueVem() {
 
 module.exports = function (db) {
   const router = express.Router();
+
+  // Migrações de colunas para liquidação
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN preco_promocao_original REAL DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN inicio_promocao_original TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN termino_promocao_original TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN dias_parado INTEGER DEFAULT 45'); } catch (e) {}
 
   // Helper para obter ou criar a campanha da semana ativa
   function getOrCreateCampanhaAtiva() {
@@ -339,9 +345,9 @@ module.exports = function (db) {
 
       const valorTotalImobilizado = Number((saldoAtual * precoVendaVigente).toFixed(2));
 
-      // Datas padrão de vigência: Início hoje, Término no último dia do mês que vem
+      // Datas padrão de vigência: Início hoje, Término no último dia deste mês
       const hoje = new Date();
-      const terminoStr = getUltimoDiaMesQueVem();
+      const terminoStr = getUltimoDiaDesteMes();
 
       res.json({
         disponivel: true,
@@ -547,49 +553,83 @@ module.exports = function (db) {
     try {
       const campanha = getOrCreateCampanhaAtiva();
 
-      // Busca todos os produtos elegíveis parados há >= 45 dias com saldo > 0
-      const prods = db.prepare(`
+      // Consulta no Digifarma Firebird produtos verdadeiramente parados há 45+ dias:
+      // 1. Ativos e com Saldo > 0
+      // 2. NENHUMA venda nos últimos 45 dias (evita itens de giro como Metrexato e Sonrisal)
+      // 3. NENHUMA entrada/compra nos últimos 45 dias (evita itens novos/repostos como Eno Laranja)
+      // 4. TEVE entrada no passado há mais de 45 dias (garante tempo de loja >= 45 dias)
+      const sqlParados = `
         SELECT 
-          cec.produto_id,
-          cec.descricao,
-          COALESCE(cec.apresentacao, m.apresentacao, '') as apresentacao,
-          cec.ean,
-          COALESCE(m.categoria, 'Geral') as categoria,
-          cec.saldo,
-          COALESCE(NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), NULLIF(m.preco_compra, 0), 0) as preco_custo,
-          COALESCE(NULLIF(cec.preco_normal, 0), NULLIF(m.preco_venda, 0), 0) as preco_venda_cache,
-          COALESCE(cec.preco_promocional, 0) as preco_promo_cache,
-          cec.ultima_compra_data,
-          CAST((julianday('now') - julianday(cec.ultima_compra_data)) AS INTEGER) as dias_parado
-        FROM compras_estoque_cache cec
-        LEFT JOIN mural_produtos_parados m ON cec.produto_id = m.produto_id
-        WHERE cec.saldo > 0
-          AND cec.ultima_compra_data IS NOT NULL
-          AND (julianday('now') - julianday(cec.ultima_compra_data)) >= 45
-        GROUP BY cec.produto_id
-        ORDER BY dias_parado DESC, (cec.saldo * cec.custo_unitario) DESC
-      `).all();
+          p.PRODUTO_ID,
+          p.PRODUTO as DESCRICAO,
+          p.APRESENTACAO,
+          p.COD_BARRAS as EAN,
+          p.PROD_SALDO as SALDO,
+          p.PROD_PRVENDA,
+          p.PROD_PRPROMOCAO,
+          p.INICIO_PROMOCAO,
+          p.TERMINO_PROMOCAO,
+          COALESCE(NULLIF(p.PROD_CMV, 0), NULLIF(p.PROD_PRCOMPRA, 0), NULLIF(p.VALOR_ULT_COMPRA, 0), 0) as PRECO_CUSTO,
+          c.CATEGORIA as CATEGORIA_NOME,
+          (
+            SELECT MAX(v.VENDA_DATA_HORA)
+            FROM ITEM_VENDAS iv
+            JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+            WHERE iv.PRODUTO_ID = p.PRODUTO_ID AND (v.CANCELADO IS NULL OR v.CANCELADO <> 'S')
+          ) as ULTIMA_VENDA,
+          (
+            SELECT MAX(cnp.DATA_EMISSAO)
+            FROM ITEM_NOTAS inp
+            JOIN CAB_NOTAS cnp ON inp.CAB_NOTA_ID = cnp.CAB_NOTA_ID
+            WHERE inp.PRODUTO_ID = p.PRODUTO_ID AND cnp.ENTRADA_SAIDA = 'E'
+              AND (cnp.CANCELAMENTO IS NULL OR cnp.CANCELAMENTO = 'N')
+          ) as ULTIMA_COMPRA
+        FROM PRODUTOS p
+        LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        WHERE p.PROD_ATIVO = 'S'
+          AND p.PROD_SALDO > 0
+          AND NOT EXISTS (
+            SELECT FIRST 1 1 
+            FROM ITEM_VENDAS iv
+            JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+            WHERE iv.PRODUTO_ID = p.PRODUTO_ID 
+              AND (v.CANCELADO IS NULL OR v.CANCELADO <> 'S')
+              AND v.VENDA_DATA_HORA >= CAST('NOW' AS TIMESTAMP) - 45
+          )
+          AND NOT EXISTS (
+            SELECT FIRST 1 1 
+            FROM ITEM_NOTAS inp
+            JOIN CAB_NOTAS cnp ON inp.CAB_NOTA_ID = cnp.CAB_NOTA_ID
+            WHERE inp.PRODUTO_ID = p.PRODUTO_ID AND cnp.ENTRADA_SAIDA = 'E'
+              AND (cnp.CANCELAMENTO IS NULL OR cnp.CANCELAMENTO = 'N')
+              AND (cnp.DATA_EMISSAO >= CAST('NOW' AS TIMESTAMP) - 45 OR cnp.DATA_RECEBIMENTO >= CAST('NOW' AS TIMESTAMP) - 45)
+          )
+          AND EXISTS (
+            SELECT FIRST 1 1 
+            FROM ITEM_NOTAS iant
+            JOIN CAB_NOTAS cant ON iant.CAB_NOTA_ID = cant.CAB_NOTA_ID
+            WHERE iant.PRODUTO_ID = p.PRODUTO_ID AND cant.ENTRADA_SAIDA = 'E'
+              AND (cant.CANCELAMENTO IS NULL OR cant.CANCELAMENTO = 'N')
+              AND cant.DATA_EMISSAO < CAST('NOW' AS TIMESTAMP) - 45
+          )
+        ORDER BY (p.PROD_SALDO * COALESCE(p.PROD_CMV, p.PROD_PRCOMPRA, p.VALOR_ULT_COMPRA, p.PROD_PRVENDA, 0)) DESC
+      `;
 
-      if (prods.length === 0) {
+      let prods = [];
+      try {
+        prods = await queryDigifarma(sqlParados, [], 45000);
+      } catch (errFb) {
+        console.error('[Liquidação API] Erro ao buscar produtos parados no Digifarma:', errFb.message);
+        return res.status(500).json({ error: 'Erro ao consultar produtos parados no Digifarma: ' + errFb.message });
+      }
+
+      if (!prods || prods.length === 0) {
         return res.json({ success: true, count: 0, message: 'Nenhum produto parado há 45+ dias encontrado.' });
       }
 
-      // Consulta estoque real e preços vigentes no Firebird
-      const ids = prods.map(p => p.produto_id);
-      let fbMap = new Map();
-      try {
-        const fbProds = await queryDigifarma(`
-          SELECT PRODUTO_ID, PROD_SALDO, PROD_PRVENDA, PROD_PRPROMOCAO, INICIO_PROMOCAO, TERMINO_PROMOCAO 
-          FROM PRODUTOS 
-          WHERE PRODUTO_ID IN (${ids.join(',')})
-        `);
-        fbMap = new Map((fbProds || []).map(f => [f.PRODUTO_ID, f]));
-      } catch (fbErr) {
-        console.warn('[Liquidação API] Aviso ao buscar dados no Firebird:', fbErr.message);
-      }
-
       const dataInicio = new Date().toISOString().split('T')[0];
-      const dataTermino = getUltimoDiaMesQueVem();
+      const dataTermino = getUltimoDiaDesteMes();
+      const agoraMs = Date.now();
 
       // Limpa os itens anteriores da campanha ativa para reiniciar a lista
       db.prepare("DELETE FROM liquidacao_campanhas_itens WHERE campanha_id = ?").run(campanha.id);
@@ -599,12 +639,14 @@ module.exports = function (db) {
           id, campanha_id, produto_id, descricao, apresentacao, ean, categoria,
           saldo_estoque, preco_custo, preco_normal, preco_promocional, desconto_percentual,
           data_inicio, data_termino, status, sincronizado_digifarma, aprovado_por,
-          preco_promocao_original, inicio_promocao_original, termino_promocao_original
+          preco_promocao_original, inicio_promocao_original, termino_promocao_original,
+          dias_parado
         ) VALUES (
           ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?,
           ?, ?, 'ativo', 0, 'Sistema (45+ dias)',
-          ?, ?, ?
+          ?, ?, ?,
+          ?
         )
       `);
 
@@ -628,7 +670,8 @@ module.exports = function (db) {
             String(item.data_termino),
             item.preco_promocao_original != null ? Number(item.preco_promocao_original) : 0,
             item.inicio_promocao_original ? String(item.inicio_promocao_original) : null,
-            item.termino_promocao_original ? String(item.termino_promocao_original) : null
+            item.termino_promocao_original ? String(item.termino_promocao_original) : null,
+            Number(item.dias_parado) || 45
           );
           count++;
         }
@@ -636,19 +679,29 @@ module.exports = function (db) {
 
       const batchToInsert = [];
       for (const p of prods) {
-        const fb = fbMap.get(p.produto_id);
-        const saldoReal = fb ? Number(fb.PROD_SALDO) : Number(p.saldo);
-        if (saldoReal <= 0) continue; // Apenas com saldo positivo real
+        const saldoReal = Number(p.SALDO) || 0;
+        if (saldoReal <= 0) continue;
 
-        const fbPromo = fb && fb.PROD_PRPROMOCAO != null ? Number(fb.PROD_PRPROMOCAO.toFixed(2)) : Number(p.preco_promo_cache || 0);
-        const fbVenda = fb && fb.PROD_PRVENDA != null ? Number(fb.PROD_PRVENDA.toFixed(2)) : Number(p.preco_venda_cache || 0);
+        const fbPromo = p.PROD_PRPROMOCAO != null ? Number(Number(p.PROD_PRPROMOCAO).toFixed(2)) : 0;
+        const fbVenda = p.PROD_PRVENDA != null ? Number(Number(p.PROD_PRVENDA).toFixed(2)) : 0;
         
         // Valor original praticado: se tem promocional prévio, usa ele; senão usa venda de tabela
         const precoNormal = fbPromo > 0 ? fbPromo : fbVenda;
         if (precoNormal <= 0) continue;
 
-        const dias = p.dias_parado || 45;
-        const precoCusto = Number(p.preco_custo.toFixed(2));
+        // Cálculo real de dias parado:
+        // Prioridade 1: Dias desde a última venda
+        // Prioridade 2: Dias desde a compra / recebimento da nota (para itens que nunca venderam)
+        let dias = 45;
+        if (p.ULTIMA_VENDA) {
+          const diffV = Math.floor((agoraMs - new Date(p.ULTIMA_VENDA).getTime()) / (1000 * 60 * 60 * 24));
+          dias = Math.max(45, diffV);
+        } else if (p.ULTIMA_COMPRA) {
+          const diffC = Math.floor((agoraMs - new Date(p.ULTIMA_COMPRA).getTime()) / (1000 * 60 * 60 * 24));
+          dias = Math.max(45, diffC);
+        }
+
+        const precoCusto = Number((Number(p.PRECO_CUSTO) || 0).toFixed(2));
 
         // 3 Faixas de desconto sugeridas nominais:
         let descPctNominal = 30;
@@ -673,13 +726,13 @@ module.exports = function (db) {
         const descReal = precoNormal > 0 ? Math.max(0, Math.round(((precoNormal - precoPromo) / precoNormal) * 100)) : 0;
 
         batchToInsert.push({
-          id: 'liq_' + p.produto_id + '_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          id: 'liq_' + p.PRODUTO_ID + '_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
           campanha_id: campanha.id,
-          produto_id: p.produto_id,
-          descricao: p.descricao,
-          apresentacao: p.apresentacao || '',
-          ean: p.ean || '',
-          categoria: p.categoria || 'Geral',
+          produto_id: p.PRODUTO_ID,
+          descricao: p.DESCRICAO || '',
+          apresentacao: p.APRESENTACAO || '',
+          ean: p.EAN || '',
+          categoria: p.CATEGORIA_NOME || 'Geral',
           saldo_estoque: saldoReal,
           preco_custo: precoCusto,
           preco_normal: precoNormal,
@@ -688,8 +741,9 @@ module.exports = function (db) {
           data_inicio: dataInicio,
           data_termino: dataTermino,
           preco_promocao_original: fbPromo,
-          inicio_promocao_original: fb ? (fb.INICIO_PROMOCAO || null) : null,
-          termino_promocao_original: fb ? (fb.TERMINO_PROMOCAO || null) : null
+          inicio_promocao_original: p.INICIO_PROMOCAO || null,
+          termino_promocao_original: p.TERMINO_PROMOCAO || null,
+          dias_parado: dias
         });
       }
 
@@ -715,17 +769,12 @@ module.exports = function (db) {
         SELECT 
           lci.*,
           COALESCE(NULLIF(lci.preco_custo, 0), NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), 0) as preco_custo,
-          COALESCE(
-            NULLIF(CAST((julianday('now') - julianday(cec.ultima_compra_data)) AS INTEGER), 0),
-            NULLIF(m.dias_parado, 0),
-            90
-          ) as dias_parado
+          COALESCE(lci.dias_parado, 45) as dias_parado
         FROM liquidacao_campanhas_itens lci
         LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
-        LEFT JOIN mural_produtos_parados m ON lci.produto_id = m.produto_id
         WHERE lci.campanha_id = ? AND lci.status = 'ativo'
         GROUP BY lci.id
-        ORDER BY dias_parado DESC, (lci.saldo_estoque * lci.preco_custo) DESC
+        ORDER BY lci.dias_parado DESC, (lci.saldo_estoque * lci.preco_custo) DESC
       `).all(campanha.id);
 
       const itens = rows.map(item => {
@@ -780,7 +829,7 @@ module.exports = function (db) {
         const pId = Number(it.produto_id);
         const custo = Number(it.preco_custo) || 0;
         let prPromo = parseFloat(it.preco_promocional);
-        const dtFim = it.data_termino || getUltimoDiaMesQueVem();
+        const dtFim = it.data_termino || getUltimoDiaDesteMes();
 
         if (!pId || isNaN(prPromo) || prPromo <= 0) continue;
 

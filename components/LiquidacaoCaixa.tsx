@@ -110,12 +110,12 @@ interface LiquidacaoCaixaProps {
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
-// Helper para calcular último dia do mês que vem
-const getFimMesQueVem = () => {
+// Helper para calcular último dia deste mês
+const getFimDesteMes = () => {
   const agora = new Date();
   const ano = agora.getFullYear();
   const mes = agora.getMonth();
-  const ultimoDia = new Date(ano, mes + 2, 0);
+  const ultimoDia = new Date(ano, mes + 1, 0);
   const yyyy = ultimoDia.getFullYear();
   const mm = String(ultimoDia.getMonth() + 1).padStart(2, '0');
   const dd = String(ultimoDia.getDate()).padStart(2, '0');
@@ -780,7 +780,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const handleIniciarEdicao = (item: ItemAtivo) => {
     setEditingItemId(item.id);
     setEditPreco(item.preco_promocional.toFixed(2));
-    setEditDataTermino(item.data_termino || getFimMesQueVem());
+    setEditDataTermino(item.data_termino || getFimDesteMes());
   };
 
   // Ação: Cancelar Edição
@@ -1009,7 +1009,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const handleGravarTodasNoDigifarma = async () => {
     if (itensAtivos.length === 0) return;
     const confirma = window.confirm(
-      `Confirma a gravação de ${itensAtivos.length} ofertas promocionais diretamente no Digifarma Firebird com vigência até ${getFimMesQueVem().split('-').reverse().join('/')}?`
+      `Confirma a gravação de ${itensAtivos.length} ofertas promocionais diretamente no Digifarma Firebird com vigência até ${getFimDesteMes().split('-').reverse().join('/')}?`
     );
     if (!confirma) return;
 

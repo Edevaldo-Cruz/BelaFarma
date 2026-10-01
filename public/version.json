@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "926a2ef",
-  "commitMessage": "style(liquidacao): alterar sinalizacao de desconto timido para linha vermelha",
-  "buildTime": "01/10/2026, 14:47:14"
+  "commitHash": "ed1112f",
+  "commitMessage": "feat(liquidacao): card de projecao de total se vendido em tempo real ao alterar faixas",
+  "buildTime": "01/10/2026, 17:03:07"
 }
