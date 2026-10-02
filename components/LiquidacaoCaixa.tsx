@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
+import { LiquidacaoEncarteArtes } from './LiquidacaoEncarteArtes';
 
 interface ResumoData {
   dividaInicial: number;
@@ -104,6 +105,7 @@ interface ItemAtivo {
   sugestao_desconto?: number;
   motivo_sugestao?: string;
   selecionado?: boolean;
+  imagem_url?: string;
 }
 
 interface LiquidacaoCaixaProps {
@@ -130,6 +132,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
   const [resumo, setResumo] = useState<ResumoData | null>(null);
   const [itensAtivos, setItensAtivos] = useState<ItemAtivo[]>([]);
+  const [abaModulo, setAbaModulo] = useState<'ofertas' | 'artes'>('ofertas');
 
   const [loadingResumo, setLoadingResumo] = useState(true);
   const [loadingItens, setLoadingItens] = useState(false);
@@ -1404,6 +1407,18 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
         <div className="relative z-10 flex flex-wrap md:flex-col gap-2 shrink-0">
           <button
+            onClick={() => setAbaModulo(prev => prev === 'ofertas' ? 'artes' : 'ofertas')}
+            className={`px-4 py-2.5 active:scale-95 transition-all rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
+              abaModulo === 'artes'
+                ? 'bg-yellow-300 text-slate-950 shadow-yellow-900/40'
+                : 'bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-md'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            {abaModulo === 'artes' ? 'Voltar para Tabela' : '🎨 Gerar Encartes & Artes'}
+          </button>
+
+          <button
             onClick={() => {
               setShowModalIncluirAvulso(true);
               setTermoBuscaEstoque('');
@@ -1445,8 +1460,46 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* ─── PAINEL DE METAS: TERMÔMETRO DA DÍVIDA & META DA SEMANA ─── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* ─── ABAS PRINCIPAIS DO MÓDULO ─── */}
+      <div className="flex items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-fit">
+        <button
+          type="button"
+          onClick={() => setAbaModulo('ofertas')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+            abaModulo === 'ofertas'
+              ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+          }`}
+        >
+          <Package size={15} />
+          <span>Gestão de Preços & Ofertas ({itensAtivos.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaModulo('artes')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+            abaModulo === 'artes'
+              ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+          }`}
+        >
+          <Sparkles size={15} className={abaModulo === 'artes' ? 'text-yellow-200' : 'text-amber-500'} />
+          <span>🎨 Encartes & Artes Promocionais (1º Aniversário)</span>
+        </button>
+      </div>
+
+      {abaModulo === 'artes' ? (
+        <LiquidacaoEncarteArtes
+          itens={itensAtivos}
+          onAtualizarItens={fetchItensAtivos}
+          dataInicioCampanha={resumo?.campanha?.dataInicio || '2026-10-05'}
+          dataTerminoCampanha={resumo?.campanha?.dataFim || '2026-10-31'}
+        />
+      ) : (
+        <>
+        {/* ─── PAINEL DE METAS: TERMÔMETRO DA DÍVIDA & META DA SEMANA ─── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Card 1: Termômetro da Dívida */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -2514,6 +2567,8 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </p>
         </div>
       </div>
+      </>
+      )}
 
       {/* ─── MODAL DE IMPRESSÃO: TABELA EM FOLHA A4 (35 POR FOLHA) & ROLO TÉRMICO ─── */}
       {showPrintModal && (() => {

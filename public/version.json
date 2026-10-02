@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "35968e7",
-  "commitMessage": "feat(liquidacao): carregar folha oficial de 31/10/2026 e adicionar suporte a insercao manual de produtos",
-  "buildTime": "02/10/2026, 13:09:25"
+  "commitHash": "3a14d5c",
+  "commitMessage": "fix(liquidacao): ajustar data de inicio da promocao para 05/10/2026 no Digifarma e sistema",
+  "buildTime": "02/10/2026, 14:03:49"
 }

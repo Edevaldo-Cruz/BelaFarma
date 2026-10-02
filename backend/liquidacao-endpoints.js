@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { queryDigifarma } = require('./services/digifarma.service');
 
 function formatarDataFirebird(date, isEnd = false) {
@@ -69,6 +71,8 @@ module.exports = function (db) {
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN termino_promocao_original TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN dias_parado INTEGER DEFAULT 45'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN selecionado INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN imagem_url TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN imagem_url TEXT'); } catch (e) {}
 
   // Helper para obter ou criar a campanha da semana ativa
   function getOrCreateCampanhaAtiva() {
@@ -1464,6 +1468,171 @@ module.exports = function (db) {
       res.json({ texto });
     } catch (err) {
       console.error('[Liquidação API] Erro em /texto-whatsapp:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── 8. GESTÃO DE IMAGENS DE PRODUTOS PARA ENCARTE & ARTES ───
+
+  async function buscarEBaixarImagemWeb(produto_id, ean, descricao) {
+    const pId = Number(produto_id);
+    const uploadsDir = path.join(__dirname, 'uploads', 'produtos');
+    const publicUploadsDir = path.join(__dirname, '..', 'public', 'uploads', 'produtos');
+    
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+    if (!fs.existsSync(publicUploadsDir)) fs.mkdirSync(publicUploadsDir, { recursive: true });
+
+    const fileName = `${pId}.jpg`;
+    const destPath = path.join(uploadsDir, fileName);
+    const destPublic = path.join(publicUploadsDir, fileName);
+
+    const queryTerms = [];
+    if (ean && String(ean).trim().length >= 7) {
+      queryTerms.push(`${String(ean).trim()} ${String(descricao).split(' ')[0]}`);
+    }
+    const cleanDesc = String(descricao || '').replace(/[^\w\s]/gi, ' ').trim();
+    queryTerms.push(`${cleanDesc} farmacia medicamento`);
+
+    for (const q of queryTerms) {
+      try {
+        const tokenUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(q);
+        const r1 = await fetch(tokenUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4500) });
+        const html = await r1.text();
+        const vqdMatch = html.match(/vqd=([\d-]+)/);
+        if (!vqdMatch) continue;
+        const vqd = vqdMatch[1];
+        const imgUrl = 'https://duckduckgo.com/i.js?l=wt-wt&o=json&q=' + encodeURIComponent(q) + '&vqd=' + vqd + '&f=,,,';
+        const r2 = await fetch(imgUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4500) });
+        const data = await r2.json();
+        if (data.results && data.results.length > 0) {
+          for (const res of data.results.slice(0, 4)) {
+            try {
+              const imgRes = await fetch(res.image, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(5000) });
+              if (imgRes.ok) {
+                const buffer = Buffer.from(await imgRes.arrayBuffer());
+                if (buffer.length > 2500) {
+                  fs.writeFileSync(destPath, buffer);
+                  try { fs.writeFileSync(destPublic, buffer); } catch(e) {}
+                  return `/uploads/produtos/${fileName}`;
+                }
+              }
+            } catch(e) {}
+          }
+        }
+      } catch(e) {}
+    }
+    return null;
+  }
+
+  // 8.1 POST /api/liquidacao/salvar-imagem-manual
+  router.post('/salvar-imagem-manual', (req, res) => {
+    try {
+      const { produto_id, imagem_base64 } = req.body;
+      if (!produto_id || !imagem_base64) {
+        return res.status(400).json({ error: 'produto_id e imagem_base64 são obrigatórios.' });
+      }
+
+      const pId = Number(produto_id);
+      const uploadsDir = path.join(__dirname, 'uploads', 'produtos');
+      const publicUploadsDir = path.join(__dirname, '..', 'public', 'uploads', 'produtos');
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      if (!fs.existsSync(publicUploadsDir)) fs.mkdirSync(publicUploadsDir, { recursive: true });
+
+      const fileName = `${pId}.jpg`;
+      const destPath = path.join(uploadsDir, fileName);
+      const destPublic = path.join(publicUploadsDir, fileName);
+
+      const base64Data = imagem_base64.replace(/^data:image\/\w+;base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync(destPath, buffer);
+      try { fs.writeFileSync(destPublic, buffer); } catch(e) {}
+
+      const urlRelativa = `/uploads/produtos/${fileName}?v=${Date.now()}`;
+      db.prepare('UPDATE liquidacao_campanhas_itens SET imagem_url = ? WHERE produto_id = ?').run(urlRelativa, pId);
+      try { db.prepare('UPDATE compras_estoque_cache SET imagem_url = ? WHERE produto_id = ?').run(urlRelativa, pId); } catch(e) {}
+
+      res.json({ success: true, imagem_url: urlRelativa });
+    } catch(err) {
+      console.error('[Liquidação API] Erro em /salvar-imagem-manual:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8.2 POST /api/liquidacao/buscar-imagem-auto
+  router.post('/buscar-imagem-auto', async (req, res) => {
+    try {
+      const { produto_id, ean, descricao } = req.body;
+      if (!produto_id) return res.status(400).json({ error: 'produto_id é obrigatório.' });
+
+      const pId = Number(produto_id);
+      const url = await buscarEBaixarImagemWeb(pId, ean, descricao);
+
+      if (url) {
+        const urlComCacheBuster = `${url}?v=${Date.now()}`;
+        db.prepare('UPDATE liquidacao_campanhas_itens SET imagem_url = ? WHERE produto_id = ?').run(urlComCacheBuster, pId);
+        try { db.prepare('UPDATE compras_estoque_cache SET imagem_url = ? WHERE produto_id = ?').run(urlComCacheBuster, pId); } catch(e) {}
+        return res.json({ success: true, imagem_url: urlComCacheBuster });
+      }
+
+      res.status(404).json({ success: false, message: 'Nenhuma imagem encontrada na web para este produto.' });
+    } catch(err) {
+      console.error('[Liquidação API] Erro em /buscar-imagem-auto:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8.3 POST /api/liquidacao/buscar-todas-imagens-auto
+  router.post('/buscar-todas-imagens-auto', async (req, res) => {
+    try {
+      const itens = db.prepare(`
+        SELECT produto_id, ean, descricao 
+        FROM liquidacao_campanhas_itens 
+        WHERE status = 'ativo' AND (imagem_url IS NULL OR imagem_url = '')
+      `).all();
+
+      let encontrados = 0;
+      let erros = 0;
+
+      for (const it of itens) {
+        try {
+          const url = await buscarEBaixarImagemWeb(it.produto_id, it.ean, it.descricao);
+          if (url) {
+            const urlBuster = `${url}?v=${Date.now()}`;
+            db.prepare('UPDATE liquidacao_campanhas_itens SET imagem_url = ? WHERE produto_id = ?').run(urlBuster, it.produto_id);
+            try { db.prepare('UPDATE compras_estoque_cache SET imagem_url = ? WHERE produto_id = ?').run(urlBuster, it.produto_id); } catch(e) {}
+            encontrados++;
+          }
+          await new Promise(r => setTimeout(r, 200));
+        } catch(e) {
+          erros++;
+        }
+      }
+
+      res.json({
+        success: true,
+        total: itens.length,
+        encontrados,
+        erros
+      });
+    } catch(err) {
+      console.error('[Liquidação API] Erro em /buscar-todas-imagens-auto:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8.4 POST /api/liquidacao/remover-imagem
+  router.post('/remover-imagem', (req, res) => {
+    try {
+      const { produto_id } = req.body;
+      if (!produto_id) return res.status(400).json({ error: 'produto_id é obrigatório.' });
+
+      const pId = Number(produto_id);
+      db.prepare('UPDATE liquidacao_campanhas_itens SET imagem_url = NULL WHERE produto_id = ?').run(pId);
+      try { db.prepare('UPDATE compras_estoque_cache SET imagem_url = NULL WHERE produto_id = ?').run(pId); } catch(e) {}
+
+      res.json({ success: true, message: 'Imagem removida com sucesso.' });
+    } catch(err) {
+      console.error('[Liquidação API] Erro em /remover-imagem:', err);
       res.status(500).json({ error: err.message });
     }
   });
