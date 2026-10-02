@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "2f8901f",
-  "commitMessage": "feat(liquidacao): inclusao livre de produtos do estoque com pesquisa e desconto",
-  "buildTime": "02/10/2026, 12:46:26"
+  "commitHash": "35968e7",
+  "commitMessage": "feat(liquidacao): carregar folha oficial de 31/10/2026 e adicionar suporte a insercao manual de produtos",
+  "buildTime": "02/10/2026, 13:09:25"
 }

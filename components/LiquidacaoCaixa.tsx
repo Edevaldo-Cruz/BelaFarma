@@ -177,6 +177,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [produtoSelecionadoParaInclusao, setProdutoSelecionadoParaInclusao] = useState<any | null>(null);
   const [avulsoDescontoPct, setAvulsoDescontoPct] = useState<number>(30);
   const [avulsoPrecoPromo, setAvulsoPrecoPromo] = useState<string>('');
+  const [avulsoDataInicio, setAvulsoDataInicio] = useState<string>('2026-10-05');
   const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>('2026-10-31');
   const [avulsoSincronizarDigifarma, setAvulsoSincronizarDigifarma] = useState<boolean>(true);
   const [salvandoAvulso, setSalvandoAvulso] = useState<boolean>(false);
@@ -219,6 +220,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
     setAvulsoDescontoPct(descReal);
     setAvulsoPrecoPromo(precoFinal.toFixed(2));
+    setAvulsoDataInicio(resumo?.campanha?.dataInicio || '2026-10-05');
     setAvulsoDataTermino(resumo?.campanha?.dataFim || '2026-10-31');
   };
 
@@ -266,7 +268,8 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           produto_id: produtoSelecionadoParaInclusao.produto_id,
           preco_promocional: precoVal,
           desconto_percentual: avulsoDescontoPct,
-          data_termino: avulsoDataTermino || getFimDesteMes(),
+          data_inicio: avulsoDataInicio || '2026-10-05',
+          data_termino: avulsoDataTermino || '2026-10-31',
           sincronizar_digifarma: avulsoSincronizarDigifarma
         })
       });
@@ -3183,8 +3186,23 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                       return null;
                     })()}
 
-                    {/* Data de Término */}
+                    {/* Datas da Promoção: Início e Término */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
+                          Início da Promoção:
+                        </label>
+                        <input
+                          type="date"
+                          value={avulsoDataInicio}
+                          onChange={(e) => setAvulsoDataInicio(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">
+                          Padrão: 05/10/2026
+                        </span>
+                      </div>
+
                       <div>
                         <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
                           Válido até (Término):
@@ -3196,22 +3214,22 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                           className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500"
                         />
                         <span className="text-[10px] text-slate-400 mt-0.5 block">
-                          Padrão: Último dia deste mês ({getFimDesteMes().split('-').reverse().join('/')})
+                          Padrão: 31/10/2026
                         </span>
                       </div>
+                    </div>
 
-                      {/* Opção de Sincronização Imediata com Digifarma */}
-                      <div className="flex items-center gap-2 pt-5">
-                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700 dark:text-slate-300">
-                          <input
-                            type="checkbox"
-                            checked={avulsoSincronizarDigifarma}
-                            onChange={(e) => setAvulsoSincronizarDigifarma(e.target.checked)}
-                            className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer"
-                          />
-                          <span>Gravar imediatamente no Digifarma Firebird</span>
-                        </label>
-                      </div>
+                    {/* Opção de Sincronização Imediata com Digifarma */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700 dark:text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={avulsoSincronizarDigifarma}
+                          onChange={(e) => setAvulsoSincronizarDigifarma(e.target.checked)}
+                          className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer"
+                        />
+                        <span>Gravar imediatamente no Digifarma Firebird</span>
+                      </label>
                     </div>
                   </div>
                 </div>

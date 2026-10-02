@@ -1051,13 +1051,13 @@ module.exports = function (db) {
         ? Math.max(0, Math.round(((precoNormalRef - prPromo) / precoNormalRef) * 100)) 
         : 0;
 
-      const hoje = new Date().toISOString().split('T')[0];
-      const dtFim = data_termino || '2026-10-31';
+      const dtInicio = req.body.data_inicio || campanha.data_inicio || '2026-10-05';
+      const dtFim = data_termino || campanha.data_fim || '2026-10-31';
 
       // Sincroniza com o Digifarma se solicitado (padrão true se não especificado)
       let fbOk = false;
       if (sincronizar_digifarma !== false) {
-        const fbInicio = formatarDataFirebird(hoje, false);
+        const fbInicio = formatarDataFirebird(dtInicio, false);
         const fbTermino = formatarDataFirebird(dtFim, true);
         try {
           await queryDigifarma(
@@ -1069,7 +1069,7 @@ module.exports = function (db) {
             [prPromo, fbInicio, fbTermino, pId]
           );
           fbOk = true;
-          console.log(`[Liquidação API] ✅ Produto avulso ${pId} gravado no Digifarma Firebird: R$ ${prPromo} até ${fbTermino}`);
+          console.log(`[Liquidação API] ✅ Produto avulso ${pId} gravado no Digifarma Firebird: R$ ${prPromo} (${fbInicio} até ${fbTermino})`);
         } catch (fbErr) {
           console.warn(`[Liquidação API] Falha Firebird produto avulso ${pId}:`, fbErr.message);
         }
@@ -1098,7 +1098,7 @@ module.exports = function (db) {
           WHERE id = ?
         `).run(
           prPromo, descPctReal, precoCusto, precoNormalRef, saldo,
-          hoje, dtFim, fbOk ? 1 : 0, itemId
+          dtInicio, dtFim, fbOk ? 1 : 0, itemId
         );
       } else {
         db.prepare(`
@@ -1118,15 +1118,15 @@ module.exports = function (db) {
         `).run(
           itemId, campanha.id, pId, descricao, apresentacao, codBarras, String(cacheProd.categoria_id || 'Geral'),
           saldo, precoCusto, precoNormalRef, prPromo, descPctReal,
-          hoje, dtFim, fbOk ? 1 : 0,
+          dtInicio, dtFim, fbOk ? 1 : 0,
           prPromoAtual, inicioPromoOriginal, terminoPromoOriginal
         );
       }
 
       // Atualiza caches locais
       try {
-        db.prepare('UPDATE compras_estoque_cache SET preco_promocional = ?, termino_promocao = ? WHERE produto_id = ?')
-          .run(prPromo, dtFim, pId);
+        db.prepare('UPDATE compras_estoque_cache SET preco_promocional = ?, inicio_promocao = ?, termino_promocao = ? WHERE produto_id = ?')
+          .run(prPromo, dtInicio, dtFim, pId);
       } catch (e) {}
 
       const itemRetorno = {
@@ -1143,7 +1143,7 @@ module.exports = function (db) {
         preco_normal: precoNormalRef,
         preco_promocional: prPromo,
         desconto_percentual: descPctReal,
-        data_inicio: hoje,
+        data_inicio: dtInicio,
         data_termino: dtFim,
         status: 'ativo',
         sincronizado_digifarma: fbOk ? 1 : 0,

@@ -57,9 +57,9 @@ const ITENS_FOLHA = [
 
 async function run() {
   console.log('🚀 Iniciando aplicação da Folha Oficial de Liquidação BelaFarma...');
-  const hojeStr = new Date().toISOString().split('T')[0];
+  const inicioStr = '2026-10-05';
   const terminoStr = '2026-10-31';
-  const fbInicio = `${hojeStr} 00:00:00`;
+  const fbInicio = `${inicioStr} 00:00:00`;
   const fbTermino = `${terminoStr} 23:59:59`;
 
   // 1. Limpa campanhas e itens anteriores conforme solicitado ("descartar as outras informações")
