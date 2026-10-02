@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e21637a",
-  "commitMessage": "fix(precos): restaurar precos de venda e promocao do Digifarma para o estado de 25/09/2026",
-  "buildTime": "02/10/2026, 17:24:50"
+  "commitHash": "1a61c3d",
+  "commitMessage": "feat(liquidacao): campo de inicio da promocao na modal, gravacao de preco original e reversao automatica de validade",
+  "buildTime": "02/10/2026, 18:16:12"
 }

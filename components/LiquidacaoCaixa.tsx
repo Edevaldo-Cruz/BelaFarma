@@ -258,8 +258,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
     const precoCusto = Number(produtoSelecionadoParaInclusao.preco_custo) || 0;
     if (precoCusto > 0 && precoVal < precoCusto) {
-      addToast(`Bloqueado: Preço promocional não pode ficar abaixo do custo (${fmt(precoCusto)}).`, 'warning');
-      return;
+      const confirmAbaixoCusto = window.confirm(
+        `Atenção: O preço promocional (${fmt(precoVal)}) é inferior ao custo de cadastro (${fmt(precoCusto)}).\nDeseja incluir mesmo assim com margem negativa?`
+      );
+      if (!confirmAbaixoCusto) return;
     }
 
     setSalvandoAvulso(true);
@@ -281,19 +283,32 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       if (res.ok && data.success && data.item) {
         addToast(`🔥 ${data.message}`, 'success');
         
-        // Atualiza estado local imediatamente: se já existia, atualiza; senão, adiciona no topo
+        // Garante coerência de tipos numéricos no estado local
+        const itemFormatado = {
+          ...data.item,
+          saldo_estoque: Number(data.item.saldo_estoque) || 0,
+          preco_custo: Number(data.item.preco_custo) || 0,
+          preco_normal: Number(data.item.preco_normal) || 0,
+          preco_promocional: Number(data.item.preco_promocional) || precoVal,
+          desconto_percentual: Number(data.item.desconto_percentual) || avulsoDescontoPct,
+          dias_parado: Number(data.item.dias_parado) || 0,
+          selecionado: true
+        };
+
         setItensAtivos(prev => {
-          const index = prev.findIndex(i => Number(i.produto_id) === Number(data.item.produto_id));
+          const index = prev.findIndex(i => Number(i.produto_id) === Number(itemFormatado.produto_id));
           if (index >= 0) {
             const copia = [...prev];
-            copia[index] = { ...copia[index], ...data.item, selecionado: true };
+            copia[index] = { ...copia[index], ...itemFormatado };
             return copia;
           } else {
-            return [{ ...data.item, selecionado: true }, ...prev];
+            return [itemFormatado, ...prev];
           }
         });
 
-        fetchResumo();
+        await fetchResumo();
+        await fetchItensAtivos();
+        setPaginaAtual(1);
 
         // Reseta busca para permitir incluir outros produtos sem fechar
         setProdutoSelecionadoParaInclusao(null);
@@ -1337,32 +1352,38 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   };
 
-  // Simulação de Totais em Tempo Real baseada nos parâmetros atuais (faixas 1, 2 e 3)
+  // Simulação de Totais em Tempo Real baseada nos parâmetros atuais e preços promocionais cadastrados
   const simulacaoTotais = useMemo(() => {
     let totalBrutoOriginal = 0;
     let totalCustoEstoque = 0;
     let totalVendaProjetada = 0;
+    let totalVendaSimulada = 0;
     let totalUnidades = 0;
     let itensTravadosNoCusto = 0;
 
     for (const item of itensAtivos) {
-      const qtd = Math.max(1, Number(item.saldo_estoque) || 1);
+      const qtd = Number(item.saldo_estoque) || 0;
       const normal = Number(item.preco_normal) || 0;
       const custo = Number(item.preco_custo) || 0;
+      const promo = Number(item.preco_promocional) || 0;
       const dias = Number(item.dias_parado) || 45;
 
       const pct = dias > 180 ? faixa3Pct : (dias >= 91 ? faixa2Pct : faixa1Pct);
       const precoCalculado = Math.round(normal * (1 - pct / 100) * 100) / 100;
-      const precoFinal = Math.max(custo, precoCalculado);
+      const precoFaixa = Math.max(custo, precoCalculado);
 
       if (precoCalculado < custo) {
         itensTravadosNoCusto++;
       }
 
+      // Preço Real: se o item já possui preço promocional cadastrado, respeita ele; senão usa a sugestão da faixa
+      const precoReal = promo > 0 ? promo : precoFaixa;
+
       totalUnidades += qtd;
       totalBrutoOriginal += normal * qtd;
       totalCustoEstoque += custo * qtd;
-      totalVendaProjetada += precoFinal * qtd;
+      totalVendaProjetada += precoReal * qtd;
+      totalVendaSimulada += precoFaixa * qtd;
     }
 
     const totalDescontoConcedido = Math.max(0, totalBrutoOriginal - totalVendaProjetada);
@@ -1372,6 +1393,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
     return {
       totalVendaProjetada,
+      totalVendaSimulada,
       totalCustoEstoque,
       totalBrutoOriginal,
       totalDescontoConcedido,
@@ -1806,13 +1828,13 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
             </div>
           </div>
 
-          {/* Card 4: Projeção de Total se Vendido com Parâmetros Atuais */}
+          {/* Card 4: Total se Vendido com Preços da Campanha */}
           <div className="p-5 rounded-3xl border-2 border-emerald-400 dark:border-emerald-600 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-emerald-100/60 dark:from-slate-900 dark:via-emerald-950/25 dark:to-slate-900 flex flex-col justify-between space-y-4 shadow-sm">
             <div>
               <div className="flex items-center justify-between gap-2">
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-200 dark:bg-emerald-900/60 text-emerald-950 dark:text-emerald-200 flex items-center gap-1">
                   <Sparkles size={11} className="text-emerald-700 dark:text-emerald-300" />
-                  Simulação em Tempo Real
+                  Preços da Campanha
                 </span>
                 <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
                   {simulacaoTotais.totalUnidades} un no total
@@ -1823,7 +1845,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 <span>💎</span> Total se Vendido (Resgate)
               </h4>
               <p className="text-xs text-emerald-800/90 dark:text-emerald-300/80 mt-1 leading-relaxed">
-                Valor estimado no caixa se todos os {itensAtivos.length} produtos forem vendidos com os percentuais atuais.
+                Valor real estimado no caixa se todos os {itensAtivos.length} produtos forem vendidos pelos preços da liquidação.
               </p>
               
               <div className="mt-3 p-3 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-emerald-200 dark:border-emerald-800/60 shadow-xs">
@@ -1841,15 +1863,21 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
             <div className="space-y-2 pt-2 border-t border-emerald-200/80 dark:border-emerald-800/60 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600 dark:text-slate-400 font-semibold">Custo Recuperado:</span>
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">Custo Total:</span>
                 <span className="font-black text-blue-600 dark:text-blue-400">{fmt(simulacaoTotais.totalCustoEstoque)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-600 dark:text-slate-400 font-semibold">Margem Bruta Estimada:</span>
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">Margem Bruta Real:</span>
                 <span className="font-black text-emerald-700 dark:text-emerald-400">
                   +{fmt(simulacaoTotais.margemLucroReais)} ({simulacaoTotais.percentualMargem.toFixed(0)}%)
                 </span>
               </div>
+              {Math.abs(simulacaoTotais.totalVendaSimulada - simulacaoTotais.totalVendaProjetada) > 0.05 && (
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-emerald-200/50">
+                  <span>Simulação pelas Faixas:</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{fmt(simulacaoTotais.totalVendaSimulada)}</span>
+                </div>
+              )}
               {simulacaoTotais.itensTravadosNoCusto > 0 && (
                 <div className="text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-100/80 dark:bg-blue-950/70 px-2 py-1 rounded-lg flex items-center gap-1 border border-blue-200 dark:border-blue-800">
                   <span>🔒</span> {simulacaoTotais.itensTravadosNoCusto} produtos no piso de Custo

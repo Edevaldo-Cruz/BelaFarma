@@ -780,7 +780,7 @@ module.exports = function (db) {
         LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
         WHERE lci.campanha_id = ? AND lci.status = 'ativo'
         GROUP BY lci.id
-        ORDER BY lci.dias_parado DESC, (lci.saldo_estoque * lci.preco_custo) DESC
+        ORDER BY lci.rowid DESC
       `).all(campanha.id);
 
       const itens = rows.map(item => {
@@ -1043,12 +1043,11 @@ module.exports = function (db) {
       if (isNaN(prPromo) || prPromo <= 0) {
         const descPct = parseFloat(desconto_percentual) || 30;
         prPromo = Math.round(precoNormalRef * (1 - descPct / 100) * 100) / 100;
-      }
-
-      // REGRA DE BLINDAGEM: O preço promocional NUNCA pode ficar abaixo do custo
-      const pisoCusto = precoCusto > 0 ? precoCusto : 0.10;
-      if (prPromo < pisoCusto) {
-        prPromo = pisoCusto;
+        // REGRA DE BLINDAGEM: Sugestões automáticas nunca ficam abaixo do custo
+        const pisoCusto = precoCusto > 0 ? precoCusto : 0.10;
+        if (prPromo < pisoCusto) {
+          prPromo = pisoCusto;
+        }
       }
       prPromo = roundUpToAcceptedCents(prPromo);
 
