@@ -3060,20 +3060,27 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                           <span>{resultadosBuscaEstoque.length} produtos encontrados:</span>
                           <span>Clique para selecionar</span>
                         </div>
-                        {resultadosBuscaEstoque.map((prod) => (
+                        {resultadosBuscaEstoque.map((prod) => {
+                          const itemJaPresente = itensAtivos.find(i => Number(i.produto_id) === Number(prod.produto_id));
+                          return (
                           <div
                             key={prod.produto_id}
                             onClick={() => handleSelecionarProdutoEstoque(prod)}
                             className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-orange-400 hover:bg-orange-50/40 dark:hover:bg-orange-950/20 transition-all flex items-center justify-between gap-3 cursor-pointer group"
                           >
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-mono font-black text-slate-500 dark:text-slate-400">
                                   #{prod.produto_id}
                                 </span>
                                 <h4 className="text-xs font-black text-slate-900 dark:text-white truncate group-hover:text-orange-600 transition-colors">
                                   {prod.descricao}
                                 </h4>
+                                {itemJaPresente && (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                    ✓ Já na Liquidação ({fmt(itemJaPresente.preco_promocional)})
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
                                 {prod.apresentacao && <span className="truncate">{prod.apresentacao}</span>}
@@ -3101,13 +3108,16 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
                               <button
                                 type="button"
-                                className="px-3 py-1.5 rounded-xl text-xs font-black bg-orange-500 hover:bg-orange-600 text-white shadow-xs group-hover:scale-105 transition-all cursor-pointer"
+                                className={`px-3 py-1.5 rounded-xl text-xs font-black text-white shadow-xs group-hover:scale-105 transition-all cursor-pointer ${
+                                  itemJaPresente ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-orange-500 hover:bg-orange-600'
+                                }`}
                               >
-                                Selecionar
+                                {itemJaPresente ? 'Editar Preço' : 'Selecionar'}
                               </button>
                             </div>
                           </div>
-                        ))}
+                        );
+                        })}
                       </div>
                     ) : (
                       <div className="py-12 text-center text-slate-400 space-y-2">
@@ -3178,6 +3188,19 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                         </span>
                       </div>
                     </div>
+
+                    {(() => {
+                      const itemJaExiste = itensAtivos.find(i => Number(i.produto_id) === Number(produtoSelecionadoParaInclusao.produto_id));
+                      if (itemJaExiste) {
+                        return (
+                          <div className="p-2.5 rounded-xl bg-amber-100/90 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-200 text-xs font-bold flex items-center gap-2">
+                            <span className="text-base">ℹ️</span>
+                            <span>Este produto <strong>já faz parte dos 48 produtos da liquidação</strong> com preço promocional atual de <strong>{fmt(itemJaExiste.preco_promocional)}</strong>. Ao confirmar, você estará <strong>atualizando</strong> o valor dele.</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
 
                   {/* Configuração da Promoção */}
@@ -3348,17 +3371,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 Cancelar
               </button>
 
-              {produtoSelecionadoParaInclusao && (
-                <button
-                  type="button"
-                  onClick={handleSalvarProdutoAvulso}
-                  disabled={salvandoAvulso}
-                  className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white shadow-lg shadow-orange-500/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {salvandoAvulso ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                  <span>{salvandoAvulso ? 'Incluindo...' : 'Adicionar à Liquidação'}</span>
-                </button>
-              )}
+              {produtoSelecionadoParaInclusao && (() => {
+                const itemJaExiste = itensAtivos.find(i => Number(i.produto_id) === Number(produtoSelecionadoParaInclusao.produto_id));
+                return (
+                  <button
+                    type="button"
+                    onClick={handleSalvarProdutoAvulso}
+                    disabled={salvandoAvulso}
+                    className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white shadow-lg shadow-orange-500/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {salvandoAvulso ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check size={16} strokeWidth={3} />}
+                    <span>{salvandoAvulso ? 'Salvando...' : (itemJaExiste ? 'Salvar Novo Preço' : 'Adicionar à Liquidação')}</span>
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

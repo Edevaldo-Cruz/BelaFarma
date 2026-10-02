@@ -1163,9 +1163,13 @@ module.exports = function (db) {
         selecionado: true
       };
 
+      const isUpdate = !!existing;
       res.json({
         success: true,
-        message: `Produto "${descricao}" incluído na liquidação por R$ ${prPromo.toFixed(2)} (${descPctReal}% OFF)!`,
+        isUpdate,
+        message: isUpdate 
+          ? `Produto "${descricao}" já estava na liquidação e teve seu preço atualizado para R$ ${prPromo.toFixed(2)} (${descPctReal}% OFF)!`
+          : `Produto "${descricao}" incluído na liquidação por R$ ${prPromo.toFixed(2)} (${descPctReal}% OFF)!`,
         item: itemRetorno,
         sincronizado_digifarma: fbOk
       });

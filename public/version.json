@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "1a61c3d",
-  "commitMessage": "feat(liquidacao): campo de inicio da promocao na modal, gravacao de preco original e reversao automatica de validade",
-  "buildTime": "02/10/2026, 18:16:12"
+  "commitHash": "52e59d1",
+  "commitMessage": "fix(liquidacao): sincronizar card de resgate com precos promocionais reais e inclusao avulsa imediata",
+  "buildTime": "02/10/2026, 18:50:34"
 }
