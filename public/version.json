@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0cc2e6f",
-  "commitMessage": "feat(liquidacao): botao de checagem por produto para aplicacao promocional e geracao de etiquetas",
-  "buildTime": "01/10/2026, 18:35:18"
+  "commitHash": "2f8901f",
+  "commitMessage": "feat(liquidacao): inclusao livre de produtos do estoque com pesquisa e desconto",
+  "buildTime": "02/10/2026, 12:46:26"
 }

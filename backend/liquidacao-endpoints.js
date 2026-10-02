@@ -857,9 +857,9 @@ module.exports = function (db) {
     }
   });
 
-  // 5.03 GET /api/liquidacao/pesquisar-estoque
+  // 5.03 GET /api/liquidacao/pesquisar-estoque (e alias /buscar-produto)
   // Pesquisa qualquer produto livremente no estoque/catálogo do Digifarma (compras_estoque_cache)
-  router.get('/pesquisar-estoque', (req, res) => {
+  const handlePesquisarEstoque = async (req, res) => {
     try {
       const q = req.query.q ? String(req.query.q).trim() : '';
       if (!q || q.length < 2) {
@@ -881,6 +881,33 @@ module.exports = function (db) {
           ORDER BY saldo DESC, descricao ASC
           LIMIT 25
         `).all(num, q, `${q}%`);
+
+        if (rows.length === 0) {
+          try {
+            const fbRows = await queryDigifarma(
+              `SELECT FIRST 1 
+                 PRODUTO_ID, PRODUTO as DESCRICAO, APRESENTACAO, COD_BARRAS as EAN, CATEGORIA_ID, 
+                 PROD_SALDO as SALDO, PROD_PRVENDA as PRECO_NORMAL, PROD_PRPROMOCAO as PRECO_PROMOCIONAL, 
+                 COALESCE(NULLIF(PROD_CMV, 0), NULLIF(PROD_PRCOMPRA, 0), 0) as PRECO_CUSTO 
+               FROM PRODUTOS WHERE PRODUTO_ID = ?`,
+              [num],
+              3000
+            );
+            if (fbRows && fbRows.length > 0) {
+              rows = fbRows.map(r => ({
+                produto_id: r.PRODUTO_ID,
+                descricao: r.DESCRICAO,
+                apresentacao: r.APRESENTACAO,
+                ean: r.EAN,
+                categoria_id: r.CATEGORIA_ID,
+                saldo: r.SALDO,
+                preco_normal: r.PRECO_NORMAL,
+                preco_promocional: r.PRECO_PROMOCIONAL,
+                preco_custo: r.PRECO_CUSTO
+              }));
+            }
+          } catch (e) {}
+        }
       } else {
         const words = q.split(/\s+/).filter(w => w.length > 0);
         const whereClauses = words.map(() => `descricao LIKE ?`);
@@ -923,11 +950,14 @@ module.exports = function (db) {
       console.error('[Liquidação API] Erro em /pesquisar-estoque:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
 
-  // 5.04 POST /api/liquidacao/incluir-avulso
+  router.get('/pesquisar-estoque', handlePesquisarEstoque);
+  router.get('/buscar-produto', handlePesquisarEstoque);
+
+  // 5.04 POST /api/liquidacao/incluir-avulso (e alias /inserir-manual)
   // Inclui livremente qualquer produto do estoque na campanha com seleção e blindagem de custo
-  router.post('/incluir-avulso', async (req, res) => {
+  const handleIncluirAvulso = async (req, res) => {
     try {
       const { 
         produto_id, 
@@ -1022,11 +1052,11 @@ module.exports = function (db) {
         : 0;
 
       const hoje = new Date().toISOString().split('T')[0];
-      const dtFim = data_termino || getUltimoDiaDesteMes();
+      const dtFim = data_termino || '2026-10-31';
 
-      // Sincroniza com o Digifarma se solicitado
+      // Sincroniza com o Digifarma se solicitado (padrão true se não especificado)
       let fbOk = false;
-      if (sincronizar_digifarma) {
+      if (sincronizar_digifarma !== false) {
         const fbInicio = formatarDataFirebird(hoje, false);
         const fbTermino = formatarDataFirebird(dtFim, true);
         try {
@@ -1133,7 +1163,10 @@ module.exports = function (db) {
       console.error('[Liquidação API] Erro em /incluir-avulso:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  router.post('/incluir-avulso', handleIncluirAvulso);
+  router.post('/inserir-manual', handleIncluirAvulso);
 
   // 5.1 POST /api/liquidacao/gravar-lote
   // Grava em lote as ofertas avaliadas pela Nayane diretamente no Digifarma Firebird

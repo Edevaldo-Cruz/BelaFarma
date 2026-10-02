@@ -177,7 +177,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [produtoSelecionadoParaInclusao, setProdutoSelecionadoParaInclusao] = useState<any | null>(null);
   const [avulsoDescontoPct, setAvulsoDescontoPct] = useState<number>(30);
   const [avulsoPrecoPromo, setAvulsoPrecoPromo] = useState<string>('');
-  const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>(getFimDesteMes());
+  const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>('2026-10-31');
   const [avulsoSincronizarDigifarma, setAvulsoSincronizarDigifarma] = useState<boolean>(true);
   const [salvandoAvulso, setSalvandoAvulso] = useState<boolean>(false);
 
@@ -219,7 +219,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
     setAvulsoDescontoPct(descReal);
     setAvulsoPrecoPromo(precoFinal.toFixed(2));
-    setAvulsoDataTermino(getFimDesteMes());
+    setAvulsoDataTermino(resumo?.campanha?.dataFim || '2026-10-31');
   };
 
   const handleMudarDescontoAvulso = (novoPct: number) => {
@@ -1401,6 +1401,19 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
         <div className="relative z-10 flex flex-wrap md:flex-col gap-2 shrink-0">
           <button
+            onClick={() => {
+              setShowModalIncluirAvulso(true);
+              setTermoBuscaEstoque('');
+              setResultadosBuscaEstoque([]);
+              setProdutoSelecionadoParaInclusao(null);
+            }}
+            className="px-4 py-2.5 bg-white text-orange-600 hover:bg-orange-50 active:scale-95 transition-all rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-black/10 cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4 text-orange-600" />
+            Inserir Manualmente
+          </button>
+
+          <button
             onClick={() => { fetchResumo(); fetchItensAtivos(); }}
             disabled={loadingResumo || loadingItens}
             className="px-4 py-2.5 bg-white/10 hover:bg-white/20 active:scale-95 transition-all rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-white/20 backdrop-blur-md cursor-pointer"
@@ -1925,7 +1938,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               title="Pesquisar livremente qualquer produto do estoque do Digifarma e incluir com desconto na liquidação"
             >
               <PlusCircle size={15} />
-              <span>Incluir do Estoque</span>
+              <span>Inserir Produto Manualmente</span>
             </button>
 
             {itensAtivos.length > 0 && (
@@ -2888,10 +2901,10 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900 dark:text-white">
-                    Incluir Produto do Estoque na Liquidação
+                    Inserir Produto na Liquidação (Manual)
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Pesquise livremente qualquer produto do catálogo para definir o desconto e incluir na queima.
+                    Digite o código interno do Digifarma ou nome do produto para definir o preço promocional (validade até 31/10/2026).
                   </p>
                 </div>
               </div>
