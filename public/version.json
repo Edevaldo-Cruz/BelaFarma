@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3a14d5c",
-  "commitMessage": "fix(liquidacao): ajustar data de inicio da promocao para 05/10/2026 no Digifarma e sistema",
-  "buildTime": "02/10/2026, 14:03:49"
+  "commitHash": "e21637a",
+  "commitMessage": "fix(precos): restaurar precos de venda e promocao do Digifarma para o estado de 25/09/2026",
+  "buildTime": "02/10/2026, 17:24:50"
 }

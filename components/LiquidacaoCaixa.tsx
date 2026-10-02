@@ -3243,34 +3243,48 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
                     {/* Datas da Promoção: Início e Término */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                      <div>
-                        <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
-                          Início da Promoção:
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                        <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1.5 flex items-center gap-1.5">
+                          <Calendar size={13} className="text-orange-600 dark:text-orange-400" />
+                          <span>Início da Promoção:</span>
                         </label>
                         <input
                           type="date"
                           value={avulsoDataInicio}
                           onChange={(e) => setAvulsoDataInicio(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500"
+                          className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500 shadow-inner"
                         />
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">
-                          Padrão: 05/10/2026
+                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mt-1 block">
+                          Padrão da Campanha: <strong>05/10/2026</strong>
                         </span>
                       </div>
 
-                      <div>
-                        <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
-                          Válido até (Término):
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                        <label className="block text-xs font-black text-slate-800 dark:text-slate-200 mb-1.5 flex items-center gap-1.5">
+                          <Clock size={13} className="text-orange-600 dark:text-orange-400" />
+                          <span>Válido até (Término):</span>
                         </label>
                         <input
                           type="date"
                           value={avulsoDataTermino}
                           onChange={(e) => setAvulsoDataTermino(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500"
+                          className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-orange-500 shadow-inner"
                         />
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">
-                          Padrão: 31/10/2026
+                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mt-1 block">
+                          Padrão: Último dia do mês (<strong>31/10/2026</strong>)
                         </span>
+                      </div>
+                    </div>
+
+                    {/* Card de Blindagem de Vigência e Preço Antigo */}
+                    <div className="p-3 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 text-xs flex items-start gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5 text-blue-900 dark:text-blue-200">
+                        <span className="font-black">🔒 Blindagem de Vigência & Preço Original Salvo:</span>
+                        <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-snug">
+                          O preço atual deste produto (<strong>{fmt(Number(produtoSelecionadoParaInclusao.preco_normal) || Number(produtoSelecionadoParaInclusao.preco_tabela) || 0)}</strong>) fica salvo permanentemente no banco. 
+                          Se a data de início for agendada para <strong>{avulsoDataInicio ? avulsoDataInicio.split('-').reverse().join('/') : '05/10/2026'}</strong>, o caixa do Digifarma continuará cobrando o preço normal até a data de início. Ao término da validade, o preço antigo é restaurado automaticamente.
+                        </p>
                       </div>
                     </div>
 

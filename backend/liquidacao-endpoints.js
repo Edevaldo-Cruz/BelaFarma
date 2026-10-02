@@ -66,6 +66,7 @@ module.exports = function (db) {
   const router = express.Router();
 
   // Migrações de colunas para liquidação
+  try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN preco_venda_original REAL DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN preco_promocao_original REAL DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN inicio_promocao_original TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN termino_promocao_original TEXT'); } catch (e) {}
@@ -1098,11 +1099,17 @@ module.exports = function (db) {
               data_inicio = ?,
               data_termino = ?,
               sincronizado_digifarma = ?,
+              preco_venda_original = COALESCE(NULLIF(preco_venda_original, 0), ?),
+              preco_promocao_original = COALESCE(NULLIF(preco_promocao_original, 0), ?),
+              inicio_promocao_original = COALESCE(inicio_promocao_original, ?),
+              termino_promocao_original = COALESCE(termino_promocao_original, ?),
               selecionado = 1
           WHERE id = ?
         `).run(
           prPromo, descPctReal, precoCusto, precoNormalRef, saldo,
-          dtInicio, dtFim, fbOk ? 1 : 0, itemId
+          dtInicio, dtFim, fbOk ? 1 : 0,
+          prVendaTabela, prPromoAtual, inicioPromoOriginal, terminoPromoOriginal,
+          itemId
         );
       } else {
         db.prepare(`
@@ -1110,20 +1117,20 @@ module.exports = function (db) {
             id, campanha_id, produto_id, descricao, apresentacao, ean, categoria,
             saldo_estoque, preco_custo, preco_normal, preco_promocional, desconto_percentual,
             data_inicio, data_termino, status, sincronizado_digifarma, aprovado_por,
-            preco_promocao_original, inicio_promocao_original, termino_promocao_original,
+            preco_venda_original, preco_promocao_original, inicio_promocao_original, termino_promocao_original,
             dias_parado, selecionado
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, 'ativo', ?, 'Manual (Avulso)',
-            ?, ?, ?,
+            ?, ?, ?, ?,
             0, 1
           )
         `).run(
           itemId, campanha.id, pId, descricao, apresentacao, codBarras, String(cacheProd.categoria_id || 'Geral'),
           saldo, precoCusto, precoNormalRef, prPromo, descPctReal,
           dtInicio, dtFim, fbOk ? 1 : 0,
-          prPromoAtual, inicioPromoOriginal, terminoPromoOriginal
+          prVendaTabela, prPromoAtual, inicioPromoOriginal, terminoPromoOriginal
         );
       }
 
@@ -1333,6 +1340,79 @@ module.exports = function (db) {
       res.json({ success: true, message: 'Produto revertido para o preço original pré-liquidação no Digifarma!', firebirdSincronizado: fbOk });
     } catch (err) {
       console.error('[Liquidação API] Erro em /reverter:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6.05 POST /api/liquidacao/verificar-restaurar-expirados
+  // Varre todas as ofertas cuja data_termino já expirou (< hoje) e restaura automaticamente
+  // o preço original (tanto PROD_PRPROMOCAO original quanto datas) no Digifarma e no SQLite!
+  router.post('/verificar-restaurar-expirados', async (req, res) => {
+    try {
+      const hoje = new Date().toISOString().split('T')[0];
+      const expirados = db.prepare(`
+        SELECT * FROM liquidacao_campanhas_itens 
+        WHERE status = 'ativo' AND data_termino IS NOT NULL AND data_termino < ?
+      `).all(hoje);
+
+      console.log(`[Liquidação API] 🔍 Checando promoções expiradas (< ${hoje}). Encontradas: ${expirados.length}`);
+
+      const restaurados = [];
+      for (const item of expirados) {
+        const pId = Number(item.produto_id);
+        const promoOrig = Number(item.preco_promocao_original) || 0;
+        const vendaOrig = Number(item.preco_venda_original) || Number(item.preco_normal) || 0;
+        const dtIniOrig = item.inicio_promocao_original ? formatarDataFirebird(item.inicio_promocao_original, false) : null;
+        const dtFimOrig = item.termino_promocao_original ? formatarDataFirebird(item.termino_promocao_original, true) : null;
+
+        let fbOk = false;
+        try {
+          await queryDigifarma(
+            `UPDATE PRODUTOS 
+             SET PROD_PRPROMOCAO = ?, 
+                 INICIO_PROMOCAO = ?, 
+                 TERMINO_PROMOCAO = ? 
+             WHERE PRODUTO_ID = ?`,
+            [promoOrig, dtIniOrig, dtFimOrig, pId]
+          );
+          fbOk = true;
+        } catch (fbErr) {
+          console.warn(`[Liquidação API] Falha ao reverter Firebird item expirado ${pId}:`, fbErr.message);
+        }
+
+        db.prepare(`
+          UPDATE liquidacao_campanhas_itens 
+          SET status = 'expirado_restaurado',
+              sincronizado_digifarma = 0
+          WHERE id = ?
+        `).run(item.id);
+
+        try {
+          db.prepare(`
+            UPDATE compras_estoque_cache 
+            SET preco_promocional = ?,
+                preco_venda_vigente = ?
+            WHERE produto_id = ?
+          `).run(promoOrig, promoOrig > 0 ? promoOrig : vendaOrig, pId);
+        } catch (e) {}
+
+        restaurados.push({
+          produto_id: pId,
+          descricao: item.descricao,
+          data_termino: item.data_termino,
+          restaurado_para: promoOrig > 0 ? `R$ ${promoOrig.toFixed(2)} (Promoção Prévia)` : `R$ ${vendaOrig.toFixed(2)} (Preço Tabela)`,
+          firebirdOk: fbOk
+        });
+      }
+
+      res.json({
+        success: true,
+        message: `${restaurados.length} promoções expiradas verificadas e restauradas com sucesso para o preço antigo!`,
+        total_expirados: expirados.length,
+        restaurados
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /verificar-restaurar-expirados:', err);
       res.status(500).json({ error: err.message });
     }
   });
