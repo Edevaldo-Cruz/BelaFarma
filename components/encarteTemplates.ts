@@ -54,18 +54,19 @@ export interface EstiloArte {
   exibirValidade: boolean;
   tituloCampanhaTopo: string;
   tituloPrincipal: string;
+  imagemFundoCustom?: string;
 }
 
 export const ESTILO_PADRAO: EstiloArte = {
-  temaId: 'aniversario',
+  temaId: 'bela_farma_sul',
   corFundo: '#ffffff',
-  corPrimaria: '#d6192b',
-  corSecundaria: '#1f4fa8',
-  corDestaque: '#ffc20e',
+  corPrimaria: '#c8102e',
+  corSecundaria: '#0b3b82',
+  corDestaque: '#c8102e',
   corPrecoDe: '#64748b',
   corPrecoPor: '#ffffff',
-  corTexto: '#0f172a',
-  fonteTitulo: "Impact, 'Arial Black', sans-serif",
+  corTexto: '#0b3b82',
+  fonteTitulo: "'Montserrat', 'Arial Black', sans-serif",
   fonteCorpo: "'Segoe UI', Arial, sans-serif",
   tamanhoTituloMultiplicador: 1,
   tamanhoPrecoMultiplicador: 1,
@@ -73,16 +74,37 @@ export const ESTILO_PADRAO: EstiloArte = {
   offsetYProduto: 0,
   exibirSombraProduto: true,
   usarRecorteTransparente: true,
-  exibirLogo: true,
-  exibirFarmaceutica: true,
+  exibirLogo: false,
+  exibirFarmaceutica: false,
   exibirSeloDesconto: true,
-  exibirRodape: true,
+  exibirRodape: false,
   exibirValidade: true,
-  tituloCampanhaTopo: 'FESTIVAL DE ANIVERSÁRIO • 1 ANO BELA FARMA SUL',
-  tituloPrincipal: 'MEGA LIQUIDAÇÃO'
+  tituloCampanhaTopo: 'BELA FARMA SUL • CUIDAR DE VOCÊ',
+  tituloPrincipal: 'OFERTA ESPECIAL',
+  imagemFundoCustom: '/images/tema-bela-farma-sul.png'
 };
 
 export const TEMAS_PRONTOS: Record<string, { nome: string; descricao: string; estilo: Partial<EstiloArte> }> = {
+  bela_farma_sul: {
+    nome: '🏥 BelaFarma Sul (Papel Timbrado Oficial)',
+    descricao: 'Template com logo oficial BelaFarma Sul, ondas azul/vermelha e selo Cuidar/Saúde/Bem-Estar',
+    estilo: {
+      corFundo: '#ffffff',
+      corPrimaria: '#c8102e',
+      corSecundaria: '#0b3b82',
+      corDestaque: '#c8102e',
+      corPrecoDe: '#64748b',
+      corPrecoPor: '#ffffff',
+      corTexto: '#0b3b82',
+      fonteTitulo: "'Montserrat', 'Arial Black', sans-serif",
+      tituloCampanhaTopo: 'BELA FARMA SUL • CUIDAR DE VOCÊ',
+      tituloPrincipal: 'OFERTA ESPECIAL',
+      exibirLogo: false,
+      exibirRodape: false,
+      exibirFarmaceutica: false,
+      imagemFundoCustom: '/images/tema-bela-farma-sul.png'
+    }
+  },
   aniversario: {
     nome: '🎂 Aniversário BelaFarma (Oficial)',
     descricao: 'Vermelho Farma, Azul Profissional e Dourado',
@@ -96,7 +118,11 @@ export const TEMAS_PRONTOS: Record<string, { nome: string; descricao: string; es
       corTexto: '#0f172a',
       fonteTitulo: "Impact, 'Arial Black', sans-serif",
       tituloCampanhaTopo: '🎂 1º ANIVERSÁRIO BELA FARMA SUL',
-      tituloPrincipal: 'MEGA LIQUIDAÇÃO'
+      tituloPrincipal: 'MEGA LIQUIDAÇÃO',
+      exibirLogo: true,
+      exibirRodape: true,
+      exibirFarmaceutica: true,
+      imagemFundoCustom: ''
     }
   },
   liquidacao: {
@@ -348,6 +374,7 @@ export async function prepararImagensArte(itens: ItemArte[]): Promise<void> {
     await Promise.all(urls.slice(i, i + 6).map(u => prepararImagem(u)));
   }
   await prepararImagem(IMG_FIGURA);
+  await prepararImagem('/images/tema-bela-farma-sul.png');
 }
 
 // ─── AUXILIARES DE FORMATAÇÃO E CÁLCULO ─────────────────────────────────────────
@@ -489,26 +516,40 @@ export function htmlArteUnitaria(
   const { w: W, h: H } = DIMENSOES_UNITARIO[formato];
   const story = formato === 'story';
   const { promo, normal, pct, eco } = calc(item);
+  const temFundoCustom = !!e.imagemFundoCustom;
 
-  const headerH = story ? 285 : 195;
-  const footerH = e.exibirRodape ? (story ? 170 : 128) : 20;
-  const bodyTop = headerH + (story ? 22 : 18);
-  const bodyH = H - bodyTop - footerH + (story ? 6 : 4);
+  const bgCustomHtml = temFundoCustom
+    ? `<img src="${esc(e.imagemFundoCustom)}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;pointer-events:none;z-index:0;" />`
+    : '';
+
+  const headerH = temFundoCustom
+    ? (story ? 175 : 125)
+    : (story ? 285 : 195);
+  const footerH = temFundoCustom
+    ? (story ? 180 : 130)
+    : (e.exibirRodape ? (story ? 170 : 128) : 20);
+  const bodyTop = headerH + (story ? 18 : 12);
+  const bodyH = H - bodyTop - footerH;
 
   const fsTopo = Math.round((story ? 30 : 22) * e.tamanhoTituloMultiplicador);
   const fsPrincipal = Math.round((story ? 70 : 52) * e.tamanhoTituloMultiplicador);
 
-  const header = story
-    ? `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
-       ${e.exibirLogo ? placaLogo(168, 84, 24, 20) : ''}
-       <div style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-       <div style="position:absolute;left:30px;top:118px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
-       ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 38, 11.5, 36, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`
-    : `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
-       ${e.exibirLogo ? placaLogo(130, 65, 22, 14) : ''}
-       <div style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-       <div style="position:absolute;left:28px;top:84px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
-       ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`;
+  const header = temFundoCustom
+    ? `<div style="position:absolute;left:0;top:${story ? 135 : 92}px;width:${W}px;text-align:center;z-index:2;">
+        ${e.exibirValidade ? faixaValidade(periodo, W, 0, story ? 11 : 9.5, story ? 32 : 26, e.corDestaque, '#ffffff', e.fonteCorpo) : ''}
+       </div>`
+    : (story
+        ? `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
+           ${e.exibirLogo ? placaLogo(168, 84, 24, 20) : ''}
+           <div style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+           <div style="position:absolute;left:30px;top:118px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
+           ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 38, 11.5, 36, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`
+        : `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
+           ${e.exibirLogo ? placaLogo(130, 65, 22, 14) : ''}
+           <div style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+           <div style="position:absolute;left:28px;top:84px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
+           ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`
+      );
 
   const nomeBloco = `
     <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${story ? 25 : 20}px;line-height:1.15;max-height:${story ? 58 : 46}px;overflow:hidden;">${esc(item.descricao)}</div>
@@ -516,13 +557,13 @@ export function htmlArteUnitaria(
 
   const tamPreco = Math.round((story ? 86 : 56) * e.tamanhoPrecoMultiplicador);
   const badgePreco = `
-    <div style="position:relative;width:${story ? 430 : 270}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #0b1f47 100%);border-radius:${story ? 26 : 20}px;padding:${story ? '12px 20px 22px' : '9px 14px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};">
+    <div style="position:relative;width:${story ? 430 : 270}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 26 : 20}px;padding:${story ? '12px 20px 22px' : '9px 14px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};">
       ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 17 : 13}px;text-decoration:line-through;">DE ${brl(normal)}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;">
         <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 22 : 16}px;">POR</span>
         ${precoHtml(promo, tamPreco, e.corPrecoPor)}
       </div>
-      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-15px;margin-left:${story ? -110 : -80}px;width:${story ? 220 : 160}px;height:${story ? 30 : 24}px;background:${e.corDestaque};color:#0b1f47;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 14 : 11}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
+      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-15px;margin-left:${story ? -110 : -80}px;width:${story ? 220 : 160}px;height:${story ? 30 : 24}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 14 : 11}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
     </div>`;
 
   const stageW = story ? 300 : 232;
@@ -538,12 +579,12 @@ export function htmlArteUnitaria(
     </div>`;
 
   const corpo = story
-    ? `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:0 28px 14px;box-sizing:border-box;">
+    ? `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:0 28px 14px;box-sizing:border-box;z-index:2;">
          ${palco}
          <div style="width:100%;">${nomeBloco}</div>
          ${badgePreco}
        </div>`
-    : `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:26px;padding:0 30px 4px 24px;box-sizing:border-box;">
+    : `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:26px;padding:0 30px 4px 24px;box-sizing:border-box;z-index:2;">
          ${palco}
          <div style="display:flex;flex-direction:column;align-items:flex-start;gap:14px;width:270px;">
            <div style="width:100%;">${nomeBloco}</div>
@@ -553,11 +594,16 @@ export function htmlArteUnitaria(
 
   return `
     <div style="position:relative;width:${W}px;height:${H}px;background:${e.corFundo};overflow:hidden;font-family:${e.fonteCorpo};box-sizing:border-box;">
-      <div style="position:absolute;right:-90px;top:${headerH}px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle, rgba(31,79,168,0.08) 0%, rgba(31,79,168,0) 70%);"></div>
-      <div style="position:absolute;left:-80px;top:${H - footerH - 300}px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle, rgba(214,25,43,0.07) 0%, rgba(214,25,43,0) 70%);"></div>
-      ${header}
-      ${corpo}
-      ${e.exibirRodape ? rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5, '', e.corPrimaria, e.corSecundaria, e.corDestaque, e.fonteCorpo) : ''}
+      ${bgCustomHtml}
+      ${!temFundoCustom ? `
+        <div style="position:absolute;right:-90px;top:${headerH}px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle, rgba(31,79,168,0.08) 0%, rgba(31,79,168,0) 70%);"></div>
+        <div style="position:absolute;left:-80px;top:${H - footerH - 300}px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle, rgba(214,25,43,0.07) 0%, rgba(214,25,43,0) 70%);"></div>
+      ` : ''}
+      <div style="position:relative;width:100%;height:100%;z-index:2;">
+        ${header}
+        ${corpo}
+        ${!temFundoCustom && e.exibirRodape ? rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5, '', e.corPrimaria, e.corSecundaria, e.corDestaque, e.fonteCorpo) : ''}
+      </div>
     </div>`;
 }
 
@@ -600,11 +646,21 @@ export function htmlPaginaEncarte(
   const estilo: EstiloArte = { ...ESTILO_PADRAO, ...estiloCustom };
   const { w: W, h: H } = DIMENSOES_A4;
   const primeira = paginaNum === 1;
-  const headerH = primeira ? 300 : 150;
-  const footerH = estilo.exibirRodape ? 132 : 20;
+  const temFundoCustom = !!estilo.imagemFundoCustom;
+
+  const bgCustomHtml = temFundoCustom
+    ? `<img src="${esc(estilo.imagemFundoCustom)}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;pointer-events:none;z-index:0;" />`
+    : '';
+
+  const headerH = temFundoCustom
+    ? (primeira ? 200 : 125)
+    : (primeira ? 300 : 150);
+  const footerH = temFundoCustom
+    ? 135
+    : (estilo.exibirRodape ? 132 : 20);
   const margem = 26;
-  const bodyTop = headerH + 8;
-  const bodyH = H - bodyTop - footerH + 2;
+  const bodyTop = headerH + 6;
+  const bodyH = H - bodyTop - footerH;
 
   // Produto Estrela: maior desconto da página
   const n = itensPagina.length;
@@ -641,30 +697,41 @@ export function htmlPaginaEncarte(
   const fsTopo = Math.round(38 * estilo.tamanhoTituloMultiplicador);
   const fsPrincipal = Math.round(82 * estilo.tamanhoTituloMultiplicador);
 
-  const header = primeira
-    ? `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
-       ${estilo.exibirLogo ? placaLogo(190, 95, 26, 20) : ''}
-       <div style="position:absolute;left:${estilo.exibirLogo ? 232 : 26}px;top:38px;">${fitaCampanha(11.5, '6px 12px', estilo.tituloCampanhaTopo, estilo.corSecundaria, estilo.corDestaque, estilo.corDestaque, estilo.fonteCorpo)}</div>
-       <div style="position:absolute;left:30px;top:126px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, estilo.tituloPrincipal, estilo.corDestaque, estilo.corSecundaria, estilo.fonteTitulo)}</div>
-       ${estilo.exibirFarmaceutica ? `<div style="position:absolute;left:${W - 236}px;top:14px;width:208px;height:208px;border-radius:50%;background:linear-gradient(160deg, #3b6fd0 0%, #0b1f47 100%);border:5px solid ${estilo.corDestaque};box-shadow:0 8px 18px rgba(11,31,71,0.4);overflow:hidden;">
-         <img src="${esc(figura)}" style="position:absolute;left:-14px;bottom:-8px;width:236px;height:290px;object-fit:cover;object-position:50% 12%;" onerror="this.style.display='none'" />
-       </div>` : ''}
-       ${estilo.exibirValidade ? faixaValidade(periodo, W, headerH - 40, 13, 38, estilo.corDestaque, '#0b1f47', estilo.fonteCorpo) : ''}`
-    : `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
-       ${estilo.exibirLogo ? placaLogo(128, 64, 24, 14) : ''}
-       <div style="position:absolute;left:${estilo.exibirLogo ? 176 : 24}px;top:16px;">${tituloPromo(20, 50, LOJA.tituloTopo, estilo.tituloPrincipal, estilo.corDestaque, estilo.corSecundaria, estilo.fonteTitulo)}</div>
-       <div style="position:absolute;right:26px;top:26px;">${fitaCampanha(10, '5px 10px', estilo.tituloCampanhaTopo, estilo.corSecundaria, estilo.corDestaque, estilo.corDestaque, estilo.fonteCorpo)}</div>
-       ${estilo.exibirValidade ? faixaValidade(periodo, W, headerH - 33, 11.5, 30, estilo.corDestaque, '#0b1f47', estilo.fonteCorpo) : ''}`;
+  const header = temFundoCustom
+    ? `<div style="position:absolute;left:0;top:${primeira ? 140 : 80}px;width:${W}px;text-align:center;z-index:2;">
+        ${estilo.exibirValidade ? faixaValidade(periodo, W, 0, 12, 34, estilo.corDestaque, '#ffffff', estilo.fonteCorpo) : ''}
+       </div>`
+    : (primeira
+        ? `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
+           ${estilo.exibirLogo ? placaLogo(190, 95, 26, 20) : ''}
+           <div style="position:absolute;left:${estilo.exibirLogo ? 232 : 26}px;top:38px;">${fitaCampanha(11.5, '6px 12px', estilo.tituloCampanhaTopo, estilo.corSecundaria, estilo.corDestaque, estilo.corDestaque, estilo.fonteCorpo)}</div>
+           <div style="position:absolute;left:30px;top:126px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, estilo.tituloPrincipal, estilo.corDestaque, estilo.corSecundaria, estilo.fonteTitulo)}</div>
+           ${estilo.exibirFarmaceutica ? `<div style="position:absolute;left:${W - 236}px;top:14px;width:208px;height:208px;border-radius:50%;background:linear-gradient(160deg, #3b6fd0 0%, #0b1f47 100%);border:5px solid ${estilo.corDestaque};box-shadow:0 8px 18px rgba(11,31,71,0.4);overflow:hidden;">
+             <img src="${esc(figura)}" style="position:absolute;left:-14px;bottom:-8px;width:236px;height:290px;object-fit:cover;object-position:50% 12%;" onerror="this.style.display='none'" />
+           </div>` : ''}
+           ${estilo.exibirValidade ? faixaValidade(periodo, W, headerH - 40, 13, 38, estilo.corDestaque, '#0b1f47', estilo.fonteCorpo) : ''}`
+        : `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
+           ${estilo.exibirLogo ? placaLogo(128, 64, 24, 14) : ''}
+           <div style="position:absolute;left:${estilo.exibirLogo ? 176 : 24}px;top:16px;">${tituloPromo(20, 50, LOJA.tituloTopo, estilo.tituloPrincipal, estilo.corDestaque, estilo.corSecundaria, estilo.fonteTitulo)}</div>
+           <div style="position:absolute;right:26px;top:26px;">${fitaCampanha(10, '5px 10px', estilo.tituloCampanhaTopo, estilo.corSecundaria, estilo.corDestaque, estilo.corDestaque, estilo.fonteCorpo)}</div>
+           ${estilo.exibirValidade ? faixaValidade(periodo, W, headerH - 33, 11.5, 30, estilo.corDestaque, '#0b1f47', estilo.fonteCorpo) : ''}`
+      );
 
   return `
     <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};overflow:hidden;font-family:${estilo.fonteCorpo};box-sizing:border-box;">
-      <div style="position:absolute;left:-120px;top:${H * 0.38}px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle, rgba(31,79,168,0.08) 0%, rgba(31,79,168,0) 70%);"></div>
-      <div style="position:absolute;right:-140px;top:${H * 0.62}px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle, rgba(214,25,43,0.07) 0%, rgba(214,25,43,0) 70%);"></div>
-      ${header}
-      <div style="position:absolute;left:${margem}px;top:${bodyTop}px;width:${W - margem * 2}px;height:${bodyH - 8}px;display:grid;grid-template-columns:repeat(${colunas}, 1fr);grid-template-rows:repeat(${linhas}, 1fr);grid-auto-flow:dense;gap:12px;box-sizing:border-box;padding:10px 0 12px;">
-        ${cards}
+      ${bgCustomHtml}
+      ${!temFundoCustom ? `
+        <div style="position:absolute;left:-120px;top:${H * 0.38}px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle, rgba(31,79,168,0.08) 0%, rgba(31,79,168,0) 70%);"></div>
+        <div style="position:absolute;right:-140px;top:${H * 0.62}px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle, rgba(214,25,43,0.07) 0%, rgba(214,25,43,0) 70%);"></div>
+      ` : ''}
+      <div style="position:relative;width:100%;height:100%;z-index:2;">
+        ${header}
+        <div style="position:absolute;left:${margem}px;top:${bodyTop}px;width:${W - margem * 2}px;height:${bodyH}px;display:grid;grid-template-columns:repeat(${colunas}, 1fr);grid-template-rows:repeat(${linhas}, 1fr);grid-auto-flow:dense;gap:12px;box-sizing:border-box;padding:10px 0 12px;">
+          ${cards}
+        </div>
+        ${!temFundoCustom && estilo.exibirRodape ? rodapeHtml(W, footerH, 'gFe', 12, `Página ${paginaNum} de ${totalPaginas}`, estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque, estilo.fonteCorpo) : ''}
+        ${temFundoCustom ? `<div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:900;font-size:11px;color:#ffffff;text-shadow:1px 1px 2px rgba(0,0,0,0.5);z-index:3;">Página ${paginaNum} de ${totalPaginas}</div>` : ''}
       </div>
-      ${estilo.exibirRodape ? rodapeHtml(W, footerH, 'gFe', 12, `Página ${paginaNum} de ${totalPaginas}`, estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque, estilo.fonteCorpo) : ''}
     </div>`;
 }
 

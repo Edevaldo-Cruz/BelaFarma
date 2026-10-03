@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9136c6e",
-  "commitMessage": "feat(fotos): integracao com Cosmos CDN para busca instantanea de fotos e alerta proativo no encarte",
-  "buildTime": "03/10/2026, 09:36:24"
+  "commitHash": "d894a80",
+  "commitMessage": "feat(estudio-visual): editor profissional de artes com temas, paleta, fontes, insercao por url e catalogo Napp",
+  "buildTime": "03/10/2026, 09:43:49"
 }
