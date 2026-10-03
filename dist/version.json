@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ea345de",
-  "commitMessage": "fix(artes): eliminar corte em textos e precos no download de artes unitarias e encarte",
-  "buildTime": "03/10/2026, 11:45:24"
+  "commitHash": "ad96992",
+  "commitMessage": "fix(artes): travar posicoes com coordenadas absolutas exatas eliminando deslocamento no download",
+  "buildTime": "03/10/2026, 12:02:28"
 }

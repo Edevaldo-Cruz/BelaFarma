@@ -621,8 +621,8 @@ export function htmlArteUnitaria(
   const valTop = story ? (temFundoCustom ? 735 : 780) : (temFundoCustom ? 495 : 535);
 
   const faixaValidadeBloco = e.exibirValidade
-    ? `<div data-drag-el="validade" style="position:absolute;left:${valLeft}px;top:${valTop}px;width:${valW}px;transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;z-index:4;">
-        <div style="width:100%;height:${story ? 36 : 28}px;background:${e.corDestaque};border-radius:${story ? 36 : 28}px;box-shadow:0 4px 10px rgba(11,31,71,0.3);display:flex;align-items:center;justify-content:center;color:#ffffff;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 11.5 : 9.5}px;letter-spacing:0.3px;text-align:center;white-space:nowrap;">
+    ? `<div data-drag-el="validade" style="position:absolute;left:${valLeft}px;top:${valTop}px;width:${valW}px;text-align:center;transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;z-index:4;">
+        <div style="font-family:${e.fonteCorpo};font-weight:800;font-size:${story ? 12 : 10}px;color:${temFundoCustom ? '#1e293b' : e.corTexto};letter-spacing:0.5px;text-align:center;white-space:nowrap;line-height:1.2;">
           OFERTAS VÁLIDAS DE ${periodo.inicio} A ${periodo.termino} OU ENQUANTO DURAR O ESTOQUE
         </div>
       </div>`
@@ -738,7 +738,7 @@ export function htmlPaginaEncarte(
 
   const header = temFundoCustom
     ? `<div style="position:absolute;left:0;top:${primeira ? 140 : 80}px;width:${W}px;text-align:center;z-index:2;">
-        ${estilo.exibirValidade ? faixaValidade(periodo, W, 0, 12, 34, estilo.corDestaque, '#ffffff', estilo.fonteCorpo) : ''}
+        ${estilo.exibirValidade ? `<div style="font-family:${estilo.fonteCorpo};font-weight:800;font-size:12px;color:#1e293b;letter-spacing:0.5px;text-align:center;">OFERTAS VÁLIDAS DE ${periodo.inicio} A ${periodo.termino} OU ENQUANTO DURAR O ESTOQUE</div>` : ''}
        </div>`
     : (primeira
         ? `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
