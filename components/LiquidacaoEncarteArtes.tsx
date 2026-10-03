@@ -44,10 +44,12 @@ import {
   ExternalLink,
   Tag,
   Move,
+  Scissors,
   RotateCcw
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { LiquidacaoEtiquetasTab } from './LiquidacaoEtiquetasTab';
+import { ModalRemoverFundo } from './ModalRemoverFundo';
 
 export interface ItemLiquidacaoArte {
   id: string;
@@ -87,16 +89,48 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   // Sub-abas principais do Gerador
   const [subAba, setSubAba] = useState<'unitarias' | 'encarte' | 'etiquetas' | 'fotos'>('unitarias');
 
+  // Arte Unitária (Formato: Story 9:16 ou Feed 4:5)
+  const [produtoIndex, setProdutoIndex] = useState(0);
+  const [formatoUnitario, setFormatoUnitario] = useState<'story' | 'feed'>('story');
+
+  // ─── ESTÚDIO VISUAL: ESTILOS INDEPENDENTES POR TIPO DE ARTE ───
+  // (9:16 Story, 4:5 Feed e Encarte Tabloide A4 têm estilos e posições 100% isolados)
+  const carregarEstiloTipo = (chave: 'story' | 'feed' | 'encarte'): EstiloArte => {
+    try {
+      const salvo = localStorage.getItem(`belafarma_arte_estilo_${chave}`);
+      if (salvo) return { ...ESTILO_PADRAO, ...JSON.parse(salvo) };
+      const legado = localStorage.getItem('belafarma_arte_estilo');
+      if (legado) return { ...ESTILO_PADRAO, ...JSON.parse(legado) };
+    } catch (e) {}
+    return ESTILO_PADRAO;
+  };
+
+  const [estiloStory, setEstiloStory] = useState<EstiloArte>(() => carregarEstiloTipo('story'));
+  const [estiloFeed, setEstiloFeed] = useState<EstiloArte>(() => carregarEstiloTipo('feed'));
+  const [estiloEncarte, setEstiloEncarte] = useState<EstiloArte>(() => carregarEstiloTipo('encarte'));
+
+  // Tipo visual ativo no momento
+  const tipoAtual: 'story' | 'feed' | 'encarte' = subAba === 'encarte'
+    ? 'encarte'
+    : (formatoUnitario === 'story' ? 'story' : 'feed');
+
+  // Estilo ativo no momento (editado dinamicamente no estúdio visual)
+  const estilo = tipoAtual === 'encarte'
+    ? estiloEncarte
+    : (tipoAtual === 'feed' ? estiloFeed : estiloStory);
+
+  const setEstilo = (update: React.SetStateAction<EstiloArte>) => {
+    if (tipoAtual === 'encarte') setEstiloEncarte(update);
+    else if (tipoAtual === 'feed') setEstiloFeed(update);
+    else setEstiloStory(update);
+  };
+
   // ─── ESTÚDIO VISUAL / EDITOR PROFISSIONAL DE ARTES ───
   const [painelEditorAberto, setPainelEditorAberto] = useState(false);
   const [abaEditor, setAbaEditor] = useState<'temas' | 'cores' | 'tipografia' | 'embalagem' | 'elementos'>('temas');
-  const [estilo, setEstilo] = useState<EstiloArte>(() => {
-    try {
-      const salvo = localStorage.getItem('belafarma_arte_estilo');
-      if (salvo) return { ...ESTILO_PADRAO, ...JSON.parse(salvo) };
-    } catch (e) {}
-    return ESTILO_PADRAO;
-  });
+
+  // ─── MODAL DE REMOÇÃO DE FUNDO AUTOMÁTICO ───
+  const [itemRemoverFundo, setItemRemoverFundo] = useState<ItemLiquidacaoArte | null>(null);
 
   // ─── MODAL DE INSERÇÃO MANUAL DE IMAGEM (URL / NAPP / UPLOAD) ───
   const [modalImagemItem, setModalImagemItem] = useState<ItemLiquidacaoArte | null>(null);
@@ -113,9 +147,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   const [filtroFoto, setFiltroFoto] = useState<'todos' | 'com_foto' | 'sem_foto'>('todos');
   const [termoBuscaFoto, setTermoBuscaFoto] = useState('');
 
-  // Arte Unitária
-  const [produtoIndex, setProdutoIndex] = useState(0);
-  const [formatoUnitario, setFormatoUnitario] = useState<'story' | 'feed'>('story');
+  // Arte Unitária - Ações
   const [gerandoDownload, setGerandoDownload] = useState(false);
   const [copiandoImagem, setCopiandoImagem] = useState(false);
   const [gerandoZip, setGerandoZip] = useState(false);
@@ -363,17 +395,29 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
 
   const handleAplicarEstiloATodos = () => {
     try {
-      localStorage.setItem('belafarma_arte_estilo', JSON.stringify(estilo));
-      addToast('✨ Estilo visual salvo e padronizado para todos os produtos da campanha!', 'success');
+      const chave = tipoAtual === 'encarte'
+        ? 'belafarma_arte_estilo_encarte'
+        : (tipoAtual === 'feed' ? 'belafarma_arte_estilo_feed' : 'belafarma_arte_estilo_story');
+      localStorage.setItem(chave, JSON.stringify(estilo));
+      const formatoLabel = tipoAtual === 'encarte'
+        ? 'Encarte Tablóide A4'
+        : (tipoAtual === 'feed' ? 'Feed (4:5)' : 'Story (9:16)');
+      addToast(`✨ Estilo salvo exclusivamente para o formato ${formatoLabel}! Os outros formatos permanecem intactos.`, 'success');
     } catch (e) {
       addToast('Erro ao salvar estilo.', 'error');
     }
   };
 
   const handleRestaurarPadrao = () => {
+    const chave = tipoAtual === 'encarte'
+      ? 'belafarma_arte_estilo_encarte'
+      : (tipoAtual === 'feed' ? 'belafarma_arte_estilo_feed' : 'belafarma_arte_estilo_story');
     setEstilo(ESTILO_PADRAO);
-    localStorage.removeItem('belafarma_arte_estilo');
-    addToast('Estilo visual restaurado para o padrão oficial da BelaFarma!', 'info');
+    localStorage.removeItem(chave);
+    const formatoLabel = tipoAtual === 'encarte'
+      ? 'Encarte Tablóide A4'
+      : (tipoAtual === 'feed' ? 'Feed (4:5)' : 'Story (9:16)');
+    addToast(`Estilo restaurado para o padrão oficial no formato ${formatoLabel}!`, 'info');
   };
 
   // ─── PREVIEW & EXPORTAÇÃO ───
@@ -721,11 +765,16 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                 <SlidersHorizontal size={20} />
               </div>
               <div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  Estúdio Visual BelaFarma (Editor WYSIWYG)
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                    Estúdio Visual BelaFarma
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    {tipoAtual === 'encarte' ? '📰 Encarte Tablóide A4' : (tipoAtual === 'feed' ? '🟦 Feed 4:5' : '📱 Story 9:16')}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Ajuste cores, fontes, tamanhos, embalagem e selos com atualização instantânea na arte.
+                  Alterações visuais salvas aqui afetam <strong className="text-slate-700 dark:text-slate-200">somente este formato</strong>, sem desconfigurar os outros.
                 </p>
               </div>
             </div>
@@ -735,10 +784,10 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                 type="button"
                 onClick={handleAplicarEstiloATodos}
                 className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center gap-1.5 shadow-sm cursor-pointer transition-all active:scale-95"
-                title="Aplica e salva estas configurações visuais para todos os produtos da campanha"
+                title={`Aplica e salva estas configurações visuais exclusivamente para ${tipoAtual === 'encarte' ? 'o Encarte A4' : (tipoAtual === 'feed' ? 'o Feed 4:5' : 'os Stories 9:16')}`}
               >
                 <Check size={14} />
-                <span>Aplicar a Todos os Produtos</span>
+                <span>Aplicar a Todos {tipoAtual === 'encarte' ? '(Encarte A4)' : (tipoAtual === 'feed' ? '(Feed 4:5)' : '(Stories 9:16)')}</span>
               </button>
 
               <button
@@ -1023,6 +1072,17 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
               </div>
 
               <div className="flex flex-col gap-1.5">
+                {produtoAtual?.imagem_url && (
+                  <button
+                    type="button"
+                    onClick={() => produtoAtual && setItemRemoverFundo(produtoAtual)}
+                    className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all active:scale-95"
+                    title="Remover fundo da imagem deste produto com prévia e tolerância"
+                  >
+                    <Scissors size={13} />
+                    <span>Recortar / Remover Fundo</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => produtoAtual && abrirModalImagem(produtoAtual)}
@@ -1174,6 +1234,17 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5">
+                      {produtoAtual.imagem_url && (
+                        <button
+                          type="button"
+                          onClick={() => setItemRemoverFundo(produtoAtual)}
+                          className="px-2.5 py-1 rounded-xl bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all"
+                          title="Remover fundo da imagem com ajuste de tolerância e salvar PNG transparente"
+                        >
+                          <Scissors size={11} />
+                          <span>Remover Fundo</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => abrirModalImagem(produtoAtual)}
@@ -1498,14 +1569,24 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                     )}
 
                     {item.imagem_url && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoverFoto(item.produto_id)}
-                        className="absolute top-1.5 right-1.5 p-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-600 transition-colors cursor-pointer"
-                        title="Remover foto"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setItemRemoverFundo(item)}
+                          className="p-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-700 shadow-xs transition-colors cursor-pointer"
+                          title="Remover fundo da foto"
+                        >
+                          <Scissors size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverFoto(item.produto_id)}
+                          className="p-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-600 shadow-xs transition-colors cursor-pointer"
+                          title="Remover foto"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -1523,26 +1604,52 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
 
                 {/* Ações por Produto */}
                 <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-200/80 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => abrirModalImagem(item)}
-                    className="py-1.5 px-2 rounded-xl text-[10px] font-black bg-indigo-100 hover:bg-indigo-200 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                    title="Inserir por Link URL, Napp ou Upload"
-                  >
-                    <Link2 size={11} />
-                    <span>Inserir Foto</span>
-                  </button>
+                  {item.imagem_url ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setItemRemoverFundo(item)}
+                        className="py-1.5 px-2 rounded-xl text-[10px] font-black bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Remover fundo da foto (PNG transparente)"
+                      >
+                        <Scissors size={11} />
+                        <span>Recortar Fundo</span>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleBuscarFotoAuto(item)}
-                    disabled={loadingProdId === item.produto_id}
-                    className="py-1.5 px-2 rounded-xl text-[10px] font-black bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                    title="Buscar foto automaticamente na internet (Cosmos/Web)"
-                  >
-                    <Search size={11} className={loadingProdId === item.produto_id ? 'animate-spin' : ''} />
-                    <span>{loadingProdId === item.produto_id ? 'Buscando...' : 'Buscar Web'}</span>
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => abrirModalImagem(item)}
+                        className="py-1.5 px-2 rounded-xl text-[10px] font-black bg-indigo-100 hover:bg-indigo-200 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Trocar por Link URL, Napp ou Upload"
+                      >
+                        <Link2 size={11} />
+                        <span>Trocar Foto</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => abrirModalImagem(item)}
+                        className="py-1.5 px-2 rounded-xl text-[10px] font-black bg-indigo-100 hover:bg-indigo-200 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Inserir por Link URL, Napp ou Upload"
+                      >
+                        <Link2 size={11} />
+                        <span>Inserir Foto</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleBuscarFotoAuto(item)}
+                        disabled={loadingProdId === item.produto_id}
+                        className="py-1.5 px-2 rounded-xl text-[10px] font-black bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Buscar foto automaticamente na internet (Cosmos/Web)"
+                      >
+                        <Search size={11} className={loadingProdId === item.produto_id ? 'animate-spin' : ''} />
+                        <span>{loadingProdId === item.produto_id ? 'Buscando...' : 'Buscar Web'}</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -1744,6 +1851,18 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* ─── MODAL DE REMOÇÃO DE FUNDO AVANÇADO (COM CONTROLE DE SENSIBILIDADE) ─── */}
+      {itemRemoverFundo && (
+        <ModalRemoverFundo
+          item={itemRemoverFundo}
+          onClose={() => setItemRemoverFundo(null)}
+          onSucesso={() => {
+            onAtualizarItens();
+            setImgVersion(v => v + 1);
+          }}
+        />
       )}
     </div>
   );

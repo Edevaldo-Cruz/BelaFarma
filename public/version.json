@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3e94388",
-  "commitMessage": "feat(etiquetas): modulo completo de criacao de etiquetas e cartazes com modelos prontos, formatos termicos, pimaco e editor visual",
-  "buildTime": "03/10/2026, 10:13:40"
+  "commitHash": "efbd7a5",
+  "commitMessage": "feat(editor): arrastar elementos livremente na folha (drag-and-drop) e correcao de corte lateral no tema BelaFarma Sul",
+  "buildTime": "03/10/2026, 10:59:41"
 }

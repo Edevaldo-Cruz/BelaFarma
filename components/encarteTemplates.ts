@@ -263,9 +263,9 @@ const carregarImagem = (url: string): Promise<HTMLImageElement> =>
 
 /**
  * Remove o fundo branco/claro conectado às bordas (flood-fill), suaviza a borda
- * e recorta o excesso transparente. Se algo falhar (ex.: CORS), devolve a URL original.
+ * e recorta o excesso transparente com tolerância configurável.
  */
-async function recortarFundo(url: string): Promise<string> {
+export async function recortarFundo(url: string, sensibilidade: number = 25): Promise<string> {
   try {
     const img = await carregarImagem(url);
     const maxLado = 720;
@@ -284,13 +284,14 @@ async function recortarFundo(url: string): Promise<string> {
     const d = idata.data;
     const total = W * H;
 
+    const t = Math.max(160, 255 - Math.round(sensibilidade * 1.5));
     const limiarClaro = (i: number) => {
       const r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
       if (a < 30) return true;
-      if (r > 240 && g > 240 && b > 240) return true;
+      if (r > t && g > t && b > t) return true;
       const media = (r + g + b) / 3;
       const maxDiff = Math.max(Math.abs(r - g), Math.abs(r - b), Math.abs(g - b));
-      return media > 220 && maxDiff < 14;
+      return media > (t - 15) && maxDiff < (10 + Math.round(sensibilidade * 0.4));
     };
 
     const visitado = new Uint8Array(total);

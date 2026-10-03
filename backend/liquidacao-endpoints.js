@@ -1669,7 +1669,8 @@ module.exports = function (db) {
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
       if (!fs.existsSync(publicUploadsDir)) fs.mkdirSync(publicUploadsDir, { recursive: true });
 
-      const fileName = `${pId}.jpg`;
+      const isPng = imagem_base64.startsWith('data:image/png');
+      const fileName = isPng ? `${pId}.png` : `${pId}.jpg`;
       const destPath = path.join(uploadsDir, fileName);
       const destPublic = path.join(publicUploadsDir, fileName);
 
