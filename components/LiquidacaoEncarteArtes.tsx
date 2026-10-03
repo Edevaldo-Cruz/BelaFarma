@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
 import {
@@ -28,7 +28,8 @@ import {
   Layers,
   Trash2,
   Share2,
-  Package
+  Package,
+  Camera
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -451,6 +452,34 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Banner de Aviso de Fotos Ausentes */}
+      {itens.length - totalComFoto > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-3xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 shrink-0">
+              <Camera size={20} />
+            </div>
+            <div>
+              <p className="text-xs font-black text-amber-950 dark:text-amber-200">
+                Atenção: {itens.length - totalComFoto} {itens.length - totalComFoto === 1 ? 'produto ainda está' : 'produtos ainda estão'} sem foto oficial neste encarte ({totalComFoto}/{itens.length} com foto).
+              </p>
+              <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+                O sistema consulta o banco de dados oficial (Cosmos e farmácias online) para baixar as fotos e recortar o fundo automaticamente.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleBuscarTodasFotosAuto}
+            disabled={buscandoGeral}
+            className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-orange-500/20 cursor-pointer disabled:opacity-50 transition-all shrink-0 active:scale-95"
+          >
+            <RefreshCw size={13} className={buscandoGeral ? 'animate-spin' : ''} />
+            <span>{buscandoGeral ? 'Buscando fotos na web...' : '⚡ Buscar Fotos Automaticamente'}</span>
+          </button>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════
           SUB-ABA 1: ARTES UNITÁRIAS (STORIES 9:16 & FEED 4:5)

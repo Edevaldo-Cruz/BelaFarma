@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "a283173",
-  "commitMessage": "fix(liquidacao): sinalizar produtos já existentes na busca e permitir atualização de preço",
-  "buildTime": "03/10/2026, 08:12:46"
+  "commitHash": "8db1a5f",
+  "commitMessage": "feat(design): reformulacao visual completa de encartes tabloide e artes unitarias de produtos",
+  "buildTime": "03/10/2026, 09:09:22"
 }

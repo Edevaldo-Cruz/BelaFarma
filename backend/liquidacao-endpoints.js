@@ -1571,7 +1571,25 @@ module.exports = function (db) {
 
     const queryTerms = [];
     if (ean && String(ean).trim().length >= 7) {
-      queryTerms.push(`${String(ean).trim()} ${String(descricao).split(' ')[0]}`);
+      const cleanEan = String(ean).trim();
+      // 1. Tenta baixar direto do CDN Cosmos (alta qualidade e instantâneo)
+      try {
+        const cosmosUrl = `https://cdn-cosmos.bluesoft.com.br/products/${cleanEan}`;
+        const cosmosRes = await fetch(cosmosUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(4000)
+        });
+        if (cosmosRes.ok) {
+          const buffer = Buffer.from(await cosmosRes.arrayBuffer());
+          if (buffer.length > 2500) {
+            fs.writeFileSync(destPath, buffer);
+            try { fs.writeFileSync(destPublic, buffer); } catch(e) {}
+            return `/uploads/produtos/${fileName}`;
+          }
+        }
+      } catch (e) {}
+
+      queryTerms.push(`${cleanEan} ${String(descricao).split(' ')[0]}`);
     }
     const cleanDesc = String(descricao || '').replace(/[^\w\s]/gi, ' ').trim();
     queryTerms.push(`${cleanDesc} farmacia medicamento`);
