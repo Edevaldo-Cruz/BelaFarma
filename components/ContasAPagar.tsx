@@ -113,11 +113,14 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       // Checar se estourou
       const totalPurchasesMonth = orders
         .filter(o => {
-          if (!o.order_date) return false;
-          const [y, m] = o.order_date.split('-');
+          const dateStr = o.order_date || o.orderDate;
+          if (!dateStr) return false;
+          const parts = dateStr.split('T')[0].split('-');
+          if (parts.length < 2) return false;
+          const [y, m] = parts;
           return parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth;
         })
-        .reduce((sum, o) => sum + (o.total || 0), 0);
+        .reduce((sum, o) => sum + (o.total || o.totalValue || 0), 0);
 
       if (totalPurchasesMonth > currentLimit.limit_value) {
         setBudgetStatus('busted');
@@ -145,8 +148,11 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
     fetchFixedPayments();
   }, [selectedMonth, selectedYear]);
 
-  const getDueDateStatus = (dueDateStr: string): 'overdue' | 'due-today' | 'due-tomorrow' | 'default' => {
-    const dueDate = new Date(dueDateStr + 'T00:00:00');
+  const getDueDateStatus = (dueDateStr?: string): 'overdue' | 'due-today' | 'due-tomorrow' | 'default' => {
+    if (!dueDateStr) return 'default';
+    const cleanDate = dueDateStr.split('T')[0];
+    const dueDate = new Date(cleanDate + 'T00:00:00');
+    if (isNaN(dueDate.getTime())) return 'default';
     dueDate.setHours(0, 0, 0, 0);
     const tomorrow = new Date(now);
     tomorrow.setDate(now.getDate() + 1);
@@ -159,10 +165,10 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   };
 
   const getEffectiveStatus = (boleto: Boleto): BoletoStatus => {
-    const dueDate = new Date(boleto.due_date + 'T00:00:00');
-    dueDate.setHours(0, 0, 0, 0);
-    
-    if (boleto.status === BoletoStatus.PENDENTE && dueDate < now) {
+    if (!boleto || !boleto.due_date) return boleto?.status || BoletoStatus.PENDENTE;
+    const cleanDate = boleto.due_date.split('T')[0];
+    const dueDate = new Date(cleanDate + 'T00:00:00');
+    if (!isNaN(dueDate.getTime()) && boleto.status === BoletoStatus.PENDENTE && dueDate < now) {
       return BoletoStatus.VENCIDO;
     }
     return boleto.status;
@@ -179,32 +185,44 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
 
     // 1. Boletos do Mês
     boletos.forEach(b => {
-      if (!b.due_date) return;
-      const [y, m] = b.due_date.split('-');
+      if (!b) return;
+      const rawDueDate = b.due_date || (b as any).dueDate;
+      if (!rawDueDate) return;
+      const cleanDate = String(rawDueDate).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 2) return;
+
+      const [y, m] = parts;
       if (parseInt(y) === selectedYear && parseInt(m) - 1 === selectedMonth) {
         list.push({
           id: b.id,
           type: 'boleto',
-          supplierName: b.supplier_name,
-          dueDate: b.due_date,
-          value: b.amount,
-          status: b.status,
+          supplierName: b.supplier_name || b.supplierName || 'Fornecedor',
+          dueDate: cleanDate,
+          value: b.amount || b.value || 0,
+          status: b.status || BoletoStatus.PENDENTE,
           originalBoleto: b,
           invoice_number: b.invoice_number,
-          paidAt: b.paid_at
+          paidAt: b.paid_at || b.paidAt
         });
       }
     });
 
     // 2. Contas Fixas do Mês
     fixedPayments.forEach(fp => {
+      if (!fp) return;
+      const rawDueDate = fp.dueDate || (fp as any).due_date;
+      if (!rawDueDate) return;
+      const cleanDate = String(rawDueDate).split('T')[0];
+
+      const name = fp.fixedAccountName || (fp as any).account_name || 'Conta Fixa';
       list.push({
         id: fp.id,
         type: 'fixed',
-        supplierName: `[Fixa] ${fp.account_name}`,
-        dueDate: fp.due_date,
-        value: fp.value,
-        status: fp.status,
+        supplierName: `[Fixa] ${name}`,
+        dueDate: cleanDate,
+        value: fp.value || 0,
+        status: fp.status || 'Pendente',
         originalFixed: fp,
         paidAt: fp.paidAt
       });
@@ -213,13 +231,16 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
     // 3. Provisões Diárias (Pró-labore 12%, Impostos 4%, Reserva 1%)
     if (cashClosings && budgetStatus !== 'busted') {
       cashClosings.forEach(c => {
-        if (!c.date || !c.totalSales || c.totalSales <= 0) return;
+        if (!c || !c.date || !c.totalSales || c.totalSales <= 0) return;
         
         const dateKey = getLocalDateKey(c.date);
-        if (dateKey < '2026-08-31') return;
+        if (!dateKey || dateKey < '2026-08-31') return;
 
-        const [y, m, d] = dateKey.split('-').map(Number);
+        const parts = dateKey.split('-').map(Number);
+        if (parts.length < 3) return;
+        const [y, m, d] = parts;
         const closingDate = new Date(y, m - 1, d);
+        if (isNaN(closingDate.getTime())) return;
 
         const dueD = new Date(closingDate);
         dueD.setDate(dueD.getDate() + 1);
@@ -280,9 +301,11 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
 
     // Ordenar por Vencimento Ascendente
     list.sort((a, b) => {
-      const dateA = new Date(a.dueDate + 'T00:00:00').getTime();
-      const dateB = new Date(b.dueDate + 'T00:00:00').getTime();
-      return dateA - dateB;
+      const dateAStr = a.dueDate ? a.dueDate.split('T')[0] : '';
+      const dateBStr = b.dueDate ? b.dueDate.split('T')[0] : '';
+      const dateA = dateAStr ? new Date(dateAStr + 'T00:00:00').getTime() : 0;
+      const dateB = dateBStr ? new Date(dateBStr + 'T00:00:00').getTime() : 0;
+      return (isNaN(dateA) ? 0 : dateA) - (isNaN(dateB) ? 0 : dateB);
     });
 
     return list;
@@ -292,11 +315,15 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   const filteredList = useMemo(() => {
     if (statusFilter === 'all') return unifiedList;
     return unifiedList.filter(item => {
+      const cleanDueDate = item.dueDate ? item.dueDate.split('T')[0] : '';
+      const isOverdue = (item.status as string) === BoletoStatus.VENCIDO || 
+        ((item.status as string) === 'Pendente' && cleanDueDate && new Date(cleanDueDate + 'T00:00:00') < now);
+        
       if (statusFilter === BoletoStatus.PAGO || statusFilter === 'Pago') {
         return (item.status as string) === BoletoStatus.PAGO || (item.status as string) === 'Pago';
       }
       if (statusFilter === BoletoStatus.VENCIDO || statusFilter === 'Vencido') {
-        return (item.status as string) === BoletoStatus.VENCIDO || ((item.status as string) === 'Pendente' && new Date(item.dueDate + 'T00:00:00') < now);
+        return isOverdue;
       }
       return (item.status as string) === BoletoStatus.PENDENTE || (item.status as string) === 'Pendente';
     });
@@ -319,7 +346,9 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
 
   const getStatusBadge = (item: UnifiedPayment) => {
     const isPaid = (item.status as string) === BoletoStatus.PAGO || (item.status as string) === 'Pago';
-    const isOverdue = (item.status as string) === BoletoStatus.VENCIDO || ((item.status as string) === 'Pendente' && new Date(item.dueDate + 'T00:00:00') < now);
+    const cleanDueDate = item.dueDate ? item.dueDate.split('T')[0] : '';
+    const isOverdue = (item.status as string) === BoletoStatus.VENCIDO || 
+      (cleanDueDate && (item.status as string) === 'Pendente' && new Date(cleanDueDate + 'T00:00:00') < now);
 
     if (isPaid) {
       return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700"><CheckCircle2 className="w-3.5 h-3.5" /> Pago</span>;
@@ -513,11 +542,11 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
           <table className="w-full text-left border-collapse responsive-table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Compromisso</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Valor</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ações</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Compromisso</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Vencimento</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Situação</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right whitespace-nowrap">Valor</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -533,7 +562,9 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                 }
 
                 // Mas Vencidos continuam vermelhos para chamar mais atenção
-                const isOverdue = (item.status as string) === BoletoStatus.VENCIDO || ((item.status as string) === 'Pendente' && new Date(item.dueDate + 'T00:00:00') < now);
+                const cleanDueDate = item.dueDate ? item.dueDate.split('T')[0] : '';
+                const isOverdue = (item.status as string) === BoletoStatus.VENCIDO || 
+                  ((item.status as string) === 'Pendente' && cleanDueDate && new Date(cleanDueDate + 'T00:00:00') < now);
                 if (isOverdue) {
                     rowClass = 'bg-red-50/80 hover:bg-red-100/80 transition-colors group';
                 }
@@ -564,7 +595,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                     </td>
                     <td className="px-6 py-4">
                         <span className={`text-sm font-bold ${isPaid ? 'text-slate-400' : 'text-slate-700'}`}>
-                            {item.dueDate.split('T')[0].split('-').reverse().join('/')}
+                            {item.dueDate && item.dueDate.includes('-') ? item.dueDate.split('T')[0].split('-').reverse().join('/') : (item.dueDate || '-')}
                         </span>
                     </td>
                     <td className="px-6 py-4">{getStatusBadge(item)}</td>
