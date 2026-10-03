@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "26477ec",
-  "commitMessage": "feat(artes): isolamento de estilos por formato e ferramenta de recorte de fundo PNG transparente",
-  "buildTime": "03/10/2026, 11:31:42"
+  "commitHash": "ea345de",
+  "commitMessage": "fix(artes): eliminar corte em textos e precos no download de artes unitarias e encarte",
+  "buildTime": "03/10/2026, 11:45:24"
 }

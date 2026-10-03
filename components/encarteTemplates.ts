@@ -562,33 +562,52 @@ export function htmlArteUnitaria(
   const fsPrincipal = Math.round((story ? 70 : 52) * e.tamanhoTituloMultiplicador);
 
   const header = temFundoCustom
-    ? `<div data-drag-el="validade" style="position:absolute;left:0;top:${story ? 130 : 86}px;width:${W}px;text-align:center;z-index:2;transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">
-        ${e.exibirValidade ? faixaValidade(periodo, W, 0, story ? 11 : 9.5, story ? 30 : 24, e.corDestaque, '#ffffff', e.fonteCorpo) : ''}
-       </div>`
+    ? ''
     : (story
         ? `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
            ${e.exibirLogo ? placaLogo(168, 84, 24, 20) : ''}
            <div data-drag-el="titulo" style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-           <div style="position:absolute;left:30px;top:118px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
-           ${e.exibirValidade ? `<div data-drag-el="validade" style="transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">${faixaValidade(periodo, W, headerH - 38, 11.5, 36, e.corDestaque, '#0b1f47', e.fonteCorpo)}</div>` : ''}`
+           <div style="position:absolute;left:30px;top:118px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>`
         : `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
            ${e.exibirLogo ? placaLogo(130, 65, 22, 14) : ''}
            <div data-drag-el="titulo" style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-           <div style="position:absolute;left:28px;top:84px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
-           ${e.exibirValidade ? `<div data-drag-el="validade" style="transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">${faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo)}</div>` : ''}`
+           <div style="position:absolute;left:28px;top:84px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>`
       );
+
+  const stageW = story ? 320 : 220;
+  const stageH = story ? 260 : 220;
+  const stageLeft = story ? Math.round((W - stageW) / 2) : 18;
+  const stageTop = story ? (temFundoCustom ? 175 : 240) : (temFundoCustom ? 130 : 180);
+
+  const palco = `
+    <div data-drag-el="foto" style="position:absolute;left:${stageLeft}px;top:${stageTop}px;width:${stageW}px;height:${stageH}px;transform:translate(${posFoto.x}px,${posFoto.y}px);cursor:grab;touch-action:none;z-index:3;">
+      <div style="position:absolute;left:50%;top:50%;width:${stageW - 20}px;height:${stageW - 20}px;margin-left:${-(stageW - 20) / 2}px;margin-top:${-(stageW - 20) / 2 - 6}px;border-radius:50%;background:radial-gradient(circle at 50% 45%, #ffffff 0%, #e6efff 62%, rgba(230,239,255,0) 72%);"></div>
+      <div style="position:absolute;left:${story ? 20 : 12}px;top:${story ? 8 : 8}px;right:${story ? 20 : 12}px;bottom:${story ? 20 : 16}px;">
+        ${imgProduto(item, '', e.usarRecorteTransparente, e.zoomProduto, e.offsetYProduto)}
+      </div>
+      ${e.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:22px;">${sombraChao(20)}</div>` : ''}
+      ${e.exibirSeloDesconto ? `<div data-drag-el="selo" style="position:absolute;right:${story ? -20 : -15}px;top:${story ? -5 : -5}px;transform:translate(${posSelo.x}px,${posSelo.y}px);cursor:grab;touch-action:none;z-index:4;">${seloDesconto(pct, story ? 105 : 82, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
+    </div>`;
+
+  const nomeW = story ? 480 : 265;
+  const nomeLeft = story ? Math.round((W - nomeW) / 2) : 255;
+  const nomeTop = story ? (temFundoCustom ? 450 : 515) : (temFundoCustom ? 135 : 185);
 
   const nomeFs = story ? 24 : 18;
   const nomeLh = Math.round(nomeFs * 1.25);
   const nomeBloco = `
-    <div data-drag-el="nome" style="width:100%;max-width:${story ? '480px' : '260px'};box-sizing:border-box;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:3;padding:4px 0;">
-      <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${nomeFs}px;line-height:${nomeLh}px;max-height:${nomeLh * 2 + 10}px;padding:4px 2px;overflow:hidden;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;">${esc(item.descricao)}</div>
+    <div data-drag-el="nome" style="position:absolute;left:${nomeLeft}px;top:${nomeTop}px;width:${nomeW}px;box-sizing:border-box;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:3;">
+      <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${nomeFs}px;line-height:${nomeLh}px;max-height:${nomeLh * 2 + 10}px;padding:2px 2px;overflow:hidden;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;">${esc(item.descricao)}</div>
       ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 14 : 12}px;margin-top:2px;padding:1px 0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.apresentacao)}</div>` : ''}
     </div>`;
 
+  const precoW = story ? 400 : 260;
+  const precoLeft = story ? Math.round((W - precoW) / 2) : 255;
+  const precoTop = story ? (temFundoCustom ? 545 : 610) : (temFundoCustom ? 245 : 295);
+
   const tamPreco = Math.round((story ? 84 : 52) * e.tamanhoPrecoMultiplicador);
   const badgePreco = `
-    <div data-drag-el="preco" style="position:relative;width:${story ? 400 : 246}px;max-width:96%;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 24px' : '8px 12px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
+    <div data-drag-el="preco" style="position:absolute;left:${precoLeft}px;top:${precoTop}px;width:${precoW}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 24px' : '8px 12px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
       ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 16 : 12}px;text-decoration:line-through;line-height:1.2;margin-bottom:2px;">DE ${brl(normal)}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin:2px 0;">
         <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 20 : 15}px;line-height:1;">POR</span>
@@ -597,31 +616,17 @@ export function htmlArteUnitaria(
       ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-14px;margin-left:${story ? -100 : -75}px;width:${story ? 200 : 150}px;height:${story ? 28 : 22}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 13 : 10.5}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;z-index:4;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
     </div>`;
 
-  const stageW = story ? 280 : 205;
-  const stageH = story ? 240 : 225;
-  const palco = `
-    <div data-drag-el="foto" style="position:relative;width:${stageW}px;height:${stageH}px;flex:none;transform:translate(${posFoto.x}px,${posFoto.y}px);cursor:grab;touch-action:none;z-index:3;">
-      <div style="position:absolute;left:50%;top:50%;width:${stageW - 20}px;height:${stageW - 20}px;margin-left:${-(stageW - 20) / 2}px;margin-top:${-(stageW - 20) / 2 - 6}px;border-radius:50%;background:radial-gradient(circle at 50% 45%, #ffffff 0%, #e6efff 62%, rgba(230,239,255,0) 72%);"></div>
-      <div style="position:absolute;left:${story ? 20 : 12}px;top:${story ? 8 : 8}px;right:${story ? 20 : 12}px;bottom:${story ? 20 : 16}px;">
-        ${imgProduto(item, '', e.usarRecorteTransparente, e.zoomProduto, e.offsetYProduto)}
-      </div>
-      ${e.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:22px;">${sombraChao(20)}</div>` : ''}
-      ${e.exibirSeloDesconto ? `<div data-drag-el="selo" style="position:absolute;right:${story ? -30 : -20}px;top:${story ? -4 : 0}px;transform:translate(${posSelo.x}px,${posSelo.y}px);cursor:grab;touch-action:none;z-index:4;">${seloDesconto(pct, story ? 105 : 82, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
-    </div>`;
+  const valW = story ? 480 : 490;
+  const valLeft = story ? Math.round((W - valW) / 2) : 25;
+  const valTop = story ? (temFundoCustom ? 735 : 780) : (temFundoCustom ? 495 : 535);
 
-  const corpo = story
-    ? `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:0 20px 8px;box-sizing:border-box;z-index:2;">
-         ${palco}
-         ${nomeBloco}
-         ${badgePreco}
-       </div>`
-    : `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:14px;padding:0 18px 4px;box-sizing:border-box;z-index:2;">
-         ${palco}
-         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:12px;width:250px;max-width:250px;min-width:0;box-sizing:border-box;">
-           ${nomeBloco}
-           ${badgePreco}
-         </div>
-       </div>`;
+  const faixaValidadeBloco = e.exibirValidade
+    ? `<div data-drag-el="validade" style="position:absolute;left:${valLeft}px;top:${valTop}px;width:${valW}px;transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;z-index:4;">
+        <div style="width:100%;height:${story ? 36 : 28}px;background:${e.corDestaque};border-radius:${story ? 36 : 28}px;box-shadow:0 4px 10px rgba(11,31,71,0.3);display:flex;align-items:center;justify-content:center;color:#ffffff;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 11.5 : 9.5}px;letter-spacing:0.3px;text-align:center;white-space:nowrap;">
+          OFERTAS VÁLIDAS DE ${periodo.inicio} A ${periodo.termino} OU ENQUANTO DURAR O ESTOQUE
+        </div>
+      </div>`
+    : '';
 
   return `
     <div style="position:relative;width:${W}px;height:${H}px;background:${e.corFundo};overflow:hidden;font-family:${e.fonteCorpo};box-sizing:border-box;">
@@ -632,7 +637,10 @@ export function htmlArteUnitaria(
       ` : ''}
       <div style="position:relative;width:100%;height:100%;z-index:2;">
         ${header}
-        ${corpo}
+        ${palco}
+        ${nomeBloco}
+        ${badgePreco}
+        ${faixaValidadeBloco}
         ${!temFundoCustom && e.exibirRodape ? rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5, '', e.corPrimaria, e.corSecundaria, e.corDestaque, e.fonteCorpo) : ''}
       </div>
     </div>`;
