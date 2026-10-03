@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "efbd7a5",
-  "commitMessage": "feat(editor): arrastar elementos livremente na folha (drag-and-drop) e correcao de corte lateral no tema BelaFarma Sul",
-  "buildTime": "03/10/2026, 10:59:41"
+  "commitHash": "26477ec",
+  "commitMessage": "feat(artes): isolamento de estilos por formato e ferramenta de recorte de fundo PNG transparente",
+  "buildTime": "03/10/2026, 11:31:42"
 }

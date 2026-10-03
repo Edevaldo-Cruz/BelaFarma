@@ -418,10 +418,10 @@ const precoHtml = (valor: number, fontSize: number, corNum = '#ffffff') => {
   const fsCents = Math.round(fontSize * 0.44);
   const fsCifrao = Math.round(fontSize * 0.34);
   return `
-    <span style="display:inline-flex;align-items:flex-start;line-height:0.9;font-family:Impact, 'Arial Black', sans-serif;font-weight:900;color:${corNum};">
-      <span style="font-size:${fsCifrao}px;margin-top:${Math.round(fontSize * 0.08)}px;margin-right:2px;opacity:0.92;">R$</span>
-      <span style="font-size:${fsInt}px;letter-spacing:-1px;">${inteiro}</span>
-      <span style="font-size:${fsCents}px;margin-top:${Math.round(fontSize * 0.06)}px;margin-left:1px;text-decoration:underline;text-underline-offset:2px;">,${centavos}</span>
+    <span style="display:inline-flex;align-items:baseline;line-height:1.15;padding:2px 0;font-family:Impact, 'Arial Black', sans-serif;font-weight:900;color:${corNum};vertical-align:middle;">
+      <span style="font-size:${fsCifrao}px;margin-right:2px;opacity:0.92;line-height:1;">R$</span>
+      <span style="font-size:${fsInt}px;letter-spacing:-1px;line-height:1;display:inline-block;padding:0 1px;">${inteiro}</span>
+      <span style="font-size:${fsCents}px;margin-left:1px;text-decoration:underline;text-underline-offset:2px;line-height:1;display:inline-block;">,${centavos}</span>
     </span>`;
 };
 
@@ -578,21 +578,23 @@ export function htmlArteUnitaria(
            ${e.exibirValidade ? `<div data-drag-el="validade" style="transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">${faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo)}</div>` : ''}`
       );
 
+  const nomeFs = story ? 24 : 18;
+  const nomeLh = Math.round(nomeFs * 1.25);
   const nomeBloco = `
-    <div data-drag-el="nome" style="width:100%;max-width:${story ? '480px' : '260px'};box-sizing:border-box;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:3;">
-      <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${story ? 24 : 18}px;line-height:1.15;max-height:${story ? 58 : 46}px;overflow:hidden;word-break:break-word;overflow-wrap:break-word;">${esc(item.descricao)}</div>
-      ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 14 : 12}px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.apresentacao)}</div>` : ''}
+    <div data-drag-el="nome" style="width:100%;max-width:${story ? '480px' : '260px'};box-sizing:border-box;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:3;padding:4px 0;">
+      <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${nomeFs}px;line-height:${nomeLh}px;max-height:${nomeLh * 2 + 10}px;padding:4px 2px;overflow:hidden;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;">${esc(item.descricao)}</div>
+      ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 14 : 12}px;margin-top:2px;padding:1px 0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.apresentacao)}</div>` : ''}
     </div>`;
 
   const tamPreco = Math.round((story ? 84 : 52) * e.tamanhoPrecoMultiplicador);
   const badgePreco = `
-    <div data-drag-el="preco" style="position:relative;width:${story ? 400 : 246}px;max-width:96%;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 20px' : '8px 12px 16px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
-      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 16 : 12}px;text-decoration:line-through;">DE ${brl(normal)}</div>` : ''}
-      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:2px;">
-        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 20 : 15}px;">POR</span>
+    <div data-drag-el="preco" style="position:relative;width:${story ? 400 : 246}px;max-width:96%;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 24px' : '8px 12px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
+      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 16 : 12}px;text-decoration:line-through;line-height:1.2;margin-bottom:2px;">DE ${brl(normal)}</div>` : ''}
+      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin:2px 0;">
+        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 20 : 15}px;line-height:1;">POR</span>
         ${precoHtml(promo, tamPreco, e.corPrecoPor)}
       </div>
-      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-14px;margin-left:${story ? -100 : -75}px;width:${story ? 200 : 150}px;height:${story ? 28 : 22}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 13 : 10.5}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
+      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-14px;margin-left:${story ? -100 : -75}px;width:${story ? 200 : 150}px;height:${story ? 28 : 22}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 13 : 10.5}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;z-index:4;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
     </div>`;
 
   const stageW = story ? 280 : 205;
@@ -652,12 +654,12 @@ const cardProduto = (it: ItemArte, { estrela, k, estilo }: OpcoesCard, extraStyl
         ${imgProduto(it, '', estilo.usarRecorteTransparente, estilo.zoomProduto, estilo.offsetYProduto)}
         ${estilo.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:12px;">${sombraChao(10)}</div>` : ''}
       </div>
-      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:900;color:${estilo.corTexto};text-transform:uppercase;font-size:${nomeFs}px;line-height:${nomeLh}px;height:${nomeLh * 2}px;overflow:hidden;">${esc(it.descricao)}</div>
-      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:700;color:#64748b;font-size:${Math.round(9.5 * k)}px;height:${Math.round(13 * k)}px;line-height:${Math.round(13 * k)}px;white-space:nowrap;overflow:hidden;">${esc(it.apresentacao || '')}</div>
+      <div style="padding:2px ${Math.round(7 * k)}px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:900;color:${estilo.corTexto};text-transform:uppercase;font-size:${nomeFs}px;line-height:${nomeLh}px;max-height:${nomeLh * 2 + 6}px;overflow:hidden;box-sizing:border-box;">${esc(it.descricao)}</div>
+      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:700;color:#64748b;font-size:${Math.round(9.5 * k)}px;height:${Math.round(14 * k)}px;line-height:${Math.round(14 * k)}px;white-space:nowrap;overflow:hidden;">${esc(it.apresentacao || '')}</div>
       <div style="margin-top:4px;background:linear-gradient(160deg, ${estilo.corSecundaria} 0%, #0b1f47 100%);border-top:3px solid ${estilo.corDestaque};padding:${Math.round(4 * k)}px 4px ${Math.round(6 * k)}px;text-align:center;">
         ${normal > promo ? `<div style="font-family:${estilo.fonteCorpo};font-weight:800;color:${estilo.corPrecoDe};font-size:${Math.round(9.5 * k)}px;text-decoration:line-through;line-height:1.2;">DE ${brl(normal)}</div>` : ''}
         <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
-          <span style="font-family:${estilo.fonteCorpo};font-weight:900;color:${estilo.corDestaque};font-size:${Math.round(11 * k)}px;">POR</span>
+          <span style="font-family:${estilo.fonteCorpo};font-weight:900;color:${estilo.corDestaque};font-size:${Math.round(11 * k)}px;line-height:1;">POR</span>
           ${precoHtml(promo, Math.round(34 * k * estilo.tamanhoPrecoMultiplicador), estilo.corPrecoPor)}
         </div>
       </div>
@@ -782,11 +784,23 @@ const aguardarImagens = async (raiz: HTMLElement) => {
 /** Renderiza uma string HTML (em tamanho nativo, fora da tela) para canvas. */
 export async function renderizarHtmlParaCanvas(html: string, w: number, h: number, scale = 2): Promise<HTMLCanvasElement> {
   const host = document.createElement('div');
-  host.style.cssText = `position:fixed;left:-99999px;top:0;width:${w}px;height:${h}px;overflow:hidden;`;
+  // Usamos z-index: -99999 e opacity: 0.01 em 0,0 para que o Chromium renderize as fontes
+  // e o subpixel antialiasing com a mesma geometria e fidelidade do preview visual
+  host.style.cssText = `position:fixed;left:0;top:0;width:${w}px;height:${h}px;z-index:-99999;opacity:0.01;pointer-events:none;overflow:hidden;`;
   host.innerHTML = html;
   document.body.appendChild(host);
   try {
+    // 1. Aguardar carregamento de todas as imagens presentes no elemento
     await aguardarImagens(host);
+
+    // 2. Aguardar fontes do navegador estarem 100% carregadas e prontas
+    if ((document as any).fonts?.ready) {
+      await (document as any).fonts.ready;
+    }
+
+    // 3. Pequeno respiro para o motor Chromium consolidar o layout dos blocos e fontes
+    await new Promise(r => setTimeout(r, 80));
+
     const alvo = host.firstElementChild as HTMLElement;
     return await html2canvas(alvo, {
       scale,
@@ -795,6 +809,12 @@ export async function renderizarHtmlParaCanvas(html: string, w: number, h: numbe
       backgroundColor: '#ffffff',
       width: w,
       height: h,
+      windowWidth: w,
+      windowHeight: h,
+      x: 0,
+      y: 0,
+      scrollX: 0,
+      scrollY: 0,
       logging: false
     });
   } finally {
