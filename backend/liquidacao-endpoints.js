@@ -1569,6 +1569,36 @@ module.exports = function (db) {
     const destPath = path.join(uploadsDir, fileName);
     const destPublic = path.join(publicUploadsDir, fileName);
 
+    // 0. Tenta buscar prioritariamente no catálogo Napp (scraped_images)
+    try {
+      let nappRow = null;
+      if (ean && String(ean).trim().length >= 7) {
+        nappRow = db.prepare('SELECT image_url FROM scraped_images WHERE ean = ? AND image_url IS NOT NULL AND image_url != ""').get(String(ean).trim());
+      }
+      if (!nappRow && descricao) {
+        const firstWord = String(descricao).trim().split(' ')[0];
+        if (firstWord && firstWord.length >= 3) {
+          nappRow = db.prepare('SELECT image_url FROM scraped_images WHERE name LIKE ? AND image_url IS NOT NULL AND image_url != "" LIMIT 1').get(`%${firstWord}%`);
+        }
+      }
+      if (nappRow && nappRow.image_url) {
+        const nappRes = await fetch(nappRow.image_url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(4500)
+        });
+        if (nappRes.ok) {
+          const buffer = Buffer.from(await nappRes.arrayBuffer());
+          if (buffer.length > 2500) {
+            fs.writeFileSync(destPath, buffer);
+            try { fs.writeFileSync(destPublic, buffer); } catch(e) {}
+            return `/uploads/produtos/${fileName}`;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[buscarEBaixarImagemWeb] Aviso ao consultar Napp:', e.message);
+    }
+
     const queryTerms = [];
     if (ean && String(ean).trim().length >= 7) {
       const cleanEan = String(ean).trim();
@@ -1655,6 +1685,74 @@ module.exports = function (db) {
       res.json({ success: true, imagem_url: urlRelativa });
     } catch(err) {
       console.error('[Liquidação API] Erro em /salvar-imagem-manual:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8.1.1 POST /api/liquidacao/salvar-imagem-url (Download a partir de link colado pelo usuário)
+  router.post('/salvar-imagem-url', async (req, res) => {
+    try {
+      const { produto_id, url } = req.body;
+      if (!produto_id || !url) {
+        return res.status(400).json({ error: 'produto_id e url são obrigatórios.' });
+      }
+
+      const pId = Number(produto_id);
+      const uploadsDir = path.join(__dirname, 'uploads', 'produtos');
+      const publicUploadsDir = path.join(__dirname, '..', 'public', 'uploads', 'produtos');
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      if (!fs.existsSync(publicUploadsDir)) fs.mkdirSync(publicUploadsDir, { recursive: true });
+
+      const fileName = `${pId}.jpg`;
+      const destPath = path.join(uploadsDir, fileName);
+      const destPublic = path.join(publicUploadsDir, fileName);
+
+      const response = await fetch(url.trim(), {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({ error: `Não foi possível baixar a imagem da URL informada (Status HTTP ${response.status}).` });
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length < 1000) {
+        return res.status(400).json({ error: 'A URL informada não retornou uma imagem válida ou o arquivo é muito pequeno.' });
+      }
+
+      fs.writeFileSync(destPath, buffer);
+      try { fs.writeFileSync(destPublic, buffer); } catch(e) {}
+
+      const urlRelativa = `/uploads/produtos/${fileName}?v=${Date.now()}`;
+      db.prepare('UPDATE liquidacao_campanhas_itens SET imagem_url = ? WHERE produto_id = ?').run(urlRelativa, pId);
+      try { db.prepare('UPDATE compras_estoque_cache SET imagem_url = ? WHERE produto_id = ?').run(urlRelativa, pId); } catch(e) {}
+
+      res.json({ success: true, imagem_url: urlRelativa });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /salvar-imagem-url:', err);
+      res.status(500).json({ error: 'Falha ao baixar imagem do link: ' + err.message });
+    }
+  });
+
+  // 8.1.2 GET /api/liquidacao/pesquisar-fotos-napp (Busca no catálogo Napp / scraped_images)
+  router.get('/pesquisar-fotos-napp', (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim();
+      if (!q || q.length < 2) {
+        return res.json({ produtos: [] });
+      }
+
+      const produtos = db.prepare(`
+        SELECT ean, name as descricao, image_url, category, brand
+        FROM scraped_images
+        WHERE (name LIKE ? OR ean LIKE ?) AND image_url IS NOT NULL AND image_url != ''
+        LIMIT 20
+      `).all(`%${q}%`, `%${q}%`);
+
+      res.json({ produtos });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /pesquisar-fotos-napp:', err);
       res.status(500).json({ error: err.message });
     }
   });

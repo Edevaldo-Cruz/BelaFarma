@@ -12,13 +12,13 @@
  */
 import html2canvas from 'html2canvas';
 
-// ─── IDENTIDADE & DADOS DA LOJA (edite aqui para refletir a realidade da unidade) ───
+// ─── IDENTIDADE & DADOS DA LOJA ───────────────────────────────────────────────
 export const LOJA = {
   nome: 'BELA FARMA SUL',
   endereco: 'Santa Luzia, Juiz de Fora - MG',
-  horario: '', // Ex.: 'Seg a Sáb: 07h às 22h | Dom: 08h às 20h' (omitido do layout se vazio)
+  horario: '', // Ex.: 'Seg a Sáb: 07h às 22h | Dom: 08h às 20h' (omitido se vazio)
   whatsapp: '(32) 9822-8189',
-  site: '', // Ex.: '@belafarmasul' (omitido do layout se vazio)
+  site: '', // Ex.: '@belafarmasul' (omitido se vazio)
   pagamentos: 'Pix • Cartão de Crédito e Débito • Dinheiro',
   aviso: 'Imagens meramente ilustrativas. Ofertas válidas enquanto durarem os estoques.',
   campanha: 'FESTIVAL DE ANIVERSÁRIO • 1 ANO BELA FARMA SUL',
@@ -26,19 +26,152 @@ export const LOJA = {
   titulo: 'LIQUIDAÇÃO'
 };
 
-const COR = {
-  vermelho: '#d6192b',
-  vermelhoEscuro: '#a50f20',
-  azul: '#1f4fa8',
-  azulEscuro: '#12306b',
-  azulProfundo: '#0b1f47',
-  amarelo: '#ffc20e',
-  amareloClaro: '#ffe27a',
-  cinza: '#64748b'
+export interface EstiloArte {
+  temaId?: string;
+  // Cores
+  corFundo: string;
+  corPrimaria: string;
+  corSecundaria: string;
+  corDestaque: string;
+  corPrecoDe: string;
+  corPrecoPor: string;
+  corTexto: string;
+  // Fontes
+  fonteTitulo: string;
+  fonteCorpo: string;
+  tamanhoTituloMultiplicador: number; // 0.8 a 1.4
+  tamanhoPrecoMultiplicador: number; // 0.8 a 1.4
+  // Embalagem e Imagem
+  zoomProduto: number; // 0.7 a 1.3
+  offsetYProduto: number; // -30 a 30 (px)
+  exibirSombraProduto: boolean;
+  usarRecorteTransparente: boolean;
+  // Elementos e Selos
+  exibirLogo: boolean;
+  exibirFarmaceutica: boolean;
+  exibirSeloDesconto: boolean;
+  exibirRodape: boolean;
+  exibirValidade: boolean;
+  tituloCampanhaTopo: string;
+  tituloPrincipal: string;
+}
+
+export const ESTILO_PADRAO: EstiloArte = {
+  temaId: 'aniversario',
+  corFundo: '#ffffff',
+  corPrimaria: '#d6192b',
+  corSecundaria: '#1f4fa8',
+  corDestaque: '#ffc20e',
+  corPrecoDe: '#64748b',
+  corPrecoPor: '#ffffff',
+  corTexto: '#0f172a',
+  fonteTitulo: "Impact, 'Arial Black', sans-serif",
+  fonteCorpo: "'Segoe UI', Arial, sans-serif",
+  tamanhoTituloMultiplicador: 1,
+  tamanhoPrecoMultiplicador: 1,
+  zoomProduto: 1,
+  offsetYProduto: 0,
+  exibirSombraProduto: true,
+  usarRecorteTransparente: true,
+  exibirLogo: true,
+  exibirFarmaceutica: true,
+  exibirSeloDesconto: true,
+  exibirRodape: true,
+  exibirValidade: true,
+  tituloCampanhaTopo: 'FESTIVAL DE ANIVERSÁRIO • 1 ANO BELA FARMA SUL',
+  tituloPrincipal: 'MEGA LIQUIDAÇÃO'
 };
 
-const FONT_TITULO = "Impact, 'Arial Black', 'Helvetica Neue', Arial, sans-serif";
-const FONT_CORPO = "'Segoe UI', Arial, Helvetica, sans-serif";
+export const TEMAS_PRONTOS: Record<string, { nome: string; descricao: string; estilo: Partial<EstiloArte> }> = {
+  aniversario: {
+    nome: '🎂 Aniversário BelaFarma (Oficial)',
+    descricao: 'Vermelho Farma, Azul Profissional e Dourado',
+    estilo: {
+      corFundo: '#ffffff',
+      corPrimaria: '#d6192b',
+      corSecundaria: '#1f4fa8',
+      corDestaque: '#ffc20e',
+      corPrecoDe: '#64748b',
+      corPrecoPor: '#ffffff',
+      corTexto: '#0f172a',
+      fonteTitulo: "Impact, 'Arial Black', sans-serif",
+      tituloCampanhaTopo: '🎂 1º ANIVERSÁRIO BELA FARMA SUL',
+      tituloPrincipal: 'MEGA LIQUIDAÇÃO'
+    }
+  },
+  liquidacao: {
+    nome: '🔥 Liquidação Explosiva (Amarelo & Vermelho)',
+    descricao: 'Alto impacto visual, cores quentes de varejo',
+    estilo: {
+      corFundo: '#fffdf5',
+      corPrimaria: '#dc2626',
+      corSecundaria: '#ea580c',
+      corDestaque: '#f59e0b',
+      corPrecoDe: '#78350f',
+      corPrecoPor: '#ffffff',
+      corTexto: '#1e293b',
+      fonteTitulo: "Impact, 'Arial Black', sans-serif",
+      tituloCampanhaTopo: '🔥 LIQUIDAÇÃO TOTAL DE ESTOQUE',
+      tituloPrincipal: 'PREÇO DE CUSTO'
+    }
+  },
+  farmacia_azul: {
+    nome: '💊 Farmácia & Confiança (Azul & Turquesa)',
+    descricao: 'Design clean, clínico e moderno',
+    estilo: {
+      corFundo: '#f8fafc',
+      corPrimaria: '#0284c7',
+      corSecundaria: '#0f766e',
+      corDestaque: '#e11d48',
+      corPrecoDe: '#64748b',
+      corPrecoPor: '#ffffff',
+      corTexto: '#0f172a',
+      fonteTitulo: "'Montserrat', 'Arial Black', sans-serif",
+      tituloCampanhaTopo: '💊 BELA FARMA • CUIDANDO DA SUA SAÚDE',
+      tituloPrincipal: 'FESTIVAL DA SAÚDE'
+    }
+  },
+  beleza_rosa: {
+    nome: '✨ Beleza & Cosméticos (Rosa & Roxo)',
+    descricao: 'Perfeito para skincare, protetor e perfumaria',
+    estilo: {
+      corFundo: '#fdf4ff',
+      corPrimaria: '#be185d',
+      corSecundaria: '#7e22ce',
+      corDestaque: '#fbbf24',
+      corPrecoDe: '#831843',
+      corPrecoPor: '#ffffff',
+      corTexto: '#374151',
+      fonteTitulo: "'Poppins', 'Montserrat', sans-serif",
+      tituloCampanhaTopo: '✨ BELEZA, CABELOS & PERFUMARIA',
+      tituloPrincipal: 'SEMANA DA BELEZA'
+    }
+  },
+  black_gold: {
+    nome: '⚡ Black & Dourado (Premium / Noturno)',
+    descricao: 'Preto luxo com dourado metálico e neon',
+    estilo: {
+      corFundo: '#0f172a',
+      corPrimaria: '#eab308',
+      corSecundaria: '#334155',
+      corDestaque: '#ef4444',
+      corPrecoDe: '#94a3b8',
+      corPrecoPor: '#fde047',
+      corTexto: '#f8fafc',
+      fonteTitulo: "Impact, 'Arial Black', sans-serif",
+      tituloCampanhaTopo: '⚡ OFERTA RELÂMPAGO EXCLUSIVA',
+      tituloPrincipal: 'OPORTUNIDADE ÚNICA'
+    }
+  }
+};
+
+export const FONTES_DISPONIVEIS = [
+  { id: "Impact, 'Arial Black', sans-serif", nome: 'Impact (Varejo Forte)' },
+  { id: "'Montserrat', 'Arial Black', sans-serif", nome: 'Montserrat (Moderna/Bold)' },
+  { id: "'Poppins', sans-serif", nome: 'Poppins (Geométrica Limpa)' },
+  { id: "'Inter', sans-serif", nome: 'Inter (Alta Legibilidade)' },
+  { id: "'Segoe UI', Arial, sans-serif", nome: 'Segoe UI (Padrão Windows)' }
+];
 
 const IMG_LOGO = '/images/logo-bela-farma.jpg';
 const IMG_PLACEHOLDER = '/images/logo-icon.png';
@@ -101,76 +234,62 @@ async function recortarFundo(url: string): Promise<string> {
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d');
     if (!ctx) return url;
+
     ctx.drawImage(img, 0, 0, W, H);
+    const idata = ctx.getImageData(0, 0, W, H);
+    const d = idata.data;
+    const total = W * H;
 
-    const dados = ctx.getImageData(0, 0, W, H);
-    const px = dados.data;
-
-    const ehFundo = (p: number) => {
-      const i = p * 4;
-      if (px[i + 3] < 16) return true;
-      const r = px[i], g = px[i + 1], b = px[i + 2];
-      return r > 242 && g > 242 && b > 242 && Math.max(r, g, b) - Math.min(r, g, b) < 14;
+    const limiarClaro = (i: number) => {
+      const r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
+      if (a < 30) return true;
+      if (r > 240 && g > 240 && b > 240) return true;
+      const media = (r + g + b) / 3;
+      const maxDiff = Math.max(Math.abs(r - g), Math.abs(r - b), Math.abs(g - b));
+      return media > 220 && maxDiff < 14;
     };
 
-    const removido = new Uint8Array(W * H);
-    const pilha = new Int32Array(W * H);
-    let topo = 0;
-    const empilha = (p: number) => {
-      if (!removido[p] && ehFundo(p)) {
-        removido[p] = 1;
-        pilha[topo++] = p;
-      }
+    const visitado = new Uint8Array(total);
+    const fila = new Int32Array(total);
+    let head = 0, tail = 0;
+
+    const empilhar = (idx: number) => {
+      if (idx < 0 || idx >= total || visitado[idx]) return;
+      visitado[idx] = 1;
+      if (limiarClaro(idx * 4)) fila[tail++] = idx;
     };
 
-    for (let x = 0; x < W; x++) { empilha(x); empilha((H - 1) * W + x); }
-    for (let y = 0; y < H; y++) { empilha(y * W); empilha(y * W + W - 1); }
+    for (let x = 0; x < W; x++) { empilhar(x); empilhar((H - 1) * W + x); }
+    for (let y = 0; y < H; y++) { empilhar(y * W); empilhar(y * W + (W - 1)); }
 
-    while (topo > 0) {
-      const p = pilha[--topo];
-      const x = p % W;
-      const y = (p - x) / W;
-      if (x > 0) empilha(p - 1);
-      if (x < W - 1) empilha(p + 1);
-      if (y > 0) empilha(p - W);
-      if (y < H - 1) empilha(p + W);
+    while (head < tail) {
+      const cur = fila[head++];
+      const cx = cur % W;
+      const cy = (cur / W) | 0;
+      if (cx > 0) empilhar(cur - 1);
+      if (cx < W - 1) empilhar(cur + 1);
+      if (cy > 0) empilhar(cur - W);
+      if (cy < H - 1) empilhar(cur + W);
     }
 
-    let totalRemovido = 0;
-    for (let p = 0; p < W * H; p++) if (removido[p]) totalRemovido++;
-    const fracao = totalRemovido / (W * H);
-    // Imagem quase toda branca (ou nada removido): não é seguro recortar.
-    if (fracao > 0.97) return url;
+    const removidos = tail;
+    if (removidos < total * 0.03 || removidos > total * 0.94) return url;
 
-    // Suaviza a borda: pixels claros vizinhos ao fundo removido ficam semitransparentes
-    const borda: number[] = [];
-    for (let p = 0; p < W * H; p++) {
-      if (removido[p]) continue;
-      const x = p % W;
-      const y = (p - x) / W;
-      if (
-        (x > 0 && removido[p - 1]) || (x < W - 1 && removido[p + 1]) ||
-        (y > 0 && removido[p - W]) || (y < H - 1 && removido[p + W])
-      ) borda.push(p);
-    }
-    for (let p = 0; p < W * H; p++) if (removido[p]) px[p * 4 + 3] = 0;
-    for (const p of borda) {
-      const i = p * 4;
-      const claro = Math.min(px[i], px[i + 1], px[i + 2]);
-      if (claro > 205) {
-        const a = 255 * (1 - (claro - 205) / 50);
-        px[i + 3] = Math.max(0, Math.min(255, a));
+    for (let i = 0; i < total; i++) {
+      if (visitado[i]) {
+        const off = i * 4;
+        d[off] = 0; d[off + 1] = 0; d[off + 2] = 0; d[off + 3] = 0;
       }
     }
-    ctx.putImageData(dados, 0, 0);
+    ctx.putImageData(idata, 0, 0);
 
-    // Recorta o excesso transparente
     let minX = W, minY = H, maxX = 0, maxY = 0;
+    const finalData = ctx.getImageData(0, 0, W, H).data;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        if (px[(y * W + x) * 4 + 3] > 24) {
+        if (finalData[(y * W + x) * 4 + 3] > 10) {
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
@@ -178,18 +297,27 @@ async function recortarFundo(url: string): Promise<string> {
         }
       }
     }
-    if (maxX <= minX || maxY <= minY) return url;
-    const pad = 3;
-    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
-    maxX = Math.min(W - 1, maxX + pad); maxY = Math.min(H - 1, maxY + pad);
 
-    const saida = document.createElement('canvas');
-    saida.width = maxX - minX + 1;
-    saida.height = maxY - minY + 1;
-    saida.getContext('2d')!.drawImage(canvas, minX, minY, saida.width, saida.height, 0, 0, saida.width, saida.height);
-    return saida.toDataURL('image/png');
-  } catch (e) {
-    return url; // CORS/arquivo inválido: usa a imagem original
+    if (minX > maxX || minY > maxY) return url;
+
+    const pad = 4;
+    minX = Math.max(0, minX - pad);
+    minY = Math.max(0, minY - pad);
+    maxX = Math.min(W - 1, maxX + pad);
+    maxY = Math.min(H - 1, maxY + pad);
+    const cropW = maxX - minX + 1;
+    const cropH = maxY - minY + 1;
+
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = cropW;
+    cropCanvas.height = cropH;
+    const cctx = cropCanvas.getContext('2d');
+    if (!cctx) return url;
+
+    cctx.drawImage(canvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+    return cropCanvas.toDataURL('image/png');
+  } catch {
+    return url;
   }
 }
 
@@ -197,47 +325,63 @@ export function prepararImagem(url?: string): Promise<string> {
   if (!url) return Promise.resolve('');
   if (cacheImagens.has(url)) return Promise.resolve(cacheImagens.get(url)!);
   if (pendentes.has(url)) return pendentes.get(url)!;
-  const promessa = recortarFundo(url).then(res => {
-    cacheImagens.set(url, res);
-    pendentes.delete(url);
-    return res;
-  });
-  pendentes.set(url, promessa);
-  return promessa;
+
+  const p = recortarFundo(url)
+    .then(res => {
+      cacheImagens.set(url, res);
+      pendentes.delete(url);
+      return res;
+    })
+    .catch(() => {
+      cacheImagens.set(url, url);
+      pendentes.delete(url);
+      return url;
+    });
+
+  pendentes.set(url, p);
+  return p;
 }
 
-/** Processa (em lotes) todas as fotos dos itens + a figura de apoio. */
-export async function prepararImagensArte(itens: ItemArte[], incluirFigura = true): Promise<void> {
+export async function prepararImagensArte(itens: ItemArte[]): Promise<void> {
   const urls = Array.from(new Set(itens.map(i => i.imagem_url).filter(Boolean) as string[]));
-  if (incluirFigura) urls.push(IMG_FIGURA);
   for (let i = 0; i < urls.length; i += 6) {
     await Promise.all(urls.slice(i, i + 6).map(u => prepararImagem(u)));
   }
+  await prepararImagem(IMG_FIGURA);
 }
 
-// ─── HELPERS DE MARCAÇÃO ──────────────────────────────────────────────────────
-const esc = (s: string = '') =>
-  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// ─── AUXILIARES DE FORMATAÇÃO E CÁLCULO ─────────────────────────────────────────
+const esc = (s = '') =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const brl = (v: number) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
+const brl = (v: number) =>
+  (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const calc = (it: ItemArte) => {
   const promo = Number(it.preco_promocional) || 0;
-  const normal = Number(it.preco_normal) > 0 ? Number(it.preco_normal) : promo;
-  const pct = it.desconto_percentual || (normal > 0 ? Math.round(((normal - promo) / normal) * 100) : 0);
-  return { promo, normal, pct: Math.max(0, pct), eco: Math.max(0, normal - promo) };
+  const normal = Number(it.preco_normal) || promo;
+  let pct = Math.round(Number(it.desconto_percentual) || 0);
+  if (pct <= 0 && normal > promo && normal > 0) {
+    pct = Math.round(((normal - promo) / normal) * 100);
+  }
+  const eco = normal > promo ? normal - promo : 0;
+  return { promo, normal, pct, eco };
 };
 
-/** Preço no estilo varejo: R$ pequeno, reais grandes, centavos elevados. */
-const precoHtml = (v: number, big: number, cor: string) => {
-  const [reais, cents] = (v || 0).toFixed(2).split('.');
-  return `<div style="display:flex;align-items:flex-start;justify-content:center;line-height:1;color:${cor};font-family:${FONT_TITULO};">
-    <span style="font-size:${Math.round(big * 0.3)}px;margin-top:${Math.round(big * 0.14)}px;margin-right:3px;font-family:${FONT_CORPO};font-weight:900;">R$</span>
-    <span style="font-size:${big}px;letter-spacing:-1px;">${reais}</span>
-    <span style="font-size:${Math.round(big * 0.42)}px;margin-top:${Math.round(big * 0.1)}px;font-family:${FONT_CORPO};font-weight:900;">,${cents}</span>
-  </div>`;
+const precoHtml = (valor: number, fontSize: number, corNum = '#ffffff') => {
+  const [inteiro, centavos = '00'] = (valor || 0).toFixed(2).split('.');
+  const fsInt = fontSize;
+  const fsCents = Math.round(fontSize * 0.44);
+  const fsCifrao = Math.round(fontSize * 0.34);
+  return `
+    <span style="display:inline-flex;align-items:flex-start;line-height:0.9;font-family:Impact, 'Arial Black', sans-serif;font-weight:900;color:${corNum};">
+      <span style="font-size:${fsCifrao}px;margin-top:${Math.round(fontSize * 0.08)}px;margin-right:2px;opacity:0.92;">R$</span>
+      <span style="font-size:${fsInt}px;letter-spacing:-1px;">${inteiro}</span>
+      <span style="font-size:${fsCents}px;margin-top:${Math.round(fontSize * 0.06)}px;margin-left:1px;text-decoration:underline;text-underline-offset:2px;">,${centavos}</span>
+    </span>`;
 };
 
+// ─── BLOCOS GRÁFICOS SVG E COMPONENTES VISUAIS ────────────────────────────────
 const burst = (s: number, fill: string, stroke: string, spikes = 16) => {
   let pts = '';
   for (let i = 0; i < spikes * 2; i++) {
@@ -248,14 +392,13 @@ const burst = (s: number, fill: string, stroke: string, spikes = 16) => {
   return `<svg width="${s}" height="${s}" viewBox="0 0 100 100" style="position:absolute;left:0;top:0;"><polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="3" stroke-linejoin="round"/></svg>`;
 };
 
-/** Selo de desconto (estrela de 16 pontas, vermelho vivo com contorno amarelo). */
-const seloDesconto = (pct: number, size: number) => {
+const seloDesconto = (pct: number, size: number, corFundo: string, corBorda: string, corOff: string, fontTitulo: string, fontCorpo: string) => {
   if (pct <= 0) return '';
   return `<div style="position:relative;width:${size}px;height:${size}px;flex:none;">
-    ${burst(size, COR.vermelho, COR.amarelo)}
-    <div style="position:absolute;left:0;top:0;width:${size}px;height:${size}px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:${FONT_TITULO};line-height:.95;">
+    ${burst(size, corFundo, corBorda)}
+    <div style="position:absolute;left:0;top:0;width:${size}px;height:${size}px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:${fontTitulo};line-height:.95;">
       <span style="font-size:${Math.round(size * 0.3)}px;">-${pct}%</span>
-      <span style="font-size:${Math.round(size * 0.16)}px;letter-spacing:1px;color:${COR.amareloClaro};font-family:${FONT_CORPO};font-weight:900;">OFF</span>
+      <span style="font-size:${Math.round(size * 0.16)}px;letter-spacing:1px;color:${corOff};font-family:${fontCorpo};font-weight:900;">OFF</span>
     </div>
   </div>`;
 };
@@ -263,39 +406,40 @@ const seloDesconto = (pct: number, size: number) => {
 const sombraChao = (altura: number) =>
   `<div style="position:absolute;left:15%;bottom:0;width:70%;height:${altura}px;background:radial-gradient(ellipse at center, rgba(15,23,42,0.32) 0%, rgba(15,23,42,0) 70%);"></div>`;
 
-const imgProduto = (it: ItemArte, estilo = '') => {
-  const src = getImagemPronta(it.imagem_url);
+const imgProduto = (it: ItemArte, estilo = '', usarRecorte = true, zoom = 1, offsetY = 0) => {
+  const src = usarRecorte ? getImagemPronta(it.imagem_url) : (it.imagem_url || '');
+  const transform = `transform: scale(${zoom}) translateY(${offsetY}px); transform-origin: center bottom;`;
   if (!src) {
-    return `<img src="${IMG_PLACEHOLDER}" style="position:absolute;left:18%;top:18%;width:64%;height:64%;object-fit:contain;opacity:0.35;${estilo}" />`;
+    return `<img src="${IMG_PLACEHOLDER}" style="position:absolute;left:18%;top:18%;width:64%;height:64%;object-fit:contain;opacity:0.35;${transform}${estilo}" />`;
   }
-  return `<img src="${esc(src)}" style="position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;${estilo}" />`;
+  return `<img src="${esc(src)}" style="position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;${transform}${estilo}" />`;
 };
 
-const ondaTopo = (W: number, H: number, id: string) => `
+const ondaTopo = (W: number, H: number, id: string, c1: string, c2: string, cAcento: string) => `
   <svg width="${W}" height="${H}" viewBox="0 0 800 300" preserveAspectRatio="none" style="position:absolute;left:0;top:0;">
     <defs>
       <linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stop-color="${COR.vermelhoEscuro}"/>
-        <stop offset="0.6" stop-color="${COR.vermelho}"/>
-        <stop offset="1" stop-color="${COR.azulEscuro}"/>
+        <stop offset="0" stop-color="${c1}"/>
+        <stop offset="0.6" stop-color="${c1}"/>
+        <stop offset="1" stop-color="${c2}"/>
       </linearGradient>
     </defs>
     <path d="M0 0H800V225C650 292 470 205 305 248C185 280 85 252 0 276Z" fill="url(#${id})"/>
-    <path d="M0 286C125 254 205 288 335 254C470 216 655 300 800 236V252C655 316 472 232 338 270C205 302 112 274 0 302Z" fill="${COR.azulEscuro}"/>
-    <path d="M0 270C120 240 200 272 330 240C470 204 650 286 800 224" fill="none" stroke="${COR.amarelo}" stroke-width="3"/>
+    <path d="M0 286C125 254 205 288 335 254C470 216 655 300 800 236V252C655 316 472 232 338 270C205 302 112 274 0 302Z" fill="${c2}"/>
+    <path d="M0 270C120 240 200 272 330 240C470 204 650 286 800 224" fill="none" stroke="${cAcento}" stroke-width="3"/>
   </svg>`;
 
-const ondaBase = (W: number, H: number, id: string) => `
+const ondaBase = (W: number, H: number, id: string, c1: string, c2: string, cAcento: string) => `
   <svg width="${W}" height="${H}" viewBox="0 0 800 160" preserveAspectRatio="none" style="position:absolute;left:0;top:0;">
     <defs>
       <linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stop-color="${COR.vermelhoEscuro}"/>
-        <stop offset="0.55" stop-color="${COR.vermelho}"/>
-        <stop offset="1" stop-color="${COR.azulEscuro}"/>
+        <stop offset="0" stop-color="${c1}"/>
+        <stop offset="0.55" stop-color="${c1}"/>
+        <stop offset="1" stop-color="${c2}"/>
       </linearGradient>
     </defs>
     <path d="M0 40C150 0 300 62 470 26C620 -4 720 32 800 10V160H0Z" fill="url(#${id})"/>
-    <path d="M0 36C150 -4 300 58 470 22C620 -8 720 28 800 6" fill="none" stroke="${COR.amarelo}" stroke-width="3"/>
+    <path d="M0 36C150 -4 300 58 470 22C620 -8 720 28 800 6" fill="none" stroke="${cAcento}" stroke-width="3"/>
   </svg>`;
 
 const placaLogo = (w: number, h: number, left: number, top: number) => `
@@ -303,23 +447,23 @@ const placaLogo = (w: number, h: number, left: number, top: number) => `
     <img src="${IMG_LOGO}" style="width:100%;height:100%;object-fit:contain;" />
   </div>`;
 
-const faixaValidade = (periodo: PeriodoArte, W: number, top: number, fs: number, h: number) => `
-  <div style="position:absolute;left:${Math.round(W * 0.05)}px;top:${top}px;width:${Math.round(W * 0.9)}px;height:${h}px;background:${COR.amarelo};border-radius:${h}px;box-shadow:0 4px 10px rgba(11,31,71,0.3);display:flex;align-items:center;justify-content:center;color:${COR.azulProfundo};font-family:${FONT_CORPO};font-weight:900;font-size:${fs}px;letter-spacing:0.3px;text-align:center;white-space:nowrap;">
+const faixaValidade = (periodo: PeriodoArte, W: number, top: number, fs: number, h: number, corFundo: string, corTexto: string, fontCorpo: string) => `
+  <div style="position:absolute;left:${Math.round(W * 0.05)}px;top:${top}px;width:${Math.round(W * 0.9)}px;height:${h}px;background:${corFundo};border-radius:${h}px;box-shadow:0 4px 10px rgba(11,31,71,0.3);display:flex;align-items:center;justify-content:center;color:${corTexto};font-family:${fontCorpo};font-weight:900;font-size:${fs}px;letter-spacing:0.3px;text-align:center;white-space:nowrap;">
     OFERTAS VÁLIDAS DE ${periodo.inicio} A ${periodo.termino} OU ENQUANTO DURAR O ESTOQUE
   </div>`;
 
-const tituloPromo = (fsTopo: number, fsTitulo: number) => `
-  <div style="font-family:${FONT_TITULO};text-align:left;line-height:0.95;">
-    <div style="font-size:${fsTopo}px;color:#fff;letter-spacing:3px;text-shadow:2px 2px 0 ${COR.azulProfundo};">${esc(LOJA.tituloTopo)}</div>
-    <div style="font-size:${fsTitulo}px;color:${COR.amarelo};letter-spacing:1px;font-style:italic;text-shadow:3px 3px 0 ${COR.azulEscuro}, 5px 5px 0 ${COR.azulProfundo}, 0 9px 14px rgba(0,0,0,0.35);">${esc(LOJA.titulo)}</div>
+const tituloPromo = (fsTopo: number, fsTitulo: number, textoTopo: string, textoPrincipal: string, corDestaque: string, corSecundaria: string, fontTitulo: string) => `
+  <div style="font-family:${fontTitulo};text-align:left;line-height:0.95;">
+    <div style="font-size:${fsTopo}px;color:#fff;letter-spacing:3px;text-shadow:2px 2px 0 ${corSecundaria};">${esc(textoTopo)}</div>
+    <div style="font-size:${fsTitulo}px;color:${corDestaque};letter-spacing:1px;font-style:italic;text-shadow:3px 3px 0 ${corSecundaria}, 5px 5px 0 #0b1f47, 0 9px 14px rgba(0,0,0,0.35);">${esc(textoPrincipal)}</div>
   </div>`;
 
-const fitaCampanha = (fs: number, pad: string) => `
-  <div style="display:inline-block;background:${COR.azulProfundo};color:${COR.amarelo};font-family:${FONT_CORPO};font-weight:900;font-size:${fs}px;letter-spacing:0.6px;padding:${pad};border-radius:6px;border-left:5px solid ${COR.amarelo};white-space:nowrap;">${esc(LOJA.campanha)}</div>`;
+const fitaCampanha = (fs: number, pad: string, texto: string, corFundo: string, corTexto: string, corBorda: string, fontCorpo: string) => `
+  <div style="display:inline-block;background:${corFundo};color:${corTexto};font-family:${fontCorpo};font-weight:900;font-size:${fs}px;letter-spacing:0.6px;padding:${pad};border-radius:6px;border-left:5px solid ${corBorda};white-space:nowrap;">${esc(texto)}</div>`;
 
-const rodapeHtml = (W: number, H: number, id: string, fs: number, extraDireita = '') => {
+const rodapeHtml = (W: number, H: number, id: string, fs: number, extraDireita = '', c1: string, c2: string, cAcento: string, fontCorpo: string) => {
   const linhas: string[] = [];
-  const contato = `<span style="font-size:${Math.round(fs * 1.55)}px;font-weight:900;color:${COR.amarelo};">🛵 WHATSAPP ${esc(LOJA.whatsapp)}</span><span style="margin-left:10px;font-weight:800;">ENTREGA RÁPIDA${LOJA.site ? ' • ' + esc(LOJA.site) : ''}</span>`;
+  const contato = `<span style="font-size:${Math.round(fs * 1.55)}px;font-weight:900;color:${cAcento};">🛵 WHATSAPP ${esc(LOJA.whatsapp)}</span><span style="margin-left:10px;font-weight:800;">ENTREGA RÁPIDA${LOJA.site ? ' • ' + esc(LOJA.site) : ''}</span>`;
   linhas.push(`<div style="white-space:nowrap;">${contato}</div>`);
   const loc = [`📍 ${esc(LOJA.endereco)}`, LOJA.horario ? `🕒 ${esc(LOJA.horario)}` : ''].filter(Boolean).join('  |  ');
   linhas.push(`<div style="white-space:nowrap;font-weight:800;">${loc}</div>`);
@@ -327,48 +471,58 @@ const rodapeHtml = (W: number, H: number, id: string, fs: number, extraDireita =
   linhas.push(`<div style="white-space:nowrap;font-size:${Math.round(fs * 0.74)}px;opacity:0.85;">${esc(LOJA.aviso)}</div>`);
   return `
     <div style="position:absolute;left:0;bottom:0;width:${W}px;height:${H}px;">
-      ${ondaBase(W, H, id)}
-      <div style="position:absolute;left:0;right:0;bottom:${Math.round(H * 0.07)}px;text-align:center;color:#fff;font-family:${FONT_CORPO};font-size:${fs}px;line-height:1.38;">
+      ${ondaBase(W, H, id, c1, c2, cAcento)}
+      <div style="position:absolute;left:0;right:0;bottom:${Math.round(H * 0.07)}px;text-align:center;color:#fff;font-family:${fontCorpo};font-size:${fs}px;line-height:1.38;">
         ${linhas.join('')}
       </div>
     </div>`;
 };
 
 // ─── ARTE UNITÁRIA (STORY 9:16 / FEED 4:5) ────────────────────────────────────
-export function htmlArteUnitaria(item: ItemArte, formato: FormatoUnitario, periodo: PeriodoArte): string {
+export function htmlArteUnitaria(
+  item: ItemArte,
+  formato: FormatoUnitario,
+  periodo: PeriodoArte,
+  estiloCustom?: Partial<EstiloArte>
+): string {
+  const e: EstiloArte = { ...ESTILO_PADRAO, ...estiloCustom };
   const { w: W, h: H } = DIMENSOES_UNITARIO[formato];
   const story = formato === 'story';
   const { promo, normal, pct, eco } = calc(item);
 
   const headerH = story ? 285 : 195;
-  const footerH = story ? 170 : 128;
+  const footerH = e.exibirRodape ? (story ? 170 : 128) : 20;
   const bodyTop = headerH + (story ? 22 : 18);
   const bodyH = H - bodyTop - footerH + (story ? 6 : 4);
 
+  const fsTopo = Math.round((story ? 30 : 22) * e.tamanhoTituloMultiplicador);
+  const fsPrincipal = Math.round((story ? 70 : 52) * e.tamanhoTituloMultiplicador);
+
   const header = story
-    ? `${ondaTopo(W, headerH, 'gHu')}
-       ${placaLogo(168, 84, 24, 20)}
-       <div style="position:absolute;left:214px;top:34px;">${fitaCampanha(11, '5px 10px')}</div>
-       <div style="position:absolute;left:30px;top:118px;">${tituloPromo(30, 70)}</div>
-       ${faixaValidade(periodo, W, headerH - 38, 11.5, 36)}`
-    : `${ondaTopo(W, headerH, 'gHu')}
-       ${placaLogo(130, 65, 22, 14)}
-       <div style="position:absolute;left:170px;top:26px;">${fitaCampanha(9.5, '4px 8px')}</div>
-       <div style="position:absolute;left:28px;top:84px;">${tituloPromo(22, 52)}</div>
-       ${faixaValidade(periodo, W, headerH - 32, 10.5, 30)}`;
+    ? `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
+       ${e.exibirLogo ? placaLogo(168, 84, 24, 20) : ''}
+       <div style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+       <div style="position:absolute;left:30px;top:118px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
+       ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 38, 11.5, 36, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`
+    : `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
+       ${e.exibirLogo ? placaLogo(130, 65, 22, 14) : ''}
+       <div style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+       <div style="position:absolute;left:28px;top:84px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
+       ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`;
 
   const nomeBloco = `
-    <div style="font-family:${FONT_CORPO};font-weight:900;color:${COR.azulEscuro};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${story ? 25 : 20}px;line-height:1.15;max-height:${story ? 58 : 46}px;overflow:hidden;">${esc(item.descricao)}</div>
-    ${item.apresentacao ? `<div style="font-family:${FONT_CORPO};font-weight:700;color:${COR.cinza};text-align:${story ? 'center' : 'left'};font-size:${story ? 15 : 13}px;margin-top:3px;white-space:nowrap;overflow:hidden;">${esc(item.apresentacao)}</div>` : ''}`;
+    <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${story ? 25 : 20}px;line-height:1.15;max-height:${story ? 58 : 46}px;overflow:hidden;">${esc(item.descricao)}</div>
+    ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 15 : 13}px;margin-top:3px;white-space:nowrap;overflow:hidden;">${esc(item.apresentacao)}</div>` : ''}`;
 
+  const tamPreco = Math.round((story ? 86 : 56) * e.tamanhoPrecoMultiplicador);
   const badgePreco = `
-    <div style="position:relative;width:${story ? 430 : 270}px;background:linear-gradient(160deg, ${COR.azul} 0%, ${COR.azulProfundo} 100%);border-radius:${story ? 26 : 20}px;padding:${story ? '12px 20px 22px' : '9px 14px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${COR.amarelo};">
-      ${normal > promo ? `<div style="font-family:${FONT_CORPO};font-weight:800;color:#cfe0ff;font-size:${story ? 17 : 13}px;text-decoration:line-through;">DE ${brl(normal)}</div>` : ''}
+    <div style="position:relative;width:${story ? 430 : 270}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #0b1f47 100%);border-radius:${story ? 26 : 20}px;padding:${story ? '12px 20px 22px' : '9px 14px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};">
+      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 17 : 13}px;text-decoration:line-through;">DE ${brl(normal)}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;">
-        <span style="font-family:${FONT_CORPO};font-weight:900;color:${COR.amarelo};font-size:${story ? 22 : 16}px;">POR</span>
-        ${precoHtml(promo, story ? 86 : 56, '#ffffff')}
+        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 22 : 16}px;">POR</span>
+        ${precoHtml(promo, tamPreco, e.corPrecoPor)}
       </div>
-      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-15px;margin-left:${story ? -110 : -80}px;width:${story ? 220 : 160}px;height:${story ? 30 : 24}px;background:${COR.amarelo};color:${COR.azulProfundo};border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${FONT_CORPO};font-weight:900;font-size:${story ? 14 : 11}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
+      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-15px;margin-left:${story ? -110 : -80}px;width:${story ? 220 : 160}px;height:${story ? 30 : 24}px;background:${e.corDestaque};color:#0b1f47;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 14 : 11}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
     </div>`;
 
   const stageW = story ? 300 : 232;
@@ -376,9 +530,11 @@ export function htmlArteUnitaria(item: ItemArte, formato: FormatoUnitario, perio
   const palco = `
     <div style="position:relative;width:${stageW}px;height:${stageH}px;flex:none;">
       <div style="position:absolute;left:50%;top:50%;width:${stageW - 20}px;height:${stageW - 20}px;margin-left:${-(stageW - 20) / 2}px;margin-top:${-(stageW - 20) / 2 - 6}px;border-radius:50%;background:radial-gradient(circle at 50% 45%, #ffffff 0%, #e6efff 62%, rgba(230,239,255,0) 72%);"></div>
-      <div style="position:absolute;left:${story ? 22 : 14}px;top:${story ? 8 : 10}px;right:${story ? 22 : 14}px;bottom:${story ? 22 : 20}px;">${imgProduto(item)}</div>
-      <div style="position:absolute;left:0;right:0;bottom:0;height:24px;">${sombraChao(22)}</div>
-      <div style="position:absolute;right:${story ? -34 : -26}px;top:${story ? -4 : 0}px;">${seloDesconto(pct, story ? 112 : 88)}</div>
+      <div style="position:absolute;left:${story ? 22 : 14}px;top:${story ? 8 : 10}px;right:${story ? 22 : 14}px;bottom:${story ? 22 : 20}px;">
+        ${imgProduto(item, '', e.usarRecorteTransparente, e.zoomProduto, e.offsetYProduto)}
+      </div>
+      ${e.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:24px;">${sombraChao(22)}</div>` : ''}
+      ${e.exibirSeloDesconto ? `<div style="position:absolute;right:${story ? -34 : -26}px;top:${story ? -4 : 0}px;">${seloDesconto(pct, story ? 112 : 88, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
     </div>`;
 
   const corpo = story
@@ -396,38 +552,38 @@ export function htmlArteUnitaria(item: ItemArte, formato: FormatoUnitario, perio
        </div>`;
 
   return `
-    <div style="position:relative;width:${W}px;height:${H}px;background:#ffffff;overflow:hidden;font-family:${FONT_CORPO};box-sizing:border-box;">
+    <div style="position:relative;width:${W}px;height:${H}px;background:${e.corFundo};overflow:hidden;font-family:${e.fonteCorpo};box-sizing:border-box;">
       <div style="position:absolute;right:-90px;top:${headerH}px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle, rgba(31,79,168,0.08) 0%, rgba(31,79,168,0) 70%);"></div>
       <div style="position:absolute;left:-80px;top:${H - footerH - 300}px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle, rgba(214,25,43,0.07) 0%, rgba(214,25,43,0) 70%);"></div>
       ${header}
       ${corpo}
-      ${rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5)}
+      ${e.exibirRodape ? rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5, '', e.corPrimaria, e.corSecundaria, e.corDestaque, e.fonteCorpo) : ''}
     </div>`;
 }
 
 // ─── ENCARTE TABLOIDE A4 ──────────────────────────────────────────────────────
-interface OpcoesCard { estrela: boolean; k: number }
+interface OpcoesCard { estrela: boolean; k: number; estilo: EstiloArte }
 
-const cardProduto = (it: ItemArte, { estrela, k }: OpcoesCard, extraStyle = '') => {
+const cardProduto = (it: ItemArte, { estrela, k, estilo }: OpcoesCard, extraStyle = '') => {
   const { promo, normal, pct } = calc(it);
-  const bordaEstrela = estrela ? `border:3px solid ${COR.amarelo};box-shadow:0 8px 22px rgba(214,25,43,0.28);` : 'box-shadow:0 4px 14px rgba(18,48,107,0.14);';
+  const bordaEstrela = estrela ? `border:3px solid ${estilo.corDestaque};box-shadow:0 8px 22px rgba(214,25,43,0.28);` : 'box-shadow:0 4px 14px rgba(18,48,107,0.14);';
   const nomeFs = Math.round(11.5 * k);
   const nomeLh = Math.round(nomeFs * 1.18);
   return `
     <div style="position:relative;min-height:0;min-width:0;background:#fff;border-radius:${estrela ? 22 : 16}px;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;${bordaEstrela}${extraStyle}">
-      ${estrela ? `<div style="position:absolute;left:0;top:0;right:0;height:${Math.round(22 * k * 0.85)}px;background:linear-gradient(90deg, ${COR.vermelho}, ${COR.vermelhoEscuro});color:${COR.amarelo};font-family:${FONT_TITULO};font-size:${Math.round(14 * k * 0.85)}px;letter-spacing:2px;display:flex;align-items:center;justify-content:center;z-index:3;">★ SUPER OFERTA ★</div>` : ''}
-      <div style="position:absolute;right:${Math.round(4 * k)}px;top:${estrela ? Math.round(26 * k) : 4}px;z-index:4;">${seloDesconto(pct, Math.round(44 * k))}</div>
+      ${estrela ? `<div style="position:absolute;left:0;top:0;right:0;height:${Math.round(22 * k * 0.85)}px;background:linear-gradient(90deg, ${estilo.corPrimaria}, #a50f20);color:${estilo.corDestaque};font-family:${estilo.fonteTitulo};font-size:${Math.round(14 * k * 0.85)}px;letter-spacing:2px;display:flex;align-items:center;justify-content:center;z-index:3;">★ SUPER OFERTA ★</div>` : ''}
+      ${estilo.exibirSeloDesconto ? `<div style="position:absolute;right:${Math.round(4 * k)}px;top:${estrela ? Math.round(26 * k) : 4}px;z-index:4;">${seloDesconto(pct, Math.round(44 * k), estilo.corPrimaria, estilo.corDestaque, '#ffe27a', estilo.fonteTitulo, estilo.fonteCorpo)}</div>` : ''}
       <div style="position:relative;flex:1;min-height:0;margin:${estrela ? Math.round(24 * k) : 8}px 8px 4px;">
-        ${imgProduto(it)}
-        <div style="position:absolute;left:0;right:0;bottom:0;height:12px;">${sombraChao(10)}</div>
+        ${imgProduto(it, '', estilo.usarRecorteTransparente, estilo.zoomProduto, estilo.offsetYProduto)}
+        ${estilo.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:12px;">${sombraChao(10)}</div>` : ''}
       </div>
-      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${FONT_CORPO};font-weight:900;color:${COR.azulEscuro};text-transform:uppercase;font-size:${nomeFs}px;line-height:${nomeLh}px;height:${nomeLh * 2}px;overflow:hidden;">${esc(it.descricao)}</div>
-      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${FONT_CORPO};font-weight:700;color:${COR.cinza};font-size:${Math.round(9.5 * k)}px;height:${Math.round(13 * k)}px;line-height:${Math.round(13 * k)}px;white-space:nowrap;overflow:hidden;">${esc(it.apresentacao || '')}</div>
-      <div style="margin-top:4px;background:linear-gradient(160deg, ${COR.azul} 0%, ${COR.azulProfundo} 100%);border-top:3px solid ${COR.amarelo};padding:${Math.round(4 * k)}px 4px ${Math.round(6 * k)}px;text-align:center;">
-        ${normal > promo ? `<div style="font-family:${FONT_CORPO};font-weight:800;color:#cfe0ff;font-size:${Math.round(9.5 * k)}px;text-decoration:line-through;line-height:1.2;">DE ${brl(normal)}</div>` : ''}
+      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:900;color:${estilo.corTexto};text-transform:uppercase;font-size:${nomeFs}px;line-height:${nomeLh}px;height:${nomeLh * 2}px;overflow:hidden;">${esc(it.descricao)}</div>
+      <div style="padding:0 ${Math.round(7 * k)}px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:700;color:#64748b;font-size:${Math.round(9.5 * k)}px;height:${Math.round(13 * k)}px;line-height:${Math.round(13 * k)}px;white-space:nowrap;overflow:hidden;">${esc(it.apresentacao || '')}</div>
+      <div style="margin-top:4px;background:linear-gradient(160deg, ${estilo.corSecundaria} 0%, #0b1f47 100%);border-top:3px solid ${estilo.corDestaque};padding:${Math.round(4 * k)}px 4px ${Math.round(6 * k)}px;text-align:center;">
+        ${normal > promo ? `<div style="font-family:${estilo.fonteCorpo};font-weight:800;color:${estilo.corPrecoDe};font-size:${Math.round(9.5 * k)}px;text-decoration:line-through;line-height:1.2;">DE ${brl(normal)}</div>` : ''}
         <div style="display:flex;align-items:center;justify-content:center;gap:5px;">
-          <span style="font-family:${FONT_CORPO};font-weight:900;color:${COR.amarelo};font-size:${Math.round(11 * k)}px;">POR</span>
-          ${precoHtml(promo, Math.round(34 * k), '#ffffff')}
+          <span style="font-family:${estilo.fonteCorpo};font-weight:900;color:${estilo.corDestaque};font-size:${Math.round(11 * k)}px;">POR</span>
+          ${precoHtml(promo, Math.round(34 * k * estilo.tamanhoPrecoMultiplicador), estilo.corPrecoPor)}
         </div>
       </div>
     </div>`;
@@ -438,17 +594,19 @@ export function htmlPaginaEncarte(
   paginaNum: number,
   totalPaginas: number,
   periodo: PeriodoArte,
-  colunas: 3 | 4 = 4
+  colunas: 3 | 4 = 4,
+  estiloCustom?: Partial<EstiloArte>
 ): string {
+  const estilo: EstiloArte = { ...ESTILO_PADRAO, ...estiloCustom };
   const { w: W, h: H } = DIMENSOES_A4;
   const primeira = paginaNum === 1;
   const headerH = primeira ? 300 : 150;
-  const footerH = 132;
+  const footerH = estilo.exibirRodape ? 132 : 20;
   const margem = 26;
   const bodyTop = headerH + 8;
   const bodyH = H - bodyTop - footerH + 2;
 
-  // Produto Estrela: maior desconto da página (prefere os que têm foto)
+  // Produto Estrela: maior desconto da página
   const n = itensPagina.length;
   const temEstrela = n >= colunas + 1;
   let idxEstrela = -1;
@@ -471,39 +629,42 @@ export function htmlPaginaEncarte(
   const cards = ordenados
     .map((it, i) => {
       if (temEstrela && i === 0) {
-        return cardProduto(it, { estrela: true, k: kBase * 1.6 }, 'grid-column:span 2;grid-row:span 2;');
+        return cardProduto(it, { estrela: true, k: kBase * 1.6, estilo }, 'grid-column:span 2;grid-row:span 2;');
       }
       const ultimo = i === ordenados.length - 1 && faltam > 0;
-      return cardProduto(it, { estrela: false, k: kBase }, ultimo ? `grid-column:span ${1 + faltam};` : '');
+      return cardProduto(it, { estrela: false, k: kBase, estilo }, ultimo ? `grid-column:span ${1 + faltam};` : '');
     })
     .join('');
 
   const figura = getImagemPronta(IMG_FIGURA) || IMG_FIGURA;
 
+  const fsTopo = Math.round(38 * estilo.tamanhoTituloMultiplicador);
+  const fsPrincipal = Math.round(82 * estilo.tamanhoTituloMultiplicador);
+
   const header = primeira
-    ? `${ondaTopo(W, headerH, 'gHe')}
-       ${placaLogo(190, 95, 26, 20)}
-       <div style="position:absolute;left:232px;top:38px;">${fitaCampanha(11.5, '6px 12px')}</div>
-       <div style="position:absolute;left:30px;top:126px;">${tituloPromo(38, 82)}</div>
-       <div style="position:absolute;left:${W - 236}px;top:14px;width:208px;height:208px;border-radius:50%;background:linear-gradient(160deg, #3b6fd0 0%, ${COR.azulProfundo} 100%);border:5px solid ${COR.amarelo};box-shadow:0 8px 18px rgba(11,31,71,0.4);overflow:hidden;">
+    ? `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
+       ${estilo.exibirLogo ? placaLogo(190, 95, 26, 20) : ''}
+       <div style="position:absolute;left:${estilo.exibirLogo ? 232 : 26}px;top:38px;">${fitaCampanha(11.5, '6px 12px', estilo.tituloCampanhaTopo, estilo.corSecundaria, estilo.corDestaque, estilo.corDestaque, estilo.fonteCorpo)}</div>
+       <div style="position:absolute;left:30px;top:126px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, estilo.tituloPrincipal, estilo.corDestaque, estilo.corSecundaria, estilo.fonteTitulo)}</div>
+       ${estilo.exibirFarmaceutica ? `<div style="position:absolute;left:${W - 236}px;top:14px;width:208px;height:208px;border-radius:50%;background:linear-gradient(160deg, #3b6fd0 0%, #0b1f47 100%);border:5px solid ${estilo.corDestaque};box-shadow:0 8px 18px rgba(11,31,71,0.4);overflow:hidden;">
          <img src="${esc(figura)}" style="position:absolute;left:-14px;bottom:-8px;width:236px;height:290px;object-fit:cover;object-position:50% 12%;" onerror="this.style.display='none'" />
-       </div>
-       ${faixaValidade(periodo, W, headerH - 40, 13, 38)}`
-    : `${ondaTopo(W, headerH, 'gHe')}
-       ${placaLogo(128, 64, 24, 14)}
-       <div style="position:absolute;left:176px;top:16px;">${tituloPromo(20, 50)}</div>
-       <div style="position:absolute;right:26px;top:26px;">${fitaCampanha(10, '5px 10px')}</div>
-       ${faixaValidade(periodo, W, headerH - 33, 11.5, 30)}`;
+       </div>` : ''}
+       ${estilo.exibirValidade ? faixaValidade(periodo, W, headerH - 40, 13, 38, estilo.corDestaque, '#0b1f47', estilo.fonteCorpo) : ''}`
+    : `${ondaTopo(W, headerH, 'gHe', estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque)}
+       ${estilo.exibirLogo ? placaLogo(128, 64, 24, 14) : ''}
+       <div style="position:absolute;left:${estilo.exibirLogo ? 176 : 24}px;top:16px;">${tituloPromo(20, 50, LOJA.tituloTopo, estilo.tituloPrincipal, estilo.corDestaque, estilo.corSecundaria, estilo.fonteTitulo)}</div>
+       <div style="position:absolute;right:26px;top:26px;">${fitaCampanha(10, '5px 10px', estilo.tituloCampanhaTopo, estilo.corSecundaria, estilo.corDestaque, estilo.corDestaque, estilo.fonteCorpo)}</div>
+       ${estilo.exibirValidade ? faixaValidade(periodo, W, headerH - 33, 11.5, 30, estilo.corDestaque, '#0b1f47', estilo.fonteCorpo) : ''}`;
 
   return `
-    <div style="position:relative;width:${W}px;height:${H}px;background:#ffffff;overflow:hidden;font-family:${FONT_CORPO};box-sizing:border-box;">
+    <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};overflow:hidden;font-family:${estilo.fonteCorpo};box-sizing:border-box;">
       <div style="position:absolute;left:-120px;top:${H * 0.38}px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle, rgba(31,79,168,0.08) 0%, rgba(31,79,168,0) 70%);"></div>
       <div style="position:absolute;right:-140px;top:${H * 0.62}px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle, rgba(214,25,43,0.07) 0%, rgba(214,25,43,0) 70%);"></div>
       ${header}
       <div style="position:absolute;left:${margem}px;top:${bodyTop}px;width:${W - margem * 2}px;height:${bodyH - 8}px;display:grid;grid-template-columns:repeat(${colunas}, 1fr);grid-template-rows:repeat(${linhas}, 1fr);grid-auto-flow:dense;gap:12px;box-sizing:border-box;padding:10px 0 12px;">
         ${cards}
       </div>
-      ${rodapeHtml(W, footerH, 'gFe', 12, `Página ${paginaNum} de ${totalPaginas}`)}
+      ${estilo.exibirRodape ? rodapeHtml(W, footerH, 'gFe', 12, `Página ${paginaNum} de ${totalPaginas}`, estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque, estilo.fonteCorpo) : ''}
     </div>`;
 }
 
