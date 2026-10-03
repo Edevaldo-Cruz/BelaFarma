@@ -42,9 +42,11 @@ import {
   Sliders,
   X,
   ExternalLink,
+  Tag,
   RotateCcw
 } from 'lucide-react';
 import { useToast } from './ToastContext';
+import { LiquidacaoEtiquetasTab } from './LiquidacaoEtiquetasTab';
 
 export interface ItemLiquidacaoArte {
   id: string;
@@ -82,7 +84,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   const { addToast } = useToast();
 
   // Sub-abas principais do Gerador
-  const [subAba, setSubAba] = useState<'unitarias' | 'encarte' | 'fotos'>('unitarias');
+  const [subAba, setSubAba] = useState<'unitarias' | 'encarte' | 'etiquetas' | 'fotos'>('unitarias');
 
   // ─── ESTÚDIO VISUAL / EDITOR PROFISSIONAL DE ARTES ───
   const [painelEditorAberto, setPainelEditorAberto] = useState(false);
@@ -573,6 +575,19 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
 
           <button
             type="button"
+            onClick={() => setSubAba('etiquetas')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+              subAba === 'etiquetas'
+                ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Tag size={15} />
+            <span>🏷️ Etiquetas & Cartazes de Preço</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setSubAba('fotos')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
               subAba === 'fotos'
@@ -631,9 +646,9 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
-          PAINEL EXPANSÍVEL: ESTÚDIO VISUAL & EDITOR PROFISSIONAL
+          PAINEL EXPANSÍVEL: ESTÚDIO VISUAL & EDITOR PROFISSIONAL (ARTES & ENCARTE)
       ═══════════════════════════════════════════════════════════════ */}
-      {painelEditorAberto && (
+      {painelEditorAberto && subAba !== 'etiquetas' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-indigo-200 dark:border-indigo-900/60 p-5 shadow-xl space-y-5 animate-in fade-in slide-in-from-top-3 duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
@@ -1262,7 +1277,21 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
-          SUB-ABA 3: GESTOR DE FOTOS DO CATÁLOGO
+          SUB-ABA: ETIQUETAS & CARTAZES DE PREÇO (TÉRMICA, PIMACO, CARTAZES)
+      ═══════════════════════════════════════════════════════════════ */}
+      {subAba === 'etiquetas' && (
+        <LiquidacaoEtiquetasTab
+          itens={itens}
+          dataTerminoCampanha={dataTerminoCampanha}
+          onAtualizarItens={onAtualizarItens}
+          abrirModalImagem={abrirModalImagem}
+          painelEditorAberto={painelEditorAberto}
+          setPainelEditorAberto={setPainelEditorAberto}
+        />
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          SUB-ABA: GESTOR DE FOTOS DO CATÁLOGO
       ═══════════════════════════════════════════════════════════════ */}
       {subAba === 'fotos' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
