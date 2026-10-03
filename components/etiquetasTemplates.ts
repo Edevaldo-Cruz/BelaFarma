@@ -121,6 +121,19 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
   }
 };
 
+export interface CoordenadasElemento {
+  x: number;
+  y: number;
+}
+
+export interface PosicoesEtiqueta {
+  foto?: CoordenadasElemento;
+  nome?: CoordenadasElemento;
+  preco?: CoordenadasElemento;
+  barras?: CoordenadasElemento;
+  faixa?: CoordenadasElemento;
+}
+
 export interface EstiloEtiqueta {
   modeloId: string;
   // Cores
@@ -151,6 +164,8 @@ export interface EstiloEtiqueta {
   // Ajustes de Imagem
   zoomFoto: number;
   offsetYFoto: number;
+  // Posições arrastáveis
+  posicoes?: PosicoesEtiqueta;
 }
 
 export const MODELOS_PRONTOS_ETIQUETA: Record<string, { nome: string; descricao: string; estilo: Partial<EstiloEtiqueta> }> = {
@@ -410,18 +425,24 @@ export function htmlEtiqueta(
        </div>`
     : '';
 
+  const posFoto = estilo.posicoes?.foto || { x: 0, y: 0 };
+  const posNome = estilo.posicoes?.nome || { x: 0, y: 0 };
+  const posPreco = estilo.posicoes?.preco || { x: 0, y: 0 };
+  const posBarras = estilo.posicoes?.barras || { x: 0, y: 0 };
+  const posFaixa = estilo.posicoes?.faixa || { x: 0, y: 0 };
+
   // Foto do produto
   const fotoW = Math.round((formato.tipo === 'cartaz' ? W * 0.45 : W * 0.28) * estilo.zoomFoto);
   const fotoH = Math.round((formato.tipo === 'cartaz' ? H * 0.38 : H * 0.48) * estilo.zoomFoto);
   const fotoHtml = temFoto
-    ? `<div style="flex-shrink:0;width:${fotoW}px;height:${fotoH}px;display:flex;align-items:center;justify-content:center;position:relative;margin-top:${estilo.offsetYFoto}px;">
+    ? `<div data-drag-el="foto" style="flex-shrink:0;width:${fotoW}px;height:${fotoH}px;display:flex;align-items:center;justify-content:center;position:relative;margin-top:${estilo.offsetYFoto}px;transform:translate(${posFoto.x}px,${posFoto.y}px);cursor:grab;touch-action:none;z-index:3;">
         <img src="${esc(item.imagem_url)}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.18));" onerror="this.style.display='none'" />
        </div>`
     : '';
 
   // Código de barras SVG
   const barrasHtml = temBarras
-    ? gerarSvgCodigoBarras(item.ean || '', Math.min(W * 0.48, 170), Math.round(22 * escalaBase), '#000000')
+    ? `<div data-drag-el="barras" style="transform:translate(${posBarras.x}px,${posBarras.y}px);cursor:grab;touch-action:none;z-index:3;">${gerarSvgCodigoBarras(item.ean || '', Math.min(W * 0.48, 170), Math.round(22 * escalaBase), '#000000')}</div>`
     : '';
 
   // Layout Diferenciado por Tipo:
@@ -430,7 +451,7 @@ export function htmlEtiqueta(
     return `
       <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};box-sizing:border-box;border:3px solid ${estilo.corFaixa};overflow:hidden;display:flex;flex-direction:column;font-family:${estilo.fonteCorpo};box-shadow:0 6px 14px rgba(0,0,0,0.1);">
         <!-- Faixa Superior -->
-        <div style="background:${estilo.corFaixa};color:${estilo.corTextoFaixa};padding:10px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 3px 6px rgba(0,0,0,0.15);">
+        <div data-drag-el="faixa" style="background:${estilo.corFaixa};color:${estilo.corTextoFaixa};padding:10px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 3px 6px rgba(0,0,0,0.15);transform:translate(${posFaixa.x}px,${posFaixa.y}px);cursor:grab;touch-action:none;">
           ${logoHtml}
           <div style="font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsFaixa * 1.4}px;letter-spacing:0.05em;text-transform:uppercase;">
             ${esc(estilo.tituloPromocional)}
@@ -439,8 +460,8 @@ export function htmlEtiqueta(
         </div>
 
         <!-- Descrição do Produto -->
-        <div style="padding:14px 18px 6px;text-align:center;">
-          <h2 style="margin:0;font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsDesc * 1.6}px;line-height:1.15;color:${estilo.corTexto};text-transform:uppercase;">
+        <div data-drag-el="nome" style="padding:14px 18px 6px;text-align:center;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:2;">
+          <h2 style="margin:0;font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsDesc * 1.6}px;line-height:1.15;color:${estilo.corTexto};text-transform:uppercase;word-break:break-word;">
             ${esc(item.descricao)}
           </h2>
           ${item.apresentacao ? `<p style="margin:4px 0 0;font-size:13px;font-weight:700;color:${estilo.corPrecoDe};">${esc(item.apresentacao)}</p>` : ''}
@@ -449,7 +470,7 @@ export function htmlEtiqueta(
         <!-- Centro: Foto e Preço Gigante -->
         <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:16px;padding:8px 18px;">
           ${fotoHtml}
-          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+          <div data-drag-el="preco" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
             ${estilo.exibirDePor && item.preco_normal > item.preco_promocional ? `
               <div style="font-size:${fsPrecoDe * 1.4}px;font-weight:700;color:${estilo.corPrecoDe};text-decoration:line-through;margin-bottom:2px;">
                 DE: ${precoDeStr}
@@ -481,7 +502,7 @@ export function htmlEtiqueta(
   return `
     <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};box-sizing:border-box;border:1.5px solid ${estilo.corFaixa};overflow:hidden;display:flex;flex-direction:column;font-family:${estilo.fonteCorpo};">
       <!-- Faixa Superior de Oferta -->
-      <div style="background:${estilo.corFaixa};color:${estilo.corTextoFaixa};padding:3px 8px;display:flex;align-items:center;justify-content:space-between;line-height:1.1;flex-shrink:0;">
+      <div data-drag-el="faixa" style="background:${estilo.corFaixa};color:${estilo.corTextoFaixa};padding:3px 8px;display:flex;align-items:center;justify-content:space-between;line-height:1.1;flex-shrink:0;transform:translate(${posFaixa.x}px,${posFaixa.y}px);cursor:grab;touch-action:none;">
         ${logoHtml}
         <div style="font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsFaixa}px;letter-spacing:0.04em;text-transform:uppercase;">
           ${esc(estilo.tituloPromocional)}
@@ -493,8 +514,8 @@ export function htmlEtiqueta(
       </div>
 
       <!-- Nome do Produto -->
-      <div style="padding:4px 8px 2px;flex-shrink:0;">
-        <div style="font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsDesc}px;line-height:1.1;color:${estilo.corTexto};text-transform:uppercase;max-height:${fsDesc * 2.3}px;overflow:hidden;text-overflow:ellipsis;">
+      <div data-drag-el="nome" style="padding:4px 8px 2px;flex-shrink:0;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:2;">
+        <div style="font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsDesc}px;line-height:1.1;color:${estilo.corTexto};text-transform:uppercase;max-height:${fsDesc * 2.3}px;overflow:hidden;text-overflow:ellipsis;word-break:break-word;">
           ${esc(item.descricao)}
         </div>
         ${item.apresentacao ? `<div style="font-size:${Math.round(fsDesc * 0.75)}px;font-weight:600;color:${estilo.corPrecoDe};line-height:1;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.apresentacao)}</div>` : ''}
@@ -504,7 +525,7 @@ export function htmlEtiqueta(
       <div style="flex:1;display:flex;align-items:center;justify-content:space-between;padding:2px 8px;gap:6px;min-height:0;">
         ${fotoHtml}
 
-        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;${temFoto ? 'text-align:right;' : 'text-align:center;'}">
+        <div data-drag-el="preco" style="flex:1;display:flex;flex-direction:column;justify-content:center;${temFoto ? 'text-align:right;' : 'text-align:center;'}transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
           ${estilo.exibirDePor && item.preco_normal > item.preco_promocional ? `
             <div style="font-size:${fsPrecoDe}px;font-weight:700;color:${estilo.corPrecoDe};text-decoration:line-through;line-height:1;">
               De: ${precoDeStr}

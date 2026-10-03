@@ -24,6 +24,7 @@ import {
   Copy,
   Plus,
   Minus,
+  Move,
   AlertCircle
 } from 'lucide-react';
 import {
@@ -236,6 +237,70 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     setEstilo(ESTILO_ETIQUETA_PADRAO);
     localStorage.removeItem('belafarma_etiqueta_estilo');
     addToast('Estilo de etiquetas restaurado para o padrão original.', 'info');
+  };
+
+  // ─── MODO ARRASTAR ELEMENTOS LIVREMENTE NA ETIQUETA ───
+  const [modoArrastar, setModoArrastar] = useState(false);
+  const dragRef = useRef<{
+    elKey: string;
+    startX: number;
+    startY: number;
+    initX: number;
+    initY: number;
+  } | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!modoArrastar) return;
+    const target = (e.target as HTMLElement).closest('[data-drag-el]') as HTMLElement | null;
+    if (!target) return;
+    const elKey = target.getAttribute('data-drag-el');
+    if (!elKey) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const currPos = (estilo.posicoes as any)?.[elKey] || { x: 0, y: 0 };
+    dragRef.current = {
+      elKey,
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: currPos.x,
+      initY: currPos.y
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.preventDefault();
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    const { elKey, initX, initY } = dragRef.current;
+
+    setEstilo(prev => ({
+      ...prev,
+      posicoes: {
+        ...prev.posicoes,
+        [elKey]: {
+          x: Math.round(initX + dx),
+          y: Math.round(initY + dy)
+        }
+      }
+    }));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (err) {}
+      dragRef.current = null;
+    }
+  };
+
+  const handleResetarPosicoes = () => {
+    setEstilo(prev => ({ ...prev, posicoes: undefined }));
+    addToast('Posições dos elementos da etiqueta restauradas para o alinhamento padrão.', 'info');
   };
 
   // ─── IMPRESSÃO NATIVA (WINDOW.PRINT) ───
@@ -1063,15 +1128,67 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
               </div>
             )}
 
+            {/* Toolbar de Arrastar Elementos (Visão Individual) */}
+            {modoVisualizacao === 'individual' && (
+              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-850 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setModoArrastar(m => !m)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                    modoArrastar
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-orange-500/30 ring-2 ring-orange-400'
+                      : 'bg-white hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                  title="Ative para clicar e arrastar a foto, título, preço e código de barras livremente"
+                >
+                  <Move size={13} className={modoArrastar ? 'animate-spin' : ''} />
+                  <span>{modoArrastar ? '✋ Modo Arrastar: ATIVO' : '✋ Ativar Modo Arrastar'}</span>
+                </button>
+
+                {estilo.posicoes && Object.keys(estilo.posicoes).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResetarPosicoes}
+                    className="px-2.5 py-1 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Resetar Posições</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            <style dangerouslySetInnerHTML={{__html: `
+              ${modoArrastar ? `
+                [data-drag-el] {
+                  cursor: grab !important;
+                }
+                [data-drag-el]:hover {
+                  outline: 2px dashed #f97316 !important;
+                  outline-offset: 3px !important;
+                }
+                [data-drag-el]:active {
+                  cursor: grabbing !important;
+                  outline: 2px solid #ea580c !important;
+                }
+              ` : ''}
+            `}} />
+
             {/* CONTAINER DA PRÉVIA */}
             <div className="flex justify-center items-center overflow-x-auto p-6 bg-slate-100 dark:bg-slate-950 rounded-3xl min-h-[340px]">
               {modoVisualizacao === 'individual' ? (
-                /* Prévia Individual da Etiqueta */
+                /* Prévia Individual da Etiqueta com Suporte a Drag & Drop */
                 <div
-                  className="shadow-2xl rounded-sm overflow-hidden select-none bg-white transition-all transform hover:scale-[1.02]"
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  className={`shadow-2xl rounded-sm overflow-hidden select-none bg-white transition-all ${
+                    modoArrastar ? 'ring-4 ring-orange-500/40 ring-offset-4 ring-offset-slate-100 dark:ring-offset-slate-950' : 'hover:scale-[1.02]'
+                  }`}
                   style={{
                     width: formatoConfig.wPx,
-                    height: formatoConfig.hPx
+                    height: formatoConfig.hPx,
+                    touchAction: 'none'
                   }}
                   dangerouslySetInnerHTML={{ __html: htmlEtiquetaEmFoco }}
                 />

@@ -43,6 +43,7 @@ import {
   X,
   ExternalLink,
   Tag,
+  Move,
   RotateCcw
 } from 'lucide-react';
 import { useToast } from './ToastContext';
@@ -422,6 +423,70 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     } finally {
       setGerandoDownload(false);
     }
+  };
+
+  // ─── MODO ARRASTAR ELEMENTOS LIVREMENTE (DRAG & DROP) ───
+  const [modoArrastar, setModoArrastar] = useState(false);
+  const dragRef = useRef<{
+    elKey: string;
+    startX: number;
+    startY: number;
+    initX: number;
+    initY: number;
+  } | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!modoArrastar) return;
+    const target = (e.target as HTMLElement).closest('[data-drag-el]') as HTMLElement | null;
+    if (!target) return;
+    const elKey = target.getAttribute('data-drag-el');
+    if (!elKey) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const currPos = (estilo.posicoes as any)?.[elKey] || { x: 0, y: 0 };
+    dragRef.current = {
+      elKey,
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: currPos.x,
+      initY: currPos.y
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.preventDefault();
+    const dx = (e.clientX - dragRef.current.startX) / zoomUnit;
+    const dy = (e.clientY - dragRef.current.startY) / zoomUnit;
+    const { elKey, initX, initY } = dragRef.current;
+
+    setEstilo(prev => ({
+      ...prev,
+      posicoes: {
+        ...prev.posicoes,
+        [elKey]: {
+          x: Math.round(initX + dx),
+          y: Math.round(initY + dy)
+        }
+      }
+    }));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (err) {}
+      dragRef.current = null;
+    }
+  };
+
+  const handleResetarPosicoes = () => {
+    setEstilo(prev => ({ ...prev, posicoes: undefined }));
+    addToast('Posições dos elementos restauradas para o alinhamento padrão.', 'info');
   };
 
   const handleCopiarArteUnitario = async () => {
@@ -1166,13 +1231,69 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
             </div>
           </div>
 
-          {/* Coluna da Direita: Preview da Arte */}
+          {/* Coluna da Direita: Preview da Arte com Suporte a Arrastar Elementos */}
           <div className="lg:col-span-7 flex flex-col items-center justify-center bg-slate-200/80 dark:bg-slate-950/80 rounded-3xl p-6 min-h-[600px] overflow-hidden">
+            {/* Barra de Ferramentas de Posicionamento Livre */}
+            <div className="w-full max-w-[540px] flex items-center justify-between mb-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModoArrastar(m => !m)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer shadow-xs ${
+                    modoArrastar
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-orange-500/30 ring-2 ring-orange-400'
+                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                  title="Ative para clicar e arrastar a foto, título, preço, validade e selos diretamente na tela"
+                >
+                  <Move size={14} className={modoArrastar ? 'animate-spin' : ''} />
+                  <span>{modoArrastar ? '✋ Modo Arrastar: ATIVO' : '✋ Ativar Modo Arrastar'}</span>
+                </button>
+                <span className="text-[10px] text-slate-400 hidden sm:inline">
+                  {modoArrastar ? 'Clique e arraste os itens' : 'Arraste foto, nome, preço livremente'}
+                </span>
+              </div>
+
+              {estilo.posicoes && Object.keys(estilo.posicoes).length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleResetarPosicoes}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
+                  title="Restaura todos os elementos para as posições automáticas originais"
+                >
+                  <RotateCcw size={12} />
+                  <span>Resetar Posições</span>
+                </button>
+              )}
+            </div>
+
+            <style dangerouslySetInnerHTML={{__html: `
+              ${modoArrastar ? `
+                [data-drag-el] {
+                  cursor: grab !important;
+                }
+                [data-drag-el]:hover {
+                  outline: 2px dashed #f97316 !important;
+                  outline-offset: 4px !important;
+                }
+                [data-drag-el]:active {
+                  cursor: grabbing !important;
+                  outline: 2px solid #ea580c !important;
+                }
+              ` : ''}
+            `}} />
+
             <div
-              className="shadow-2xl rounded-2xl overflow-hidden bg-white select-none transition-transform"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              className={`shadow-2xl rounded-2xl overflow-hidden bg-white select-none transition-all ${
+                modoArrastar ? 'ring-4 ring-orange-500/40 ring-offset-4 ring-offset-slate-200 dark:ring-offset-slate-950' : ''
+              }`}
               style={{
                 width: dimUnit.w * zoomUnit,
-                height: dimUnit.h * zoomUnit
+                height: dimUnit.h * zoomUnit,
+                touchAction: 'none'
               }}
             >
               <div
@@ -1180,7 +1301,8 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                   width: dimUnit.w,
                   height: dimUnit.h,
                   transform: `scale(${zoomUnit})`,
-                  transformOrigin: 'top left'
+                  transformOrigin: 'top left',
+                  touchAction: 'none'
                 }}
                 dangerouslySetInnerHTML={{ __html: htmlArteAtual }}
               />

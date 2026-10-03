@@ -26,6 +26,20 @@ export const LOJA = {
   titulo: 'LIQUIDAÇÃO'
 };
 
+export interface CoordenadasElemento {
+  x: number;
+  y: number;
+}
+
+export interface PosicoesArte {
+  foto?: CoordenadasElemento;
+  nome?: CoordenadasElemento;
+  preco?: CoordenadasElemento;
+  validade?: CoordenadasElemento;
+  titulo?: CoordenadasElemento;
+  selo?: CoordenadasElemento;
+}
+
 export interface EstiloArte {
   temaId?: string;
   // Cores
@@ -55,6 +69,8 @@ export interface EstiloArte {
   tituloCampanhaTopo: string;
   tituloPrincipal: string;
   imagemFundoCustom?: string;
+  // Posições personalizadas (arrastar e soltar)
+  posicoes?: PosicoesArte;
 }
 
 export const ESTILO_PADRAO: EstiloArte = {
@@ -518,76 +534,88 @@ export function htmlArteUnitaria(
   const { promo, normal, pct, eco } = calc(item);
   const temFundoCustom = !!e.imagemFundoCustom;
 
+  // Posições personalizadas dos elementos (arrastar e soltar)
+  const posFoto = e.posicoes?.foto || { x: 0, y: 0 };
+  const posNome = e.posicoes?.nome || { x: 0, y: 0 };
+  const posPreco = e.posicoes?.preco || { x: 0, y: 0 };
+  const posValidade = e.posicoes?.validade || { x: 0, y: 0 };
+  const posTitulo = e.posicoes?.titulo || { x: 0, y: 0 };
+  const posSelo = e.posicoes?.selo || { x: 0, y: 0 };
+
+  // Usamos object-fit: fill para que textos e artes laterais do fundo timbrado oficial
+  // nunca sejam recortados nas laterais em Story (9:16) ou Feed (4:5)
   const bgCustomHtml = temFundoCustom
-    ? `<img src="${esc(e.imagemFundoCustom)}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;pointer-events:none;z-index:0;" />`
+    ? `<img src="${esc(e.imagemFundoCustom)}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:fill;pointer-events:none;z-index:0;" />`
     : '';
 
   const headerH = temFundoCustom
-    ? (story ? 175 : 125)
+    ? (story ? 150 : 105)
     : (story ? 285 : 195);
   const footerH = temFundoCustom
-    ? (story ? 180 : 130)
+    ? (story ? 155 : 110)
     : (e.exibirRodape ? (story ? 170 : 128) : 20);
-  const bodyTop = headerH + (story ? 18 : 12);
+  const bodyTop = headerH + (story ? 12 : 8);
   const bodyH = H - bodyTop - footerH;
 
   const fsTopo = Math.round((story ? 30 : 22) * e.tamanhoTituloMultiplicador);
   const fsPrincipal = Math.round((story ? 70 : 52) * e.tamanhoTituloMultiplicador);
 
   const header = temFundoCustom
-    ? `<div style="position:absolute;left:0;top:${story ? 135 : 92}px;width:${W}px;text-align:center;z-index:2;">
-        ${e.exibirValidade ? faixaValidade(periodo, W, 0, story ? 11 : 9.5, story ? 32 : 26, e.corDestaque, '#ffffff', e.fonteCorpo) : ''}
+    ? `<div data-drag-el="validade" style="position:absolute;left:0;top:${story ? 130 : 86}px;width:${W}px;text-align:center;z-index:2;transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">
+        ${e.exibirValidade ? faixaValidade(periodo, W, 0, story ? 11 : 9.5, story ? 30 : 24, e.corDestaque, '#ffffff', e.fonteCorpo) : ''}
        </div>`
     : (story
         ? `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
            ${e.exibirLogo ? placaLogo(168, 84, 24, 20) : ''}
-           <div style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-           <div style="position:absolute;left:30px;top:118px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
-           ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 38, 11.5, 36, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`
+           <div data-drag-el="titulo" style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+           <div style="position:absolute;left:30px;top:118px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
+           ${e.exibirValidade ? `<div data-drag-el="validade" style="transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">${faixaValidade(periodo, W, headerH - 38, 11.5, 36, e.corDestaque, '#0b1f47', e.fonteCorpo)}</div>` : ''}`
         : `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
            ${e.exibirLogo ? placaLogo(130, 65, 22, 14) : ''}
-           <div style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-           <div style="position:absolute;left:28px;top:84px;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
-           ${e.exibirValidade ? faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo) : ''}`
+           <div data-drag-el="titulo" style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+           <div style="position:absolute;left:28px;top:84px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>
+           ${e.exibirValidade ? `<div data-drag-el="validade" style="transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;">${faixaValidade(periodo, W, headerH - 32, 10.5, 30, e.corDestaque, '#0b1f47', e.fonteCorpo)}</div>` : ''}`
       );
 
   const nomeBloco = `
-    <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${story ? 25 : 20}px;line-height:1.15;max-height:${story ? 58 : 46}px;overflow:hidden;">${esc(item.descricao)}</div>
-    ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 15 : 13}px;margin-top:3px;white-space:nowrap;overflow:hidden;">${esc(item.apresentacao)}</div>` : ''}`;
-
-  const tamPreco = Math.round((story ? 86 : 56) * e.tamanhoPrecoMultiplicador);
-  const badgePreco = `
-    <div style="position:relative;width:${story ? 430 : 270}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 26 : 20}px;padding:${story ? '12px 20px 22px' : '9px 14px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};">
-      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 17 : 13}px;text-decoration:line-through;">DE ${brl(normal)}</div>` : ''}
-      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;">
-        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 22 : 16}px;">POR</span>
-        ${precoHtml(promo, tamPreco, e.corPrecoPor)}
-      </div>
-      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-15px;margin-left:${story ? -110 : -80}px;width:${story ? 220 : 160}px;height:${story ? 30 : 24}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 14 : 11}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
+    <div data-drag-el="nome" style="width:100%;max-width:${story ? '480px' : '260px'};box-sizing:border-box;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:3;">
+      <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${story ? 24 : 18}px;line-height:1.15;max-height:${story ? 58 : 46}px;overflow:hidden;word-break:break-word;overflow-wrap:break-word;">${esc(item.descricao)}</div>
+      ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 14 : 12}px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.apresentacao)}</div>` : ''}
     </div>`;
 
-  const stageW = story ? 300 : 232;
-  const stageH = story ? 250 : 262;
+  const tamPreco = Math.round((story ? 84 : 52) * e.tamanhoPrecoMultiplicador);
+  const badgePreco = `
+    <div data-drag-el="preco" style="position:relative;width:${story ? 400 : 246}px;max-width:96%;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 20px' : '8px 12px 16px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
+      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 16 : 12}px;text-decoration:line-through;">DE ${brl(normal)}</div>` : ''}
+      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:2px;">
+        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 20 : 15}px;">POR</span>
+        ${precoHtml(promo, tamPreco, e.corPrecoPor)}
+      </div>
+      ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-14px;margin-left:${story ? -100 : -75}px;width:${story ? 200 : 150}px;height:${story ? 28 : 22}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 13 : 10.5}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
+    </div>`;
+
+  const stageW = story ? 280 : 205;
+  const stageH = story ? 240 : 225;
   const palco = `
-    <div style="position:relative;width:${stageW}px;height:${stageH}px;flex:none;">
+    <div data-drag-el="foto" style="position:relative;width:${stageW}px;height:${stageH}px;flex:none;transform:translate(${posFoto.x}px,${posFoto.y}px);cursor:grab;touch-action:none;z-index:3;">
       <div style="position:absolute;left:50%;top:50%;width:${stageW - 20}px;height:${stageW - 20}px;margin-left:${-(stageW - 20) / 2}px;margin-top:${-(stageW - 20) / 2 - 6}px;border-radius:50%;background:radial-gradient(circle at 50% 45%, #ffffff 0%, #e6efff 62%, rgba(230,239,255,0) 72%);"></div>
-      <div style="position:absolute;left:${story ? 22 : 14}px;top:${story ? 8 : 10}px;right:${story ? 22 : 14}px;bottom:${story ? 22 : 20}px;">
+      <div style="position:absolute;left:${story ? 20 : 12}px;top:${story ? 8 : 8}px;right:${story ? 20 : 12}px;bottom:${story ? 20 : 16}px;">
         ${imgProduto(item, '', e.usarRecorteTransparente, e.zoomProduto, e.offsetYProduto)}
       </div>
-      ${e.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:24px;">${sombraChao(22)}</div>` : ''}
-      ${e.exibirSeloDesconto ? `<div style="position:absolute;right:${story ? -34 : -26}px;top:${story ? -4 : 0}px;">${seloDesconto(pct, story ? 112 : 88, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
+      ${e.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:22px;">${sombraChao(20)}</div>` : ''}
+      ${e.exibirSeloDesconto ? `<div data-drag-el="selo" style="position:absolute;right:${story ? -30 : -20}px;top:${story ? -4 : 0}px;transform:translate(${posSelo.x}px,${posSelo.y}px);cursor:grab;touch-action:none;z-index:4;">${seloDesconto(pct, story ? 105 : 82, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
     </div>`;
 
   const corpo = story
-    ? `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:0 28px 14px;box-sizing:border-box;z-index:2;">
+    ? `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:0 20px 8px;box-sizing:border-box;z-index:2;">
          ${palco}
-         <div style="width:100%;">${nomeBloco}</div>
+         ${nomeBloco}
          ${badgePreco}
        </div>`
-    : `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:26px;padding:0 30px 4px 24px;box-sizing:border-box;z-index:2;">
+    : `<div style="position:absolute;left:0;top:${bodyTop}px;width:${W}px;height:${bodyH}px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:14px;padding:0 18px 4px;box-sizing:border-box;z-index:2;">
          ${palco}
-         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:14px;width:270px;">
-           <div style="width:100%;">${nomeBloco}</div>
+         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:12px;width:250px;max-width:250px;min-width:0;box-sizing:border-box;">
+           ${nomeBloco}
            ${badgePreco}
          </div>
        </div>`;
@@ -649,7 +677,7 @@ export function htmlPaginaEncarte(
   const temFundoCustom = !!estilo.imagemFundoCustom;
 
   const bgCustomHtml = temFundoCustom
-    ? `<img src="${esc(estilo.imagemFundoCustom)}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;pointer-events:none;z-index:0;" />`
+    ? `<img src="${esc(estilo.imagemFundoCustom)}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:fill;pointer-events:none;z-index:0;" />`
     : '';
 
   const headerH = temFundoCustom
