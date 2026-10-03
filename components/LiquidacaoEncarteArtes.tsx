@@ -1,7 +1,14 @@
-import React, { useState, useRef } from 'react';
-import html2canvas from 'html2canvas';
+﻿import React, { useState, useRef, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
+import {
+  htmlArteUnitaria,
+  htmlPaginaEncarte,
+  prepararImagensArte,
+  renderizarHtmlParaCanvas,
+  DIMENSOES_UNITARIO,
+  DIMENSOES_A4
+} from './encarteTemplates';
 import {
   Image as ImageIcon,
   Sparkles,
@@ -84,8 +91,8 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   const [gerandoPaginasPng, setGerandoPaginasPng] = useState(false);
 
   // Refs de renderização
-  const arteUnitarioRef = useRef<HTMLDivElement>(null);
-  const encartePaginaRef = useRef<HTMLDivElement>(null);
+  // Controle de recarga do preview quando as fotos recortadas ficam prontas
+  const [imgVersion, setImgVersion] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetId, setUploadTargetId] = useState<number | null>(null);
 
@@ -220,23 +227,48 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     }
   };
 
+  // ─── PREVIEW & EXPORTAÇÃO (fonte única: encarteTemplates.ts) ───
+
+  const periodoArte = { inicio: inicioFmt, termino: terminoFmt };
+  const colunasEncarte: 3 | 4 = produtosPorPagina === 6 ? 3 : 4;
+
+  // Recorta o fundo das fotos (PNG transparente) e atualiza o preview quando terminar
+  useEffect(() => {
+    let cancelado = false;
+    prepararImagensArte(itens).then(() => {
+      if (!cancelado) setImgVersion(v => v + 1);
+    });
+    return () => { cancelado = true; };
+  }, [itens]);
+
+  const dimUnit = DIMENSOES_UNITARIO[formatoUnitario];
+  const zoomUnit = formatoUnitario === 'story' ? 0.62 : 0.8;
+
+  // imgVersion força o recálculo do HTML quando as imagens recortadas ficam prontas
+  const htmlArteAtual = React.useMemo(
+    () => (produtoAtual ? htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte) : ''),
+    [produtoAtual, formatoUnitario, inicioFmt, terminoFmt, imgVersion]
+  );
+  const htmlEncartePaginaAtual = React.useMemo(
+    () => htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte),
+    [itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, inicioFmt, terminoFmt, colunasEncarte, imgVersion]
+  );
+
+  const slugProduto = (desc: string) => desc.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 30);
+
   // ─── AÇÕES DE ARTE UNITÁRIA ───
 
   const handleBaixarArteUnitario = async () => {
-    if (!arteUnitarioRef.current || !produtoAtual) return;
+    if (!produtoAtual) return;
     setGerandoDownload(true);
     try {
-      const canvas = await html2canvas(arteUnitarioRef.current, {
-        scale: 2.5,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff'
-      });
-      const dataUrl = canvas.toDataURL('image/png');
+      await prepararImagensArte([produtoAtual]);
+      const canvas = await renderizarHtmlParaCanvas(
+        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte), dimUnit.w, dimUnit.h, 2
+      );
       const link = document.createElement('a');
-      const slug = produtoAtual.descricao.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 30);
-      link.download = `BelaFarma_1Ano_${formatoUnitario}_${slug}.png`;
-      link.href = dataUrl;
+      link.download = `BelaFarma_Liquidacao_${formatoUnitario}_${slugProduto(produtoAtual.descricao)}.png`;
+      link.href = canvas.toDataURL('image/png');
       link.click();
       addToast('Arte baixada com sucesso!', 'success');
     } catch (e) {
@@ -248,21 +280,17 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   };
 
   const handleCopiarArteUnitario = async () => {
-    if (!arteUnitarioRef.current || !produtoAtual) return;
+    if (!produtoAtual) return;
     setCopiandoImagem(true);
     try {
-      const canvas = await html2canvas(arteUnitarioRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff'
-      });
+      await prepararImagensArte([produtoAtual]);
+      const canvas = await renderizarHtmlParaCanvas(
+        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte), dimUnit.w, dimUnit.h, 2
+      );
       canvas.toBlob(async (blob) => {
         if (blob) {
           try {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
             addToast('Imagem copiada para a área de transferência! Cole no WhatsApp ou Instagram.', 'success');
           } catch (clipErr) {
             addToast('Navegador não suportou cópia direta. Baixe a imagem pelo botão de download.', 'warning');
@@ -283,46 +311,25 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     addToast(`Gerando arquivo ZIP com todas as ${itens.length} artes... Aguarde alguns instantes.`, 'info');
 
     const zip = new JSZip();
-    const pasta = zip.folder(`Artes_1Ano_BelaFarma_${formatoUnitario.toUpperCase()}`);
+    const pasta = zip.folder(`Artes_Liquidacao_BelaFarma_${formatoUnitario.toUpperCase()}`);
 
     try {
-      // Cria um container oculto para renderizar cada item com fidelidade
-      const containerOculto = document.createElement('div');
-      containerOculto.style.position = 'fixed';
-      containerOculto.style.left = '-9999px';
-      containerOculto.style.top = '0';
-      containerOculto.style.width = formatoUnitario === 'story' ? '483px' : '674px';
-      containerOculto.style.height = '674px';
-      document.body.appendChild(containerOculto);
-
+      await prepararImagensArte(itens);
       for (let i = 0; i < itens.length; i++) {
         const item = itens[i];
         setProgressoZip({ atual: i + 1, total: itens.length });
-
-        // Monta o HTML do card
-        containerOculto.innerHTML = gerarHtmlArteUnitarioString(item, formatoUnitario);
-        const cardEl = containerOculto.firstElementChild as HTMLElement;
-
-        if (cardEl) {
-          const canvas = await html2canvas(cardEl, {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff'
-          });
-          const base64Data = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
-          const slug = item.descricao.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 30);
-          const fileName = `${String(i + 1).padStart(2, '0')}_${item.produto_id}_${slug}.png`;
-          pasta?.file(fileName, base64Data, { base64: true });
-        }
+        const canvas = await renderizarHtmlParaCanvas(
+          htmlArteUnitaria(item, formatoUnitario, periodoArte), dimUnit.w, dimUnit.h, 2
+        );
+        const base64Data = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+        const fileName = `${String(i + 1).padStart(2, '0')}_${item.produto_id}_${slugProduto(item.descricao)}.png`;
+        pasta?.file(fileName, base64Data, { base64: true });
       }
-
-      document.body.removeChild(containerOculto);
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const downloadLink = document.createElement('a');
       downloadLink.href = URL.createObjectURL(zipBlob);
-      downloadLink.download = `BelaFarma_Artes_1Aniversario_${formatoUnitario.toUpperCase()}_Completo.zip`;
+      downloadLink.download = `BelaFarma_Artes_Liquidacao_${formatoUnitario.toUpperCase()}_Completo.zip`;
       downloadLink.click();
       addToast(`🎉 Todas as ${itens.length} artes foram empacotadas no arquivo ZIP com sucesso!`, 'success');
     } catch (e) {
@@ -336,19 +343,16 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   // ─── AÇÕES DE ENCARTE GERAL ───
 
   const handleBaixarPaginaPng = async () => {
-    if (!encartePaginaRef.current) return;
     setGerandoPaginasPng(true);
     try {
-      const canvas = await html2canvas(encartePaginaRef.current, {
-        scale: 2.5,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff'
-      });
-      const dataUrl = canvas.toDataURL('image/png');
+      await prepararImagensArte(itensPaginaEncarte);
+      const canvas = await renderizarHtmlParaCanvas(
+        htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte),
+        DIMENSOES_A4.w, DIMENSOES_A4.h, 2.5
+      );
       const link = document.createElement('a');
-      link.download = `BelaFarma_Encarte_1Ano_Pagina_${paginaEncarteAtual}_de_${totalPaginasEncarte}.png`;
-      link.href = dataUrl;
+      link.download = `BelaFarma_Encarte_Pagina_${paginaEncarteAtual}_de_${totalPaginasEncarte}.png`;
+      link.href = canvas.toDataURL('image/png');
       link.click();
       addToast(`Página ${paginaEncarteAtual} do Encarte baixada com sucesso!`, 'success');
     } catch (e) {
@@ -363,40 +367,20 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     addToast('Gerando Encarte Tablóide A4 completo em PDF de alta resolução...', 'info');
 
     try {
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-
-      const containerOculto = document.createElement('div');
-      containerOculto.style.position = 'fixed';
-      containerOculto.style.left = '-9999px';
-      containerOculto.style.top = '0';
-      containerOculto.style.width = '794px'; // ~A4 em 96dpi
-      containerOculto.style.height = '1123px';
-      document.body.appendChild(containerOculto);
+      await prepararImagensArte(itens);
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
       for (let p = 1; p <= totalPaginasEncarte; p++) {
         const itensDaPagina = itens.slice((p - 1) * produtosPorPagina, p * produtosPorPagina);
-        containerOculto.innerHTML = gerarHtmlPaginaEncarteString(itensDaPagina, p, totalPaginasEncarte);
-        const pageEl = containerOculto.firstElementChild as HTMLElement;
-
-        if (pageEl) {
-          const canvas = await html2canvas(pageEl, {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff'
-          });
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          if (p > 1) pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
-        }
+        const canvas = await renderizarHtmlParaCanvas(
+          htmlPaginaEncarte(itensDaPagina, p, totalPaginasEncarte, periodoArte, colunasEncarte),
+          DIMENSOES_A4.w, DIMENSOES_A4.h, 2
+        );
+        if (p > 1) pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
       }
 
-      document.body.removeChild(containerOculto);
-      pdf.save(`Encarte_Tabloide_1Ano_BelaFarma_Completo.pdf`);
+      pdf.save(`Encarte_Tabloide_BelaFarma_Completo.pdf`);
       addToast('🎉 Encarte Tablóide A4 em PDF gerado com sucesso!', 'success');
     } catch (e) {
       console.error(e);
@@ -404,136 +388,6 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     } finally {
       setGerandoPdf(false);
     }
-  };
-
-  // Helper para renderizar a string HTML de uma arte unitária para o ZIP
-  const gerarHtmlArteUnitarioString = (item: ItemLiquidacaoArte, formato: 'story' | 'feed') => {
-    const valNormal = item.preco_normal || item.preco_promocional;
-    const valPromo = item.preco_promocional;
-    const descPct = item.desconto_percentual || (valNormal > 0 ? Math.round(((valNormal - valPromo) / valNormal) * 100) : 0);
-    const economiaReais = Math.max(0, valNormal - valPromo);
-    const imgUrl = item.imagem_url || '/images/logo-icon.png';
-
-    const isStory = formato === 'story';
-    const w = isStory ? '483px' : '674px';
-    const h = '674px';
-
-    return `
-      <div style="position: relative; width: ${w}; height: ${h}; background-color: #ffffff; background-image: url('/images/template-bela-farma.png'); background-size: cover; background-position: center; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; padding: 20px 24px;">
-        
-        <!-- Topo: Selo Festivo de 1º Aniversário -->
-        <div style="margin-top: 55px; display: flex; justify-content: center;">
-          <div style="background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fef08a; padding: 5px 16px; border-radius: 9999px; font-size: 11px; font-weight: 900; letter-spacing: 0.5px; border: 2px solid #facc15; box-shadow: 0 4px 12px rgba(220,38,38,0.3); display: inline-flex; align-items: center; gap: 6px;">
-            <span>🎂</span> 1º ANIVERSÁRIO BELA FARMA SUL <span>🎉</span>
-          </div>
-        </div>
-
-        <!-- Centro: Imagem e Dados do Produto -->
-        <div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 10px; flex: 1; justify-content: center;">
-          
-          <!-- Foto do Produto -->
-          <div style="width: 175px; height: 175px; background: #ffffff; border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border: 2px solid #f1f5f9; display: flex; align-items: center; justify-content: center; padding: 12px; margin-bottom: 12px; box-sizing: border-box;">
-            <img src="${imgUrl}" alt="${item.descricao}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
-          </div>
-
-          <!-- Nome do Medicamento -->
-          <div style="font-size: 15px; font-weight: 900; color: #0f172a; line-height: 1.25; max-width: 380px; text-transform: uppercase;">
-            ${item.descricao}
-          </div>
-          ${item.apresentacao ? `<div style="font-size: 12px; font-weight: 700; color: #64748b; margin-top: 2px;">${item.apresentacao}</div>` : ''}
-
-          <!-- Box de Preço Varejo Farma -->
-          <div style="margin-top: 10px; background: #fffbeb; border: 2px dashed #f59e0b; border-radius: 16px; padding: 8px 24px; display: inline-block;">
-            <div style="font-size: 12px; font-weight: 800; color: #94a3b8; text-decoration: line-through;">
-              DE: R$ ${valNormal.toFixed(2).replace('.', ',')}
-            </div>
-            <div style="display: flex; align-items: baseline; justify-content: center; gap: 4px; margin-top: -2px;">
-              <span style="font-size: 14px; font-weight: 900; color: #dc2626;">POR:</span>
-              <span style="font-size: 32px; font-weight: 900; color: #dc2626; letter-spacing: -1px; line-height: 1;">
-                R$ ${valPromo.toFixed(2).replace('.', ',')}
-              </span>
-            </div>
-            <div style="display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 3px;">
-              <span style="background: #dc2626; color: #ffffff; font-size: 10px; font-weight: 900; padding: 2px 6px; border-radius: 4px;">
-                -${descPct}% OFF
-              </span>
-              ${economiaReais > 0 ? `<span style="font-size: 10px; font-weight: 800; color: #b45309;">Economize R$ ${economiaReais.toFixed(2).replace('.', ',')}</span>` : ''}
-            </div>
-          </div>
-
-          <!-- Vigência -->
-          <div style="font-size: 10px; font-weight: 800; color: #475569; margin-top: 8px;">
-            📅 Válido de <strong>${inicioFmt}</strong> até <strong>${terminoFmt}</strong>
-          </div>
-        </div>
-
-        <!-- Rodapé do Encarte sobreposto à base do template -->
-        <div style="margin-bottom: 35px; text-align: center;">
-          <div style="font-size: 10px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.2px;">
-            ⚡ PEÇA PELO WHATSAPP: (32) 9822-8189 • ENTREGA RÁPIDA
-          </div>
-        </div>
-      </div>
-    `;
-  };
-
-  // Helper para renderizar a string HTML de uma página do Encarte Geral Tablóide
-  const gerarHtmlPaginaEncarteString = (itensPagina: ItemLiquidacaoArte[], paginaNum: number, totalPags: number) => {
-    const cardsHtml = itensPagina.map(it => {
-      const vNorm = it.preco_normal || it.preco_promocional;
-      const vProm = it.preco_promocional;
-      const dPct = it.desconto_percentual || Math.round(((vNorm - vProm) / vNorm) * 100);
-      const img = it.imagem_url || '/images/logo-icon.png';
-
-      return `
-        <div style="background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-          <div style="height: 85px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-            <img src="${img}" style="max-height: 100%; max-width: 100%; object-fit: contain;" />
-          </div>
-          <div style="font-size: 10px; font-weight: 900; color: #0f172a; height: 26px; overflow: hidden; line-height: 1.2; text-transform: uppercase;">
-            ${it.descricao}
-          </div>
-          <div style="background: #fefce8; border: 1px dashed #eab308; border-radius: 8px; padding: 4px; margin-top: 4px;">
-            <div style="font-size: 9px; color: #94a3b8; text-decoration: line-through; font-weight: 700;">
-              DE R$ ${vNorm.toFixed(2).replace('.', ',')}
-            </div>
-            <div style="font-size: 16px; font-weight: 900; color: #dc2626; line-height: 1; margin: 2px 0;">
-              R$ ${vProm.toFixed(2).replace('.', ',')}
-            </div>
-            <div style="display: inline-block; background: #dc2626; color: #fff; font-size: 8px; font-weight: 900; padding: 1px 4px; border-radius: 3px;">
-              -${dPct}% OFF
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <div style="position: relative; width: 794px; height: 1123px; background-color: #ffffff; background-image: url('/images/template-bela-farma.png'); background-size: cover; background-position: center; font-family: system-ui, -apple-system, sans-serif; box-sizing: border-box; padding: 30px 40px; display: flex; flex-direction: column; justify-content: space-between;">
-        
-        <!-- Header da Página -->
-        <div style="margin-top: 75px; text-align: center;">
-          <div style="display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fef08a; padding: 6px 20px; border-radius: 9999px; font-size: 14px; font-weight: 900; border: 2px solid #facc15; box-shadow: 0 4px 12px rgba(220,38,38,0.25);">
-            <span>🎂</span> MEGA LIQUIDAÇÃO • 1º ANIVERSÁRIO BELA FARMA SUL <span>🎉</span>
-          </div>
-          <div style="font-size: 12px; font-weight: 800; color: #475569; margin-top: 6px;">
-            Ofertas especiais válidas de <strong>${inicioFmt}</strong> até <strong>${terminoFmt}</strong> ou enquanto durar o estoque
-          </div>
-        </div>
-
-        <!-- Grade de Produtos (4 colunas x 2 linhas = 8 produtos) -->
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 15px 0; flex: 1; align-content: center;">
-          ${cardsHtml}
-        </div>
-
-        <!-- Footer da Página -->
-        <div style="margin-bottom: 50px; display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 800; color: #1e3a8a; border-top: 1px solid #cbd5e1; padding-top: 6px;">
-          <span>📍 Santa Luzia, Juiz de Fora - MG</span>
-          <span style="font-size: 12px; font-weight: 900; color: #dc2626;">⚡ WhatsApp: (32) 9822-8189</span>
-          <span>Página ${paginaNum} de ${totalPags}</span>
-        </div>
-      </div>
-    `;
   };
 
   return (
@@ -599,7 +453,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════
-          SUB-ABA 1: ARTES UNITÁRIAS (STORIES 9:16 & FEED 1:1)
+          SUB-ABA 1: ARTES UNITÁRIAS (STORIES 9:16 & FEED 4:5)
       ═══════════════════════════════════════════════════════════════ */}
       {subAba === 'unitarias' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -638,7 +492,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  <span>🟦 Feed Quadrado (1:1)</span>
+                  <span>🟦 Feed (4:5)</span>
                 </button>
               </div>
 
@@ -753,85 +607,15 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
               <span>👁️</span> Pré-visualização da Arte ({formatoUnitario.toUpperCase()})
             </span>
 
-            {/* Canvas / Container da Arte Unitária com Template Oficial */}
+            {/* Arte unitária (mesmo HTML usado na exportação), exibida em escala reduzida */}
             <div
-              ref={arteUnitarioRef}
-              className={`relative overflow-hidden bg-white shadow-2xl transition-all duration-300 flex flex-col justify-between select-none ${
-                formatoUnitario === 'story'
-                  ? 'w-[360px] h-[502px] rounded-3xl' // proporção 483 x 674 ajustada para preview
-                  : 'w-[420px] h-[420px] rounded-3xl' // quadrado feed
-              }`}
-              style={{
-                backgroundImage: "url('/images/template-bela-farma.png')",
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                boxSizing: 'border-box',
-                padding: formatoUnitario === 'story' ? '20px 22px' : '16px 20px'
-              }}
+              className="shrink-0 shadow-2xl bg-white select-none rounded-2xl overflow-hidden"
+              style={{ width: dimUnit.w * zoomUnit, height: dimUnit.h * zoomUnit }}
             >
-              {/* Header: Selo de 1º Aniversário */}
-              <div className={`${formatoUnitario === 'story' ? 'mt-11' : 'mt-8'} flex justify-center`}>
-                <div className="bg-gradient-to-r from-red-600 to-red-700 text-yellow-200 px-3.5 py-1 rounded-full text-[10px] font-black tracking-wide border-2 border-yellow-400 shadow-md flex items-center gap-1.5 animate-pulse">
-                  <span>🎂</span> 1º ANIVERSÁRIO BELA FARMA SUL <span>🎉</span>
-                </div>
-              </div>
-
-              {/* Centro: Foto do Produto e Preço */}
-              <div className="flex flex-col items-center text-center justify-center flex-1 my-1">
-                {/* Foto do Produto */}
-                <div className="w-28 h-28 bg-white/95 rounded-2xl shadow-md border border-slate-100 p-2 flex items-center justify-center mb-2">
-                  <img
-                    src={produtoAtual?.imagem_url || '/images/logo-icon.png'}
-                    alt={produtoAtual?.descricao}
-                    className="max-h-full max-w-full object-contain"
-                  />
-                </div>
-
-                {/* Nome do Produto */}
-                <h4 className="font-black text-xs text-slate-900 leading-tight max-w-[280px] uppercase line-clamp-2">
-                  {produtoAtual?.descricao}
-                </h4>
-                {produtoAtual?.apresentacao && (
-                  <span className="text-[10px] font-bold text-slate-500 mt-0.5 truncate max-w-[260px]">
-                    {produtoAtual.apresentacao}
-                  </span>
-                )}
-
-                {/* Bloco de Preço */}
-                <div className="mt-2 bg-amber-50/90 border-2 border-dashed border-amber-400 rounded-xl px-4 py-1.5 shadow-xs">
-                  <div className="text-[10px] font-bold text-slate-400 line-through">
-                    DE: {fmt(produtoAtual?.preco_normal || produtoAtual?.preco_promocional)}
-                  </div>
-                  <div className="flex items-baseline justify-center gap-1">
-                    <span className="text-xs font-black text-red-600">POR:</span>
-                    <span className="text-2xl font-black text-red-600 tracking-tight leading-none">
-                      {fmt(produtoAtual?.preco_promocional)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
-                    <span className="bg-red-600 text-white font-black text-[9px] px-1.5 py-0.2 rounded">
-                      -{produtoAtual?.desconto_percentual}% OFF
-                    </span>
-                    {produtoAtual && (produtoAtual.preco_normal - produtoAtual.preco_promocional > 0) && (
-                      <span className="text-[9px] font-extrabold text-amber-800">
-                        Economize {fmt(produtoAtual.preco_normal - produtoAtual.preco_promocional)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Vigência */}
-                <div className="text-[9px] font-bold text-slate-500 mt-1.5">
-                  📅 Válido de <strong>{inicioFmt}</strong> até <strong>{terminoFmt}</strong>
-                </div>
-              </div>
-
-              {/* Rodapé Complementar */}
-              <div className={`${formatoUnitario === 'story' ? 'mb-8' : 'mb-6'} text-center`}>
-                <div className="text-[9px] font-black text-blue-900 tracking-tight">
-                  ⚡ WHATSAPP: (32) 9822-8189 • TELE-ENTREGA
-                </div>
-              </div>
+              <div
+                style={{ width: dimUnit.w, height: dimUnit.h, transform: `scale(${zoomUnit})`, transformOrigin: 'top left' }}
+                dangerouslySetInnerHTML={{ __html: htmlArteAtual }}
+              />
             </div>
           </div>
         </div>
@@ -921,77 +705,16 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
             </button>
           </div>
 
-          {/* Visualização da Página Atual do Encarte Tablóide */}
+          {/* Visualização da Página Atual do Encarte (mesmo HTML usado na exportação) */}
           <div className="flex justify-center overflow-x-auto p-4 bg-slate-200/80 dark:bg-slate-950/80 rounded-3xl">
             <div
-              ref={encartePaginaRef}
-              className="w-[794px] h-[1123px] bg-white shadow-2xl relative flex flex-col justify-between box-border p-8 select-none shrink-0"
-              style={{
-                backgroundImage: "url('/images/template-bela-farma.png')",
-                backgroundSize: 'cover',
-                backgroundPosition: 'center'
-              }}
+              className="shrink-0 shadow-2xl bg-white select-none"
+              style={{ width: DIMENSOES_A4.w * 0.9, height: DIMENSOES_A4.h * 0.9 }}
             >
-              {/* Header da Página */}
-              <div className="mt-16 text-center">
-                <div className="inline-flex items-center gap-2 bg-gradient-to-r from-red-600 to-red-700 text-yellow-200 px-5 py-1.5 rounded-full text-xs font-black border-2 border-yellow-400 shadow-md">
-                  <span>🎂</span> MEGA LIQUIDAÇÃO • 1º ANIVERSÁRIO BELA FARMA SUL <span>🎉</span>
-                </div>
-                <div className="text-[11px] font-bold text-slate-600 mt-1">
-                  Ofertas especiais válidas de <strong>{inicioFmt}</strong> até <strong>{terminoFmt}</strong> ou enquanto durar o estoque
-                </div>
-              </div>
-
-              {/* Grade de Produtos */}
-              <div className={`grid gap-3 my-4 flex-1 align-content-center ${
-                produtosPorPagina === 6 
-                  ? 'grid-cols-3' 
-                  : produtosPorPagina === 12 
-                    ? 'grid-cols-4' 
-                    : 'grid-cols-4'
-              }`}>
-                {itensPaginaEncarte.map((it) => {
-                  const vNorm = it.preco_normal || it.preco_promocional;
-                  const vProm = it.preco_promocional;
-                  const dPct = it.desconto_percentual || Math.round(((vNorm - vProm) / vNorm) * 100);
-
-                  return (
-                    <div
-                      key={it.id}
-                      className="bg-white/95 border border-slate-200 rounded-xl p-2 flex flex-col justify-between text-center shadow-xs"
-                    >
-                      <div className="h-20 flex items-center justify-center mb-1">
-                        <img
-                          src={it.imagem_url || '/images/logo-icon.png'}
-                          alt={it.descricao}
-                          className="max-h-full max-w-full object-contain"
-                        />
-                      </div>
-                      <div className="text-[10px] font-black text-slate-900 leading-tight h-6 overflow-hidden line-clamp-2 uppercase">
-                        {it.descricao}
-                      </div>
-                      <div className="bg-amber-50/90 border border-dashed border-amber-400 rounded-lg p-1 mt-1">
-                        <div className="text-[9px] text-slate-400 line-through font-bold">
-                          DE {fmt(vNorm)}
-                        </div>
-                        <div className="text-base font-black text-red-600 leading-none my-0.5">
-                          {fmt(vProm)}
-                        </div>
-                        <span className="inline-block bg-red-600 text-white text-[8px] font-black px-1 rounded">
-                          -{dPct}% OFF
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Rodapé Oficial da Folha */}
-              <div className="mb-11 flex items-center justify-between text-[11px] font-bold text-blue-900 border-t border-slate-300 pt-1.5">
-                <span>📍 Santa Luzia, Juiz de Fora - MG</span>
-                <span className="text-xs font-black text-red-600">⚡ WhatsApp: (32) 9822-8189</span>
-                <span>Página {paginaEncarteAtual} de {totalPaginasEncarte}</span>
-              </div>
+              <div
+                style={{ width: DIMENSOES_A4.w, height: DIMENSOES_A4.h, transform: 'scale(0.9)', transformOrigin: 'top left' }}
+                dangerouslySetInnerHTML={{ __html: htmlEncartePaginaAtual }}
+              />
             </div>
           </div>
         </div>
