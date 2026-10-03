@@ -136,11 +136,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const daysInMonth = new Date(currentYear, currentMonthNumber, 0).getDate();
     const dailyLimit = monthData.limit / daysInMonth;
     const todayBoletos = boletos.filter(b => {
-      if (!b.due_date) return false;
-      const [by, bm, bd] = b.due_date.split('-').map(Number);
+      if (!b || !b.due_date) return false;
+      const cleanDate = String(b.due_date).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 3) return false;
+      const by = Number(parts[0]);
+      const bm = Number(parts[1]);
+      const bd = Number(parts[2]);
       return by === agora.getFullYear() && bm === (agora.getMonth() + 1) && bd === agora.getDate();
     });
-    const spentToday = todayBoletos.reduce((sum, b) => sum + b.value, 0);
+    const spentToday = todayBoletos.reduce((sum, b) => sum + (b.value || 0), 0);
 
     let percentDaily = 0;
     if (dailyLimit > 0) percentDaily = (spentToday / dailyLimit) * 100;

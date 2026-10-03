@@ -461,16 +461,17 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
     const values = new Map<string, number>();
     
     // Add pending boleto values
-    boletos.filter(b => b.status !== BoletoStatus.PAGO).forEach(b => {
-      const dateStr = b.due_date.split('T')[0];
+    boletos.filter(b => b && b.status !== BoletoStatus.PAGO && b.due_date).forEach(b => {
+      const dateStr = String(b.due_date).split('T')[0];
       const current = values.get(dateStr) || 0;
-      values.set(dateStr, current + b.value);
+      values.set(dateStr, current + (b.value || 0));
     });
     
     // Add fixed payment values
-    fixedPayments.filter(fp => fp.status === 'Pendente').forEach(fp => {
-      const current = values.get(fp.dueDate) || 0;
-      values.set(fp.dueDate, current + fp.value);
+    fixedPayments.filter(fp => fp && fp.status === 'Pendente' && fp.dueDate).forEach(fp => {
+      const dateStr = String(fp.dueDate).split('T')[0];
+      const current = values.get(dateStr) || 0;
+      values.set(dateStr, current + (fp.value || 0));
     });
     
     return values;
@@ -496,11 +497,11 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
 
   const totalPendingBalance = useMemo(() => {
     const boletosTotal = boletos
-      .filter(b => b.status !== BoletoStatus.PAGO)
-      .reduce((acc, b) => acc + b.value, 0);
+      .filter(b => b && b.status !== BoletoStatus.PAGO)
+      .reduce((acc, b) => acc + (b.value || 0), 0);
     const fixedTotal = fixedPayments
-      .filter(fp => fp.status === 'Pendente')
-      .reduce((acc, fp) => acc + fp.value, 0);
+      .filter(fp => fp && fp.status === 'Pendente')
+      .reduce((acc, fp) => acc + (fp.value || 0), 0);
     return boletosTotal + fixedTotal;
   }, [boletos, fixedPayments]);
 
@@ -541,14 +542,14 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
     const grouped: Record<string, any[]> = {};
 
     selectedDateStrings.forEach(dateStr => {
-      const matchedBoletos = boletos.filter(b => b.due_date.split('T')[0] === dateStr);
+      const matchedBoletos = boletos.filter(b => b && b.due_date && String(b.due_date).split('T')[0] === dateStr);
       
       const matchedFixedPayments = fixedPayments
-        .filter(fp => fp.dueDate === dateStr)
+        .filter(fp => fp && (fp.dueDate === dateStr || (fp.dueDate && String(fp.dueDate).split('T')[0] === dateStr)))
         .map(fp => ({
           id: fp.id,
-          supplierName: `[FIXA] ${fp.fixedAccountName}`,
-          value: fp.value,
+          supplierName: `[FIXA] ${fp.fixedAccountName || 'Conta Fixa'}`,
+          value: fp.value || 0,
           due_date: fp.dueDate,
           status: fp.status || 'Pendente',
           isFixed: true
@@ -562,6 +563,7 @@ export const DaysInDebt: React.FC<DaysInDebtProps> = ({
 
     return grouped;
   }, [selectedDateStrings, boletos, fixedPayments]);
+
 
   const selectedTotal = useMemo(() => {
     return Object.values(selectedBoletosByDate)

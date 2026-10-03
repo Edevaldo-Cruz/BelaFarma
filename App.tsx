@@ -231,17 +231,26 @@ const App: React.FC = () => {
 
     // Calcula gastos totais já lançados do Mês 1
     const spent1 = boletos.filter(b => {
-      if (!b.due_date) return false;
-      const [by, bm] = b.due_date.split('-').map(Number);
+      if (!b || !b.due_date) return false;
+      const cleanDate = String(b.due_date).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 2) return false;
+      const by = Number(parts[0]);
+      const bm = Number(parts[1]);
       return by === y1 && bm === m1Number;
-    }).reduce((sum, b) => sum + b.value, 0);
+    }).reduce((sum, b) => sum + (b.value || 0), 0);
 
     // Calcula gastos totais já lançados do Mês 2
     const spent2 = boletos.filter(b => {
-      if (!b.due_date) return false;
-      const [by, bm] = b.due_date.split('-').map(Number);
+      if (!b || !b.due_date) return false;
+      const cleanDate = String(b.due_date).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 2) return false;
+      const by = Number(parts[0]);
+      const bm = Number(parts[1]);
       return by === y2 && bm === m2Number;
-    }).reduce((sum, b) => sum + b.value, 0);
+    }).reduce((sum, b) => sum + (b.value || 0), 0);
+
 
     const calcStatus = (spent: number, limit: number): 'safe' | 'warning' | 'danger' => {
       const pct = (spent / limit) * 100;

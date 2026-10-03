@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "017567c",
-  "commitMessage": "fix(pwa): forcar atualizacao imediata de Service Worker com skipWaiting e clientsClaim",
-  "buildTime": "03/10/2026, 19:52:16"
+  "commitHash": "5df5e9c",
+  "commitMessage": "fix(finance): prevent undefined split crash in ContasAPagar component",
+  "buildTime": "03/10/2026, 19:53:24"
 }

@@ -185,14 +185,21 @@ export function calculateWeeklyBudgetsCascade(
 
         // Filtra boletos com vencimento nessa semana
         const weekBoletos = boletos.filter(b => {
-          if (!b.due_date) return false;
-          const [by, bm, bd] = b.due_date.split('-').map(Number);
+          if (!b || !b.due_date) return false;
+          const cleanDate = String(b.due_date).split('T')[0];
+          const parts = cleanDate.split('-');
+          if (parts.length < 3) return false;
+          const by = Number(parts[0]);
+          const bm = Number(parts[1]);
+          const bd = Number(parts[2]);
           // Usa meio-dia para evitar problemas de borda de fuso horário
           const boletoDate = new Date(by, bm - 1, bd, 12, 0, 0);
+          if (isNaN(boletoDate.getTime())) return false;
           return boletoDate >= rw.startDate && boletoDate <= rw.endDate;
         });
 
-        const spent = weekBoletos.reduce((sum, b) => sum + b.value, 0);
+        const spent = weekBoletos.reduce((sum, b) => sum + (b.value || 0), 0);
+
         totalMonthSpent += spent;
 
         // Limite ajustado: limite base menos o excesso herdado de semanas anteriores
