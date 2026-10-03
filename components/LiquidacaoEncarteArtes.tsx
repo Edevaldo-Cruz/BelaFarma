@@ -454,7 +454,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte([produtoAtual]);
       const canvas = await renderizarHtmlParaCanvas(
-        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 2
+        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 3
       );
       const link = document.createElement('a');
       link.download = `BelaFarma_Arte_${formatoUnitario}_${slugProduto(produtoAtual.descricao)}.png`;
@@ -539,7 +539,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte([produtoAtual]);
       const canvas = await renderizarHtmlParaCanvas(
-        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 2
+        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 3
       );
       canvas.toBlob(async (blob) => {
         if (blob) {
@@ -573,7 +573,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
         const item = itens[i];
         setProgressoZip({ atual: i + 1, total: itens.length });
         const canvas = await renderizarHtmlParaCanvas(
-          htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 2
+          htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 3
         );
         const base64Data = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
         const fileName = `${String(i + 1).padStart(2, '0')}_${item.produto_id}_${slugProduto(item.descricao)}.png`;
@@ -600,7 +600,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       await prepararImagensArte(itensPaginaEncarte);
       const canvas = await renderizarHtmlParaCanvas(
         htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte, estilo),
-        DIMENSOES_A4.w, DIMENSOES_A4.h, 2.5
+        DIMENSOES_A4.w, DIMENSOES_A4.h, 3
       );
       const link = document.createElement('a');
       link.download = `BelaFarma_Encarte_Pagina_${paginaEncarteAtual}_de_${totalPaginasEncarte}.png`;

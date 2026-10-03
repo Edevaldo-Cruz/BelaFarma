@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ad96992",
-  "commitMessage": "fix(artes): travar posicoes com coordenadas absolutas exatas eliminando deslocamento no download",
-  "buildTime": "03/10/2026, 12:02:28"
+  "commitHash": "c81c529",
+  "commitMessage": "style(artes): exibir validade como texto limpo sem tarja pesada",
+  "buildTime": "03/10/2026, 12:29:29"
 }

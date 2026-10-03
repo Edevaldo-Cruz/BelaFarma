@@ -268,7 +268,7 @@ const carregarImagem = (url: string): Promise<HTMLImageElement> =>
 export async function recortarFundo(url: string, sensibilidade: number = 25): Promise<string> {
   try {
     const img = await carregarImagem(url);
-    const maxLado = 720;
+    const maxLado = 2048;
     const escala = Math.min(1, maxLado / Math.max(img.naturalWidth, img.naturalHeight));
     const W = Math.max(1, Math.round(img.naturalWidth * escala));
     const H = Math.max(1, Math.round(img.naturalHeight * escala));
@@ -452,7 +452,7 @@ const sombraChao = (altura: number) =>
 
 const imgProduto = (it: ItemArte, estilo = '', usarRecorte = true, zoom = 1, offsetY = 0) => {
   const src = usarRecorte ? getImagemPronta(it.imagem_url) : (it.imagem_url || '');
-  const transform = `transform: scale(${zoom}) translateY(${offsetY}px); transform-origin: center bottom;`;
+  const transform = `transform: scale(${zoom}) translateY(${offsetY}px); transform-origin: center bottom; image-rendering: high-quality;`;
   if (!src) {
     return `<img src="${IMG_PLACEHOLDER}" style="position:absolute;left:18%;top:18%;width:64%;height:64%;object-fit:contain;opacity:0.35;${transform}${estilo}" />`;
   }
@@ -566,12 +566,12 @@ export function htmlArteUnitaria(
     : (story
         ? `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
            ${e.exibirLogo ? placaLogo(168, 84, 24, 20) : ''}
-           <div data-drag-el="titulo" style="position:absolute;left:${e.exibirLogo ? 214 : 26}px;top:34px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-           <div style="position:absolute;left:30px;top:118px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>`
+           <div data-drag-el="titulo" style="position:absolute;left:${(e.exibirLogo ? 214 : 26) + posTitulo.x}px;top:${34 + posTitulo.y}px;cursor:grab;touch-action:none;">${fitaCampanha(11, '5px 10px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+           <div style="position:absolute;left:${30 + posTitulo.x}px;top:${118 + posTitulo.y}px;cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>`
         : `${ondaTopo(W, headerH, 'gHu', e.corPrimaria, e.corSecundaria, e.corDestaque)}
            ${e.exibirLogo ? placaLogo(130, 65, 22, 14) : ''}
-           <div data-drag-el="titulo" style="position:absolute;left:${e.exibirLogo ? 170 : 22}px;top:26px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
-           <div style="position:absolute;left:28px;top:84px;transform:translate(${posTitulo.x}px,${posTitulo.y}px);cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>`
+           <div data-drag-el="titulo" style="position:absolute;left:${(e.exibirLogo ? 170 : 22) + posTitulo.x}px;top:${26 + posTitulo.y}px;cursor:grab;touch-action:none;">${fitaCampanha(9.5, '4px 8px', e.tituloCampanhaTopo, e.corSecundaria, e.corDestaque, e.corDestaque, e.fonteCorpo)}</div>
+           <div style="position:absolute;left:${28 + posTitulo.x}px;top:${84 + posTitulo.y}px;cursor:grab;touch-action:none;">${tituloPromo(fsTopo, fsPrincipal, LOJA.tituloTopo, e.tituloPrincipal, e.corDestaque, e.corSecundaria, e.fonteTitulo)}</div>`
       );
 
   const stageW = story ? 320 : 220;
@@ -580,13 +580,13 @@ export function htmlArteUnitaria(
   const stageTop = story ? (temFundoCustom ? 175 : 240) : (temFundoCustom ? 130 : 180);
 
   const palco = `
-    <div data-drag-el="foto" style="position:absolute;left:${stageLeft}px;top:${stageTop}px;width:${stageW}px;height:${stageH}px;transform:translate(${posFoto.x}px,${posFoto.y}px);cursor:grab;touch-action:none;z-index:3;">
+    <div data-drag-el="foto" style="position:absolute;left:${stageLeft + posFoto.x}px;top:${stageTop + posFoto.y}px;width:${stageW}px;height:${stageH}px;cursor:grab;touch-action:none;z-index:3;">
       <div style="position:absolute;left:50%;top:50%;width:${stageW - 20}px;height:${stageW - 20}px;margin-left:${-(stageW - 20) / 2}px;margin-top:${-(stageW - 20) / 2 - 6}px;border-radius:50%;background:radial-gradient(circle at 50% 45%, #ffffff 0%, #e6efff 62%, rgba(230,239,255,0) 72%);"></div>
       <div style="position:absolute;left:${story ? 20 : 12}px;top:${story ? 8 : 8}px;right:${story ? 20 : 12}px;bottom:${story ? 20 : 16}px;">
         ${imgProduto(item, '', e.usarRecorteTransparente, e.zoomProduto, e.offsetYProduto)}
       </div>
       ${e.exibirSombraProduto ? `<div style="position:absolute;left:0;right:0;bottom:0;height:22px;">${sombraChao(20)}</div>` : ''}
-      ${e.exibirSeloDesconto ? `<div data-drag-el="selo" style="position:absolute;right:${story ? -20 : -15}px;top:${story ? -5 : -5}px;transform:translate(${posSelo.x}px,${posSelo.y}px);cursor:grab;touch-action:none;z-index:4;">${seloDesconto(pct, story ? 105 : 82, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
+      ${e.exibirSeloDesconto ? `<div data-drag-el="selo" style="position:absolute;right:${(story ? -20 : -15) - posSelo.x}px;top:${(-5) + posSelo.y}px;cursor:grab;touch-action:none;z-index:4;">${seloDesconto(pct, story ? 105 : 82, e.corPrimaria, e.corDestaque, '#ffe27a', e.fonteTitulo, e.fonteCorpo)}</div>` : ''}
     </div>`;
 
   const nomeW = story ? 480 : 265;
@@ -596,7 +596,7 @@ export function htmlArteUnitaria(
   const nomeFs = story ? 24 : 18;
   const nomeLh = Math.round(nomeFs * 1.25);
   const nomeBloco = `
-    <div data-drag-el="nome" style="position:absolute;left:${nomeLeft}px;top:${nomeTop}px;width:${nomeW}px;box-sizing:border-box;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;touch-action:none;z-index:3;">
+    <div data-drag-el="nome" style="position:absolute;left:${nomeLeft + posNome.x}px;top:${nomeTop + posNome.y}px;width:${nomeW}px;box-sizing:border-box;cursor:grab;touch-action:none;z-index:3;">
       <div style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corTexto};text-transform:uppercase;text-align:${story ? 'center' : 'left'};font-size:${nomeFs}px;line-height:${nomeLh}px;max-height:${nomeLh * 2 + 10}px;padding:2px 2px;overflow:hidden;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;">${esc(item.descricao)}</div>
       ${item.apresentacao ? `<div style="font-family:${e.fonteCorpo};font-weight:700;color:#64748b;text-align:${story ? 'center' : 'left'};font-size:${story ? 14 : 12}px;margin-top:2px;padding:1px 0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.apresentacao)}</div>` : ''}
     </div>`;
@@ -607,7 +607,7 @@ export function htmlArteUnitaria(
 
   const tamPreco = Math.round((story ? 84 : 52) * e.tamanhoPrecoMultiplicador);
   const badgePreco = `
-    <div data-drag-el="preco" style="position:absolute;left:${precoLeft}px;top:${precoTop}px;width:${precoW}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 24px' : '8px 12px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;touch-action:none;z-index:3;">
+    <div data-drag-el="preco" style="position:absolute;left:${precoLeft + posPreco.x}px;top:${precoTop + posPreco.y}px;width:${precoW}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 24px' : '8px 12px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};cursor:grab;touch-action:none;z-index:3;">
       ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 16 : 12}px;text-decoration:line-through;line-height:1.2;margin-bottom:2px;">DE ${brl(normal)}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin:2px 0;">
         <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 20 : 15}px;line-height:1;">POR</span>
@@ -621,7 +621,7 @@ export function htmlArteUnitaria(
   const valTop = story ? (temFundoCustom ? 735 : 780) : (temFundoCustom ? 495 : 535);
 
   const faixaValidadeBloco = e.exibirValidade
-    ? `<div data-drag-el="validade" style="position:absolute;left:${valLeft}px;top:${valTop}px;width:${valW}px;text-align:center;transform:translate(${posValidade.x}px,${posValidade.y}px);cursor:grab;touch-action:none;z-index:4;">
+    ? `<div data-drag-el="validade" style="position:absolute;left:${valLeft + posValidade.x}px;top:${valTop + posValidade.y}px;width:${valW}px;text-align:center;cursor:grab;touch-action:none;z-index:4;">
         <div style="font-family:${e.fonteCorpo};font-weight:800;font-size:${story ? 12 : 10}px;color:${temFundoCustom ? '#1e293b' : e.corTexto};letter-spacing:0.5px;text-align:center;white-space:nowrap;line-height:1.2;">
           OFERTAS VÁLIDAS DE ${periodo.inicio} A ${periodo.termino} OU ENQUANTO DURAR O ESTOQUE
         </div>
@@ -790,7 +790,7 @@ const aguardarImagens = async (raiz: HTMLElement) => {
 };
 
 /** Renderiza uma string HTML (em tamanho nativo, fora da tela) para canvas. */
-export async function renderizarHtmlParaCanvas(html: string, w: number, h: number, scale = 2): Promise<HTMLCanvasElement> {
+export async function renderizarHtmlParaCanvas(html: string, w: number, h: number, scale = 3): Promise<HTMLCanvasElement> {
   const host = document.createElement('div');
   // Usamos z-index: -99999 e opacity: 0.01 em 0,0 para que o Chromium renderize as fontes
   // e o subpixel antialiasing com a mesma geometria e fidelidade do preview visual
@@ -823,7 +823,13 @@ export async function renderizarHtmlParaCanvas(html: string, w: number, h: numbe
       y: 0,
       scrollX: 0,
       scrollY: 0,
-      logging: false
+      logging: false,
+      onclone: (clonedDoc) => {
+        const imgs = Array.from(clonedDoc.querySelectorAll('img'));
+        imgs.forEach(img => {
+          img.style.imageRendering = 'high-quality';
+        });
+      }
     });
   } finally {
     document.body.removeChild(host);
