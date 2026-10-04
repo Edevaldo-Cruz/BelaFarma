@@ -498,6 +498,9 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             onChange={e => setFormatoId(e.target.value as FormatoEtiquetaId)}
             className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-orange-500 shrink-0 max-w-xs"
           >
+            <optgroup label="⭐ Folhas A4 Especiais de Oferta">
+              <option value="a4_oferta_2x3">🎯 Folha A4 (6 etiquetas • Oferta Seta Foto)</option>
+            </optgroup>
             <optgroup label="Tamanhos de Etiquetas Térmicas / Prateleira">
               <option value="termica_60x40">Térmica 60 x 40 mm (Padrão Farmácia)</option>
               <option value="termica_100x30">Térmica 100 x 30 mm (Gôndola Alongada)</option>

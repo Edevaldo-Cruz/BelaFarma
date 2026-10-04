@@ -16,6 +16,7 @@ export type FormatoEtiquetaId =
   | 'termica_100x50'
   | 'a4_pimaco_3x10'
   | 'a4_pimaco_2x7'
+  | 'a4_oferta_2x3'
   | 'cartaz_a6'
   | 'cartaz_a5';
 
@@ -37,6 +38,22 @@ export interface FormatoEtiquetaConfig {
 }
 
 export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig> = {
+  a4_oferta_2x3: {
+    id: 'a4_oferta_2x3',
+    nome: 'Folha A4 2x3 (6 etiquetas • 98 x 88 mm - Oferta Destaque Seta)',
+    tipo: 'folha_a4',
+    wMm: 98,
+    hMm: 88,
+    wPx: 370,
+    hPx: 332,
+    cols: 2,
+    rows: 3,
+    margemTopMm: 10,
+    margemEsqMm: 6,
+    gapColMm: 4,
+    gapRowMm: 4,
+    descricao: '6 etiquetas por folha A4 com seta vermelha OFERTA, nome e desconto % (Modelo da foto).'
+  },
   termica_60x40: {
     id: 'termica_60x40',
     nome: 'Térmica 60 x 40 mm (Padrão Farmácia)',
@@ -199,6 +216,31 @@ export interface EstiloEtiqueta {
 }
 
 export const MODELOS_PRONTOS_ETIQUETA: Record<string, { nome: string; descricao: string; estilo: Partial<EstiloEtiqueta> }> = {
+  oferta_amarela_6x: {
+    nome: '🎯 Oferta 6 por Folha A4 (Seta + Nome + Desconto %)',
+    descricao: 'Modelo idêntico à foto: Amarela com borda vermelha, seta OFERTA, Nome e Desconto %',
+    estilo: {
+      corFundo: '#ffea00',
+      corFaixa: '#d6192b',
+      corTextoFaixa: '#ffffff',
+      corPrecoDe: '#64748b',
+      corPrecoPor: '#000000',
+      corBadge: '#d6192b',
+      corTextoBadge: '#ffffff',
+      corTexto: '#000000',
+      fonteTitulo: "Impact, 'Arial Black', sans-serif",
+      fonteCorpo: "'Segoe UI', Arial, sans-serif",
+      tituloPromocional: 'OFERTA',
+      textoAviso: '',
+      exibirDePor: false,
+      exibirSeloDesconto: true,
+      exibirCodigoBarras: false,
+      exibirLogo: false,
+      exibirFoto: false,
+      exibirValidade: false,
+      exibirAvisoAvista: false
+    }
+  },
   amarelo_oferta: {
     nome: '🌟 Amarelo Impacto / Super Oferta',
     descricao: 'Fundo amarelo vivo, faixa vermelha chamativa e preço de máximo contraste',
@@ -476,6 +518,45 @@ export function htmlEtiqueta(
     : '';
 
   // Layout Diferenciado por Tipo:
+  // 0. FORMATO ESPECIAL: OFERTA SETA (6 POR FOLHA A4) - MODELO IDÊNTICO À FOTO DO USUÁRIO
+  if (formato.id === 'a4_oferta_2x3' || estilo.modeloId === 'oferta_amarela_6x') {
+    const fsNome = Math.round(22 * escalaBase);
+    const fsBanner = Math.round(24 * escalaBase);
+    const fsDescPerc = Math.round(15 * escalaBase);
+    const fsPrecoGiga = Math.round(58 * escalaBase * estilo.tamanhoPrecoMultiplicador);
+
+    return `
+      <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};box-sizing:border-box;padding:8px;border-radius:18px;border:3px solid ${estilo.corFundo};overflow:hidden;font-family:${estilo.fonteCorpo};display:flex;flex-direction:column;align-items:center;justify-content:space-between;">
+        <!-- Moldura Interna Arredondada -->
+        <div style="position:absolute;inset:5px;border:3.5px solid ${estilo.corFaixa};border-radius:14px;pointer-events:none;z-index:1;"></div>
+
+        <!-- Banner Seta Vermelha OFERTA -->
+        <div data-drag-el="faixa" style="position:relative;z-index:2;margin-top:-2px;background:${estilo.corFaixa};color:${estilo.corTextoFaixa};font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsBanner}px;text-transform:uppercase;letter-spacing:0.06em;padding:4px 20px 10px;width:68%;text-align:center;clip-path:polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%);display:flex;align-items:center;justify-content:center;text-shadow:1px 1px 2px rgba(0,0,0,0.3);transform:translate(${posFaixa.x}px,${posFaixa.y}px);cursor:grab;">
+          ${esc(estilo.tituloPromocional || 'OFERTA')}
+        </div>
+
+        <!-- Nome do Produto + Desconto % -->
+        <div data-drag-el="nome" style="position:relative;z-index:2;margin-top:6px;text-align:center;padding:0 8px;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:translate(${posNome.x}px,${posNome.y}px);cursor:grab;">
+          <div style="font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsNome}px;line-height:1.1;color:${estilo.corTexto};text-transform:uppercase;text-align:center;word-break:break-word;max-height:${fsNome * 2.4}px;overflow:hidden;">
+            ${esc(item.descricao)}
+          </div>
+          ${descPercent > 0 ? `
+            <div style="margin-top:5px;background:${estilo.corBadge};color:${estilo.corTextoBadge};font-family:${estilo.fonteTitulo};font-weight:900;font-size:${fsDescPerc}px;padding:3px 12px;border-radius:12px;display:inline-block;box-shadow:0 2px 4px rgba(0,0,0,0.15);">
+              -${descPercent}% OFF
+            </div>` : ''}
+        </div>
+
+        <!-- Preço de Venda Destacado -->
+        <div data-drag-el="preco" style="position:relative;z-index:2;margin-bottom:8px;display:flex;align-items:baseline;justify-content:center;gap:3px;transform:translate(${posPreco.x}px,${posPreco.y}px);cursor:grab;">
+          <span style="font-family:${estilo.fonteTitulo};font-size:${Math.round(18 * escalaBase)}px;font-weight:900;color:${estilo.corPrecoPor};">R$</span>
+          <span style="font-family:${estilo.fonteTitulo};font-size:${fsPrecoGiga}px;font-weight:900;line-height:0.85;color:${estilo.corPrecoPor};letter-spacing:-0.04em;">
+            ${precoStr.replace('R$', '').trim()}
+          </span>
+          <span style="font-family:${estilo.fonteTitulo};font-size:${Math.round(12 * escalaBase)}px;font-weight:900;color:${estilo.corPrecoPor};">UND</span>
+        </div>
+      </div>`;
+  }
+
   // 1. FORMATO CARTAZ (A6 / A5)
   if (formato.tipo === 'cartaz') {
     return `

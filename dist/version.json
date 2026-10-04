@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "2b28512",
-  "commitMessage": "fix: otimiza geracao de PDF de etiquetas sem travamento e adiciona suporte a varias etiquetas por folha A4 por tamanho",
-  "buildTime": "04/10/2026, 10:36:19"
+  "commitHash": "713490a",
+  "commitMessage": "fix: corrige preview em branco nas folhas A4, layout comprimido da barra e otimiza compilacao de PDF",
+  "buildTime": "04/10/2026, 11:06:00"
 }
