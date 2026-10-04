@@ -451,7 +451,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
 
       // Container temporário para renderização do html2canvas sem display:none
       const host = document.createElement('div');
-      host.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;';
+      host.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;overflow:hidden;';
       host.innerHTML = printableElement.innerHTML;
       document.body.appendChild(host);
 
@@ -480,7 +480,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
       document.body.removeChild(host);
 
       pdf.save(`Etiquetas_BelaFarma_Folhas_A4_${new Date().toISOString().slice(0, 10)}.pdf`);
-      showToast('success', '🎉 PDF baixado com sucesso!');
+      showToast('success', '🎉 PDF baixado! DICA: Na impressora, escolha "Tamanho Real" (Escala 100%) para alinhamento perfeito.');
 
       if (confirm('Deseja arquivar as etiquetas baixadas da fila?')) {
         try {
@@ -742,7 +742,9 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 <select 
                   onChange={e => {
                     const val = e.target.value;
-                    if (val === '60x40') {
+                    if (val === 'a4_oferta_2x3') {
+                      setGridCols(2); setGridRows(3); setMarginTop(10); setMarginBottom(15); setMarginLeft(6); setMarginRight(6); setColGap(4); setRowGap(4);
+                    } else if (val === '60x40') {
                       setGridCols(3); setGridRows(7); setMarginTop(8); setMarginBottom(8); setMarginLeft(7); setMarginRight(7); setColGap(2); setRowGap(1);
                     } else if (val === '100x30') {
                       setGridCols(2); setGridRows(9); setMarginTop(10); setMarginBottom(10); setMarginLeft(4); setMarginRight(4); setColGap(2); setRowGap(1);
@@ -756,6 +758,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   }}
                   className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-red-500 outline-none cursor-pointer"
                 >
+                  <option value="a4_oferta_2x3">🎯 Folha A4 Oferta 2x3 (6 etiquetas • 98 x 88 mm)</option>
                   <option value="pimaco_3x10">Pimaco 3x10 (30 etiquetas • 70 x 29.7mm)</option>
                   <option value="60x40">60 x 40 mm na Folha A4 (21 etiquetas • 3x7)</option>
                   <option value="100x30">100 x 30 mm na Folha A4 (18 etiquetas • 2x9)</option>

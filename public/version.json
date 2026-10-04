@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "713490a",
-  "commitMessage": "fix: corrige preview em branco nas folhas A4, layout comprimido da barra e otimiza compilacao de PDF",
-  "buildTime": "04/10/2026, 11:06:00"
+  "commitHash": "858d9dd",
+  "commitMessage": "feat: adicionar modelo de etiqueta 6 por folha A4 com destaque de oferta e desconto",
+  "buildTime": "04/10/2026, 11:36:50"
 }

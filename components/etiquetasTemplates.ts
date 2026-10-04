@@ -686,35 +686,36 @@ export function htmlFolhaA4Etiquetas(
   dataValidade?: string,
   gridOverride?: GridOverride
 ): string {
-  const W_A4 = 794;
-  const H_A4 = 1123;
   const cols = gridOverride?.cols ?? formato.cols ?? 3;
   const rows = gridOverride?.rows ?? formato.rows ?? 10;
-  const mTopPx = Math.round((gridOverride?.margemTopMm ?? formato.margemTopMm ?? 10) * 3.7795);
-  const mEsqPx = Math.round((gridOverride?.margemEsqMm ?? formato.margemEsqMm ?? 7) * 3.7795);
-  const gapColPx = Math.round((gridOverride?.gapColMm ?? formato.gapColMm ?? 2) * 3.7795);
-  const gapRowPx = Math.round((gridOverride?.gapRowMm ?? formato.gapRowMm ?? 0) * 3.7795);
+  const mTopMm = gridOverride?.margemTopMm ?? formato.margemTopMm ?? 10;
+  const mEsqMm = gridOverride?.margemEsqMm ?? formato.margemEsqMm ?? 6;
+  const gapColMm = gridOverride?.gapColMm ?? formato.gapColMm ?? 2;
+  const gapRowMm = gridOverride?.gapRowMm ?? formato.gapRowMm ?? 0;
 
-  const etiquetaW = Math.round((formato.wMm * 3.7795));
-  const etiquetaH = Math.round((formato.hMm * 3.7795));
+  const wMm = formato.wMm;
+  const hMm = formato.hMm;
+
+  // Calculamos dimensões em pixels para os elementos internos da etiqueta com fator 96/25.4 exato
+  const etiquetaW = Math.round(wMm * 3.779527559);
+  const etiquetaH = Math.round(hMm * 3.779527559);
 
   const slotsHtml = itensPagina.map(item => {
     if (!item) {
-      return `<div style="width:${etiquetaW}px;height:${etiquetaH}px;box-sizing:border-box;border:1px dashed rgba(0,0,0,0.08);background:transparent;"></div>`;
+      return `<div style="width:${wMm}mm;height:${hMm}mm;box-sizing:border-box;border:1px dashed rgba(0,0,0,0.08);background:transparent;"></div>`;
     }
-    // Renderiza a etiqueta redimensionada para a célula da grade A4
     return `
-      <div style="width:${etiquetaW}px;height:${etiquetaH}px;overflow:hidden;box-sizing:border-box;">
+      <div style="width:${wMm}mm;height:${hMm}mm;overflow:hidden;box-sizing:border-box;">
         ${htmlEtiqueta(item, { ...formato, wPx: etiquetaW, hPx: etiquetaH }, estilo, dataValidade)}
       </div>`;
   }).join('');
 
   return `
-    <div style="position:relative;width:${W_A4}px;height:${H_A4}px;background:#ffffff;box-sizing:border-box;padding-top:${mTopPx}px;padding-left:${mEsqPx}px;overflow:hidden;page-break-after:always;">
-      <div style="display:grid;grid-template-columns:repeat(${cols}, ${etiquetaW}px);grid-template-rows:repeat(${rows}, ${etiquetaH}px);column-gap:${gapColPx}px;row-gap:${gapRowPx}px;">
+    <div style="position:relative;width:210mm;height:297mm;background:#ffffff;box-sizing:border-box;padding-top:${mTopMm}mm;padding-left:${mEsqMm}mm;overflow:hidden;page-break-after:always;page-break-inside:avoid;">
+      <div style="display:grid;grid-template-columns:repeat(${cols}, ${wMm}mm);grid-template-rows:repeat(${rows}, ${hMm}mm);column-gap:${gapColMm}mm;row-gap:${gapRowMm}mm;">
         ${slotsHtml}
       </div>
-      <div style="position:absolute;bottom:4px;right:10px;font-family:sans-serif;font-size:9px;color:#94a3b8;">
+      <div style="position:absolute;bottom:4mm;right:8mm;font-family:sans-serif;font-size:8px;color:#94a3b8;pointer-events:none;">
         BelaFarma • Folha ${paginaNum} de ${totalPaginas} (${formato.nome})
       </div>
     </div>`;
