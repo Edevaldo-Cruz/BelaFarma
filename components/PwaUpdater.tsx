@@ -10,7 +10,12 @@ export function PwaUpdater() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      console.log('SW Registered: ' + r);
+      if (r) {
+        // Checa por atualizações a cada 20 segundos
+        setInterval(() => {
+          r.update().catch(() => {});
+        }, 20000);
+      }
     },
     onRegisterError(error) {
       console.log('SW registration error', error);
@@ -19,21 +24,39 @@ export function PwaUpdater() {
 
   useEffect(() => {
     if (needRefresh) {
-      addToast(
-        <div className="flex flex-col gap-2">
-          <span>Nova atualização disponível!</span>
-          <button 
-            onClick={() => updateServiceWorker(true)}
-            className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors"
-          >
-            Atualizar Agora
-          </button>
-        </div>,
-        'info', // use info or success for the toast type
-        10000 // duration 10s or similar, maybe longer
-      );
+      // Atualiza automaticamente o Service Worker e recarrega para a nova versão
+      updateServiceWorker(true);
     }
-  }, [needRefresh, updateServiceWorker, addToast]);
+  }, [needRefresh, updateServiceWorker]);
 
-  return null; // This component doesn't render any visible UI directly, it uses the Toast
+  // Checagem ativa de versão para forçar limpeza de cache se houver novo deploy
+  useEffect(() => {
+    let ultimoHash: string | null = null;
+    const checarVersao = async () => {
+      try {
+        const res = await fetch(`/version.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok) {
+          const dados = await res.json();
+          if (dados.commitHash) {
+            if (ultimoHash && ultimoHash !== dados.commitHash) {
+              console.log('Nova versão detectada no servidor! Atualizando...');
+              // Limpa todos os caches da API CacheStorage
+              if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+              }
+              window.location.reload();
+            }
+            ultimoHash = dados.commitHash;
+          }
+        }
+      } catch (e) {}
+    };
+
+    checarVersao();
+    const timer = setInterval(checarVersao, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return null;
 }

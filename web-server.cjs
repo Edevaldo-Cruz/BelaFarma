@@ -65,17 +65,41 @@ const server = http.createServer((req, res) => {
     if (!err && stats.isFile()) {
       const ext = path.extname(filePath).toLowerCase();
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': contentType });
+      
+      const isNoCache = 
+        parsedUrl === '/index.html' || 
+        parsedUrl === '/sw.js' || 
+        parsedUrl === '/version.json' || 
+        parsedUrl === '/manifest.webmanifest' ||
+        parsedUrl.startsWith('/workbox') ||
+        ext === '.html';
+
+      const headers = { 'Content-Type': contentType };
+
+      if (isNoCache) {
+        headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0';
+        headers['Pragma'] = 'no-cache';
+        headers['Expires'] = '0';
+      } else if (parsedUrl.startsWith('/assets/')) {
+        headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+      }
+
+      res.writeHead(200, headers);
       fs.createReadStream(filePath).pipe(res);
     } else {
-      // Fallback para SPA (index.html)
+      // Fallback para SPA (index.html) com zero cache
       const indexPath = path.join(DIST_DIR, 'index.html');
       fs.readFile(indexPath, (readErr, content) => {
         if (readErr) {
           res.writeHead(404);
           res.end('index.html não encontrado');
         } else {
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.writeHead(200, { 
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          });
           res.end(content);
         }
       });

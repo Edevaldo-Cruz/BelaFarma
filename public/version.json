@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "db642af",
-  "commitMessage": "feat: adicionar impressao HTML em encartes e estacao de etiquetas com calculo inteligente A4 sem cortes",
-  "buildTime": "04/10/2026, 12:16:11"
+  "commitHash": "e73ac26",
+  "commitMessage": "build: atualizar dist com os novos botoes de impressao HTML e reinicio de servico",
+  "buildTime": "04/10/2026, 12:24:54"
 }
