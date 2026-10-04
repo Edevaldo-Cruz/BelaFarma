@@ -1302,7 +1302,7 @@ const App: React.FC = () => {
                   onLog={(act, det) => createLog("Cofre", act, det)}
                 />
               )}
-              {currentView === "financial" && user.role === UserRole.ADM && (
+              {(currentView === "financial" || currentView === "contas-a-pagar") && user.role === UserRole.ADM && (
                 <Financial 
                   user={user}
                   orders={orders} 
@@ -1316,6 +1316,7 @@ const App: React.FC = () => {
                   onLog={(act, det) => createLog("Financeiro", act, det)}
                   cashClosings={cashClosings}
                   onOpenBudgetSummary={() => setIsBudgetSummaryOpen(true)}
+                  initialTab={currentView === 'contas-a-pagar' ? 'payable' : 'overview'}
                 />
               )}
               {currentView === "users" && user.role === UserRole.ADM && (

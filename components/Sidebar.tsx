@@ -298,6 +298,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'purchase-calendar', label: 'Calendário de Compras', icon: Calendar },
     { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
     { id: 'stock', label: 'Estoque', icon: Package },
+    { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Banknote },
+    { id: 'financial', label: 'Gestão Financeira', icon: Landmark },
     { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse },
     { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet },
     { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp },
@@ -311,7 +313,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
+    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
+
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });

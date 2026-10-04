@@ -21,6 +21,7 @@ interface FinancialProps {
   onLog: (action: string, details: string) => void;
   cashClosings: CashClosingRecord[];
   onOpenBudgetSummary: () => void;
+  initialTab?: 'overview' | 'payable' | 'fixed' | 'debt' | 'provisions';
 }
 
 type Transaction = Order | Boleto | (FixedAccount & { isFixed: true, targetDate: string });
@@ -42,12 +43,14 @@ export const Financial: React.FC<FinancialProps> = ({
   onDeleteBoleto,
   onLog,
   cashClosings,
-  onOpenBudgetSummary
+  onOpenBudgetSummary,
+  initialTab = 'overview'
 }) => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
   const [showArchive, setShowArchive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions'>(initialTab);
+
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
