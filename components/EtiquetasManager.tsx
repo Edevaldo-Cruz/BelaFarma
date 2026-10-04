@@ -432,6 +432,81 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (selectedIds.length === 0) {
+      showToast('info', 'Por favor, selecione pelo menos uma etiqueta na fila.');
+      return;
+    }
+
+    setDownloadingPdf(true);
+    setPdfProgress('Iniciando...');
+
+    try {
+      const { jsPDF } = await import('jspdf');
+      const html2canvas = (await import('html2canvas')).default;
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const printableElement = document.getElementById('printable-area');
+      if (!printableElement) throw new Error('Área de impressão não encontrada.');
+
+      // Container temporário para renderização do html2canvas sem display:none
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;';
+      host.innerHTML = printableElement.innerHTML;
+      document.body.appendChild(host);
+
+      const pageElements = Array.from(host.querySelectorAll('.print-page')) as HTMLElement[];
+
+      for (let p = 0; p < pageElements.length; p++) {
+        setPdfProgress(`Compilando folha ${p + 1} de ${pageElements.length}...`);
+        await new Promise(res => setTimeout(res, 25)); // Yield thread para manter a interface responsiva
+
+        const pageEl = pageElements[p];
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          width: 794,
+          height: 1123,
+          windowWidth: 794,
+          windowHeight: 1123
+        });
+
+        if (p > 0) pdf.addPage('a4', 'portrait');
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      }
+
+      document.body.removeChild(host);
+
+      pdf.save(`Etiquetas_BelaFarma_Folhas_A4_${new Date().toISOString().slice(0, 10)}.pdf`);
+      showToast('success', '🎉 PDF baixado com sucesso!');
+
+      if (confirm('Deseja arquivar as etiquetas baixadas da fila?')) {
+        try {
+          const res = await fetch('/api/labels/print-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selectedIds })
+          });
+          if (res.ok) {
+            showToast('success', 'Fila de impressão atualizada.');
+            setSelectedIds([]);
+            fetchQueue();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('error', 'Erro ao gerar PDF: ' + (err.message || 'Falha no processamento.'));
+    } finally {
+      setDownloadingPdf(false);
+      setPdfProgress('');
+    }
+  };
+
   return (
     <div className="flex flex-col flex-1 p-6 md:p-8 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
       <style dangerouslySetInnerHTML={{__html: `
@@ -662,6 +737,34 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 <h2 className="text-md font-black uppercase tracking-wider">Ajuste da Grade A4</h2>
               </div>
 
+              <div className="flex flex-col gap-1.5 border-b border-slate-50 dark:border-slate-800 pb-3">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Tamanho da Etiqueta / Preset</label>
+                <select 
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '60x40') {
+                      setGridCols(3); setGridRows(7); setMarginTop(8); setMarginBottom(8); setMarginLeft(7); setMarginRight(7); setColGap(2); setRowGap(1);
+                    } else if (val === '100x30') {
+                      setGridCols(2); setGridRows(9); setMarginTop(10); setMarginBottom(10); setMarginLeft(4); setMarginRight(4); setColGap(2); setRowGap(1);
+                    } else if (val === '100x50') {
+                      setGridCols(2); setGridRows(5); setMarginTop(15); setMarginBottom(15); setMarginLeft(4); setMarginRight(4); setColGap(2); setRowGap(2);
+                    } else if (val === 'pimaco_3x10') {
+                      setGridCols(3); setGridRows(10); setMarginTop(10); setMarginBottom(10); setMarginLeft(7); setMarginRight(7); setColGap(2); setRowGap(0);
+                    } else if (val === 'pimaco_2x7') {
+                      setGridCols(2); setGridRows(7); setMarginTop(15); setMarginBottom(15); setMarginLeft(5); setMarginRight(5); setColGap(3); setRowGap(0);
+                    }
+                  }}
+                  className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-red-500 outline-none cursor-pointer"
+                >
+                  <option value="pimaco_3x10">Pimaco 3x10 (30 etiquetas • 70 x 29.7mm)</option>
+                  <option value="60x40">60 x 40 mm na Folha A4 (21 etiquetas • 3x7)</option>
+                  <option value="100x30">100 x 30 mm na Folha A4 (18 etiquetas • 2x9)</option>
+                  <option value="100x50">100 x 50 mm na Folha A4 (10 etiquetas • 2x5)</option>
+                  <option value="pimaco_2x7">Pimaco 2x7 (14 etiquetas • 101.6 x 38.1mm)</option>
+                  <option value="custom">Personalizado (Manual)</option>
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Colunas</label>
@@ -816,7 +919,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 )}
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
                 <button
                   onClick={() => setShowManualForm(!showManualForm)}
                   className="flex items-center gap-1.5 px-5 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-black uppercase tracking-wider rounded-2xl transition-all"
@@ -825,6 +928,20 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   Criar Manual
                 </button>
                 
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={selectedIds.length === 0 || downloadingPdf}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
+                    selectedIds.length > 0 && !downloadingPdf
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                  }`}
+                  title="Gera o PDF das folhas A4 montadas com as etiquetas selecionadas"
+                >
+                  <Download size={16} className={downloadingPdf ? 'animate-spin' : ''} />
+                  {downloadingPdf ? (pdfProgress || 'Gerando PDF...') : 'Baixar PDF'}
+                </button>
+
                 <button
                   onClick={handlePrint}
                   disabled={selectedIds.length === 0}
@@ -835,7 +952,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   }`}
                 >
                   <Printer size={16} />
-                  Imprimir Selecionadas ({selectedIds.length})
+                  Imprimir ({selectedIds.length})
                 </button>
               </div>
             </div>

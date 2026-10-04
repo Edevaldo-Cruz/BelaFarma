@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f0f71ba",
-  "commitMessage": "fix(finance): fix contas-a-pagar route handling, sidebar navigation, backend fixed-account-payments endpoint month parsing, and DB cleanup",
-  "buildTime": "04/10/2026, 10:19:39"
+  "commitHash": "6d686c3",
+  "commitMessage": "fix(finance): update production dist bundle to index-zzc4x_Pc.js, add safe due_date parsing in BoletoForm, and invalidate PWA cache",
+  "buildTime": "04/10/2026, 10:22:12"
 }
