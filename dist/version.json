@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3c5ab8b",
-  "commitMessage": "feat: adicionar recurso de abertura de pagina HTML nativa sem PDF para impressao vetorial perfeita",
-  "buildTime": "04/10/2026, 12:05:07"
+  "commitHash": "db642af",
+  "commitMessage": "feat: adicionar impressao HTML em encartes e estacao de etiquetas com calculo inteligente A4 sem cortes",
+  "buildTime": "04/10/2026, 12:16:11"
 }
