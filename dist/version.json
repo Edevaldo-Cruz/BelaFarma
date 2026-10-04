@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e73ac26",
-  "commitMessage": "build: atualizar dist com os novos botoes de impressao HTML e reinicio de servico",
-  "buildTime": "04/10/2026, 12:24:54"
+  "commitHash": "317dfcd",
+  "commitMessage": "fix: desabilitar cache em index.html, sw.js e web-server e forcar atualizacao automatica da PWA",
+  "buildTime": "04/10/2026, 12:36:28"
 }

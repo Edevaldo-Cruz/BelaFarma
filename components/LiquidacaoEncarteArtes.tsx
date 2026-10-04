@@ -558,6 +558,42 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     }
   };
 
+  const handleAbrirHtmlArteUnitario = () => {
+    if (!produtoAtual) return;
+    const win = window.open('', '_blank');
+    if (!win) {
+      addToast('Permita pop-ups no navegador para abrir a arte em HTML.', 'warning');
+      return;
+    }
+    const htmlArte = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo);
+    win.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Arte ${produtoAtual.descricao} - BelaFarma</title>
+          <style>
+            @page { size: auto; margin: 0; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
+            body { margin: 0; padding: 20px; display: flex; align-items: center; justify-content: center; background: #ffffff; }
+          </style>
+        </head>
+        <body>
+          <div style="width: ${dimUnit.w}px; height: ${dimUnit.h}px;">
+            ${htmlArte}
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    addToast('🎉 Arte aberta em HTML nativo em nova aba!', 'success');
+  };
+
   const handleBaixarTodasArtesZip = async () => {
     if (itens.length === 0) return;
     setGerandoZip(true);
@@ -1326,26 +1362,36 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
               )}
 
               {/* Botões de Ação para a Arte Atual */}
-              <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="grid grid-cols-3 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleAbrirHtmlArteUnitario}
+                  className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
+                  title="Abre a arte em HTML puro em nova aba com máxima nitidez vetorial"
+                >
+                  <FileText size={13} />
+                  <span>Abrir HTML</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleBaixarArteUnitario}
                   disabled={gerandoDownload}
-                  className="py-2.5 px-3 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  className="py-2.5 px-2 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <Download size={14} className={gerandoDownload ? 'animate-bounce' : ''} />
-                  <span>{gerandoDownload ? 'Baixando...' : 'Baixar Imagem PNG'}</span>
+                  <Download size={13} className={gerandoDownload ? 'animate-bounce' : ''} />
+                  <span>{gerandoDownload ? 'Baixando...' : 'Baixar PNG'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleCopiarArteUnitario}
                   disabled={copiandoImagem}
-                  className="py-2.5 px-3 rounded-2xl bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-slate-900/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  className="py-2.5 px-2 rounded-2xl bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-slate-900/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                   title="Copia a imagem direto para você colar no WhatsApp (Ctrl+V)"
                 >
-                  {copiandoImagem ? <RefreshCw size={14} className="animate-spin" /> : <Copy size={14} />}
-                  <span>Copiar Imagem</span>
+                  {copiandoImagem ? <RefreshCw size={13} className="animate-spin" /> : <Copy size={13} />}
+                  <span>Copiar</span>
                 </button>
               </div>
 
