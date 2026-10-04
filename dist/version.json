@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "858d9dd",
-  "commitMessage": "feat: adicionar modelo de etiqueta 6 por folha A4 com destaque de oferta e desconto",
-  "buildTime": "04/10/2026, 11:36:50"
+  "commitHash": "255708a",
+  "commitMessage": "fix: alinhar etiquetas PDF e tela com unidades de precisao milimetrica e escala 100",
+  "buildTime": "04/10/2026, 11:47:26"
 }

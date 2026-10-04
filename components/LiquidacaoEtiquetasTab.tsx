@@ -314,6 +314,71 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     window.print();
   };
 
+  // ─── IMPRESSÃO EM NOVA ABA HTML PURA (ALINHAMENTO 100% VETORIAL) ───
+  const handleAbrirHtmlImpressao = () => {
+    if (listaExpandida.length === 0) {
+      addToast('Selecione pelo menos um produto para gerar folha de impressão HTML.', 'warning');
+      return;
+    }
+
+    const win = window.open('', '_blank');
+    if (!win) {
+      addToast('Por favor, permita os pop-ups no seu navegador para abrir a página HTML de impressão.', 'warning');
+      return;
+    }
+
+    let conteudoHtml = '';
+    if (tipoLayout === 'folha_a4') {
+      for (let p = 1; p <= totalFolhasA4; p++) {
+        const start = (p - 1) * totalSlotsPorFolhaA4;
+        const itensFolha = slotsCompletosA4.slice(start, start + totalSlotsPorFolhaA4);
+        while (itensFolha.length < totalSlotsPorFolhaA4) itensFolha.push(null);
+        conteudoHtml += htmlFolhaA4Etiquetas(itensFolha, formatoConfig, estilo, p, totalFolhasA4, dataValidadeFmt);
+      }
+    } else {
+      listaExpandida.forEach(it => {
+        conteudoHtml += htmlEtiqueta(it, formatoConfig, estilo, dataValidadeFmt);
+      });
+    }
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Impressão BelaFarma - Etiquetas A4</title>
+          <style>
+            @page {
+              size: ${formatoConfig.tipo === 'folha_a4' ? 'A4 portrait' : `${formatoConfig.wMm}mm ${formatoConfig.hMm}mm`};
+              margin: 0 !important;
+            }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              font-family: sans-serif;
+            }
+          </style>
+        </head>
+        <body>
+          ${conteudoHtml}
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    addToast('🎉 Folha HTML gerada em nova aba! Alinhamento vetorial perfeito.', 'success');
+  };
+
   // ─── EXPORTAÇÃO EM PDF (ASSÍNCRONA SEM TRAVAMENTOS) ───
   const handleBaixarPdf = async () => {
     if (listaExpandida.length === 0) {
@@ -571,10 +636,20 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             type="button"
             onClick={handleImprimir}
             className="px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-emerald-500/20 cursor-pointer active:scale-95 transition-all"
-            title="Abre a janela nativa de impressão com layout de alta precisão"
+            title="Abre a janela nativa de impressão diretamente no navegador"
           >
             <Printer size={15} />
             <span>Imprimir ({listaExpandida.length} etiq.)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleAbrirHtmlImpressao}
+            className="px-3.5 py-2 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all border border-blue-200 dark:border-blue-900/60"
+            title="Abre uma nova aba com a folha HTML vetorial pura sem PDF para impressão perfeita"
+          >
+            <FileText size={14} />
+            <span>Abrir HTML</span>
           </button>
 
           <button
