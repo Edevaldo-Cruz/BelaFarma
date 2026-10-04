@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5df5e9c",
-  "commitMessage": "fix(finance): prevent undefined split crash in ContasAPagar component",
-  "buildTime": "03/10/2026, 19:53:24"
+  "commitHash": "f0f71ba",
+  "commitMessage": "fix(finance): fix contas-a-pagar route handling, sidebar navigation, backend fixed-account-payments endpoint month parsing, and DB cleanup",
+  "buildTime": "04/10/2026, 10:19:39"
 }

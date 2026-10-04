@@ -39,13 +39,19 @@ export interface FormatoEtiquetaConfig {
 export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig> = {
   termica_60x40: {
     id: 'termica_60x40',
-    nome: 'Térmica 60 x 40 mm (Padrão Farmácia / Bobina)',
+    nome: 'Térmica 60 x 40 mm (Padrão Farmácia)',
     tipo: 'termica',
     wMm: 60,
     hMm: 40,
     wPx: 360,
     hPx: 240,
-    descricao: 'Tamanho clássico para impressoras térmicas (Argox, Zebra, Elgin) em rolo adesivo.'
+    cols: 3,
+    rows: 7,
+    margemTopMm: 8,
+    margemEsqMm: 7,
+    gapColMm: 2,
+    gapRowMm: 1,
+    descricao: 'Tamanho clássico para bobina térmica (rolo) ou folha A4 (21 por folha).'
   },
   termica_100x30: {
     id: 'termica_100x30',
@@ -55,7 +61,13 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     hMm: 30,
     wPx: 520,
     hPx: 160,
-    descricao: 'Formato horizontal estendido, excelente para prateleiras com código de barras amplo.'
+    cols: 2,
+    rows: 9,
+    margemTopMm: 10,
+    margemEsqMm: 4,
+    gapColMm: 2,
+    gapRowMm: 1,
+    descricao: 'Formato horizontal estendido (18 por folha A4 ou rolo contínuo).'
   },
   termica_100x50: {
     id: 'termica_100x50',
@@ -65,7 +77,13 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     hMm: 50,
     wPx: 520,
     hPx: 260,
-    descricao: 'Etiqueta ampla de destaque, com espaço para foto recortada e preço bem visível.'
+    cols: 2,
+    rows: 5,
+    margemTopMm: 15,
+    margemEsqMm: 4,
+    gapColMm: 2,
+    gapRowMm: 2,
+    descricao: 'Etiqueta ampla de destaque (10 por folha A4 ou rolo contínuo).'
   },
   a4_pimaco_3x10: {
     id: 'a4_pimaco_3x10',
@@ -107,7 +125,13 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     hMm: 148,
     wPx: 420,
     hPx: 592,
-    descricao: 'Cartaz intermediário para fixação em acrílico de prateleira ou gancho promocional.'
+    cols: 2,
+    rows: 2,
+    margemTopMm: 0,
+    margemEsqMm: 0,
+    gapColMm: 0,
+    gapRowMm: 0,
+    descricao: 'Cartaz intermediário para fixação em acrílico (4 por folha A4).'
   },
   cartaz_a5: {
     id: 'cartaz_a5',
@@ -117,7 +141,13 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     hMm: 210,
     wPx: 592,
     hPx: 840,
-    descricao: 'Cartaz chamativo para ilhas, pontas de gôndola e balcão principal da farmácia.'
+    cols: 1,
+    rows: 2,
+    margemTopMm: 0,
+    margemEsqMm: 0,
+    gapColMm: 0,
+    gapRowMm: 0,
+    descricao: 'Cartaz chamativo para ilhas e pontas de gôndola (2 por folha A4).'
   }
 };
 
@@ -555,6 +585,15 @@ export function htmlEtiqueta(
     </div>`;
 }
 
+export interface GridOverride {
+  cols?: number;
+  rows?: number;
+  margemTopMm?: number;
+  margemEsqMm?: number;
+  gapColMm?: number;
+  gapRowMm?: number;
+}
+
 // ─── GERADOR HTML DE FOLHA A4 COMPLETA DE ETIQUETAS (PIMACO) ───────────────────
 export function htmlFolhaA4Etiquetas(
   itensPagina: (ItemEtiqueta | null)[],
@@ -562,16 +601,17 @@ export function htmlFolhaA4Etiquetas(
   estilo: EstiloEtiqueta,
   paginaNum: number,
   totalPaginas: number,
-  dataValidade?: string
+  dataValidade?: string,
+  gridOverride?: GridOverride
 ): string {
   const W_A4 = 794;
   const H_A4 = 1123;
-  const cols = formato.cols || 3;
-  const rows = formato.rows || 10;
-  const mTopPx = Math.round((formato.margemTopMm || 10) * 3.7795);
-  const mEsqPx = Math.round((formato.margemEsqMm || 7) * 3.7795);
-  const gapColPx = Math.round((formato.gapColMm || 2) * 3.7795);
-  const gapRowPx = Math.round((formato.gapRowMm || 0) * 3.7795);
+  const cols = gridOverride?.cols ?? formato.cols ?? 3;
+  const rows = gridOverride?.rows ?? formato.rows ?? 10;
+  const mTopPx = Math.round((gridOverride?.margemTopMm ?? formato.margemTopMm ?? 10) * 3.7795);
+  const mEsqPx = Math.round((gridOverride?.margemEsqMm ?? formato.margemEsqMm ?? 7) * 3.7795);
+  const gapColPx = Math.round((gridOverride?.gapColMm ?? formato.gapColMm ?? 2) * 3.7795);
+  const gapRowPx = Math.round((gridOverride?.gapRowMm ?? formato.gapRowMm ?? 0) * 3.7795);
 
   const etiquetaW = Math.round((formato.wMm * 3.7795));
   const etiquetaH = Math.round((formato.hMm * 3.7795));

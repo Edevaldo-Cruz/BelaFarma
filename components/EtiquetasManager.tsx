@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Printer, 
+  Download,
   Trash2, 
   Edit3, 
   Plus, 
@@ -108,6 +109,8 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
   const [queue, setQueue] = useState<QueuedLabel[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
 
   // ── CONFIGURAÇÕES DA GRADE A4 ─────────────────────────────

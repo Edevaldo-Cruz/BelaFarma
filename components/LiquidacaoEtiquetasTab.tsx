@@ -67,6 +67,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
   // ─── ESTADOS PRINCIPAIS DE ETIQUETA ───
   const [formatoId, setFormatoId] = useState<FormatoEtiquetaId>('termica_60x40');
+  const [tipoLayout, setTipoLayout] = useState<'folha_a4' | 'bobina_termica'>('folha_a4');
   const [estilo, setEstilo] = useState<EstiloEtiqueta>(() => {
     try {
       const salvo = localStorage.getItem('belafarma_etiqueta_estilo');
@@ -82,7 +83,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
   // Índice do produto exibido no preview unitário
   const [produtoIndex, setProdutoIndex] = useState(0);
   // Visão em tela: 'individual' ou 'folha' (quando em formato A4)
-  const [modoVisualizacao, setModoVisualizacao] = useState<'individual' | 'folha'>('individual');
+  const [modoVisualizacao, setModoVisualizacao] = useState<'individual' | 'folha'>('folha');
   // Posição inicial do primeiro slot na folha A4 (1 a totalSlots)
   const [posicaoInicialA4, setPosicaoInicialA4] = useState<number>(1);
   // Página atual do preview da folha A4
@@ -92,6 +93,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
   // Estados de exportação
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [gerandoPdfProgress, setGerandoPdfProgress] = useState('');
   const [gerandoPng, setGerandoPng] = useState(false);
 
   // Sub-aba do editor visual
@@ -146,28 +148,28 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     return list;
   }, [itensEtiquetasSelecionados, copias]);
 
-  // Slots para folhas A4 (inclui vazios antes da posição inicial para reaproveitar folhas)
+  // Slots para folhas A4 (suporta qualquer tamanho de etiqueta em modo Folha A4)
   const totalSlotsPorFolhaA4 = (formatoConfig.cols || 3) * (formatoConfig.rows || 10);
   const slotsCompletosA4 = useMemo(() => {
-    if (formatoConfig.tipo !== 'folha_a4') return [];
+    if (tipoLayout !== 'folha_a4') return [];
     const list: (ItemEtiqueta | null)[] = [];
     for (let i = 1; i < posicaoInicialA4; i++) {
       list.push(null);
     }
     listaExpandida.forEach(it => list.push(it));
     return list;
-  }, [formatoConfig, posicaoInicialA4, listaExpandida]);
+  }, [tipoLayout, posicaoInicialA4, listaExpandida]);
 
   const totalFolhasA4 = Math.ceil(slotsCompletosA4.length / totalSlotsPorFolhaA4) || 1;
   const slotsPaginaAtualA4 = useMemo(() => {
-    if (formatoConfig.tipo !== 'folha_a4') return [];
+    if (tipoLayout !== 'folha_a4') return [];
     const start = (paginaA4Atual - 1) * totalSlotsPorFolhaA4;
     const pageItems = slotsCompletosA4.slice(start, start + totalSlotsPorFolhaA4);
     while (pageItems.length < totalSlotsPorFolhaA4) {
       pageItems.push(null);
     }
     return pageItems;
-  }, [slotsCompletosA4, paginaA4Atual, totalSlotsPorFolhaA4, formatoConfig]);
+  }, [slotsCompletosA4, paginaA4Atual, totalSlotsPorFolhaA4, tipoLayout]);
 
   // Produto atual em foco para o preview unitário
   const produtoAtual: ItemEtiqueta | undefined = useMemo(() => {
@@ -312,7 +314,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     window.print();
   };
 
-  // ─── EXPORTAÇÃO EM PDF ───
+  // ─── EXPORTAÇÃO EM PDF (ASSÍNCRONA SEM TRAVAMENTOS) ───
   const handleBaixarPdf = async () => {
     if (listaExpandida.length === 0) {
       addToast('Nenhum produto selecionado para exportar.', 'warning');
@@ -320,14 +322,19 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     }
 
     setGerandoPdf(true);
+    setGerandoPdfProgress('Iniciando...');
     addToast(`Gerando PDF em formato "${formatoConfig.nome}"...`, 'info');
 
     try {
       await prepararImagensArte(itens);
 
-      if (formatoConfig.tipo === 'folha_a4') {
+      if (tipoLayout === 'folha_a4') {
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         for (let p = 1; p <= totalFolhasA4; p++) {
+          setGerandoPdfProgress(`Folha ${p} de ${totalFolhasA4} (${Math.round((p / totalFolhasA4) * 100)}%)`);
+          // Respiro para manter a interface de usuário 100% responsiva
+          await new Promise(res => setTimeout(res, 20));
+
           const start = (p - 1) * totalSlotsPorFolhaA4;
           const itensFolha = slotsCompletosA4.slice(start, start + totalSlotsPorFolhaA4);
           while (itensFolha.length < totalSlotsPorFolhaA4) itensFolha.push(null);
@@ -343,11 +350,11 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
           const canvas = await renderizarHtmlParaCanvas(htmlFolha, 794, 1123, 2);
           if (p > 1) pdf.addPage('a4', 'portrait');
-          pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
+          pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
         }
         pdf.save(`Etiquetas_BelaFarma_Folhas_A4_${formatoConfig.id}.pdf`);
       } else {
-        // Formato Térmico ou Cartaz (páginas milimétricas dedicadas)
+        // Modo Bobina Térmica (1 por etiqueta contínua)
         const isPaisagem = formatoConfig.wMm > formatoConfig.hMm;
         const pdf = new jsPDF({
           orientation: isPaisagem ? 'landscape' : 'portrait',
@@ -356,9 +363,13 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
         });
 
         for (let i = 0; i < listaExpandida.length; i++) {
+          setGerandoPdfProgress(`Etiqueta ${i + 1} de ${listaExpandida.length} (${Math.round(((i + 1) / listaExpandida.length) * 100)}%)`);
+          // Respiro para a thread principal do navegador não travar
+          await new Promise(res => setTimeout(res, 15));
+
           const it = listaExpandida[i];
           const html = htmlEtiqueta(it, formatoConfig, estilo, dataValidadeFmt);
-          const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 3);
+          const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 2);
           if (i > 0) {
             pdf.addPage([formatoConfig.wMm, formatoConfig.hMm], isPaisagem ? 'landscape' : 'portrait');
           }
@@ -373,6 +384,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
       addToast('Erro ao compilar o arquivo PDF de etiquetas.', 'error');
     } finally {
       setGerandoPdf(false);
+      setGerandoPdfProgress('');
     }
   };
 
@@ -465,7 +477,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
       {/* ─── BARRA DE CONTROLE SUPERIOR: FORMATO & AÇÕES RÁPIDAS ─── */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        {/* Seletor de Formato */}
+        {/* Seletor de Formato & Layout */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400">
@@ -486,7 +498,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             onChange={e => setFormatoId(e.target.value as FormatoEtiquetaId)}
             className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-orange-500"
           >
-            <optgroup label="Impressoras Térmicas de Bobina (Argox, Zebra, Elgin)">
+            <optgroup label="Tamanhos de Etiquetas Térmicas / Prateleira">
               <option value="termica_60x40">Térmica 60 x 40 mm (Padrão Farmácia)</option>
               <option value="termica_100x30">Térmica 100 x 30 mm (Gôndola Alongada)</option>
               <option value="termica_100x50">Térmica 100 x 50 mm (Destaque Grande)</option>
@@ -500,6 +512,41 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
               <option value="cartaz_a5">Cartaz Ponta de Gôndola A5 (148 x 210 mm)</option>
             </optgroup>
           </select>
+
+          {/* Seletor de Tipo de Layout (Folha A4 vs Bobina Térmica) */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setTipoLayout('folha_a4');
+                setModoVisualizacao('folha');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                tipoLayout === 'folha_a4'
+                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+              title="Organiza várias etiquetas por folha A4 conforme o tamanho escolhido"
+            >
+              📄 Folha A4 ({totalSlotsPorFolhaA4} por folha)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setTipoLayout('bobina_termica');
+                setModoVisualizacao('individual');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                tipoLayout === 'bobina_termica'
+                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+              title="Impressão individual para rolo / bobina contínua"
+            >
+              🏷️ Rolo Térmico (1 por pág)
+            </button>
+          </div>
         </div>
 
         {/* Botões de Ação: Imprimir / Baixar PDF / Salvar PNG */}
@@ -533,8 +580,8 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             disabled={gerandoPdf}
             className="px-4 py-2 rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-red-500/20 cursor-pointer active:scale-95 disabled:opacity-50 transition-all"
           >
-            <Download size={14} className={gerandoPdf ? 'animate-bounce' : ''} />
-            <span>{gerandoPdf ? 'Compilando PDF...' : 'Baixar PDF'}</span>
+            <Download size={14} className={gerandoPdf ? 'animate-spin' : ''} />
+            <span>{gerandoPdf ? (gerandoPdfProgress || 'Compilando PDF...') : 'Baixar PDF'}</span>
           </button>
 
           <button
@@ -1224,7 +1271,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
       {/* ─── ELEMENTO OCULTO EXCLUSIVO PARA IMPRESSÃO EM TELA (@MEDIA PRINT) ─── */}
       <div id="printable-etiquetas-area" className="hidden print:block">
-        {formatoConfig.tipo === 'folha_a4' ? (
+        {tipoLayout === 'folha_a4' ? (
           /* Renderização de todas as folhas A4 */
           Array.from({ length: totalFolhasA4 }).map((_, fIdx) => {
             const pageNum = fIdx + 1;

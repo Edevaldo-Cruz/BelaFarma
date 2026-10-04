@@ -39,7 +39,9 @@ export const BoletoForm: React.FC<BoletoFormProps> = ({ user, onSave, onCancel, 
       setFormData({
         supplierName: boletoToEdit.supplierName || '',
         invoice_number: boletoToEdit.invoice_number || '',
-        due_date: new Date(boletoToEdit.due_date).toISOString().split('T')[0],
+        due_date: (boletoToEdit.due_date && !isNaN(new Date(boletoToEdit.due_date).getTime())) 
+          ? new Date(boletoToEdit.due_date).toISOString().split('T')[0] 
+          : new Date().toISOString().split('T')[0],
         value: boletoToEdit.value,
         status: boletoToEdit.status,
       });
