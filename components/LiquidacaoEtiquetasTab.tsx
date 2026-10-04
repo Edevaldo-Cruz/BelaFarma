@@ -36,7 +36,9 @@ import {
   MODELOS_PRONTOS_ETIQUETA,
   htmlEtiqueta,
   htmlFolhaA4Etiquetas,
-  ItemEtiqueta
+  ItemEtiqueta,
+  calcularGradeA4Otima,
+  CalculoGradeA4
 } from './etiquetasTemplates';
 import {
   renderizarHtmlParaCanvas,
@@ -148,8 +150,12 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     return list;
   }, [itensEtiquetasSelecionados, copias]);
 
-  // Slots para folhas A4 (suporta qualquer tamanho de etiqueta em modo Folha A4)
-  const totalSlotsPorFolhaA4 = (formatoConfig.cols || 3) * (formatoConfig.rows || 10);
+  // Cálculo Inteligente de Grade A4 (evita qualquer corte físico no papel A4)
+  const gradeA4Calculada: CalculoGradeA4 = useMemo(() => {
+    return calcularGradeA4Otima(formatoConfig, listaExpandida.length);
+  }, [formatoConfig, listaExpandida.length]);
+
+  const totalSlotsPorFolhaA4 = gradeA4Calculada.etiquetasPorFolha;
   const slotsCompletosA4 = useMemo(() => {
     if (tipoLayout !== 'folha_a4') return [];
     const list: (ItemEtiqueta | null)[] = [];
@@ -615,6 +621,13 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
               🏷️ Rolo Térmico (1/pág)
             </button>
           </div>
+
+          {tipoLayout === 'folha_a4' && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-black" title="Cálculo milimétrico para folha A4 (210x297mm) garantindo 0 cortes">
+              <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
+              <span>{gradeA4Calculada.resumoTexto}</span>
+            </span>
+          )}
         </div>
 
         {/* Botões de Ação: Imprimir / Baixar PDF / Salvar PNG */}

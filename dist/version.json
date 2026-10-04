@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "255708a",
-  "commitMessage": "fix: alinhar etiquetas PDF e tela com unidades de precisao milimetrica e escala 100",
-  "buildTime": "04/10/2026, 11:47:26"
+  "commitHash": "3c5ab8b",
+  "commitMessage": "feat: adicionar recurso de abertura de pagina HTML nativa sem PDF para impressao vetorial perfeita",
+  "buildTime": "04/10/2026, 12:05:07"
 }

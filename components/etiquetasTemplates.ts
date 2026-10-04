@@ -112,11 +112,11 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     hPx: 148,
     cols: 3,
     rows: 10,
-    margemTopMm: 10,
-    margemEsqMm: 7,
-    gapColMm: 2,
+    margemTopMm: 0,
+    margemEsqMm: 0,
+    gapColMm: 0,
     gapRowMm: 0,
-    descricao: 'Folha A4 adesiva para impressoras laser/jato de tinta (tipo Pimaco 6180 / 6280).'
+    descricao: 'Folha A4 adesiva 30 etiquetas sem sobras (3 colunas x 10 linhas encaixe total).'
   },
   a4_pimaco_2x7: {
     id: 'a4_pimaco_2x7',
@@ -128,9 +128,9 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     hPx: 172,
     cols: 2,
     rows: 7,
-    margemTopMm: 15,
-    margemEsqMm: 5,
-    gapColMm: 3,
+    margemTopMm: 14,
+    margemEsqMm: 3.4,
+    gapColMm: 0,
     gapRowMm: 0,
     descricao: 'Etiquetas médias adesivas em folha A4 com alta legibilidade (tipo Pimaco 6182).'
   },
@@ -719,4 +719,79 @@ export function htmlFolhaA4Etiquetas(
         BelaFarma • Folha ${paginaNum} de ${totalPaginas} (${formato.nome})
       </div>
     </div>`;
+}
+
+export interface CalculoGradeA4 {
+  cols: number;
+  rows: number;
+  etiquetasPorFolha: number;
+  totalFolhas: number;
+  etiquetasUltimaFolha: number;
+  slotsVaziosUltimaFolha: number;
+  alturaUtilizadaMm: number;
+  larguraUtilizadaMm: number;
+  margemInferiorMm: number;
+  margemDireitaMm: number;
+  semCortes: boolean;
+  resumoTexto: string;
+}
+
+/**
+ * Calcula milimetricamente a grade A4 para garantir que NENHUMA etiqueta seja cortada no papel A4 (210 x 297 mm).
+ */
+export function calcularGradeA4Otima(
+  formato: FormatoEtiquetaConfig,
+  totalEtiquetas: number,
+  gridOverride?: GridOverride
+): CalculoGradeA4 {
+  let cols = gridOverride?.cols ?? formato.cols ?? 2;
+  let rows = gridOverride?.rows ?? formato.rows ?? 3;
+  const mTopMm = gridOverride?.margemTopMm ?? formato.margemTopMm ?? 10;
+  const mEsqMm = gridOverride?.margemEsqMm ?? formato.margemEsqMm ?? 6;
+  const gapColMm = gridOverride?.gapColMm ?? formato.gapColMm ?? 4;
+  const gapRowMm = gridOverride?.gapRowMm ?? formato.gapRowMm ?? 4;
+
+  const wMm = formato.wMm;
+  const hMm = formato.hMm;
+
+  // Garante que a altura total não ultrapasse 297mm (tamanho exato do papel A4)
+  let alturaTotal = mTopMm + (rows * hMm) + (Math.max(0, rows - 1) * gapRowMm);
+  while (rows > 1 && alturaTotal > 297) {
+    rows -= 1;
+    alturaTotal = mTopMm + (rows * hMm) + (Math.max(0, rows - 1) * gapRowMm);
+  }
+
+  // Garante que a largura total não ultrapasse 210mm
+  let larguraTotal = mEsqMm + (cols * wMm) + (Math.max(0, cols - 1) * gapColMm);
+  while (cols > 1 && larguraTotal > 210) {
+    cols -= 1;
+    larguraTotal = mEsqMm + (cols * wMm) + (Math.max(0, cols - 1) * gapColMm);
+  }
+
+  const etiquetasPorFolha = cols * rows;
+  const totalFolhas = Math.ceil(totalEtiquetas / etiquetasPorFolha) || 1;
+  const resto = totalEtiquetas % etiquetasPorFolha;
+  const etiquetasUltimaFolha = totalEtiquetas === 0 ? 0 : (resto === 0 ? etiquetasPorFolha : resto);
+  const slotsVaziosUltimaFolha = totalEtiquetas === 0 ? etiquetasPorFolha : (resto === 0 ? 0 : etiquetasPorFolha - resto);
+
+  const margemInferiorMm = Math.max(0, Math.round((297 - alturaTotal) * 10) / 10);
+  const margemDireitaMm = Math.max(0, Math.round((210 - larguraTotal) * 10) / 10);
+  const semCortes = alturaTotal <= 297 && larguraTotal <= 210;
+
+  const resumoTexto = `${etiquetasPorFolha} etiquetas/folha (${cols} col x ${rows} lin) • ${totalFolhas} folha${totalFolhas > 1 ? 's' : ''} A4 • 100% sem cortes`;
+
+  return {
+    cols,
+    rows,
+    etiquetasPorFolha,
+    totalFolhas,
+    etiquetasUltimaFolha,
+    slotsVaziosUltimaFolha,
+    alturaUtilizadaMm: Math.round(alturaTotal * 10) / 10,
+    larguraUtilizadaMm: Math.round(larguraTotal * 10) / 10,
+    margemInferiorMm,
+    margemDireitaMm,
+    semCortes,
+    resumoTexto
+  };
 }

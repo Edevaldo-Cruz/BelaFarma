@@ -642,6 +642,72 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     }
   };
 
+  const handleAbrirHtmlEncarte = async () => {
+    if (itens.length === 0) {
+      addToast('Nenhum produto cadastrado para gerar o encarte.', 'warning');
+      return;
+    }
+    const win = window.open('', '_blank');
+    if (!win) {
+      addToast('Permita pop-ups no navegador para abrir o encarte em HTML.', 'warning');
+      return;
+    }
+
+    let paginasHtml = '';
+    for (let p = 1; p <= totalPaginasEncarte; p++) {
+      const itensDaPagina = itens.slice((p - 1) * produtosPorPagina, p * produtosPorPagina);
+      paginasHtml += `
+        <div class="folha-encarte-a4" style="width:210mm;height:297mm;overflow:hidden;page-break-after:always;page-break-inside:avoid;box-sizing:border-box;">
+          ${htmlPaginaEncarte(itensDaPagina, p, totalPaginasEncarte, periodoArte, colunasEncarte, estilo)}
+        </div>
+      `;
+    }
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Encarte Tablóide A4 BelaFarma - Impressão Direta</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0 !important;
+            }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+            }
+            .folha-encarte-a4 {
+              width: 210mm;
+              height: 297mm;
+              overflow: hidden;
+              page-break-after: always;
+              break-after: page;
+              page-break-inside: avoid;
+            }
+          </style>
+        </head>
+        <body>
+          ${paginasHtml}
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    addToast('🎉 Encarte Tablóide A4 gerado em HTML! Alinhamento 100% perfeito sem cortes.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       {/* Input oculto para upload de arquivo local */}
@@ -1401,6 +1467,16 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={handleAbrirHtmlEncarte}
+                className="px-4 py-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-blue-500/20 cursor-pointer active:scale-95 transition-all"
+                title="Abre o Encarte Tablóide A4 em folha HTML nativa com alinhamento vetorial milimétrico sem cortes"
+              >
+                <FileText size={14} />
+                <span>📄 Abrir HTML (Imprimir)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleBaixarPaginaPng}
                 disabled={gerandoPaginasPng}
                 className="px-4 py-2 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
@@ -1416,7 +1492,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                 className="px-4 py-2 rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-red-500/20 cursor-pointer disabled:opacity-50"
               >
                 <Printer size={14} className={gerandoPdf ? 'animate-spin' : ''} />
-                <span>{gerandoPdf ? 'Gerando PDF Completo...' : '📄 Baixar Encarte Completo em PDF'}</span>
+                <span>{gerandoPdf ? 'Gerando PDF Completo...' : 'Baixar PDF Completo'}</span>
               </button>
             </div>
           </div>

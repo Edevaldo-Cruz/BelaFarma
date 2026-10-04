@@ -432,6 +432,72 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
     }
   };
 
+  // ── ABRIR HTML NATIVO EM NOVA ABA (100% VETORIAL SEM PDF) ──
+  const handleAbrirHtmlImpressao = () => {
+    if (selectedIds.length === 0) {
+      showToast('info', 'Por favor, selecione pelo menos uma etiqueta na fila.');
+      return;
+    }
+
+    const printableElement = document.getElementById('printable-area');
+    if (!printableElement) {
+      showToast('error', 'Área de impressão não encontrada.');
+      return;
+    }
+
+    const win = window.open('', '_blank');
+    if (!win) {
+      showToast('error', 'Por favor, permita os pop-ups do navegador para abrir a página HTML.');
+      return;
+    }
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Impressão Fila de Etiquetas BelaFarma</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0 !important;
+            }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              font-family: sans-serif;
+            }
+            .print-page {
+              width: 210mm !important;
+              height: 297mm !important;
+              max-height: 297mm !important;
+              overflow: hidden !important;
+              page-break-after: always !important;
+              break-after: page !important;
+              page-break-inside: avoid !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${printableElement.innerHTML}
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    showToast('success', '🎉 Folha HTML aberta em nova aba! Alinhamento vetorial 100% sem cortes.');
+  };
+
   const handleDownloadPdf = async () => {
     if (selectedIds.length === 0) {
       showToast('info', 'Por favor, selecione pelo menos uma etiqueta na fila.');
@@ -851,6 +917,17 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   />
                 </div>
               </div>
+
+              {/* Indicador de Cálculo de Capacidade A4 sem cortes */}
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="flex flex-col">
+                  <span className="font-black text-[11px] uppercase tracking-wide">Cálculo A4 Sem Cortes:</span>
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                    {gridCols * gridRows} etiquetas/folha ({gridCols} col x {gridRows} lin) • {totalPages} folha{totalPages > 1 ? 's' : ''} A4 • {selectedLabelsExpanded.length} etiquetas marcadas
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Bloco 2: Seletor Interativo de Posição Inicial */}
@@ -932,11 +1009,25 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 </button>
                 
                 <button
+                  onClick={handleAbrirHtmlImpressao}
+                  disabled={selectedIds.length === 0}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
+                    selectedIds.length > 0
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                  }`}
+                  title="Abre as folhas de etiquetas em HTML puro em nova aba com alinhamento vetorial perfeito sem cortes"
+                >
+                  <FileText size={16} />
+                  Abrir HTML ({selectedIds.length})
+                </button>
+
+                <button
                   onClick={handleDownloadPdf}
                   disabled={selectedIds.length === 0 || downloadingPdf}
                   className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
                     selectedIds.length > 0 && !downloadingPdf
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
+                      ? 'bg-slate-700 hover:bg-slate-800 text-white shadow-lg shadow-slate-700/25 active:scale-[0.98]'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
                   }`}
                   title="Gera o PDF das folhas A4 montadas com as etiquetas selecionadas"
