@@ -476,18 +476,18 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
       `}} />
 
       {/* ─── BARRA DE CONTROLE SUPERIOR: FORMATO & AÇÕES RÁPIDAS ─── */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         {/* Seletor de Formato & Layout */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="p-2.5 rounded-xl bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400">
               <Tag size={18} />
             </div>
-            <div>
-              <span className="text-xs font-black text-slate-900 dark:text-white block">
+            <div className="flex flex-col">
+              <span className="text-xs font-black text-slate-900 dark:text-white whitespace-nowrap">
                 Formato & Tamanho da Etiqueta:
               </span>
-              <span className="text-[10px] text-slate-500 font-bold">
+              <span className="text-[10px] text-slate-500 font-bold max-w-[220px] truncate">
                 {formatoConfig.descricao}
               </span>
             </div>
@@ -496,7 +496,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
           <select
             value={formatoId}
             onChange={e => setFormatoId(e.target.value as FormatoEtiquetaId)}
-            className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-orange-500"
+            className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-orange-500 shrink-0 max-w-xs"
           >
             <optgroup label="Tamanhos de Etiquetas Térmicas / Prateleira">
               <option value="termica_60x40">Térmica 60 x 40 mm (Padrão Farmácia)</option>
@@ -521,14 +521,14 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
                 setTipoLayout('folha_a4');
                 setModoVisualizacao('folha');
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
                 tipoLayout === 'folha_a4'
                   ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
               title="Organiza várias etiquetas por folha A4 conforme o tamanho escolhido"
             >
-              📄 Folha A4 ({totalSlotsPorFolhaA4} por folha)
+              📄 Folha A4 ({totalSlotsPorFolhaA4}/folha)
             </button>
 
             <button
@@ -537,20 +537,20 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
                 setTipoLayout('bobina_termica');
                 setModoVisualizacao('individual');
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
                 tipoLayout === 'bobina_termica'
                   ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
               title="Impressão individual para rolo / bobina contínua"
             >
-              🏷️ Rolo Térmico (1 por pág)
+              🏷️ Rolo Térmico (1/pág)
             </button>
           </div>
         </div>
 
         {/* Botões de Ação: Imprimir / Baixar PDF / Salvar PNG */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setPainelEditorAberto(p => !p)}

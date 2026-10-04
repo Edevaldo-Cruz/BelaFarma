@@ -777,39 +777,43 @@ export function htmlPaginaEncarte(
 // ─── EXPORTAÇÃO ───────────────────────────────────────────────────────────────
 const aguardarImagens = async (raiz: HTMLElement) => {
   const imgs = Array.from(raiz.querySelectorAll('img'));
-  await Promise.all(
-    imgs.map(img =>
-      img.complete && img.naturalWidth > 0
-        ? Promise.resolve()
-        : new Promise<void>(res => {
-            img.onload = () => res();
-            img.onerror = () => res();
-          })
-    )
-  );
+  if (imgs.length === 0) return;
+
+  const loadPromises = imgs.map(img => {
+    if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+    return new Promise<void>(res => {
+      img.onload = () => res();
+      img.onerror = () => res();
+    });
+  });
+
+  // Timeout de segurança de 1.5s para não travar a compilação caso alguma imagem falhe ou demore
+  const timeoutPromise = new Promise<void>(res => setTimeout(res, 1500));
+  await Promise.race([Promise.all(loadPromises), timeoutPromise]);
 };
 
 /** Renderiza uma string HTML (em tamanho nativo, fora da tela) para canvas. */
-export async function renderizarHtmlParaCanvas(html: string, w: number, h: number, scale = 3): Promise<HTMLCanvasElement> {
+export async function renderizarHtmlParaCanvas(html: string, w: number, h: number, scale = 2): Promise<HTMLCanvasElement> {
   const host = document.createElement('div');
   // Usamos z-index: -99999 e opacity: 0.01 em 0,0 para que o Chromium renderize as fontes
   // e o subpixel antialiasing com a mesma geometria e fidelidade do preview visual
-  host.style.cssText = `position:fixed;left:0;top:0;width:${w}px;height:${h}px;z-index:-99999;opacity:0.01;pointer-events:none;overflow:hidden;`;
+  host.style.cssText = `position:fixed;left:0;top:0;width:${w}px;height:${h}px;z-index:-99999;opacity:0.01;pointer-events:none;overflow:hidden;background:#ffffff;`;
   host.innerHTML = html;
   document.body.appendChild(host);
   try {
-    // 1. Aguardar carregamento de todas as imagens presentes no elemento
+    // 1. Aguardar carregamento das imagens com limite de tempo seguro
     await aguardarImagens(host);
 
-    // 2. Aguardar fontes do navegador estarem 100% carregadas e prontas
+    // 2. Aguardar fontes com timeout máximo de 1s
     if ((document as any).fonts?.ready) {
-      await (document as any).fonts.ready;
+      const fontTimeout = new Promise(r => setTimeout(r, 1000));
+      await Promise.race([(document as any).fonts.ready, fontTimeout]);
     }
 
-    // 3. Pequeno respiro para o motor Chromium consolidar o layout dos blocos e fontes
-    await new Promise(r => setTimeout(r, 80));
+    // 3. Respiro curto para estabilização de layout
+    await new Promise(r => setTimeout(r, 40));
 
-    const alvo = host.firstElementChild as HTMLElement;
+    const alvo = (host.firstElementChild as HTMLElement) || host;
     return await html2canvas(alvo, {
       scale,
       useCORS: true,
@@ -823,15 +827,11 @@ export async function renderizarHtmlParaCanvas(html: string, w: number, h: numbe
       y: 0,
       scrollX: 0,
       scrollY: 0,
-      logging: false,
-      onclone: (clonedDoc) => {
-        const imgs = Array.from(clonedDoc.querySelectorAll('img'));
-        imgs.forEach(img => {
-          img.style.imageRendering = 'high-quality';
-        });
-      }
+      logging: false
     });
   } finally {
-    document.body.removeChild(host);
+    if (document.body.contains(host)) {
+      document.body.removeChild(host);
+    }
   }
 }

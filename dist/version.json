@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "6d686c3",
-  "commitMessage": "fix(finance): update production dist bundle to index-zzc4x_Pc.js, add safe due_date parsing in BoletoForm, and invalidate PWA cache",
-  "buildTime": "04/10/2026, 10:22:12"
+  "commitHash": "2b28512",
+  "commitMessage": "fix: otimiza geracao de PDF de etiquetas sem travamento e adiciona suporte a varias etiquetas por folha A4 por tamanho",
+  "buildTime": "04/10/2026, 10:36:19"
 }

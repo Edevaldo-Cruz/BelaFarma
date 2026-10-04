@@ -529,8 +529,9 @@ export function htmlEtiqueta(
   }
 
   // 2. FORMATO TÉRMICO E FOLHA A4 (60x40, 100x30, 100x50, Pimaco 3x10, Pimaco 2x7)
+  const corBorda = (estilo.corFaixa && estilo.corFaixa.toLowerCase() !== '#ffffff' && estilo.corFaixa.toLowerCase() !== '#f1f5f9') ? estilo.corFaixa : '#cbd5e1';
   return `
-    <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};box-sizing:border-box;border:1.5px solid ${estilo.corFaixa};overflow:hidden;display:flex;flex-direction:column;font-family:${estilo.fonteCorpo};">
+    <div style="position:relative;width:${W}px;height:${H}px;background:${estilo.corFundo};box-sizing:border-box;border:1.5px solid ${corBorda};overflow:hidden;display:flex;flex-direction:column;font-family:${estilo.fonteCorpo};">
       <!-- Faixa Superior de Oferta -->
       <div data-drag-el="faixa" style="background:${estilo.corFaixa};color:${estilo.corTextoFaixa};padding:3px 8px;display:flex;align-items:center;justify-content:space-between;line-height:1.1;flex-shrink:0;transform:translate(${posFaixa.x}px,${posFaixa.y}px);cursor:grab;touch-action:none;">
         ${logoHtml}
