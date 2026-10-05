@@ -510,7 +510,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     try {
       await prepararImagensArte(itens);
       const html = htmlEtiqueta(produtoAtual, formatoConfig, estilo, dataValidadeFmt);
-      const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 2);
+      const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 1.25);
 
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
       if (!blob) throw new Error('Erro ao converter etiqueta para imagem.');
@@ -520,13 +520,19 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
       formData.append('productName', produtoAtual.descricao);
       formData.append('price', String(produtoAtual.preco_promocional));
 
-      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+      const res = await fetch('/api/whatsapp/offers-bank', {
         method: 'POST',
         body: formData
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Erro no servidor (${res.status}): ${res.statusText || 'Falha ao processar arquivo'}`);
+      }
+
       if (res.ok && data.success) {
         addToast(`🎉 Etiqueta de "${produtoAtual.descricao}" cadastrada com sucesso no Robô de Ofertas!`, 'success');
       } else {
@@ -550,8 +556,6 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     setProgressoRobo({ atual: 0, total: itensEtiquetasSelecionados.length });
     addToast(`🤖 Cadastrando ${itensEtiquetasSelecionados.length} etiquetas no Robô de Ofertas...`, 'info');
 
-    const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-
     try {
       await prepararImagensArte(itens);
 
@@ -573,7 +577,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
         };
 
         const html = htmlEtiqueta(itemEtiqueta, formatoConfig, estilo, dataValidadeFmt);
-        const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 2);
+        const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 1.25);
         const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
 
         if (blob) {
@@ -583,7 +587,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
           formData.append('price', String(item.preco_promocional));
 
           try {
-            const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+            const res = await fetch('/api/whatsapp/offers-bank', {
               method: 'POST',
               body: formData
             });

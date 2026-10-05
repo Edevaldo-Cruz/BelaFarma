@@ -28,7 +28,13 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    fieldSize: 100 * 1024 * 1024
+  }
+});
 
 /**
  * Inicializa os endpoints relacionados aos grupos do WhatsApp

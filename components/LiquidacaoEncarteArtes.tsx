@@ -547,7 +547,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte([produtoAtual]);
       const html = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo);
-      const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
+      const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 1.25);
 
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
       if (!blob) throw new Error('Erro ao converter arte para imagem.');
@@ -557,13 +557,19 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       formData.append('productName', produtoAtual.descricao);
       formData.append('price', String(produtoAtual.preco_promocional));
 
-      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+      const res = await fetch('/api/whatsapp/offers-bank', {
         method: 'POST',
         body: formData
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Erro no servidor (${res.status}): ${res.statusText || 'Falha ao processar arquivo'}`);
+      }
+
       if (res.ok && data.success) {
         addToast(`🎉 "${produtoAtual.descricao}" cadastrado com sucesso no Banco do Robô de Ofertas!`, 'success');
       } else {
@@ -587,8 +593,6 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     setProgressoRobo({ atual: 0, total: itens.length });
     addToast(`🤖 Iniciando cadastro em lote de ${itens.length} artes no Robô de Ofertas...`, 'info');
 
-    const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
-
     try {
       await prepararImagensArte(itens);
 
@@ -598,7 +602,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
         setProgressoRobo({ atual: i + 1, total: itens.length });
 
         const html = htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo);
-        const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
+        const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 1.25);
         const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
 
         if (blob) {
@@ -608,7 +612,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
           formData.append('price', String(item.preco_promocional));
 
           try {
-            const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+            const res = await fetch('/api/whatsapp/offers-bank', {
               method: 'POST',
               body: formData
             });
