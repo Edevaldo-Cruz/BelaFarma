@@ -157,25 +157,23 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
   const totalSlotsPorFolhaA4 = gradeA4Calculada.etiquetasPorFolha;
   const slotsCompletosA4 = useMemo(() => {
-    if (tipoLayout !== 'folha_a4') return [];
     const list: (ItemEtiqueta | null)[] = [];
     for (let i = 1; i < posicaoInicialA4; i++) {
       list.push(null);
     }
     listaExpandida.forEach(it => list.push(it));
     return list;
-  }, [tipoLayout, posicaoInicialA4, listaExpandida]);
+  }, [posicaoInicialA4, listaExpandida]);
 
   const totalFolhasA4 = Math.ceil(slotsCompletosA4.length / totalSlotsPorFolhaA4) || 1;
   const slotsPaginaAtualA4 = useMemo(() => {
-    if (tipoLayout !== 'folha_a4') return [];
     const start = (paginaA4Atual - 1) * totalSlotsPorFolhaA4;
     const pageItems = slotsCompletosA4.slice(start, start + totalSlotsPorFolhaA4);
     while (pageItems.length < totalSlotsPorFolhaA4) {
       pageItems.push(null);
     }
     return pageItems;
-  }, [slotsCompletosA4, paginaA4Atual, totalSlotsPorFolhaA4, tipoLayout]);
+  }, [slotsCompletosA4, paginaA4Atual, totalSlotsPorFolhaA4]);
 
   // Produto atual em foco para o preview unitário
   const produtoAtual: ItemEtiqueta | undefined = useMemo(() => {
@@ -480,14 +478,14 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
   };
 
   // HTML da etiqueta em foco
-  const htmlEtiquetaEmFoco = produtoAtual
-    ? htmlEtiqueta(produtoAtual, formatoConfig, estilo, dataValidadeFmt)
-    : '';
+  const htmlEtiquetaEmFoco = useMemo(() => {
+    return produtoAtual ? htmlEtiqueta(produtoAtual, formatoConfig, estilo, dataValidadeFmt) : '';
+  }, [produtoAtual, formatoConfig, estilo, dataValidadeFmt]);
 
-  // HTML da folha A4 em foco
-  const htmlFolhaEmFoco = formatoConfig.tipo === 'folha_a4'
-    ? htmlFolhaA4Etiquetas(slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt)
-    : '';
+  // HTML da folha A4 em foco (sempre renderiza o layout A4 para o formato selecionado)
+  const htmlFolhaEmFoco = useMemo(() => {
+    return htmlFolhaA4Etiquetas(slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt);
+  }, [slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt]);
 
   return (
     <div className="space-y-6">
@@ -566,7 +564,15 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
           <select
             value={formatoId}
-            onChange={e => setFormatoId(e.target.value as FormatoEtiquetaId)}
+            onChange={e => {
+              const fid = e.target.value as FormatoEtiquetaId;
+              setFormatoId(fid);
+              const cfg = FORMATOS_ETIQUETAS[fid];
+              if (cfg && cfg.tipo === 'folha_a4') {
+                setTipoLayout('folha_a4');
+                setModoVisualizacao('folha');
+              }
+            }}
             className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black text-slate-800 dark:text-white cursor-pointer focus:ring-2 focus:ring-orange-500 shrink-0 max-w-xs"
           >
             <optgroup label="⭐ Folhas A4 Especiais de Oferta">
@@ -1173,33 +1179,31 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
                 </div>
               </div>
 
-              {/* Alternador de Visão para Formato Folha A4 */}
-              {formatoConfig.tipo === 'folha_a4' && (
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
-                  <button
-                    type="button"
-                    onClick={() => setModoVisualizacao('individual')}
-                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      modoVisualizacao === 'individual'
-                        ? 'bg-white dark:bg-slate-900 text-orange-600 shadow-xs'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    Etiqueta Unitária
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModoVisualizacao('folha')}
-                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      modoVisualizacao === 'folha'
-                        ? 'bg-white dark:bg-slate-900 text-orange-600 shadow-xs'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    Folha A4 Completa
-                  </button>
-                </div>
-              )}
+              {/* Alternador de Visão (Unitária vs Folha Completa) */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setModoVisualizacao('individual')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    modoVisualizacao === 'individual'
+                      ? 'bg-white dark:bg-slate-900 text-orange-600 shadow-xs'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  Etiqueta Unitária
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoVisualizacao('folha')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    modoVisualizacao === 'folha'
+                      ? 'bg-white dark:bg-slate-900 text-orange-600 shadow-xs'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  Folha A4 Completa
+                </button>
+              </div>
             </div>
 
             {/* NAVEGAÇÃO ENTRE PRODUTOS (QUANDO VISÃO INDIVIDUAL) */}
@@ -1235,7 +1239,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             )}
 
             {/* NAVEGAÇÃO DE PÁGINAS A4 (QUANDO VISÃO FOLHA) */}
-            {modoVisualizacao === 'folha' && formatoConfig.tipo === 'folha_a4' && (
+            {modoVisualizacao === 'folha' && (
               <div className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-850 p-2.5 rounded-2xl">
                 <button
                   type="button"
@@ -1315,21 +1319,29 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             {/* CONTAINER DA PRÉVIA */}
             <div className="flex justify-center items-center overflow-x-auto p-6 bg-slate-100 dark:bg-slate-950 rounded-3xl min-h-[340px]">
               {modoVisualizacao === 'individual' ? (
-                /* Prévia Individual da Etiqueta com Suporte a Drag & Drop */
-                <div
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  className={`shadow-2xl rounded-sm overflow-hidden select-none bg-white transition-all ${
-                    modoArrastar ? 'ring-4 ring-orange-500/40 ring-offset-4 ring-offset-slate-100 dark:ring-offset-slate-950' : 'hover:scale-[1.02]'
-                  }`}
-                  style={{
-                    width: formatoConfig.wPx,
-                    height: formatoConfig.hPx,
-                    touchAction: 'none'
-                  }}
-                  dangerouslySetInnerHTML={{ __html: htmlEtiquetaEmFoco }}
-                />
+                produtoAtual ? (
+                  /* Prévia Individual da Etiqueta com Suporte a Drag & Drop */
+                  <div
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    className={`shadow-2xl rounded-sm overflow-hidden select-none bg-white transition-all ${
+                      modoArrastar ? 'ring-4 ring-orange-500/40 ring-offset-4 ring-offset-slate-100 dark:ring-offset-slate-950' : 'hover:scale-[1.02]'
+                    }`}
+                    style={{
+                      width: formatoConfig.wPx,
+                      height: formatoConfig.hPx,
+                      touchAction: 'none'
+                    }}
+                    dangerouslySetInnerHTML={{ __html: htmlEtiquetaEmFoco }}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center p-8 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-sm max-w-sm">
+                    <AlertCircle size={36} className="text-orange-500 mb-2 animate-bounce" />
+                    <p className="text-sm font-black text-slate-800 dark:text-slate-200">Nenhum produto selecionado</p>
+                    <p className="text-xs text-slate-500 mt-1">Marque ao menos um produto na lista à esquerda para visualizar a etiqueta.</p>
+                  </div>
+                )
               ) : (
                 /* Prévia da Folha A4 Completa com Escala */
                 <div

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "317dfcd",
-  "commitMessage": "fix: desabilitar cache em index.html, sw.js e web-server e forcar atualizacao automatica da PWA",
-  "buildTime": "04/10/2026, 12:36:28"
+  "commitHash": "b7d7e2d",
+  "commitMessage": "feat: adicionar botao Abrir HTML tambem na sub-aba de Artes Unitarias",
+  "buildTime": "05/10/2026, 08:48:56"
 }
