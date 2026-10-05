@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c84d0e8",
-  "commitMessage": "fix(etiquetas): ajusta altura de grade A4 para 282mm maximo eliminando corte de etiquetas em qualquer impressora",
-  "buildTime": "05/10/2026, 09:51:59"
+  "commitHash": "5a66897",
+  "commitMessage": "feat(etiquetas): adiciona modelo Verde Preço Baixo Destaque, seletores para tamanho do preco De: e Tag %, e controle de quantidade por folha A4",
+  "buildTime": "05/10/2026, 19:28:46"
 }

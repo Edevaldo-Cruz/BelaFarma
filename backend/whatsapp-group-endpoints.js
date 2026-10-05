@@ -632,6 +632,22 @@ Responda apenas com o JSON.`;
         extractedData.productName = originalNameClean;
       }
 
+      // Se o cliente (frontend da Liquidação) enviou dados exatos via req.body, utiliza com prioridade
+      if (req.body) {
+        if (req.body.productName && req.body.productName.trim()) {
+          extractedData.productName = req.body.productName.trim();
+        }
+        if (req.body.price && !isNaN(parseFloat(req.body.price))) {
+          extractedData.price = parseFloat(req.body.price);
+        }
+        if (req.body.category && req.body.category.trim()) {
+          extractedData.category = req.body.category.trim().toLowerCase();
+        }
+        if (req.body.aiCaption && req.body.aiCaption.trim()) {
+          extractedData.aiCaption = req.body.aiCaption.trim();
+        }
+      }
+
       const id = 'offer-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
       await db.prepare(`
         INSERT INTO whatsapp_offers_bank (id, productName, price, category, mediaPath, aiCaption, createdAt)

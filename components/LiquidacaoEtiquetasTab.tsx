@@ -25,7 +25,8 @@ import {
   Plus,
   Minus,
   Move,
-  AlertCircle
+  AlertCircle,
+  Bot
 } from 'lucide-react';
 import {
   FormatoEtiquetaId,
@@ -93,10 +94,13 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
   // Busca na lista de produtos de etiquetas
   const [filtroTexto, setFiltroTexto] = useState('');
 
-  // Estados de exportação
+  // Estados de exportação & Robô
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [gerandoPdfProgress, setGerandoPdfProgress] = useState('');
   const [gerandoPng, setGerandoPng] = useState(false);
+  const [enviandoRoboIndividual, setEnviandoRoboIndividual] = useState(false);
+  const [enviandoRoboLote, setEnviandoRoboLote] = useState(false);
+  const [progressoRobo, setProgressoRobo] = useState({ atual: 0, total: 0 });
 
   // Sub-aba do editor visual
   const [abaEditor, setAbaEditor] = useState<'modelos' | 'cores' | 'tipografia' | 'elementos' | 'textos' | 'foto'>('modelos');
@@ -497,6 +501,108 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     }
   };
 
+  // ─── INTEGRACAO COM O ROBO DE OFERTAS (WHATSAPP ETIQUETAS) ───
+  const handleEnviarEtiquetaParaRobo = async () => {
+    if (!produtoAtual) return;
+    setEnviandoRoboIndividual(true);
+    addToast(`🤖 Gerando etiqueta e cadastrando "${produtoAtual.descricao}" no Robô...`, 'info');
+
+    try {
+      await prepararImagensArte(itens);
+      const html = htmlEtiqueta(produtoAtual, formatoConfig, estilo, dataValidadeFmt);
+      const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 2);
+
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('Erro ao converter etiqueta para imagem.');
+
+      const formData = new FormData();
+      formData.append('media', blob, `Etiqueta_${produtoAtual.produto_id}.png`);
+      formData.append('productName', produtoAtual.descricao);
+      formData.append('price', String(produtoAtual.preco_promocional));
+
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`🎉 Etiqueta de "${produtoAtual.descricao}" cadastrada com sucesso no Robô de Ofertas!`, 'success');
+      } else {
+        throw new Error(data.error || 'Erro ao comunicar com o servidor do Robô.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast(err.message || 'Falha ao enviar etiqueta ao Robô de Ofertas.', 'error');
+    } finally {
+      setEnviandoRoboIndividual(false);
+    }
+  };
+
+  const handleEnviarCampanhaEtiquetasParaRobo = async () => {
+    if (itensEtiquetasSelecionados.length === 0) {
+      addToast('Nenhum produto selecionado para enviar ao Robô.', 'warning');
+      return;
+    }
+
+    setEnviandoRoboLote(true);
+    setProgressoRobo({ atual: 0, total: itensEtiquetasSelecionados.length });
+    addToast(`🤖 Cadastrando ${itensEtiquetasSelecionados.length} etiquetas no Robô de Ofertas...`, 'info');
+
+    const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+
+    try {
+      await prepararImagensArte(itens);
+
+      let enviadosSucesso = 0;
+      for (let i = 0; i < itensEtiquetasSelecionados.length; i++) {
+        const item = itensEtiquetasSelecionados[i];
+        setProgressoRobo({ atual: i + 1, total: itensEtiquetasSelecionados.length });
+
+        const itemEtiqueta: ItemEtiqueta = {
+          id: item.id,
+          produto_id: item.produto_id,
+          descricao: item.descricao,
+          apresentacao: item.apresentacao,
+          ean: item.ean,
+          preco_normal: item.preco_normal,
+          preco_promocional: item.preco_promocional,
+          desconto_percentual: item.desconto_percentual,
+          imagem_url: item.imagem_url
+        };
+
+        const html = htmlEtiqueta(itemEtiqueta, formatoConfig, estilo, dataValidadeFmt);
+        const canvas = await renderizarHtmlParaCanvas(html, formatoConfig.wPx, formatoConfig.hPx, 2);
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+
+        if (blob) {
+          const formData = new FormData();
+          formData.append('media', blob, `Etiqueta_${item.produto_id}.png`);
+          formData.append('productName', item.descricao);
+          formData.append('price', String(item.preco_promocional));
+
+          try {
+            const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+              method: 'POST',
+              body: formData
+            });
+            if (res.ok) enviadosSucesso++;
+          } catch (e) {}
+        }
+        await new Promise(res => setTimeout(res, 40));
+      }
+
+      addToast(`🎉 ${enviadosSucesso} de ${itensEtiquetasSelecionados.length} etiquetas da campanha foram cadastradas no Robô!`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      addToast('Erro ao cadastrar lote de etiquetas no Robô.', 'error');
+    } finally {
+      setEnviandoRoboLote(false);
+      setProgressoRobo({ atual: 0, total: 0 });
+    }
+  };
+
   // HTML da etiqueta em foco
   const htmlEtiquetaEmFoco = useMemo(() => {
     return produtoAtual ? htmlEtiqueta(produtoAtual, formatoConfig, estilo, dataValidadeFmt) : '';
@@ -716,6 +822,21 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
           >
             <Eye size={13} />
             <span>PNG</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleEnviarCampanhaEtiquetasParaRobo}
+            disabled={enviandoRoboLote || itensEtiquetasSelecionados.length === 0}
+            className="px-4 py-2 rounded-2xl bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 hover:opacity-95 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-emerald-500/20 cursor-pointer active:scale-95 disabled:opacity-50 transition-all"
+            title="Cadastra as etiquetas dos produtos selecionados no Robô de Ofertas do WhatsApp"
+          >
+            <Bot size={14} className={enviandoRoboLote ? 'animate-spin' : ''} />
+            <span>
+              {enviandoRoboLote
+                ? `Enviando Robô (${progressoRobo.atual}/${progressoRobo.total})...`
+                : '🚀 Cadastrar Etiquetas no Robô'}
+            </span>
           </button>
         </div>
       </div>
@@ -1403,33 +1524,46 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
               </div>
             )}
 
-            {/* Toolbar de Arrastar Elementos (Visão Individual) */}
+            {/* Toolbar de Arrastar Elementos & Envio ao Robô (Visão Individual) */}
             {modoVisualizacao === 'individual' && (
-              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-850 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setModoArrastar(m => !m)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
-                    modoArrastar
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-orange-500/30 ring-2 ring-orange-400'
-                      : 'bg-white hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                  title="Ative para clicar e arrastar a foto, título, preço e código de barras livremente"
-                >
-                  <Move size={13} className={modoArrastar ? 'animate-spin' : ''} />
-                  <span>{modoArrastar ? '✋ Modo Arrastar: ATIVO' : '✋ Ativar Modo Arrastar'}</span>
-                </button>
-
-                {estilo.posicoes && Object.keys(estilo.posicoes).length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 dark:bg-slate-850 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleResetarPosicoes}
-                    className="px-2.5 py-1 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                    onClick={() => setModoArrastar(m => !m)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                      modoArrastar
+                        ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-orange-500/30 ring-2 ring-orange-400'
+                        : 'bg-white hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                    title="Ative para clicar e arrastar a foto, título, preço e código de barras livremente"
                   >
-                    <RotateCcw size={11} />
-                    <span>Resetar Posições</span>
+                    <Move size={13} className={modoArrastar ? 'animate-spin' : ''} />
+                    <span>{modoArrastar ? '✋ Modo Arrastar: ATIVO' : '✋ Ativar Modo Arrastar'}</span>
                   </button>
-                )}
+
+                  {estilo.posicoes && Object.keys(estilo.posicoes).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleResetarPosicoes}
+                      className="px-2.5 py-1 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                    >
+                      <RotateCcw size={11} />
+                      <span>Resetar Posições</span>
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleEnviarEtiquetaParaRobo}
+                  disabled={enviandoRoboIndividual || !produtoAtual}
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-black flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95 disabled:opacity-50 transition-all"
+                  title="Cadastra esta etiqueta individual no Banco do Robô de Ofertas do WhatsApp"
+                >
+                  <Bot size={13} className={enviandoRoboIndividual ? 'animate-spin' : ''} />
+                  <span>{enviandoRoboIndividual ? 'Enviando...' : '🚀 Enviar esta Etiqueta ao Robô'}</span>
+                </button>
               </div>
             )}
 

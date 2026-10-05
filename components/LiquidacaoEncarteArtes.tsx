@@ -45,7 +45,8 @@ import {
   Tag,
   Move,
   Scissors,
-  RotateCcw
+  RotateCcw,
+  Bot
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { LiquidacaoEtiquetasTab } from './LiquidacaoEtiquetasTab';
@@ -531,6 +532,100 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   const handleResetarPosicoes = () => {
     setEstilo(prev => ({ ...prev, posicoes: undefined }));
     addToast('Posições dos elementos restauradas para o alinhamento padrão.', 'info');
+  };
+
+  // ─── INTEGRACAO COM O ROBO DE OFERTAS (WHATSAPP) ───
+  const [enviandoRoboIndividual, setEnviandoRoboIndividual] = useState(false);
+  const [enviandoRoboLote, setEnviandoRoboLote] = useState(false);
+  const [progressoRobo, setProgressoRobo] = useState({ atual: 0, total: 0 });
+
+  const handleEnviarArteParaRobo = async () => {
+    if (!produtoAtual) return;
+    setEnviandoRoboIndividual(true);
+    addToast(`🤖 Gerando imagem e cadastrando "${produtoAtual.descricao}" no Robô...`, 'info');
+
+    try {
+      await prepararImagensArte([produtoAtual]);
+      const html = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo);
+      const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
+
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('Erro ao converter arte para imagem.');
+
+      const formData = new FormData();
+      formData.append('media', blob, `Arte_${produtoAtual.produto_id}.png`);
+      formData.append('productName', produtoAtual.descricao);
+      formData.append('price', String(produtoAtual.preco_promocional));
+
+      const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+      const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`🎉 "${produtoAtual.descricao}" cadastrado com sucesso no Banco do Robô de Ofertas!`, 'success');
+      } else {
+        throw new Error(data.error || 'Erro ao comunicar com o servidor do Robô.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast(err.message || 'Falha ao enviar arte ao Robô de Ofertas.', 'error');
+    } finally {
+      setEnviandoRoboIndividual(false);
+    }
+  };
+
+  const handleEnviarCampanhaParaRobo = async () => {
+    if (itens.length === 0) {
+      addToast('Nenhum produto na campanha para enviar.', 'warning');
+      return;
+    }
+
+    setEnviandoRoboLote(true);
+    setProgressoRobo({ atual: 0, total: itens.length });
+    addToast(`🤖 Iniciando cadastro em lote de ${itens.length} artes no Robô de Ofertas...`, 'info');
+
+    const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+
+    try {
+      await prepararImagensArte(itens);
+
+      let enviadosSucesso = 0;
+      for (let i = 0; i < itens.length; i++) {
+        const item = itens[i];
+        setProgressoRobo({ atual: i + 1, total: itens.length });
+
+        const html = htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo);
+        const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
+        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+
+        if (blob) {
+          const formData = new FormData();
+          formData.append('media', blob, `Arte_${item.produto_id}.png`);
+          formData.append('productName', item.descricao);
+          formData.append('price', String(item.preco_promocional));
+
+          try {
+            const res = await fetch(`${API_BASE}/api/whatsapp/offers-bank`, {
+              method: 'POST',
+              body: formData
+            });
+            if (res.ok) enviadosSucesso++;
+          } catch (e) {}
+        }
+        await new Promise(res => setTimeout(res, 40));
+      }
+
+      addToast(`🎉 ${enviadosSucesso} de ${itens.length} artes da campanha foram cadastradas no Robô de Ofertas!`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      addToast('Erro ao cadastrar lote de artes no Robô.', 'error');
+    } finally {
+      setEnviandoRoboLote(false);
+      setProgressoRobo({ atual: 0, total: 0 });
+    }
   };
 
   const handleCopiarArteUnitario = async () => {
@@ -1362,7 +1457,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
               )}
 
               {/* Botões de Ação para a Arte Atual */}
-              <div className="grid grid-cols-3 gap-2 pt-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
                 <button
                   type="button"
                   onClick={handleAbrirHtmlArteUnitario}
@@ -1393,21 +1488,47 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                   {copiandoImagem ? <RefreshCw size={13} className="animate-spin" /> : <Copy size={13} />}
                   <span>Copiar</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handleEnviarArteParaRobo}
+                  disabled={enviandoRoboIndividual}
+                  className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  title="Cadastra esta arte promocional no Banco do Robô de Ofertas do WhatsApp"
+                >
+                  <Bot size={13} className={enviandoRoboIndividual ? 'animate-spin' : ''} />
+                  <span>{enviandoRoboIndividual ? 'Enviando...' : 'Enviar ao Robô'}</span>
+                </button>
               </div>
 
-              {/* Exportação em Lote ZIP */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              {/* Exportação em Lote ZIP e Robô */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-2">
                 <button
                   type="button"
                   onClick={handleBaixarTodasArtesZip}
                   disabled={gerandoZip}
-                  className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:opacity-95 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  className="flex-1 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:opacity-95 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <Package size={14} className={gerandoZip ? 'animate-spin' : ''} />
                   <span>
                     {gerandoZip
                       ? `Gerando ZIP (${progressoZip.atual}/${progressoZip.total})...`
-                      : `⚡ Baixar Todas as ${itens.length} Artes em ZIP`}
+                      : `⚡ Baixar ${itens.length} Artes em ZIP`}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleEnviarCampanhaParaRobo}
+                  disabled={enviandoRoboLote}
+                  className="flex-1 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 hover:opacity-95 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  title="Cadastra todas as artes da campanha no Banco do Robô de Ofertas do WhatsApp"
+                >
+                  <Bot size={14} className={enviandoRoboLote ? 'animate-spin' : ''} />
+                  <span>
+                    {enviandoRoboLote
+                      ? `Enviando ao Robô (${progressoRobo.atual}/${progressoRobo.total})...`
+                      : `🚀 Cadastrar Campanha no Robô`}
                   </span>
                 </button>
               </div>
