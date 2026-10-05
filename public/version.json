@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5a66897",
-  "commitMessage": "feat(etiquetas): adiciona modelo Verde Preço Baixo Destaque, seletores para tamanho do preco De: e Tag %, e controle de quantidade por folha A4",
-  "buildTime": "05/10/2026, 19:28:46"
+  "commitHash": "387db85",
+  "commitMessage": "feat(liquidacao): integrar encartes, artes e etiquetas com o Robo de Ofertas do WhatsApp",
+  "buildTime": "05/10/2026, 19:32:22"
 }

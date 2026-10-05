@@ -1081,10 +1081,15 @@ async function escolherEPostarOfertaInteligente() {
       return;
     }
 
-    // 2. Buscar todas as ofertas disponíveis
-    const availableOffers = db.prepare('SELECT * FROM whatsapp_offers_bank').all();
+    // 2. Buscar todas as ofertas disponíveis que possuem imagem válida no disco
+    const availableOffersRaw = db.prepare("SELECT * FROM whatsapp_offers_bank WHERE mediaPath IS NOT NULL AND mediaPath != ''").all();
+    const availableOffers = availableOffersRaw.filter(o => {
+      const absPath = path.join(uploadDir, path.basename(o.mediaPath));
+      return fs.existsSync(absPath);
+    });
+
     if (availableOffers.length === 0) {
-      console.log('[RoboOfertas JIT] Nenhuma oferta disponível no banco. Abortando.');
+      console.log('[RoboOfertas JIT] Nenhuma oferta válida com imagem disponível no banco. Abortando.');
       return;
     }
 
@@ -1193,16 +1198,17 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
                 const absoluteMediaPath = path.join(uploadDir, path.basename(attemptOffer.mediaPath));
                 if (fs.existsSync(absoluteMediaPath)) {
                   await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
+                  success = true;
+                  status = 'Enviado';
+                  console.log(`[RoboOfertas JIT] ✅ Sucesso no envio (imagem + legenda) do produto "${attemptOffer.productName}" para "${groupName}"!`);
                 } else {
-                  console.warn(`[RoboOfertas JIT] ⚠️ Imagem física não encontrada em: ${absoluteMediaPath}. Enviando apenas texto como fallback de emergência.`);
-                  await baileys.sendTextToGroup(groupName, finalContent);
+                  console.warn(`[RoboOfertas JIT] ⚠️ Imagem física não encontrada em: ${absoluteMediaPath}. Postagens sem imagem não são permitidas. Pulando oferta...`);
+                  break; // Aborta envio sem imagem e busca alternativa
                 }
               } else {
-                await baileys.sendTextToGroup(groupName, finalContent);
+                console.warn(`[RoboOfertas JIT] ⚠️ Oferta sem imagem registrada. Postagens sem imagem não são permitidas. Pulando oferta...`);
+                break; // Aborta envio sem imagem e busca alternativa
               }
-              success = true;
-              status = 'Enviado';
-              console.log(`[RoboOfertas JIT] ✅ Sucesso no envio do produto "${attemptOffer.productName}" para "${groupName}"!`);
             } catch (sendErr) {
               console.error(`[RoboOfertas JIT] ❌ Falha na tentativa #${sendAttempt}/3 de envio para "${groupName}":`, sendErr.message);
               if (sendAttempt < 3) {
