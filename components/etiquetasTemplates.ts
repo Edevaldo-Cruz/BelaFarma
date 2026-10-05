@@ -197,6 +197,8 @@ export interface EstiloEtiqueta {
   fonteCorpo: string;
   tamanhoTituloMultiplicador: number; // 0.8 a 1.4
   tamanhoPrecoMultiplicador: number; // 0.8 a 1.5
+  tamanhoPrecoDeMultiplicador?: number; // 0.8 a 2.0
+  tamanhoBadgeMultiplicador?: number; // 0.8 a 2.0
   // Elementos Visuais (Toggles)
   exibirFoto: boolean;
   exibirCodigoBarras: boolean;
@@ -216,9 +218,38 @@ export interface EstiloEtiqueta {
 }
 
 export const MODELOS_PRONTOS_ETIQUETA: Record<string, { nome: string; descricao: string; estilo: Partial<EstiloEtiqueta> }> = {
+  verde_preco_baixo_destaque: {
+    nome: '🟢 Verde Preço Baixo (Tag % & Preço "De:" Ampliados)',
+    descricao: 'Modelo idêntico à imagem enviada: Faixa verde, tag de desconto % em destaque vermelho e preço antigo "De:" ampliado',
+    estilo: {
+      corFundo: '#ffffff',
+      corFaixa: '#00a651',
+      corTextoFaixa: '#ffffff',
+      corPrecoDe: '#dc2626',
+      corPrecoPor: '#0b2545',
+      corBadge: '#dc2626',
+      corTextoBadge: '#ffffff',
+      corTexto: '#000000',
+      fonteTitulo: "Impact, 'Arial Black', sans-serif",
+      fonteCorpo: "'Segoe UI', Arial, sans-serif",
+      tituloPromocional: 'PREÇO BAIXO',
+      textoAviso: 'Válido até o fim do estoque',
+      exibirDePor: true,
+      exibirSeloDesconto: true,
+      exibirCodigoBarras: true,
+      exibirLogo: true,
+      exibirFoto: false,
+      exibirValidade: true,
+      exibirAvisoAvista: true,
+      tamanhoTituloMultiplicador: 1.0,
+      tamanhoPrecoMultiplicador: 1.0,
+      tamanhoPrecoDeMultiplicador: 1.45,
+      tamanhoBadgeMultiplicador: 1.4
+    }
+  },
   oferta_amarela_6x: {
     nome: '🎯 Oferta 6 por Folha A4 (Seta + Nome + Desconto %)',
-    descricao: 'Modelo idêntico à foto: Amarela com borda vermelha, seta OFERTA, Nome e Desconto %',
+    descricao: 'Modelo Amarela com borda vermelha, seta OFERTA, Nome e Desconto %',
     estilo: {
       corFundo: '#ffea00',
       corFaixa: '#d6192b',
@@ -485,8 +516,8 @@ export function htmlEtiqueta(
   const fsFaixa = Math.round(11 * escalaBase * estilo.tamanhoTituloMultiplicador);
   const fsDesc = Math.round(13 * escalaBase);
   const fsPreco = Math.round(36 * escalaBase * estilo.tamanhoPrecoMultiplicador);
-  const fsPrecoDe = Math.round(11 * escalaBase);
-  const fsBadge = Math.round(11 * escalaBase);
+  const fsPrecoDe = Math.round(11 * escalaBase * (estilo.tamanhoPrecoDeMultiplicador ?? 1));
+  const fsBadge = Math.round(11 * escalaBase * (estilo.tamanhoBadgeMultiplicador ?? 1));
   const fsAviso = Math.round(9 * escalaBase);
 
   // Logo BelaFarma reduzida (se habilitada)

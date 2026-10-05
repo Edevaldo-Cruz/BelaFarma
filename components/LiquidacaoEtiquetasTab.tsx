@@ -150,10 +150,29 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
     return list;
   }, [itensEtiquetasSelecionados, copias]);
 
+  // Configuração personalizada de quantidade por folha A4 (para não cortar)
+  const [gridPersonalizado, setGridPersonalizado] = useState<{
+    habilitado: boolean;
+    cols: number;
+    rows: number;
+  }>({
+    habilitado: false,
+    cols: 3,
+    rows: 6
+  });
+
+  const gridOverride = useMemo(() => {
+    if (!gridPersonalizado.habilitado) return undefined;
+    return {
+      cols: gridPersonalizado.cols,
+      rows: gridPersonalizado.rows
+    };
+  }, [gridPersonalizado]);
+
   // Cálculo Inteligente de Grade A4 (evita qualquer corte físico no papel A4)
   const gradeA4Calculada: CalculoGradeA4 = useMemo(() => {
-    return calcularGradeA4Otima(formatoConfig, listaExpandida.length);
-  }, [formatoConfig, listaExpandida.length]);
+    return calcularGradeA4Otima(formatoConfig, listaExpandida.length, gridOverride);
+  }, [formatoConfig, listaExpandida.length, gridOverride]);
 
   const totalSlotsPorFolhaA4 = gradeA4Calculada.etiquetasPorFolha;
   const slotsCompletosA4 = useMemo(() => {
@@ -337,7 +356,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
         const start = (p - 1) * totalSlotsPorFolhaA4;
         const itensFolha = slotsCompletosA4.slice(start, start + totalSlotsPorFolhaA4);
         while (itensFolha.length < totalSlotsPorFolhaA4) itensFolha.push(null);
-        conteudoHtml += htmlFolhaA4Etiquetas(itensFolha, formatoConfig, estilo, p, totalFolhasA4, dataValidadeFmt);
+        conteudoHtml += htmlFolhaA4Etiquetas(itensFolha, formatoConfig, estilo, p, totalFolhasA4, dataValidadeFmt, gridOverride);
       }
     } else {
       listaExpandida.forEach(it => {
@@ -353,7 +372,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
           <title>Impressão BelaFarma - Etiquetas A4</title>
           <style>
             @page {
-              size: ${formatoConfig.tipo === 'folha_a4' ? 'A4 portrait' : `${formatoConfig.wMm}mm ${formatoConfig.hMm}mm`};
+              size: A4 portrait !important;
               margin: 0 !important;
             }
             * {
@@ -414,7 +433,8 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
             estilo,
             p,
             totalFolhasA4,
-            dataValidadeFmt
+            dataValidadeFmt,
+            gridOverride
           );
 
           const canvas = await renderizarHtmlParaCanvas(htmlFolha, 794, 1123, 2);
@@ -484,8 +504,8 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
   // HTML da folha A4 em foco (sempre renderiza o layout A4 para o formato selecionado)
   const htmlFolhaEmFoco = useMemo(() => {
-    return htmlFolhaA4Etiquetas(slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt);
-  }, [slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt]);
+    return htmlFolhaA4Etiquetas(slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt, gridOverride);
+  }, [slotsPaginaAtualA4, formatoConfig, estilo, paginaA4Atual, totalFolhasA4, dataValidadeFmt, gridOverride]);
 
   return (
     <div className="space-y-6">
@@ -847,7 +867,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
           {/* ABA 3: Tipografia & Preços */}
           {abaEditor === 'tipografia' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
               <div className="space-y-1.5">
                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
                   Família da Fonte dos Preços & Títulos
@@ -865,7 +885,7 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-300">
-                  <span>Tamanho do Preço Gigante</span>
+                  <span>Tamanho do Preço Gigante (POR)</span>
                   <span className="text-orange-600 font-mono font-black">{Math.round(estilo.tamanhoPrecoMultiplicador * 100)}%</span>
                 </div>
                 <input
@@ -875,6 +895,38 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
                   step="0.05"
                   value={estilo.tamanhoPrecoMultiplicador}
                   onChange={e => setEstilo(p => ({ ...p, tamanhoPrecoMultiplicador: parseFloat(e.target.value) }))}
+                  className="w-full accent-orange-600 cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-300">
+                  <span>Tamanho do Preço Antigo ("De:")</span>
+                  <span className="text-orange-600 font-mono font-black">{Math.round((estilo.tamanhoPrecoDeMultiplicador ?? 1) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="2.0"
+                  step="0.05"
+                  value={estilo.tamanhoPrecoDeMultiplicador ?? 1}
+                  onChange={e => setEstilo(p => ({ ...p, tamanhoPrecoDeMultiplicador: parseFloat(e.target.value) }))}
+                  className="w-full accent-orange-600 cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-300">
+                  <span>Tamanho da Tag de Desconto %</span>
+                  <span className="text-orange-600 font-mono font-black">{Math.round((estilo.tamanhoBadgeMultiplicador ?? 1) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="2.0"
+                  step="0.05"
+                  value={estilo.tamanhoBadgeMultiplicador ?? 1}
+                  onChange={e => setEstilo(p => ({ ...p, tamanhoBadgeMultiplicador: parseFloat(e.target.value) }))}
                   className="w-full accent-orange-600 cursor-pointer"
                 />
               </div>
@@ -1048,28 +1100,103 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
               </div>
             </div>
 
-            {/* Configuração de Posição Inicial para Folhas Adesivas A4 */}
-            {formatoConfig.tipo === 'folha_a4' && (
-              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between gap-3">
-                <div className="text-xs">
-                  <span className="font-black text-amber-900 dark:text-amber-300 block">
-                    Reaproveitar Folha A4 Usada:
-                  </span>
-                  <span className="text-[11px] text-amber-700 dark:text-amber-400">
-                    Começar no slot (1 a {totalSlotsPorFolhaA4}):
-                  </span>
+            {/* Controle de Quantidade por Folha A4 & Reaproveitamento */}
+            {tipoLayout === 'folha_a4' && (
+              <div className="p-4 rounded-3xl bg-amber-50/80 dark:bg-amber-950/40 border-2 border-amber-200 dark:border-amber-900/60 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div>
+                    <span className="font-black text-xs text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                      <Grid size={15} className="text-amber-600 shrink-0" />
+                      Quantidade por Folha A4:
+                    </span>
+                    <span className="text-[11px] text-amber-700 dark:text-amber-400 block mt-0.5">
+                      Personalize quantas etiquetas colocar na folha para evitar qualquer corte.
+                    </span>
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 cursor-pointer bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 text-xs font-black text-amber-900 dark:text-amber-200 shadow-xs shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={gridPersonalizado.habilitado}
+                      onChange={e => setGridPersonalizado(p => ({ ...p, habilitado: e.target.checked }))}
+                      className="w-4 h-4 rounded text-amber-600 accent-amber-600 cursor-pointer"
+                    />
+                    <span>Grade Customizada</span>
+                  </label>
                 </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={totalSlotsPorFolhaA4}
-                    value={posicaoInicialA4}
-                    onChange={e => setPosicaoInicialA4(Math.max(1, Math.min(totalSlotsPorFolhaA4, parseInt(e.target.value) || 1)))}
-                    className="w-16 px-2 py-1.5 text-center font-black rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs"
-                  />
-                  <span className="text-[10px] text-amber-800 font-bold">º slot</span>
-                </div>
+
+                {gridPersonalizado.habilitado ? (
+                  <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 space-y-2.5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-amber-900 dark:text-amber-200">Colunas:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={4}
+                          value={gridPersonalizado.cols}
+                          onChange={e => setGridPersonalizado(p => ({ ...p, cols: Math.max(1, Math.min(4, parseInt(e.target.value) || 1)) }))}
+                          className="w-14 px-2 py-1 text-center font-black rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-amber-900 dark:text-amber-200">Linhas:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={gridPersonalizado.rows}
+                          onChange={e => setGridPersonalizado(p => ({ ...p, rows: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) }))}
+                          className="w-14 px-2 py-1 text-center font-black rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs"
+                        />
+                      </div>
+
+                      <span className="text-xs font-black text-amber-900 dark:text-amber-200 bg-amber-200/70 dark:bg-amber-900/60 px-2.5 py-1 rounded-xl">
+                        {gridPersonalizado.cols * gridPersonalizado.rows} por folha
+                      </span>
+                    </div>
+
+                    {/* Presets Rápidos */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      {[
+                        { label: '3x6 (18 etiq.)', cols: 3, rows: 6 },
+                        { label: '3x5 (15 etiq.)', cols: 3, rows: 5 },
+                        { label: '2x5 (10 etiq.)', cols: 2, rows: 5 },
+                        { label: '2x4 (8 etiq.)', cols: 2, rows: 4 },
+                        { label: '2x3 (6 etiq.)', cols: 2, rows: 3 }
+                      ].map(preset => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setGridPersonalizado({ habilitado: true, cols: preset.cols, rows: preset.rows })}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                            gridPersonalizado.cols === preset.cols && gridPersonalizado.rows === preset.rows
+                              ? 'bg-amber-600 text-white font-black shadow-xs'
+                              : 'bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-2 border-t border-amber-200/60 dark:border-amber-800/40 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300">
+                    <span>Começar no slot (folha usada):</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalSlotsPorFolhaA4}
+                        value={posicaoInicialA4}
+                        onChange={e => setPosicaoInicialA4(Math.max(1, Math.min(totalSlotsPorFolhaA4, parseInt(e.target.value) || 1)))}
+                        className="w-14 px-2 py-1 text-center font-black rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs"
+                      />
+                      <span className="text-[10px] font-bold">º slot</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
