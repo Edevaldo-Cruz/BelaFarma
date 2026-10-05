@@ -519,21 +519,27 @@ export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
           }
           .pagina-impressao-a4 {
             width: 210mm !important;
-            height: 297mm !important;
+            max-height: 297mm !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
           }
           .etiqueta-impressao-termica {
             width: ${formatoConfig.wMm}mm !important;
             height: ${formatoConfig.hMm}mm !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
           }
           @page {
             size: ${
-              formatoConfig.tipo === 'folha_a4'
+              tipoLayout === 'folha_a4'
                 ? 'A4 portrait'
                 : formatoConfig.tipo === 'cartaz'
                 ? (formatoConfig.id === 'cartaz_a5' ? 'A5 portrait' : 'A6 portrait')

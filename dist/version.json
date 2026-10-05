@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "b7d7e2d",
-  "commitMessage": "feat: adicionar botao Abrir HTML tambem na sub-aba de Artes Unitarias",
-  "buildTime": "05/10/2026, 08:48:56"
+  "commitHash": "98e2656",
+  "commitMessage": "fix(etiquetas): corrige preview em tempo real para exibir layout HTML A4 sem tela em branco",
+  "buildTime": "05/10/2026, 09:02:00"
 }

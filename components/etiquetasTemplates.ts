@@ -63,12 +63,12 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     wPx: 360,
     hPx: 240,
     cols: 3,
-    rows: 7,
+    rows: 6,
     margemTopMm: 8,
     margemEsqMm: 7,
     gapColMm: 2,
     gapRowMm: 1,
-    descricao: 'Tamanho clássico para bobina térmica (rolo) ou folha A4 (21 por folha).'
+    descricao: 'Tamanho clássico para bobina térmica (rolo) ou folha A4 (18 por folha sem cortes).'
   },
   termica_100x30: {
     id: 'termica_100x30',
@@ -79,12 +79,12 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     wPx: 520,
     hPx: 160,
     cols: 2,
-    rows: 9,
+    rows: 8,
     margemTopMm: 10,
     margemEsqMm: 4,
     gapColMm: 2,
     gapRowMm: 1,
-    descricao: 'Formato horizontal estendido (18 por folha A4 ou rolo contínuo).'
+    descricao: 'Formato horizontal estendido (16 por folha A4 ou rolo contínuo).'
   },
   termica_100x50: {
     id: 'termica_100x50',
@@ -139,15 +139,15 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     nome: 'Mini-Cartaz Gôndola A6 (105 x 148 mm)',
     tipo: 'cartaz',
     wMm: 105,
-    hMm: 148,
+    hMm: 144,
     wPx: 420,
-    hPx: 592,
+    hPx: 576,
     cols: 2,
     rows: 2,
-    margemTopMm: 0,
+    margemTopMm: 2,
     margemEsqMm: 0,
     gapColMm: 0,
-    gapRowMm: 0,
+    gapRowMm: 2,
     descricao: 'Cartaz intermediário para fixação em acrílico (4 por folha A4).'
   },
   cartaz_a5: {
@@ -159,12 +159,12 @@ export const FORMATOS_ETIQUETAS: Record<FormatoEtiquetaId, FormatoEtiquetaConfig
     wPx: 592,
     hPx: 840,
     cols: 1,
-    rows: 2,
+    rows: 1,
     margemTopMm: 0,
     margemEsqMm: 0,
     gapColMm: 0,
     gapRowMm: 0,
-    descricao: 'Cartaz chamativo para ilhas e pontas de gôndola (2 por folha A4).'
+    descricao: 'Cartaz chamativo para ilhas e pontas de gôndola (1 por folha A4).'
   }
 };
 
@@ -676,7 +676,7 @@ export interface GridOverride {
   gapRowMm?: number;
 }
 
-// ─── GERADOR HTML DE FOLHA A4 COMPLETA DE ETIQUETAS (PIMACO) ───────────────────
+// ─── GERADOR HTML DE FOLHA A4 COMPLETA DE ETIQUETAS (PIMACO & TÉRMICA) ───────────────────
 export function htmlFolhaA4Etiquetas(
   itensPagina: (ItemEtiqueta | null)[],
   formato: FormatoEtiquetaConfig,
@@ -686,12 +686,13 @@ export function htmlFolhaA4Etiquetas(
   dataValidade?: string,
   gridOverride?: GridOverride
 ): string {
-  const cols = gridOverride?.cols ?? formato.cols ?? 3;
-  const rows = gridOverride?.rows ?? formato.rows ?? 10;
-  const mTopMm = gridOverride?.margemTopMm ?? formato.margemTopMm ?? 10;
+  const grade = calcularGradeA4Otima(formato, itensPagina.length, gridOverride);
+  const cols = grade.cols;
+  const rows = grade.rows;
+  const mTopMm = gridOverride?.margemTopMm ?? formato.margemTopMm ?? 8;
   const mEsqMm = gridOverride?.margemEsqMm ?? formato.margemEsqMm ?? 6;
   const gapColMm = gridOverride?.gapColMm ?? formato.gapColMm ?? 2;
-  const gapRowMm = gridOverride?.gapRowMm ?? formato.gapRowMm ?? 0;
+  const gapRowMm = gridOverride?.gapRowMm ?? formato.gapRowMm ?? 1;
 
   const wMm = formato.wMm;
   const hMm = formato.hMm;
@@ -711,11 +712,11 @@ export function htmlFolhaA4Etiquetas(
   }).join('');
 
   return `
-    <div style="position:relative;width:210mm;height:297mm;background:#ffffff;box-sizing:border-box;padding-top:${mTopMm}mm;padding-left:${mEsqMm}mm;overflow:hidden;page-break-after:always;page-break-inside:avoid;">
-      <div style="display:grid;grid-template-columns:repeat(${cols}, ${wMm}mm);grid-template-rows:repeat(${rows}, ${hMm}mm);column-gap:${gapColMm}mm;row-gap:${gapRowMm}mm;">
+    <div style="position:relative;width:210mm;height:297mm;max-height:297mm;background:#ffffff;box-sizing:border-box;padding-top:${mTopMm}mm;padding-left:${mEsqMm}mm;overflow:hidden;page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;">
+      <div style="display:grid;grid-template-columns:repeat(${cols}, ${wMm}mm);grid-template-rows:repeat(${rows}, ${hMm}mm);column-gap:${gapColMm}mm;row-gap:${gapRowMm}mm;max-height:calc(297mm - ${mTopMm}mm);overflow:hidden;">
         ${slotsHtml}
       </div>
-      <div style="position:absolute;bottom:4mm;right:8mm;font-family:sans-serif;font-size:8px;color:#94a3b8;pointer-events:none;">
+      <div style="position:absolute;bottom:2mm;right:8mm;font-family:sans-serif;font-size:8px;color:#94a3b8;pointer-events:none;z-index:10;">
         BelaFarma • Folha ${paginaNum} de ${totalPaginas} (${formato.nome})
       </div>
     </div>`;
@@ -746,24 +747,26 @@ export function calcularGradeA4Otima(
 ): CalculoGradeA4 {
   let cols = gridOverride?.cols ?? formato.cols ?? 2;
   let rows = gridOverride?.rows ?? formato.rows ?? 3;
-  const mTopMm = gridOverride?.margemTopMm ?? formato.margemTopMm ?? 10;
+  const mTopMm = gridOverride?.margemTopMm ?? formato.margemTopMm ?? 8;
   const mEsqMm = gridOverride?.margemEsqMm ?? formato.margemEsqMm ?? 6;
-  const gapColMm = gridOverride?.gapColMm ?? formato.gapColMm ?? 4;
-  const gapRowMm = gridOverride?.gapRowMm ?? formato.gapRowMm ?? 4;
+  const gapColMm = gridOverride?.gapColMm ?? formato.gapColMm ?? 2;
+  const gapRowMm = gridOverride?.gapRowMm ?? formato.gapRowMm ?? 1;
 
   const wMm = formato.wMm;
   const hMm = formato.hMm;
 
-  // Garante que a altura total não ultrapasse 297mm (tamanho exato do papel A4)
+  // Garante que a altura total não ultrapasse 282mm (respiro de segurança contra cortes de impressão)
+  const maxAltura = formato.id === 'a4_pimaco_3x10' ? 297 : 282;
   let alturaTotal = mTopMm + (rows * hMm) + (Math.max(0, rows - 1) * gapRowMm);
-  while (rows > 1 && alturaTotal > 297) {
+  while (rows > 1 && alturaTotal > maxAltura) {
     rows -= 1;
     alturaTotal = mTopMm + (rows * hMm) + (Math.max(0, rows - 1) * gapRowMm);
   }
 
-  // Garante que a largura total não ultrapasse 210mm
+  // Garante que a largura total não ultrapasse 208mm
+  const maxLargura = 208;
   let larguraTotal = mEsqMm + (cols * wMm) + (Math.max(0, cols - 1) * gapColMm);
-  while (cols > 1 && larguraTotal > 210) {
+  while (cols > 1 && larguraTotal > maxLargura) {
     cols -= 1;
     larguraTotal = mEsqMm + (cols * wMm) + (Math.max(0, cols - 1) * gapColMm);
   }
