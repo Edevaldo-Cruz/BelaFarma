@@ -204,11 +204,11 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
     return Math.round(sum * 100) / 100;
   }, [cartItems]);
 
-  // Filtragem Instantânea de Produtos
+  // Filtragem Instantânea de Produtos com Ordenação por Maior Desconto (Compra por Impulso)
   const filteredProdutos = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
 
-    return produtos.filter((prod) => {
+    const matches = produtos.filter((prod) => {
       // Filtro de Categoria
       if (selectedCategoria !== 'Todas' && prod.categoria !== selectedCategoria) {
         return false;
@@ -225,6 +225,13 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
       const labMatch = prod.laboratorio?.toLowerCase().includes(term);
 
       return nomeMatch || descMatch || apresMatch || catMatch || eanMatch || labMatch;
+    });
+
+    // Ordenação priorizando o maior desconto percentual (Gatilho psicológico de urgência e impulso)
+    return matches.sort((a, b) => {
+      const descA = a.desconto_percentual || (a.preco_de > a.preco_por ? ((a.preco_de - a.preco_por) / a.preco_de) * 100 : 0);
+      const descB = b.desconto_percentual || (b.preco_de > b.preco_por ? ((b.preco_de - b.preco_por) / b.preco_de) * 100 : 0);
+      return descB - descA;
     });
   }, [produtos, searchTerm, selectedCategoria]);
 

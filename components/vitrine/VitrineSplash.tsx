@@ -402,9 +402,9 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
           type="button"
           onClick={handleFinish}
           className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 hover:from-amber-300 hover:to-white text-slate-950 font-black text-xs sm:text-sm shadow-2xl transition-all transform hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-amber-300 cursor-pointer"
-          aria-label="Entrar na festa e ver ofertas"
+          aria-label="Pular tela de abertura e ver ofertas"
         >
-          <span>VER OFERTAS DA FESTA</span>
+          <span>Pular • Ver Ofertas</span>
           <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
         </button>
       </div>
