@@ -67,6 +67,9 @@ import { TemperatureMap } from "./components/TemperatureMap";
 import { TemperaturePrintReminderModal } from "./components/TemperaturePrintReminderModal";
 import { AnaliseReposicao } from "./components/AnaliseReposicao";
 import { LiquidacaoCaixa } from "./components/LiquidacaoCaixa";
+import { VitrineSplash } from "./components/vitrine/VitrineSplash";
+import { VitrineAniversario } from "./components/vitrine/VitrineAniversario";
+import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
 
 
 import {
@@ -104,6 +107,24 @@ const App: React.FC = () => {
     return null;
   });
   const [isMobile, setIsMobile] = useState(false);
+  const [isPublicRoute, setIsPublicRoute] = useState<boolean>(() => isPublicVitrineRoute());
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+
+  useEffect(() => {
+    const handleRouteChange = () => {
+      const active = isPublicVitrineRoute();
+      setIsPublicRoute(active);
+      if (active) {
+        setShowSplash(true);
+      }
+    };
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener("hashchange", handleRouteChange);
+    return () => {
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("hashchange", handleRouteChange);
+    };
+  }, []);
 
   useEffect(() => {
     const checkIfMobile = () => {
@@ -1175,6 +1196,39 @@ const App: React.FC = () => {
   };
 
   const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+
+  if (isPublicRoute) {
+    const handleExitPublicRoute = () => {
+      try {
+        if (
+          window.location.hash.includes("promocao") ||
+          window.location.hash.includes("aniversario") ||
+          window.location.hash.includes("vitrine")
+        ) {
+          window.location.hash = "";
+        }
+        if (
+          window.location.pathname.includes("promocao") ||
+          window.location.pathname.includes("aniversario") ||
+          window.location.search.includes("vitrine")
+        ) {
+          window.history.pushState({}, "", "/");
+        }
+      } catch (e) {
+        console.error("Erro ao sincronizar histórico de rotas:", e);
+      }
+      setIsPublicRoute(false);
+    };
+
+    // Vitrine Pública de Aniversário & Liquidação BelaFarma
+    // Mensagem de Impacto Oficial: Mais de 100 itens com preços incríveis e descontos imperdíveis!
+    return (
+      <VitrineAniversario
+        onExit={handleExitPublicRoute}
+        initialShowSplash={showSplash}
+      />
+    );
+  }
 
   if (!user)
     return (

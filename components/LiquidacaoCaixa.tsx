@@ -34,7 +34,9 @@ import {
   ChevronUp,
   CheckSquare,
   PlusCircle,
-  Trash2
+  Trash2,
+  ExternalLink,
+  Share2
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
@@ -176,6 +178,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [tipoQtdImpressao, setTipoQtdImpressao] = useState<'preencher' | '1' | '2' | '3'>('preencher');
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
   const [loadingWhatsapp, setLoadingWhatsapp] = useState(false);
+  const [copiedVitrineLink, setCopiedVitrineLink] = useState(false);
 
   // Estados para edição direta na lista de ofertas ativas
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -1159,6 +1162,29 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   };
 
+  // Ação: Copiar Link da Vitrine Pública de Aniversário & Liquidação
+  const handleCopiarLinkVitrine = async () => {
+    try {
+      const url = `${window.location.origin}/promocao`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedVitrineLink(true);
+      addToast('🔗 Link da vitrine pública copiado com sucesso!', 'success');
+      setTimeout(() => setCopiedVitrineLink(false), 3500);
+    } catch (e) {
+      console.error('Erro ao copiar link da vitrine:', e);
+      addToast('Falha ao copiar o link da vitrine.', 'error');
+    }
+  };
+
   // ─── ESTRATÉGIA DE MARKETING & JUSTIFICATIVA PERSUASIVA (1º ANIVERSÁRIO) ───
   const getSugestaoParaDias = (dias: number) => {
     if (dias > 180) return { pct: faixa3Pct, faixaNum: 3, label: 'Queima Total (+180d)' };
@@ -1574,6 +1600,26 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           >
             <Sparkles className="w-4 h-4 text-amber-300" />
             {abaModulo === 'artes' ? 'Voltar para Tabela' : '🎨 Gerar Encartes & Artes'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.open(window.location.origin + '/promocao', '_blank')}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30 cursor-pointer"
+            title="Abrir a vitrine pública de liquidação e aniversário em nova aba"
+          >
+            <ExternalLink size={14} />
+            <span>Ver Vitrine Pública</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopiarLinkVitrine}
+            className="px-4 py-2.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all text-white border border-white/30 backdrop-blur-md rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer"
+            title="Copiar link da vitrine pública de aniversário"
+          >
+            {copiedVitrineLink ? <Check size={14} className="text-emerald-300" /> : <Share2 size={14} />}
+            <span>{copiedVitrineLink ? 'Link Copiado!' : 'Copiar Link'}</span>
           </button>
 
           <button
@@ -2248,9 +2294,19 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                 <button
                   onClick={handleCopiarWhatsApp}
                   className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Copiar ofertas formatadas para o WhatsApp"
                 >
                   <Copy size={14} />
-                  WhatsApp
+                  <span>WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopiarLinkVitrine}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Copiar link da vitrine pública de aniversário e liquidação"
+                >
+                  {copiedVitrineLink ? <Check size={14} className="text-emerald-600" /> : <Share2 size={14} />}
+                  <span>{copiedVitrineLink ? 'Link Copiado' : 'Link Vitrine'}</span>
                 </button>
               </>
             )}

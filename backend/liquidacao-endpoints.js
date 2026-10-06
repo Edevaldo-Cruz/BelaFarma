@@ -305,6 +305,193 @@ module.exports = function (db) {
     }
   }
 
+  // 0. GET /api/liquidacao/public/ofertas
+  // Endpoint público para a Vitrine de Liquidação e Aniversário BelaFarma
+  // Não requer autenticação administrativa. Alta performance via SQLite direto (< 50ms).
+  const CATEGORIA_NOMES = {
+    '1': 'Medicamentos de Referência',
+    '2': 'Medicamentos Similares',
+    '5': 'Perfumaria & Higiene',
+    '6': 'Conveniência & Suplementos',
+    '7': 'Medicamentos Genéricos'
+  };
+
+  function formatarCategoriaPublica(cat) {
+    if (!cat) return 'Outros';
+    const str = String(cat).trim();
+    if (CATEGORIA_NOMES[str]) return CATEGORIA_NOMES[str];
+    const upper = str.toUpperCase();
+    if (upper.includes('PERFUM') || upper.includes('HIGIENE')) return 'Perfumaria & Higiene';
+    if (upper.includes('SIMILAR')) return 'Medicamentos Similares';
+    if (upper.includes('GENERIC')) return 'Medicamentos Genéricos';
+    if (upper.includes('REFERENCIA') || upper.includes('REFERÊNCIA') || upper.includes('ETICO') || upper.includes('ÉTICO')) return 'Medicamentos de Referência';
+    if (upper.includes('SUPLEMENT') || upper.includes('CONVENI') || upper.includes('OUTRO')) return 'Conveniência & Suplementos';
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  }
+
+  function extrairLaboratorioPublico(descricao, fornecedor) {
+    if (fornecedor && typeof fornecedor === 'string') {
+      const fncLower = fornecedor.toLowerCase();
+      if (!fncLower.includes('digifarma') && !fncLower.includes('cadastro geral') && !fncLower.includes('padrao')) {
+        const cleaned = fornecedor.split(/[\s,-]/)[0];
+        if (cleaned && cleaned.length > 2) {
+          return cleaned.toUpperCase();
+        }
+      }
+    }
+    const descUpper = (descricao || '').toUpperCase();
+    const labs = [
+      'TEUTO', 'CIMED', 'MEDLEY', 'EMS', 'EUROFARMA', 'NEO QUIMICA', 'ACHE', 'NOVA QUIMICA',
+      'MASSIME', 'SANTA RAIZ', 'BOZZANO', 'HIDRADERM', 'CLOSEUP', 'G-TECH', 'CENTRUM',
+      'COLGATE', 'NIVEA', 'REXONA', 'PAMPERS', 'HUGGIES', 'CREMER', 'BIOTIN', 'BUSONID',
+      'CALAMED', 'FLORAL THERAPI', 'DERMAFEME', 'HIDRABENE', 'LAVITAN', 'BIO INSTI', 'FARMAX'
+    ];
+    for (const lab of labs) {
+      if (descUpper.includes(lab)) {
+        return lab;
+      }
+    }
+    return 'BelaFarma';
+  }
+
+  router.get('/public/ofertas', (req, res) => {
+    try {
+      let campanha = db.prepare(`
+        SELECT * FROM liquidacao_campanhas 
+        WHERE status IN ('ativa', 'ativo') 
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `).get();
+
+      if (!campanha) {
+        campanha = getOrCreateCampanhaAtiva();
+      }
+
+      if (!campanha) {
+        return res.json({
+          sucesso: true,
+          campanha: {
+            id: '',
+            titulo: 'Aniversário & Grande Liquidação BelaFarma',
+            data_inicio: new Date().toISOString().split('T')[0],
+            data_fim: new Date().toISOString().split('T')[0]
+          },
+          total: 0,
+          categorias: ['Todas'],
+          produtos: []
+        });
+      }
+
+      // Consulta direta e veloz no SQLite local sem Firebird
+      const rows = db.prepare(`
+        SELECT 
+          lci.id,
+          lci.produto_id,
+          lci.descricao,
+          lci.apresentacao,
+          lci.ean,
+          lci.categoria,
+          COALESCE(NULLIF(lci.saldo_estoque, 0), cec.saldo, 0) as estoque,
+          lci.preco_normal,
+          lci.preco_promocional,
+          lci.desconto_percentual,
+          lci.imagem_url,
+          cec.ultima_compra_fornecedor
+        FROM liquidacao_campanhas_itens lci
+        LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
+        WHERE lci.campanha_id = ? 
+          AND lci.status IN ('ativo', 'ativa')
+          AND (lci.saldo_estoque > 0 OR cec.saldo > 0)
+        ORDER BY lci.desconto_percentual DESC, lci.descricao ASC
+      `).all(campanha.id);
+
+      const todosProdutos = rows.map(r => {
+        const precoDe = Math.round((Number(r.preco_normal) || 0) * 100) / 100;
+        const precoPor = Math.round((Number(r.preco_promocional) || 0) * 100) / 100;
+        let desconto = Math.round(Number(r.desconto_percentual) || 0);
+        if (desconto <= 0 && precoDe > precoPor && precoDe > 0) {
+          desconto = Math.round(((precoDe - precoPor) / precoDe) * 100);
+        }
+
+        const catFormatada = formatarCategoriaPublica(r.categoria);
+        const lab = extrairLaboratorioPublico(r.descricao, r.ultima_compra_fornecedor);
+        const est = Math.max(0, Math.floor(Number(r.estoque) || 0));
+        const img = r.imagem_url || `/uploads/produtos/${r.produto_id}.jpg`;
+
+        return {
+          id: String(r.id),
+          produto_id: Number(r.produto_id),
+          nome: (r.descricao || '').trim(),
+          descricao: (r.descricao || '').trim(),
+          apresentacao: (r.apresentacao || '').trim(),
+          ean: (r.ean || '').trim(),
+          categoria: catFormatada,
+          _categoria_raw: r.categoria ? String(r.categoria).trim() : '',
+          laboratorio: lab,
+          preco_de: precoDe,
+          preco_por: precoPor,
+          desconto_percentual: desconto,
+          estoque: est,
+          imagem_url: img
+        };
+      });
+
+      // Lista única de categorias para filtros/tabs do frontend (sempre começando com 'Todas')
+      const catSet = new Set();
+      todosProdutos.forEach(p => {
+        if (p.categoria && p.categoria !== 'Todas') {
+          catSet.add(p.categoria);
+        }
+      });
+      const categorias = ['Todas', ...Array.from(catSet)];
+
+      // Filtros opcionais: categoria e busca (q / busca)
+      const filtroCategoria = String(req.query.categoria || '').trim();
+      const filtroBusca = String(req.query.q || req.query.busca || '').trim().toLowerCase();
+
+      let produtosFiltrados = todosProdutos;
+
+      if (filtroCategoria && filtroCategoria.toLowerCase() !== 'todas') {
+        const catLower = filtroCategoria.toLowerCase();
+        produtosFiltrados = produtosFiltrados.filter(p => 
+          p.categoria.toLowerCase() === catLower ||
+          p._categoria_raw.toLowerCase() === catLower ||
+          p.categoria.toLowerCase().includes(catLower)
+        );
+      }
+
+      if (filtroBusca) {
+        produtosFiltrados = produtosFiltrados.filter(p =>
+          p.nome.toLowerCase().includes(filtroBusca) ||
+          p.descricao.toLowerCase().includes(filtroBusca) ||
+          p.ean.toLowerCase().includes(filtroBusca) ||
+          p.apresentacao.toLowerCase().includes(filtroBusca) ||
+          p.laboratorio.toLowerCase().includes(filtroBusca) ||
+          p.categoria.toLowerCase().includes(filtroBusca)
+        );
+      }
+
+      // Remover campo interno auxiliar antes de enviar
+      const produtosFormatados = produtosFiltrados.map(({ _categoria_raw, ...resto }) => resto);
+
+      res.json({
+        sucesso: true,
+        campanha: {
+          id: campanha.id,
+          titulo: 'Aniversário & Grande Liquidação BelaFarma',
+          data_inicio: campanha.data_inicio,
+          data_fim: campanha.data_fim
+        },
+        total: produtosFormatados.length,
+        categorias,
+        produtos: produtosFormatados
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /public/ofertas:', err);
+      res.status(500).json({ sucesso: false, error: err.message });
+    }
+  });
+
   // 1. GET /api/liquidacao/resumo
   // Retorna termômetro da dívida, meta semanal, progresso e extrato de vendas
   router.get('/resumo', async (req, res) => {

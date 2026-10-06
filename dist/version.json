@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "2ba57fa",
-  "commitMessage": "fix: alinhar rendering de imagens promocionais e contraste no robo de ofertas",
-  "buildTime": "06/10/2026, 10:19:17"
+  "commitHash": "c5b40b1",
+  "commitMessage": "feat: adicionar botao para limpar ofertas do robo e limpar cadastros antigos",
+  "buildTime": "06/10/2026, 11:30:52"
 }
