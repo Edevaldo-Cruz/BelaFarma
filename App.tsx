@@ -1523,8 +1523,18 @@ const App: React.FC = () => {
             </>
           )}
         </div>
-        <footer className="w-full text-center py-4 text-xs text-slate-400 font-medium absolute bottom-0 left-0 bg-slate-100">
-          <p>Versão Beta - Desenvolvido por Edevaldo Cruz</p>
+        <footer className="w-full text-center py-3 text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 flex-wrap">
+          <span>Desenvolvido por <strong className="font-bold text-slate-700 dark:text-slate-200">Edevaldo Cruz</strong></span>
+          <span>•</span>
+          <a
+            href="https://wa.me/5532988634755?text=Ol%C3%A1%20Edevaldo%2C%20vi%20seu%20contato%20no%20site%20da%20BelaFarma!"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold transition-all border border-emerald-500/30 hover:scale-105 active:scale-95"
+            title="Conversar com o desenvolvedor no WhatsApp"
+          >
+            <span>💬 (32) 98863-4755</span>
+          </a>
         </footer>
       </main>
 

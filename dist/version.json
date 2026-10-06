@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "dda0de7",
-  "commitMessage": "perf(vitrine): otimizar performance da animacao para 60fps com GPU hardware acceleration",
-  "buildTime": "06/10/2026, 18:47:53"
+  "commitHash": "a219061",
+  "commitMessage": "fix(vitrine): reposicionar tag de estoque no rodape da imagem e ampliar fontes de desconto e precos",
+  "buildTime": "06/10/2026, 19:43:47"
 }

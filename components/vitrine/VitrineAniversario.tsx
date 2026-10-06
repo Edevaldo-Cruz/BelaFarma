@@ -614,20 +614,33 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-2 text-xs text-slate-500 dark:text-slate-400 pt-2">
-            <p>Bela Farma Sul • Bairro Ipiranga, Juiz de Fora - MG • WhatsApp: (32) 99822-8189</p>
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-3 text-xs text-slate-500 dark:text-slate-400 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+            <p>Bela Farma Sul • Bairro Ipiranga, Juiz de Fora - MG • WhatsApp Loja: (32) 99822-8189</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
               {onExit && (
-                <button
-                  type="button"
-                  onClick={onExit}
-                  className="hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer font-bold"
-                >
-                  Acesso Administrativo
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={onExit}
+                    className="hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer font-bold"
+                  >
+                    Acesso Administrativo
+                  </button>
+                  <span>•</span>
+                </>
               )}
-              <span>•</span>
-              <span>1º Aniversário BelaFarma & Liquidação</span>
+              <div className="flex items-center gap-2">
+                <span>Desenvolvido por <strong className="text-slate-700 dark:text-slate-200 font-bold">Edevaldo Cruz</strong></span>
+                <a
+                  href="https://wa.me/5532988634755?text=Ol%C3%A1%20Edevaldo%2C%20vi%20seu%20contato%20no%20site%20da%20BelaFarma!"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold transition-all border border-emerald-500/30 hover:scale-105 active:scale-95"
+                  title="Conversar com o desenvolvedor no WhatsApp"
+                >
+                  <span>💬 (32) 98863-4755</span>
+                </a>
+              </div>
             </div>
           </div>
         </div>
