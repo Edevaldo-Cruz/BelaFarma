@@ -744,6 +744,27 @@ Responda apenas com o JSON.`;
     }
   });
 
+  // 3b. Limpar TODAS as Ofertas do Banco
+  app.delete('/api/whatsapp/offers-bank/clear-all', async (req, res) => {
+    try {
+      const offers = await db.prepare('SELECT mediaPath FROM whatsapp_offers_bank').all();
+      for (const offer of offers) {
+        if (offer.mediaPath) {
+          const fullPath = path.join(__dirname, 'public', offer.mediaPath);
+          if (fs.existsSync(fullPath)) {
+            try { fs.unlinkSync(fullPath); } catch (e) {}
+          }
+        }
+      }
+      await db.prepare('DELETE FROM whatsapp_offers_bank').run();
+      console.log('[RoboOfertas] 🧹 Todas as ofertas foram removidas do banco de dados.');
+      res.json({ success: true, message: 'Todas as ofertas cadastradas foram removidas com sucesso!' });
+    } catch (err) {
+      console.error('[RoboOfertas] Erro ao limpar todas as ofertas:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Disparar uma única oferta para o Status via Fila do Robô Windows (Puppeteer)
   app.post('/api/whatsapp/offers-bank/:id/status', async (req, res) => {
     try {

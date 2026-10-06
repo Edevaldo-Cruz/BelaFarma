@@ -632,6 +632,34 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     }
   };
 
+  const [limpandoRobo, setLimpandoRobo] = useState(false);
+
+  const handleLimparBancoRobo = async () => {
+    const confirma = window.confirm(
+      'Deseja realmente remover TODOS os cadastros antigos de ofertas do Robô?\n\n' +
+      'Esta ação apaga as imagens antigas do banco de dados para que você possa enviar toda a campanha com as novas imagens perfeitamente alinhadas!'
+    );
+    if (!confirma) return;
+
+    setLimpandoRobo(true);
+    try {
+      const res = await fetch('/api/whatsapp/offers-bank/clear-all', {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('🧹 Banco do Robô de Ofertas limpo com sucesso! Agora você pode enviar as novas artes alinhadas.', 'success');
+      } else {
+        addToast(data.error || 'Erro ao limpar ofertas.', 'error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast('Falha ao comunicar com o servidor.', 'error');
+    } finally {
+      setLimpandoRobo(false);
+    }
+  };
+
   const handleCopiarArteUnitario = async () => {
     if (!produtoAtual) return;
     setCopiandoImagem(true);
@@ -1534,6 +1562,17 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
                       ? `Enviando ao Robô (${progressoRobo.atual}/${progressoRobo.total})...`
                       : `🚀 Cadastrar Campanha no Robô`}
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLimparBancoRobo}
+                  disabled={limpandoRobo}
+                  className="py-2.5 px-3 rounded-2xl bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:hover:bg-red-900/80 text-red-700 dark:text-red-300 text-xs font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  title="Limpa todas as ofertas antigas cadastradas no Robô para recadastrar artes limpas e alinhadas"
+                >
+                  <Trash2 size={13} className={limpandoRobo ? 'animate-spin' : ''} />
+                  <span>{limpandoRobo ? 'Limpando...' : '🧹 Limpar Ofertas Antigas'}</span>
                 </button>
               </div>
             </div>

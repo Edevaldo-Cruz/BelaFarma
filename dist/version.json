@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "05632b5",
-  "commitMessage": "feat: adicionar vendas manuais de produtos nao cadastrados na meta da liquidacao",
-  "buildTime": "06/10/2026, 09:23:39"
+  "commitHash": "2ba57fa",
+  "commitMessage": "fix: alinhar rendering de imagens promocionais e contraste no robo de ofertas",
+  "buildTime": "06/10/2026, 10:19:17"
 }
