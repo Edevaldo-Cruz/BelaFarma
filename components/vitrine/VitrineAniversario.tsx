@@ -241,13 +241,25 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-red-500 selection:text-white">
-      {/* 1. Integração da Splash Screen de 3 Segundos */}
+      {/* 1. Integração da Splash Screen Comemorativa de 4 Segundos com Fogos e Contagem Regressiva */}
       {showSplash && (
         <VitrineSplash
-          durationMs={3000}
+          durationMs={4000}
           onComplete={() => setShowSplash(false)}
         />
       )}
+
+      {/* Estilos Globais do Letreiro Marquee Neon */}
+      <style>{`
+        @keyframes bfMarqueeMove {
+          0% { transform: translateX(0%); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-bf-marquee {
+          display: inline-flex;
+          animation: bfMarqueeMove 18s linear infinite !important;
+        }
+      `}</style>
 
       {/* 2. Barra Superior Fixa (Sticky Top Bar) */}
       <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-red-100 dark:border-slate-800 shadow-sm transition-all">
@@ -376,6 +388,21 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
         <div className="absolute -bottom-10 -right-10 w-72 h-72 bg-amber-400/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute top-0 right-10 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none" />
       </section>
+
+      {/* 💥 LETREIRO MARQUEE NEON EM MOVIMENTO (ANIVERSÁRIO BELAFARMA) */}
+      <div className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider py-2 overflow-hidden shadow-md border-y border-amber-300 relative z-20 select-none">
+        <div className="animate-bf-marquee whitespace-nowrap flex items-center gap-8">
+          <span className="flex items-center gap-2">💥 MEGA QUEIMA DE ESTOQUE - ATÉ 70% OFF</span>
+          <span className="flex items-center gap-2">🎁 1º ANIVERSÁRIO BELAFARMA</span>
+          <span className="flex items-center gap-2">⚡ MAIS DE 100 OFERTAS ESPECIAIS</span>
+          <span className="flex items-center gap-2">📍 PEÇA DIRETO PELO WHATSAPP</span>
+          <span className="flex items-center gap-2">🔥 PREÇOS DE FÁBRICA ENQUANTO DURAR O ESTOQUE</span>
+          <span className="flex items-center gap-2">💥 MEGA QUEIMA DE ESTOQUE - ATÉ 70% OFF</span>
+          <span className="flex items-center gap-2">🎁 1º ANIVERSÁRIO BELAFARMA</span>
+          <span className="flex items-center gap-2">⚡ MAIS DE 100 OFERTAS ESPECIAIS</span>
+          <span className="flex items-center gap-2">📍 PEÇA DIRETO PELO WHATSAPP</span>
+        </div>
+      </div>
 
       {/* 4. Barra de Busca Instantânea e Filtro por Categorias */}
       <section className="sticky top-[57px] sm:top-[65px] z-30 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 py-3 px-3 sm:px-6 shadow-sm">
