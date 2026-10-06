@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "8ee8f50",
-  "commitMessage": "feat(vitrine): intensificar show de particulas de glitter e frota de baloes flutuantes",
-  "buildTime": "06/10/2026, 18:24:35"
+  "commitHash": "dda0de7",
+  "commitMessage": "perf(vitrine): otimizar performance da animacao para 60fps com GPU hardware acceleration",
+  "buildTime": "06/10/2026, 18:47:53"
 }

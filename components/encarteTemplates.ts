@@ -15,7 +15,7 @@ import html2canvas from 'html2canvas';
 // ─── IDENTIDADE & DADOS DA LOJA ───────────────────────────────────────────────
 export const LOJA = {
   nome: 'BELA FARMA SUL',
-  endereco: 'Santa Luzia, Juiz de Fora - MG',
+  endereco: 'Ipiranga, Juiz de Fora - MG',
   horario: '', // Ex.: 'Seg a Sáb: 07h às 22h | Dom: 08h às 20h' (omitido se vazio)
   whatsapp: '(32) 9822-8189',
   site: '', // Ex.: '@belafarmasul' (omitido se vazio)

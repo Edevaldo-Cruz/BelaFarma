@@ -9,6 +9,8 @@
  * - Cobranças: diariamente às 09:00
  */
 
+const path = require('path');
+const fs = require('fs');
 const cron = require('node-cron');
 const sender = require('./message-sender.service');
 const templates = require('./message-templates.service');
@@ -310,9 +312,23 @@ async function runScheduledGroupPostsJob(db) {
       db.prepare("UPDATE whatsapp_group_posts SET status = 'Processando' WHERE id = ?").run(post.id);
 
       try {
-        const absolutePath = post.mediaPath
-          ? path.join(process.cwd(), 'public', path.basename(post.mediaPath))
-          : null;
+        let absolutePath = null;
+        if (post.mediaPath) {
+          const filename = path.basename(post.mediaPath);
+          const possiblePaths = [
+            path.join(__dirname, '..', 'public', 'uploads', filename),
+            path.join(__dirname, '..', 'public', filename),
+            path.join(process.cwd(), 'public', 'uploads', filename),
+            path.join(process.cwd(), 'public', filename),
+            path.join(__dirname, '..', 'data', 'uploads', filename)
+          ];
+          for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+              absolutePath = p;
+              break;
+            }
+          }
+        }
 
         console.log(`[MessageScheduler] 🚀 Baileys enviando para o Grupo "${post.groupName}": ${post.id}`);
         if (absolutePath && fs.existsSync(absolutePath)) {

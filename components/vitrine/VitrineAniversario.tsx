@@ -23,6 +23,7 @@ import { VitrineProduto, VitrineCartItem, VitrineApiResponse } from './vitrineTy
 import { VitrineSplash } from './VitrineSplash';
 import { VitrineProductCard, formatBRL } from './VitrineProductCard';
 import { VitrineCartDrawer } from './VitrineCartDrawer';
+import { BelaFarmaLogo } from '../BelaFarmaLogo';
 
 export interface VitrineAniversarioProps {
   onExit?: () => void;
@@ -271,25 +272,13 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
       {/* 2. Barra Superior Fixa (Sticky Top Bar) */}
       <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-red-100 dark:border-slate-800 shadow-sm transition-all">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-3">
-          {/* Branding da BelaFarma com Selo Comemorativo */}
+          {/* Branding da BelaFarma com Logo Oficial e Selo Comemorativo */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-red-600 via-rose-500 to-amber-500 flex items-center justify-center text-white shadow-md font-black text-base sm:text-lg shrink-0">
-              BF
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="font-extrabold text-base sm:text-xl tracking-tight text-red-600 dark:text-red-500 leading-none">
-                  BelaFarma Sul
-                </span>
-                <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                  <PartyPopper className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                  <span>1º Ano</span>
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 hidden xs:block">
-                Festival de Ofertas & Grande Liquidação
-              </p>
-            </div>
+            <BelaFarmaLogo size="md" showSubtext={true} />
+            <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 shrink-0">
+              <PartyPopper className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>1º Ano</span>
+            </span>
           </div>
 
           {/* Ações da Direita: Rever Splash, Acesso Admin, e Botão do Carrinho */}
@@ -357,6 +346,10 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
             </p>
 
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5">
+              <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-500/30 backdrop-blur border border-emerald-400/50 text-xs font-black text-emerald-200 shadow-md">
+                <span>⚡🚀</span>
+                <span>Entrega Super Rápida e GRÁTIS para Bairros Próximos</span>
+              </div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 backdrop-blur border border-white/20 text-xs font-semibold text-amber-200">
                 <ShieldCheck className="w-4 h-4 text-emerald-300" />
                 <span>Estoque 100% Genuíno</span>
@@ -376,8 +369,8 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
             <div className="text-lg sm:text-xl font-black text-white">
               (32) 99822-8189
             </div>
-            <p className="text-[11px] text-red-100/80">
-              Santa Luzia • Juiz de Fora - MG
+            <p className="text-[11px] text-red-100/90 font-bold">
+              📍 Ipiranga • Juiz de Fora - MG
             </p>
             <a
               href={`https://wa.me/${WHATSAPP_NUMBER}?text=Ol%C3%A1%2C%20gostaria%20de%20consultar%20as%20ofertas%20do%20Anivers%C3%A1rio%20BelaFarma!`}
@@ -594,27 +587,48 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
         onClearCart={handleClearCart}
       />
 
-      {/* 8. Rodapé Institucional */}
-      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto py-6">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
-          <div>
-            <p className="font-semibold text-slate-700 dark:text-slate-300">
-              Bela Farma Sul • Santa Luzia, Juiz de Fora - MG
-            </p>
-            <p>WhatsApp Oficial de Atendimento: (32) 99822-8189</p>
+      {/* 8. Rodapé Institucional com Identidade Visual Oficial */}
+      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto py-8">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col items-center gap-6 text-center">
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
+            <BelaFarmaLogo size="md" showSubtext={true} />
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3.5 py-1.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+              <span>🚀⚡</span>
+              <span>Entrega Super Rápida e Grátis para Bairros Próximos</span>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            {onExit && (
-              <button
-                type="button"
-                onClick={onExit}
-                className="hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer"
-              >
-                Acesso Administrativo
-              </button>
-            )}
-            <span>•</span>
-            <span>1º Aniversário BelaFarma & Grande Liquidação</span>
+
+          {/* Pilares da Marca da Identidade Visual */}
+          <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-12 text-xs font-black text-slate-700 dark:text-slate-300">
+            <div className="flex items-center gap-2">
+              <span className="text-red-500 text-sm">❤️</span>
+              <span>CUIDAR DE VOCÊ</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-red-500 text-sm">🛡️</span>
+              <span>SAÚDE COM CONFIANÇA</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-red-500 text-sm">😊</span>
+              <span>BEM-ESTAR TODO DIA</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-2 text-xs text-slate-500 dark:text-slate-400 pt-2">
+            <p>Bela Farma Sul • Bairro Ipiranga, Juiz de Fora - MG • WhatsApp: (32) 99822-8189</p>
+            <div className="flex items-center gap-4">
+              {onExit && (
+                <button
+                  type="button"
+                  onClick={onExit}
+                  className="hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer font-bold"
+                >
+                  Acesso Administrativo
+                </button>
+              )}
+              <span>•</span>
+              <span>1º Aniversário BelaFarma & Liquidação</span>
+            </div>
           </div>
         </div>
       </footer>

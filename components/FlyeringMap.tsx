@@ -190,7 +190,7 @@ export const FlyeringMap: React.FC<FlyeringMapProps> = memo(({ user, users, onLo
 
   const isAdmin = user.role === 'Administrador';
 
-  // Coordenadas da Farmácia Bela Farma Sul, Santa Luzia, Juiz de Fora - MG
+  // Coordenadas da Farmácia Bela Farma Sul, Ipiranga, Juiz de Fora - MG
   const centerCoordinates: [number, number] = [-21.78, -43.36];
 
   // Função para buscar tarefas da API

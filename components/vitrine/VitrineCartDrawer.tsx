@@ -379,7 +379,7 @@ export const VitrineCartDrawer: React.FC<VitrineCartDrawerProps> = ({
                     type="text"
                     value={bairro}
                     onChange={(e) => setBairro(e.target.value)}
-                    placeholder="Bairro (ex: Santa Luzia)"
+                    placeholder="Bairro (ex: Ipiranga)"
                     className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500"
                   />
                 </div>
