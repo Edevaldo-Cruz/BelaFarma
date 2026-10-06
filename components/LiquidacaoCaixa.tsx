@@ -33,11 +33,27 @@ import {
   ChevronDown,
   ChevronUp,
   CheckSquare,
-  PlusCircle
+  PlusCircle,
+  Trash2
 } from 'lucide-react';
 import { User } from '../types';
 import { useToast } from './ToastContext';
 import { LiquidacaoEncarteArtes } from './LiquidacaoEncarteArtes';
+
+export interface VendaDetalhadaLiquidacao {
+  id?: number | string;
+  is_manual?: boolean;
+  observacao?: string;
+  registrado_por?: string;
+  venda_nota_id: number;
+  venda_data_hora: string;
+  produto_id: number;
+  descricao: string;
+  quantidade: number;
+  preco_venda: number;
+  total: number;
+  preco_promocional_cadastrado?: number;
+}
 
 interface ResumoData {
   dividaInicial: number;
@@ -51,6 +67,8 @@ interface ResumoData {
     metaSemanal: number;
     totalResgatado: number;
     percentualMetaSemanal: number;
+    totalItensVendidos?: number;
+    totalVendasQtd?: number;
   };
   progressoSelecao: {
     aprovados: number;
@@ -58,6 +76,7 @@ interface ResumoData {
     completo: boolean;
     pulados: number;
   };
+  vendasDetalhadas?: VendaDetalhadaLiquidacao[];
 }
 
 interface ProdutoCandidato {
@@ -106,6 +125,8 @@ interface ItemAtivo {
   motivo_sugestao?: string;
   selecionado?: boolean;
   imagem_url?: string;
+  qtd_vendida?: number;
+  total_vendido?: number;
 }
 
 interface LiquidacaoCaixaProps {
@@ -142,12 +163,15 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [termoBusca, setTermoBusca] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('TODOS');
   const [filtroDias, setFiltroDias] = useState<string>('TODOS');
+  const [filtroSomenteVendidos, setFiltroSomenteVendidos] = useState<boolean>(false);
   const [itensPorPagina, setItensPorPagina] = useState<number>(50);
   const [paginaAtual, setPaginaAtual] = useState<number>(1);
   const [carregandoTodos45d, setCarregandoTodos45d] = useState<boolean>(false);
 
   // Modais e opções de impressão
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showModalVendas, setShowModalVendas] = useState(false);
+  const [sincronizandoVendas, setSincronizandoVendas] = useState(false);
   const [modoImpressao, setModoImpressao] = useState<'tabela_a4' | 'termica'>('tabela_a4');
   const [tipoQtdImpressao, setTipoQtdImpressao] = useState<'preencher' | '1' | '2' | '3'>('preencher');
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
@@ -184,6 +208,16 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>('2026-10-31');
   const [avulsoSincronizarDigifarma, setAvulsoSincronizarDigifarma] = useState<boolean>(true);
   const [salvandoAvulso, setSalvandoAvulso] = useState<boolean>(false);
+
+  // Vendas Manuais de Produtos Não Cadastrados
+  const [showModalVendaManual, setShowModalVendaManual] = useState<boolean>(false);
+  const [vmDescricao, setVmDescricao] = useState<string>('');
+  const [vmValorTotal, setVmValorTotal] = useState<string>('');
+  const [vmQuantidade, setVmQuantidade] = useState<number>(1);
+  const [vmDataVenda, setVmDataVenda] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [vmObservacao, setVmObservacao] = useState<string>('');
+  const [salvandoVendaManual, setSalvandoVendaManual] = useState<boolean>(false);
+  const [excluindoVendaManualId, setExcluindoVendaManualId] = useState<number | string | null>(null);
 
   // Debounce para busca no estoque
   useEffect(() => {
@@ -325,10 +359,86 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   };
 
-  // 1. Carrega Resumo e Itens Ativos
-  const fetchResumo = useCallback(async () => {
+  const handleSalvarVendaManual = async () => {
+    if (!vmDescricao.trim()) {
+      addToast('Informe a descrição do produto ou venda.', 'warning');
+      return;
+    }
+    const val = parseFloat(vmValorTotal.replace(',', '.'));
+    if (isNaN(val) || val <= 0) {
+      addToast('Informe um valor total válido para a venda.', 'warning');
+      return;
+    }
+    const qtd = Number(vmQuantidade);
+    if (isNaN(qtd) || qtd <= 0) {
+      addToast('Informe uma quantidade válida.', 'warning');
+      return;
+    }
+
+    setSalvandoVendaManual(true);
     try {
-      const res = await fetch('/api/liquidacao/resumo');
+      const res = await fetch('/api/liquidacao/vendas-manuais', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descricao: vmDescricao.trim(),
+          valor_total: val,
+          quantidade: qtd,
+          data_venda: vmDataVenda,
+          observacao: vmObservacao.trim(),
+          registrado_por: user.name || user.username || 'Operador'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`✅ ${data.message}`, 'success');
+        setShowModalVendaManual(false);
+        setVmDescricao('');
+        setVmValorTotal('');
+        setVmQuantidade(1);
+        setVmObservacao('');
+        await fetchResumo(true);
+      } else {
+        addToast(data.error || 'Erro ao registrar venda manual.', 'error');
+      }
+    } catch (e) {
+      console.error('Erro ao registrar venda manual:', e);
+      addToast('Falha de conexão com o servidor.', 'error');
+    } finally {
+      setSalvandoVendaManual(false);
+    }
+  };
+
+  const handleRemoverVendaManual = async (id: number | string) => {
+    const confirm = window.confirm('Deseja realmente remover esta venda manual do extrato da liquidação?');
+    if (!confirm) return;
+
+    setExcluindoVendaManualId(id);
+    try {
+      const res = await fetch(`/api/liquidacao/vendas-manuais/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`🗑️ ${data.message}`, 'info');
+        await fetchResumo(true);
+      } else {
+        addToast(data.error || 'Erro ao remover venda manual.', 'error');
+      }
+    } catch (e) {
+      console.error('Erro ao remover venda manual:', e);
+      addToast('Falha de conexão com o servidor.', 'error');
+    } finally {
+      setExcluindoVendaManualId(null);
+    }
+  };
+
+  // 1. Carrega Resumo e Itens Ativos
+  const fetchResumo = useCallback(async (refresh = false) => {
+    try {
+      const url = refresh ? '/api/liquidacao/resumo?refresh=true' : '/api/liquidacao/resumo';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setResumo(data);
@@ -340,10 +450,11 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     }
   }, []);
 
-  const fetchItensAtivos = useCallback(async () => {
+  const fetchItensAtivos = useCallback(async (refresh = false) => {
     setLoadingItens(true);
     try {
-      const res = await fetch('/api/liquidacao/itens-ativos');
+      const url = refresh ? '/api/liquidacao/itens-ativos?refresh=true' : '/api/liquidacao/itens-ativos';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.itens)) {
@@ -356,6 +467,26 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       setLoadingItens(false);
     }
   }, []);
+
+  const handleSincronizarVendas = async () => {
+    setSincronizandoVendas(true);
+    try {
+      const res = await fetch('/api/liquidacao/resumo?refresh=true');
+      if (res.ok) {
+        const data = await res.json();
+        setResumo(data);
+        await fetchItensAtivos(true);
+        addToast(`✅ Vendas sincronizadas com o Digifarma! ${data.campanha?.totalVendasQtd || 0} venda(s) registrada(s) (${fmt(data.campanha?.totalResgatado || 0)} amortizados).`, 'success');
+      } else {
+        addToast('Erro ao sincronizar vendas com o Digifarma.', 'error');
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar vendas:', e);
+      addToast('Falha na comunicação com o servidor.', 'error');
+    } finally {
+      setSincronizandoVendas(false);
+    }
+  };
 
   // Recarregar toda a base com produtos parados há 45+ dias
   const handleCarregarTodos45d = async () => {
@@ -1268,9 +1399,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         if (dias <= 180) return false;
       }
 
+      // 4. Filtro Somente Vendidos
+      if (filtroSomenteVendidos && (item.qtd_vendida || 0) <= 0) {
+        return false;
+      }
+
       return true;
     });
-  }, [itensAtivos, termoBusca, filtroCategoria, filtroDias]);
+  }, [itensAtivos, termoBusca, filtroCategoria, filtroDias, filtroSomenteVendidos]);
 
   const totalPaginas = itensPorPagina === 0 ? 1 : Math.max(1, Math.ceil(itensFiltrados.length / itensPorPagina));
   const paginaAjustada = Math.min(Math.max(1, paginaAtual), totalPaginas);
@@ -1547,19 +1683,29 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-400">
-              <span>Amortizado: {fmt(resumo?.campanha.totalResgatado || 0)}</span>
-              <span>{resumo?.percentualDividaPaga || 0}%</span>
+              <span>Amortizado: <strong className="text-emerald-600 dark:text-emerald-400">{fmt(resumo?.campanha.totalResgatado || 0)}</strong></span>
+              <span className="font-black text-emerald-600 dark:text-emerald-400">{resumo?.percentualDividaPaga || 0}%</span>
             </div>
             <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-gradient-to-r from-red-500 to-emerald-500 transition-all duration-500 rounded-full"
-                style={{ width: `${Math.max(5, resumo?.percentualDividaPaga || 0)}%` }}
+                style={{ width: `${Math.min(100, Math.max((resumo?.percentualDividaPaga || 0) > 0 ? 3 : 0, resumo?.percentualDividaPaga || 0))}%` }}
               />
             </div>
+            {(resumo?.campanha?.totalVendasQtd || 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowModalVendas(true)}
+                className="mt-2 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-1 cursor-pointer transition-all hover:underline"
+              >
+                <span>🔥 Ver {resumo?.campanha.totalVendasQtd} venda(s) registrada(s) ({fmt(resumo?.campanha.totalResgatado || 0)})</span>
+                <ArrowRight size={12} />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Card 2: Meta Semanal */}
+        {/* Card 2: Meta Semanal / Mensal */}
         <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -1575,7 +1721,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               <span className="text-2xl font-black text-slate-900 dark:text-white">
                 {fmt(resumo?.campanha.totalResgatado || 0)}
               </span>
-              <span className="text-xs text-slate-400">/ {fmt(resumo?.campanha.metaSemanal || 450)}</span>
+              <span className="text-xs text-slate-400">/ {fmt(resumo?.campanha.metaSemanal || 3500)}</span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Meta de R$ 450,00 por semana para zerar em até 60 dias
@@ -1585,13 +1731,30 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-400">
               <span>Progresso</span>
-              <span>{resumo?.campanha.percentualMetaSemanal || 0}%</span>
+              <span className="font-black text-orange-600 dark:text-orange-400">{resumo?.campanha.percentualMetaSemanal || 0}%</span>
             </div>
             <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-gradient-to-r from-orange-500 to-amber-500 transition-all duration-500 rounded-full"
-                style={{ width: `${Math.max(5, resumo?.campanha.percentualMetaSemanal || 0)}%` }}
+                style={{ width: `${Math.min(100, Math.max((resumo?.campanha.percentualMetaSemanal || 0) > 0 ? 3 : 0, resumo?.campanha.percentualMetaSemanal || 0))}%` }}
               />
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowModalVendaManual(true)}
+                className="text-[11px] font-bold text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>✍️ + Venda Não Cadastrada</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowModalVendas(true)}
+                className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1 cursor-pointer"
+              >
+                <span>Extrato ({resumo?.campanha?.totalVendasQtd || 0})</span>
+                <ArrowRight size={11} />
+              </button>
             </div>
           </div>
         </div>
@@ -1643,6 +1806,17 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSincronizarVendas}
+              disabled={sincronizandoVendas}
+              className="px-3.5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Consulta imediatamente o caixa do Digifarma para contabilizar novas vendas da liquidação"
+            >
+              {sincronizandoVendas ? <Loader2 size={14} className="animate-spin text-white" /> : <RefreshCw size={14} />}
+              <span>🔄 Atualizar Vendas do Caixa</span>
+            </button>
+
             <button
               type="button"
               onClick={handleCarregarTodos45d}
@@ -1981,7 +2155,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               type="button"
               onClick={() => handleTrocarCategoria(cat.id)}
               className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
-                filtroCategoria === cat.id
+                filtroCategoria === cat.id && !filtroSomenteVendidos
                   ? 'bg-orange-500 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
               }`}
@@ -1990,6 +2164,21 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
               <span>{cat.label}</span>
             </button>
           ))}
+
+          <button
+            type="button"
+            onClick={() => setFiltroSomenteVendidos(!filtroSomenteVendidos)}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+              filtroSomenteVendidos
+                ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-400'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-300 dark:border-emerald-800'
+            }`}
+            title="Exibir apenas produtos que já tiveram vendas registradas no caixa"
+          >
+            <span>🔥</span>
+            <span>Com Vendas ({itensAtivos.filter(i => (i.qtd_vendida || 0) > 0).length})</span>
+          </button>
+
           <span className="ml-auto text-[11px] font-bold text-slate-400 shrink-0">
             Mostrando <strong>{itensFiltrados.length}</strong> de {itensAtivos.length}
           </span>
@@ -2246,6 +2435,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                             ) : (
                               <span className="px-1.5 py-0.2 rounded font-black bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 inline-flex items-center gap-0.5 shrink-0" title="Item avulso incluído livremente do estoque">
                                 <Sparkles size={10} /> Avulso
+                              </span>
+                            )}
+                            {(item.qtd_vendida || 0) > 0 && (
+                              <span 
+                                className="px-1.5 py-0.2 rounded font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 inline-flex items-center gap-0.5 shrink-0" 
+                                title={`Vendido no caixa Digifarma durante a liquidação: ${item.qtd_vendida} un (Total ${fmt(item.total_vendido || 0)})`}
+                              >
+                                <CheckCircle2 size={10} className="text-emerald-600 dark:text-emerald-400" /> {item.qtd_vendida} vendido{item.qtd_vendida > 1 ? 's' : ''} ({fmt(item.total_vendido || 0)})
                               </span>
                             )}
                             {item.categoria && <span className="truncate">{item.categoria}</span>}
@@ -3385,6 +3582,291 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                   </button>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: INCLUIR VENDA MANUAL DE PRODUTO NÃO CADASTRADO ─── */}
+      {showModalVendaManual && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-emerald-50 via-teal-50 to-white dark:from-slate-850 dark:to-slate-900">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
+                  <PlusCircle size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Adicionar Venda de Produto Não Cadastrado
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Contabilize vendas manuais/avulsas para abater na Meta da Liquidação.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowModalVendaManual(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                  Descrição do Produto / Venda *
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={vmDescricao}
+                  onChange={(e) => setVmDescricao(e.target.value)}
+                  placeholder="Ex: Produto sem EAN, Cesta Promocional, Álcool em Gel..."
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                    Valor Total (R$) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-slate-400 text-xs">R$</span>
+                    <input
+                      type="text"
+                      value={vmValorTotal}
+                      onChange={(e) => setVmValorTotal(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-emerald-600 dark:text-emerald-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                    Quantidade (un)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={vmQuantidade}
+                    onChange={(e) => setVmQuantidade(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                    Data da Venda
+                  </label>
+                  <input
+                    type="date"
+                    value={vmDataVenda}
+                    onChange={(e) => setVmDataVenda(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                    Observação / Vendedor
+                  </label>
+                  <input
+                    type="text"
+                    value={vmObservacao}
+                    onChange={(e) => setVmObservacao(e.target.value)}
+                    placeholder="Ex: Venda de balcão / Nayane"
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
+                💡 Esta venda manual será imediatamente somada ao <strong>Total Resgatado</strong> e amortizada do <strong>Termômetro da Dívida</strong>.
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <button
+                type="button"
+                onClick={() => setShowModalVendaManual(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSalvarVendaManual}
+                disabled={salvandoVendaManual}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {salvandoVendaManual ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check size={16} strokeWidth={3} />}
+                <span>{salvandoVendaManual ? 'Registrando...' : 'Adicionar à Meta'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DE EXTRATO DE VENDAS DA LIQUIDAÇÃO ─── */}
+      {showModalVendas && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  <Flame size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    Extrato de Vendas da Liquidação
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Vendas registradas no caixa do Digifarma e lançamentos manuais
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModalVendaManual(true)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                >
+                  <PlusCircle size={14} />
+                  <span>✍️ Venda Não Cadastrada</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowModalVendas(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Resumo Rápido */}
+            <div className="grid grid-cols-3 gap-3 p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border-b border-emerald-100 dark:border-emerald-900/40">
+              <div className="text-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/60 dark:border-emerald-800/40">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Amortizado</span>
+                <span className="text-base font-black text-emerald-600 dark:text-emerald-400">{fmt(resumo?.campanha?.totalResgatado || 0)}</span>
+              </div>
+              <div className="text-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/60 dark:border-emerald-800/40">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Unidades Resgatadas</span>
+                <span className="text-base font-black text-slate-800 dark:text-white">{resumo?.campanha?.totalItensVendidos || 0} un</span>
+              </div>
+              <div className="text-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/60 dark:border-emerald-800/40">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Total de Cupons</span>
+                <span className="text-base font-black text-orange-600 dark:text-orange-400">{resumo?.campanha?.totalVendasQtd || 0} vendas</span>
+              </div>
+            </div>
+
+            {/* Lista das Vendas */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {(!resumo?.vendasDetalhadas || resumo.vendasDetalhadas.length === 0) ? (
+                <div className="text-center py-12 text-slate-400 space-y-2">
+                  <Package className="w-12 h-12 mx-auto opacity-30 text-emerald-500" />
+                  <p className="font-bold">Nenhuma venda registrada ainda no caixa ou lançada manualmente.</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowModalVendaManual(true)}
+                    className="mt-2 px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <PlusCircle size={14} />
+                    <span>Lançar Primeira Venda Manual</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 uppercase text-[10px] font-black border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Data / Hora</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center">Cupom</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Produto</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center">Qtd</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right">Preço Unit.</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right">Total</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {resumo.vendasDetalhadas.map((v, idx) => (
+                        <tr key={v.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="py-2.5 px-3 whitespace-nowrap text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {new Date(v.venda_data_hora).toLocaleDateString('pt-BR')} {new Date(v.venda_data_hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap text-center font-mono font-bold text-slate-600 dark:text-slate-400">
+                            {v.is_manual ? <span className="text-blue-600 dark:text-blue-400 font-mono text-[10px]">MANUAL</span> : `#${v.venda_nota_id}`}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800 dark:text-white block truncate max-w-xs">{v.descricao}</span>
+                              {v.is_manual && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                                  ✍️ Manual
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400">
+                              {v.is_manual ? `Por: ${v.registrado_por || 'Operador'}${v.observacao ? ` • Obs: ${v.observacao}` : ''}` : `Cód: #${v.produto_id}`}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap text-center font-black text-slate-700 dark:text-slate-300">
+                            {v.quantidade}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right font-medium text-slate-600 dark:text-slate-400">
+                            {fmt(v.preco_venda)}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right font-black text-emerald-600 dark:text-emerald-400">
+                            {fmt(v.total)}
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap text-center">
+                            {v.is_manual && v.id ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoverVendaManual(v.id!)}
+                                disabled={excluindoVendaManualId === v.id}
+                                className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 text-red-500 transition-colors cursor-pointer"
+                                title="Excluir venda manual"
+                              >
+                                {excluindoVendaManualId === v.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 size={14} />}
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <span className="text-xs text-slate-400">
+                Os dados englobam vendas automáticas do Digifarma e lançamentos manuais da campanha.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowModalVendas(false)}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 transition-all cursor-pointer"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

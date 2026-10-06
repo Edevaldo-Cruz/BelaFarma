@@ -75,6 +75,23 @@ module.exports = function (db) {
   try { db.exec('ALTER TABLE liquidacao_campanhas_itens ADD COLUMN imagem_url TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN imagem_url TEXT'); } catch (e) {}
 
+  // Tabela para vendas manuais de produtos não cadastrados (para abatimento direto de metas)
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS liquidacao_vendas_manuais (
+        id TEXT PRIMARY KEY,
+        campanha_id TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        valor_total REAL NOT NULL,
+        quantidade INTEGER DEFAULT 1,
+        data_venda TEXT NOT NULL,
+        observacao TEXT,
+        registrado_por TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+  } catch (e) {}
+
   // Helper para obter ou criar a campanha da semana ativa
   function getOrCreateCampanhaAtiva() {
     const semana = getSemanaAno();
@@ -103,11 +120,199 @@ module.exports = function (db) {
     return campanha;
   }
 
+  // Cache de vendas em memória (15 segundos para evitar repetição concorrente ao carregar dashboard)
+  let vendasCache = {
+    campanhaId: null,
+    timestamp: 0,
+    data: null
+  };
+
+  async function calcularVendasCampanha(campanhaId, dataInicio, dataFim) {
+    const items = db.prepare(`
+      SELECT id, produto_id, preco_promocional, preco_normal, descricao, saldo_estoque 
+      FROM liquidacao_campanhas_itens 
+      WHERE campanha_id = ? AND status = 'ativo'
+    `).all(campanhaId);
+
+    const dtIni = dataInicio || '2026-10-05';
+    const dtFim = dataFim || '2026-10-31';
+
+    let vendasDetalhadas = [];
+    const vendasPorProduto = {};
+    let totalResgatado = 0;
+    let totalItensVendidos = 0;
+
+    if (items && items.length > 0) {
+      const prodMap = new Map();
+      items.forEach(it => prodMap.set(Number(it.produto_id), it));
+      const prodIds = Array.from(prodMap.keys());
+
+      const chunkSize = 60;
+      for (let i = 0; i < prodIds.length; i += chunkSize) {
+        const chunk = prodIds.slice(i, i + chunkSize);
+        const sql = `
+          SELECT 
+            iv.PRODUTO_ID, 
+            iv.ITEMVEND_QUANT,
+            iv.ITEMVEND_PRVENDA,
+            (iv.ITEMVEND_QUANT * iv.ITEMVEND_PRVENDA) as TOTAL_ITEM,
+            v.VENDA_NOTA_ID,
+            v.VENDA_DATA_HORA,
+            p.PRODUTO as DESCRICAO,
+            p.PROD_SALDO
+          FROM ITEM_VENDAS iv
+          JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+          JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+          WHERE iv.PRODUTO_ID IN (${chunk.join(',')})
+            AND v.VENDA_DATA_HORA >= '${dtIni} 00:00:00'
+            AND v.VENDA_DATA_HORA <= '${dtFim} 23:59:59'
+            AND (v.CANCELADO IS NULL OR v.CANCELADO <> 'S')
+            AND (iv.CANCELADO IS NULL OR iv.CANCELADO <> 'S')
+          ORDER BY v.VENDA_DATA_HORA DESC
+        `;
+        try {
+          const res = await queryDigifarma(sql, [], 8000);
+          if (res && res.length > 0) {
+            for (const r of res) {
+              const pId = Number(r.PRODUTO_ID);
+              const qtd = Number(r.ITEMVEND_QUANT) || 0;
+              const total = Number(r.TOTAL_ITEM) || (qtd * Number(r.ITEMVEND_PRVENDA || 0));
+              const it = prodMap.get(pId);
+
+              totalResgatado += total;
+              totalItensVendidos += qtd;
+
+              if (!vendasPorProduto[pId]) {
+                vendasPorProduto[pId] = { 
+                  qtdVendida: 0, 
+                  totalVendido: 0, 
+                  saldoAtual: r.PROD_SALDO !== null && r.PROD_SALDO !== undefined ? Number(r.PROD_SALDO) : undefined 
+                };
+              }
+              vendasPorProduto[pId].qtdVendida += qtd;
+              vendasPorProduto[pId].totalVendido += total;
+              if (r.PROD_SALDO !== null && r.PROD_SALDO !== undefined) {
+                vendasPorProduto[pId].saldoAtual = Number(r.PROD_SALDO);
+              }
+
+              vendasDetalhadas.push({
+                venda_nota_id: r.VENDA_NOTA_ID,
+                venda_data_hora: r.VENDA_DATA_HORA,
+                produto_id: pId,
+                descricao: (r.DESCRICAO || it?.descricao || '').trim(),
+                quantidade: qtd,
+                preco_venda: Number(r.ITEMVEND_PRVENDA) || 0,
+                total: Math.round(total * 100) / 100,
+                preco_promocional_cadastrado: it?.preco_promocional || 0,
+                is_manual: false
+              });
+            }
+          }
+        } catch (errChunk) {
+          console.error('[Liquidação] Erro ao consultar chunk de vendas no Digifarma:', errChunk.message);
+        }
+      }
+    }
+
+    // Processa Vendas Manuais de Produtos Não Cadastrados
+    try {
+      const vendasManuais = db.prepare(`
+        SELECT id, campanha_id, descricao, valor_total, quantidade, data_venda, observacao, registrado_por, created_at
+        FROM liquidacao_vendas_manuais
+        WHERE campanha_id = ?
+        ORDER BY created_at DESC
+      `).all(campanhaId);
+
+      for (const vm of vendasManuais) {
+        const total = Number(vm.valor_total) || 0;
+        const qtd = Number(vm.quantidade) || 1;
+        totalResgatado += total;
+        totalItensVendidos += qtd;
+
+        vendasDetalhadas.push({
+          id: vm.id,
+          venda_nota_id: `MANUAL-${vm.id.slice(-6).toUpperCase()}`,
+          venda_data_hora: vm.data_venda || vm.created_at,
+          produto_id: 0,
+          descricao: vm.descricao,
+          quantidade: qtd,
+          preco_venda: Math.round((total / qtd) * 100) / 100,
+          total: Math.round(total * 100) / 100,
+          is_manual: true,
+          observacao: vm.observacao || '',
+          registrado_por: vm.registrado_por || 'Balcão'
+        });
+      }
+    } catch (vmErr) {
+      console.error('[Liquidação] Erro ao carregar vendas manuais:', vmErr.message);
+    }
+
+    // Ordena extrato pela data de venda mais recente
+    vendasDetalhadas.sort((a, b) => new Date(b.venda_data_hora).getTime() - new Date(a.venda_data_hora).getTime());
+
+    totalResgatado = Math.round(totalResgatado * 100) / 100;
+
+    // Atualiza a tabela de campanhas no SQLite para persistência
+    try {
+      db.prepare(`UPDATE liquidacao_campanhas SET total_resgatado = ? WHERE id = ?`).run(totalResgatado, campanhaId);
+    } catch (e) {}
+
+    // Sincroniza saldo de estoque atualizado para os itens que tiveram venda no Digifarma
+    if (items && items.length > 0) {
+      try {
+        const updateSaldoStmt = db.prepare(`UPDATE liquidacao_campanhas_itens SET saldo_estoque = ? WHERE id = ?`);
+        for (const item of items) {
+          const info = vendasPorProduto[Number(item.produto_id)];
+          if (info && info.saldoAtual !== undefined && info.saldoAtual !== item.saldo_estoque) {
+            updateSaldoStmt.run(info.saldoAtual, item.id);
+          }
+        }
+      } catch (e) {}
+    }
+
+    return {
+      totalResgatado,
+      totalItensVendidos,
+      totalVendasQtd: vendasDetalhadas.length,
+      vendasDetalhadas,
+      vendasPorProduto
+    };
+  }
+
+  async function obterVendasCampanha(campanha, forcarAtualizacao = false) {
+    const agora = Date.now();
+    if (!forcarAtualizacao && vendasCache.data && vendasCache.campanhaId === campanha.id && (agora - vendasCache.timestamp < 15000)) {
+      return vendasCache.data;
+    }
+
+    try {
+      const resultado = await calcularVendasCampanha(campanha.id, campanha.data_inicio, campanha.data_fim);
+      vendasCache = {
+        campanhaId: campanha.id,
+        timestamp: agora,
+        data: resultado
+      };
+      return resultado;
+    } catch (e) {
+      console.error('[Liquidação] Falha ao obter vendas da campanha no Digifarma:', e.message);
+      return {
+        totalResgatado: campanha.total_resgatado || 0,
+        totalItensVendidos: 0,
+        totalVendasQtd: 0,
+        vendasDetalhadas: [],
+        vendasPorProduto: {}
+      };
+    }
+  }
+
   // 1. GET /api/liquidacao/resumo
-  // Retorna termômetro da dívida, meta semanal e progresso da seleção
-  router.get('/resumo', (req, res) => {
+  // Retorna termômetro da dívida, meta semanal, progresso e extrato de vendas
+  router.get('/resumo', async (req, res) => {
     try {
       const campanha = getOrCreateCampanhaAtiva();
+      const forcarAtualizacao = req.query.refresh === 'true';
+
+      const dadosVendas = await obterVendasCampanha(campanha, forcarAtualizacao);
 
       // Total de itens aprovados na campanha ativa
       const aprovados = db.prepare(`
@@ -123,36 +328,36 @@ module.exports = function (db) {
         WHERE campanha_id = ?
       `).get(campanha.id).total;
 
-      // Total já vendido de itens em promoção (estimado com base nas saídas ou fechamentos)
-      const resgatadoCampanha = db.prepare(`
-        SELECT COALESCE(SUM(preco_promocional * 1), 0) as valor
-        FROM liquidacao_campanhas_itens
-        WHERE campanha_id = ? AND status = 'ativo'
-      `).get(campanha.id).valor;
-
       const DIVIDA_INICIAL_CHEQUE = 3500.00;
-      const totalResgatadoGeral = campanha.total_resgatado || 0;
+      const totalResgatadoGeral = dadosVendas.totalResgatado;
       const saldoRestanteDivida = Math.max(0, DIVIDA_INICIAL_CHEQUE - totalResgatadoGeral);
+
+      const percentualDivida = Number(((totalResgatadoGeral / DIVIDA_INICIAL_CHEQUE) * 100).toFixed(1));
+      const meta = campanha.meta_semanal || 3500.00;
+      const percentualMeta = Number(((totalResgatadoGeral / meta) * 100).toFixed(1));
 
       res.json({
         dividaInicial: DIVIDA_INICIAL_CHEQUE,
-        saldoRestanteDivida,
-        percentualDividaPaga: Math.min(100, Math.round((totalResgatadoGeral / DIVIDA_INICIAL_CHEQUE) * 100)),
+        saldoRestanteDivida: Math.round(saldoRestanteDivida * 100) / 100,
+        percentualDividaPaga: Math.min(100, percentualDivida),
         campanha: {
           id: campanha.id,
           semana: campanha.semana_ano,
           dataInicio: campanha.data_inicio,
           dataFim: campanha.data_fim,
-          metaSemanal: campanha.meta_semanal || 450.00,
-          totalResgatado: campanha.total_resgatado || 0,
-          percentualMetaSemanal: Math.min(100, Math.round(((campanha.total_resgatado || 0) / (campanha.meta_semanal || 450.00)) * 100))
+          metaSemanal: meta,
+          totalResgatado: totalResgatadoGeral,
+          percentualMetaSemanal: Math.min(100, percentualMeta),
+          totalItensVendidos: dadosVendas.totalItensVendidos,
+          totalVendasQtd: dadosVendas.totalVendasQtd
         },
         progressoSelecao: {
           aprovados,
           meta: 20,
           completo: false, // Sem trava: o usuário pode liquidar o máximo possível
           pulados
-        }
+        },
+        vendasDetalhadas: dadosVendas.vendasDetalhadas
       });
     } catch (err) {
       console.error('[Liquidação API] Erro em /resumo:', err);
@@ -767,10 +972,14 @@ module.exports = function (db) {
   });
 
   // 5. GET /api/liquidacao/itens-ativos
-  // Retorna os produtos selecionados para a campanha com dias parado e sugestões inteligentes
-  router.get('/itens-ativos', (req, res) => {
+  // Retorna os produtos selecionados para a campanha com dias parado, vendas realizadas e sugestões inteligentes
+  router.get('/itens-ativos', async (req, res) => {
     try {
       const campanha = getOrCreateCampanhaAtiva();
+      const forcarAtualizacao = req.query.refresh === 'true';
+      const dadosVendas = await obterVendasCampanha(campanha, forcarAtualizacao);
+      const vendasMap = dadosVendas.vendasPorProduto || {};
+
       const rows = db.prepare(`
         SELECT 
           lci.*,
@@ -802,18 +1011,24 @@ module.exports = function (db) {
           motivoSugestao = `Produto avulso incluído livremente do estoque.`;
         }
 
+        const infoVenda = vendasMap[Number(item.produto_id)];
+
         return {
           ...item,
           dias_parado: dias,
           sugestao_desconto: sugestao,
           motivo_sugestao: motivoSugestao,
-          selecionado: Number(item.selecionado) === 1
+          selecionado: Number(item.selecionado) === 1,
+          qtd_vendida: infoVenda ? infoVenda.qtdVendida : 0,
+          total_vendido: infoVenda ? Math.round(infoVenda.totalVendido * 100) / 100 : 0
         };
       });
 
       res.json({
         campanhaId: campanha.id,
         total: itens.length,
+        totalResgatado: dadosVendas.totalResgatado,
+        totalItensVendidos: dadosVendas.totalItensVendidos,
         itens
       });
     } catch (err) {
@@ -1181,6 +1396,105 @@ module.exports = function (db) {
 
   router.post('/incluir-avulso', handleIncluirAvulso);
   router.post('/inserir-manual', handleIncluirAvulso);
+
+  // 5.05 POST /api/liquidacao/vendas-manuais
+  // Registra uma venda de produto não cadastrado para ser contabilizada diretamente na meta da liquidação
+  router.post('/vendas-manuais', async (req, res) => {
+    try {
+      const { descricao, valor_total, quantidade, data_venda, observacao, registrado_por } = req.body;
+
+      if (!descricao || !descricao.trim()) {
+        return res.status(400).json({ error: 'Descrição do produto ou venda é obrigatória.' });
+      }
+
+      const valor = parseFloat(valor_total);
+      if (isNaN(valor) || valor <= 0) {
+        return res.status(400).json({ error: 'Informe um valor total de venda válido maior que zero.' });
+      }
+
+      const qtd = parseInt(quantidade) || 1;
+      const campanha = getOrCreateCampanhaAtiva();
+      const id = 'vm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+      const dataVendaStr = data_venda || new Date().toISOString();
+      const criadoEm = new Date().toISOString();
+
+      db.prepare(`
+        INSERT INTO liquidacao_vendas_manuais (
+          id, campanha_id, descricao, valor_total, quantidade, data_venda, observacao, registrado_por, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        campanha.id,
+        descricao.trim(),
+        valor,
+        qtd,
+        dataVendaStr,
+        observacao ? observacao.trim() : null,
+        registrado_por ? registrado_por.trim() : 'Operador',
+        criadoEm
+      );
+
+      // Invalida cache para recálculo imediato
+      vendasCache.timestamp = 0;
+
+      // Recalcula totais da campanha
+      const resultadoVendas = await obterVendasCampanha(campanha, true);
+
+      res.status(201).json({
+        success: true,
+        message: `Venda manual de "${descricao.trim()}" (R$ ${valor.toFixed(2)}) registrada com sucesso e somada à meta!`,
+        venda: {
+          id,
+          campanha_id: campanha.id,
+          descricao: descricao.trim(),
+          valor_total: valor,
+          quantidade: qtd,
+          data_venda: dataVendaStr,
+          observacao: observacao || '',
+          registrado_por: registrado_por || 'Operador'
+        },
+        campanha: {
+          totalResgatado: resultadoVendas.totalResgatado,
+          totalItensVendidos: resultadoVendas.totalItensVendidos,
+          totalVendasQtd: resultadoVendas.totalVendasQtd
+        }
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em POST /vendas-manuais:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.06 DELETE /api/liquidacao/vendas-manuais/:id
+  // Remove um registro de venda manual e recalcula a meta
+  router.delete('/vendas-manuais/:id', async (req, res) => {
+    try {
+      const vmId = req.params.id;
+      const vm = db.prepare('SELECT * FROM liquidacao_vendas_manuais WHERE id = ?').get(vmId);
+      if (!vm) {
+        return res.status(404).json({ error: 'Registro de venda manual não encontrado.' });
+      }
+
+      db.prepare('DELETE FROM liquidacao_vendas_manuais WHERE id = ?').run(vmId);
+
+      vendasCache.timestamp = 0;
+      const campanha = getOrCreateCampanhaAtiva();
+      const resultadoVendas = await obterVendasCampanha(campanha, true);
+
+      res.json({
+        success: true,
+        message: `Venda manual "${vm.descricao}" removida da meta.`,
+        campanha: {
+          totalResgatado: resultadoVendas.totalResgatado,
+          totalItensVendidos: resultadoVendas.totalItensVendidos,
+          totalVendasQtd: resultadoVendas.totalVendasQtd
+        }
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em DELETE /vendas-manuais:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // 5.1 POST /api/liquidacao/gravar-lote
   // Grava em lote as ofertas avaliadas pela Nayane diretamente no Digifarma Firebird
