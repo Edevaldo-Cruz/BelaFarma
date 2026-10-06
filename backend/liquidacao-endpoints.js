@@ -1848,6 +1848,56 @@ module.exports = function (db) {
     }
   });
 
+  // 6.01 POST /api/liquidacao/remover-item
+  // Remove o produto da liquidação (status = 'removido') e restaura o preço original pré-liquidação no Digifarma
+  router.post('/remover-item', async (req, res) => {
+    try {
+      const { produto_id, itemId } = req.body;
+      const pId = Number(produto_id);
+
+      const itemCadastrado = (itemId 
+        ? db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE id = ?").get(itemId)
+        : null) || db.prepare("SELECT * FROM liquidacao_campanhas_itens WHERE produto_id = ? AND status = 'ativo'").get(pId);
+
+      if (itemCadastrado) {
+        const promoOrig = itemCadastrado.preco_promocao_original != null ? Number(itemCadastrado.preco_promocao_original) : 0;
+        const dtIni = itemCadastrado.inicio_promocao_original ? formatarDataFirebird(itemCadastrado.inicio_promocao_original, false) : null;
+        const dtFim = itemCadastrado.termino_promocao_original ? formatarDataFirebird(itemCadastrado.termino_promocao_original, true) : null;
+
+        // Se o produto estava gravado/sincronizado no Digifarma, restaura preço e vigência originais
+        if (itemCadastrado.sincronizado_digifarma) {
+          try {
+            await queryDigifarma(
+              `UPDATE PRODUTOS 
+               SET PROD_PRPROMOCAO = ?, 
+                   INICIO_PROMOCAO = ?, 
+                   TERMINO_PROMOCAO = ? 
+               WHERE PRODUTO_ID = ?`,
+              [promoOrig, dtIni, dtFim, pId]
+            );
+          } catch (fbErr) {
+            console.warn(`[Liquidação API] Remoção: Reversão Firebird falhou (${fbErr.message})`);
+          }
+        }
+
+        // Marca status como 'removido'
+        db.prepare("UPDATE liquidacao_campanhas_itens SET status = 'removido', selecionado = 0 WHERE id = ?").run(itemCadastrado.id);
+
+        // Restaura no cache de compras
+        try {
+          db.prepare("UPDATE compras_estoque_cache SET preco_promocional = ? WHERE produto_id = ?").run(promoOrig, pId);
+        } catch (e) {}
+      } else if (pId) {
+        db.prepare("UPDATE liquidacao_campanhas_itens SET status = 'removido', selecionado = 0 WHERE produto_id = ? AND status = 'ativo'").run(pId);
+      }
+
+      res.json({ success: true, message: 'Produto removido da liquidação e preço original restaurado no Digifarma!' });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /remover-item:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 6.05 POST /api/liquidacao/verificar-restaurar-expirados
   // Varre todas as ofertas cuja data_termino já expirou (< hoje) e restaura automaticamente
   // o preço original (tanto PROD_PRPROMOCAO original quanto datas) no Digifarma e no SQLite!

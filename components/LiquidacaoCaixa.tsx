@@ -160,12 +160,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [loadingResumo, setLoadingResumo] = useState(true);
   const [loadingItens, setLoadingItens] = useState(false);
   const [revertingId, setRevertingId] = useState<string | null>(null);
+  const [removerItemId, setRemoverItemId] = useState<string | null>(null);
 
   // Filtros & Busca Instantânea
   const [termoBusca, setTermoBusca] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('TODOS');
   const [filtroDias, setFiltroDias] = useState<string>('TODOS');
   const [filtroSomenteVendidos, setFiltroSomenteVendidos] = useState<boolean>(false);
+  const [filtroSomenteSelecionados, setFiltroSomenteSelecionados] = useState<boolean>(false);
   const [itensPorPagina, setItensPorPagina] = useState<number>(50);
   const [paginaAtual, setPaginaAtual] = useState<number>(1);
   const [carregandoTodos45d, setCarregandoTodos45d] = useState<boolean>(false);
@@ -434,6 +436,39 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
       addToast('Falha de conexão com o servidor.', 'error');
     } finally {
       setExcluindoVendaManualId(null);
+    }
+  };
+
+  const handleRemoverItemLiquidacao = async (item: ItemAtivo) => {
+    const confirm = window.confirm(
+      `Deseja realmente remover "${item.descricao}" da lista de liquidação?\n\nSe ele possuía promoção ativa gravada no Digifarma, o preço e as datas originais pré-liquidação serão restaurados.`
+    );
+    if (!confirm) return;
+
+    setRemoverItemId(item.id);
+    try {
+      const res = await fetch('/api/liquidacao/remover-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produto_id: item.produto_id,
+          itemId: item.id
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`🗑️ ${data.message || 'Produto removido da liquidação.'}`, 'info');
+        setItensAtivos(prev => prev.filter(i => i.id !== item.id));
+        await fetchResumo(true);
+      } else {
+        addToast(data.error || 'Erro ao remover produto da liquidação.', 'error');
+      }
+    } catch (e) {
+      console.error('Erro ao remover produto da liquidação:', e);
+      addToast('Falha na comunicação com o servidor.', 'error');
+    } finally {
+      setRemoverItemId(null);
     }
   };
 
@@ -1430,9 +1465,14 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
         return false;
       }
 
+      // 5. Filtro Somente Selecionados
+      if (filtroSomenteSelecionados && !item.selecionado) {
+        return false;
+      }
+
       return true;
     });
-  }, [itensAtivos, termoBusca, filtroCategoria, filtroDias, filtroSomenteVendidos]);
+  }, [itensAtivos, termoBusca, filtroCategoria, filtroDias, filtroSomenteVendidos, filtroSomenteSelecionados]);
 
   const totalPaginas = itensPorPagina === 0 ? 1 : Math.max(1, Math.ceil(itensFiltrados.length / itensPorPagina));
   const paginaAjustada = Math.min(Math.max(1, paginaAtual), totalPaginas);
@@ -2213,6 +2253,20 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
           <button
             type="button"
+            onClick={() => setFiltroSomenteSelecionados(!filtroSomenteSelecionados)}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+              filtroSomenteSelecionados
+                ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-400'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 border border-emerald-300 dark:border-emerald-800'
+            }`}
+            title="Exibir apenas produtos selecionados (marcados com ✓ para etiquetas/promoção)"
+          >
+            <CheckCircle2 size={13} className={filtroSomenteSelecionados ? 'text-white' : 'text-emerald-600'} />
+            <span>Selecionados ({itensAtivos.filter(i => i.selecionado).length})</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setFiltroSomenteVendidos(!filtroSomenteVendidos)}
             className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
               filtroSomenteVendidos
@@ -2732,6 +2786,19 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
                                 title="Imprimir Etiqueta 39x39mm deste item"
                               >
                                 <Printer size={13} />
+                              </button>
+
+                              <button
+                                onClick={() => handleRemoverItemLiquidacao(item)}
+                                disabled={removerItemId === item.id}
+                                className="p-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 transition-all active:scale-95 cursor-pointer shadow-xs disabled:opacity-50"
+                                title="Remover este produto da liquidação (restaura o preço original pré-liquidação no Digifarma)"
+                              >
+                                {removerItemId === item.id ? (
+                                  <Loader2 size={13} className="animate-spin text-red-600" />
+                                ) : (
+                                  <Trash2 size={13} />
+                                )}
                               </button>
                             </div>
                           )}
