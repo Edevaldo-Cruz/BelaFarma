@@ -606,11 +606,14 @@ export function htmlArteUnitaria(
   const precoTop = story ? (temFundoCustom ? 545 : 610) : (temFundoCustom ? 245 : 295);
 
   const tamPreco = Math.round((story ? 84 : 52) * e.tamanhoPrecoMultiplicador);
+  const corDeEfetiva = (e.corPrecoDe === '#64748b' || !e.corPrecoDe) ? '#cbd5e1' : e.corPrecoDe;
+  const corPorLabel = (e.corDestaque === '#c8102e' || e.corDestaque === '#d6192b' || e.corDestaque === '#dc2626') ? '#fde047' : e.corDestaque;
+
   const badgePreco = `
     <div data-drag-el="preco" style="position:absolute;left:${precoLeft + posPreco.x}px;top:${precoTop + posPreco.y}px;width:${precoW}px;background:linear-gradient(160deg, ${e.corSecundaria} 0%, #061a3d 100%);border-radius:${story ? 24 : 18}px;padding:${story ? '12px 18px 24px' : '8px 12px 18px'};box-sizing:border-box;box-shadow:0 8px 18px rgba(11,31,71,0.35);text-align:center;border:3px solid ${e.corDestaque};cursor:grab;touch-action:none;z-index:3;">
-      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${e.corPrecoDe};font-size:${story ? 16 : 12}px;text-decoration:line-through;line-height:1.2;margin-bottom:2px;">DE ${brl(normal)}</div>` : ''}
+      ${normal > promo ? `<div style="font-family:${e.fonteCorpo};font-weight:800;color:${corDeEfetiva};font-size:${story ? 16 : 12}px;text-decoration:line-through;line-height:1.2;margin-bottom:2px;">DE ${brl(normal)}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin:2px 0;">
-        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${e.corDestaque};font-size:${story ? 20 : 15}px;line-height:1;">POR</span>
+        <span style="font-family:${e.fonteCorpo};font-weight:900;color:${corPorLabel};font-size:${story ? 20 : 15}px;line-height:1;">POR</span>
         ${precoHtml(promo, tamPreco, e.corPrecoPor)}
       </div>
       ${eco > 0 ? `<div style="position:absolute;left:50%;bottom:-14px;margin-left:${story ? -100 : -75}px;width:${story ? 200 : 150}px;height:${story ? 28 : 22}px;background:${e.corDestaque};color:#ffffff;border-radius:30px;display:flex;align-items:center;justify-content:center;font-family:${e.fonteCorpo};font-weight:900;font-size:${story ? 13 : 10.5}px;box-shadow:0 3px 8px rgba(0,0,0,0.3);white-space:nowrap;z-index:4;">VOCÊ ECONOMIZA ${brl(eco)}</div>` : ''}
@@ -795,9 +798,9 @@ const aguardarImagens = async (raiz: HTMLElement) => {
 /** Renderiza uma string HTML (em tamanho nativo, fora da tela) para canvas. */
 export async function renderizarHtmlParaCanvas(html: string, w: number, h: number, scale = 2): Promise<HTMLCanvasElement> {
   const host = document.createElement('div');
-  // Usamos z-index: -99999 e opacity: 0.01 em 0,0 para que o Chromium renderize as fontes
-  // e o subpixel antialiasing com a mesma geometria e fidelidade do preview visual
-  host.style.cssText = `position:fixed;left:0;top:0;width:${w}px;height:${h}px;z-index:-99999;opacity:0.01;pointer-events:none;overflow:hidden;background:#ffffff;`;
+  // Usamos left: -9999px e opacity: 1 para que o html2canvas capture todas as camadas,
+  // subpixel antialiasing de fontes e sombras com 100% de opacidade e nitidez perfeita.
+  host.style.cssText = `position:fixed;left:-9999px;top:0;width:${w}px;height:${h}px;z-index:99999;opacity:1;pointer-events:none;overflow:hidden;background:#ffffff;`;
   host.innerHTML = html;
   document.body.appendChild(host);
   try {

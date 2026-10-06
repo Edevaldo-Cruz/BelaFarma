@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "80b1fa2",
-  "commitMessage": "fix(liquidacao): otimizar tamanho da imagem enviada ao robo e resolver erros HTTP 413 / JSON",
-  "buildTime": "06/10/2026, 09:04:55"
+  "commitHash": "05632b5",
+  "commitMessage": "feat: adicionar vendas manuais de produtos nao cadastrados na meta da liquidacao",
+  "buildTime": "06/10/2026, 09:23:39"
 }

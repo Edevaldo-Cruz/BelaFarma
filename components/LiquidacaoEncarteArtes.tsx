@@ -547,7 +547,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte([produtoAtual]);
       const html = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo);
-      const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 1.25);
+      const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
 
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
       if (!blob) throw new Error('Erro ao converter arte para imagem.');
@@ -602,7 +602,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
         setProgressoRobo({ atual: i + 1, total: itens.length });
 
         const html = htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo);
-        const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 1.25);
+        const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
         const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
 
         if (blob) {
