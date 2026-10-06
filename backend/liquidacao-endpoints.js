@@ -391,7 +391,7 @@ module.exports = function (db) {
           lci.apresentacao,
           lci.ean,
           lci.categoria,
-          COALESCE(NULLIF(lci.saldo_estoque, 0), cec.saldo, 0) as estoque,
+          COALESCE(cec.saldo, lci.saldo_estoque, 0) as estoque,
           lci.preco_normal,
           lci.preco_promocional,
           lci.desconto_percentual,
@@ -401,7 +401,7 @@ module.exports = function (db) {
         LEFT JOIN compras_estoque_cache cec ON lci.produto_id = cec.produto_id
         WHERE lci.campanha_id = ? 
           AND lci.status IN ('ativo', 'ativa')
-          AND (lci.saldo_estoque > 0 OR cec.saldo > 0)
+          AND COALESCE(cec.saldo, lci.saldo_estoque, 0) > 0
         ORDER BY lci.desconto_percentual DESC, lci.descricao ASC
       `).all(campanha.id);
 
@@ -1170,6 +1170,7 @@ module.exports = function (db) {
       const rows = db.prepare(`
         SELECT 
           lci.*,
+          COALESCE(cec.saldo, lci.saldo_estoque, 0) as saldo_estoque,
           COALESCE(NULLIF(lci.preco_custo, 0), NULLIF(cec.custo_unitario, 0), NULLIF(cec.ultima_compra_valor, 0), 0) as preco_custo,
           COALESCE(lci.dias_parado, 45) as dias_parado
         FROM liquidacao_campanhas_itens lci
