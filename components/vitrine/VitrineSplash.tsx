@@ -72,15 +72,42 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
       particles: Particle[];
     }
 
+    // Partículas flutuantes contínuas no ar (glitter de festa / confetes dourados)
+    interface FloatingSpark {
+      x: number;
+      y: number;
+      vy: number;
+      vx: number;
+      size: number;
+      color: string;
+      alpha: number;
+      sway: number;
+    }
+
     const fireworks: Firework[] = [];
-    const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6', '#facc15', '#ffffff'];
+    const floatingSparks: FloatingSpark[] = [];
+    const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6', '#facc15', '#ffffff', '#fbbf24'];
+
+    // Inicializa 80 partículas de glitter/festa flutuando pelo ar
+    for (let i = 0; i < 80; i++) {
+      floatingSparks.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vy: - (Math.random() * 1.5 + 0.5),
+        vx: (Math.random() - 0.5) * 1.2,
+        size: Math.random() * 3 + 1.2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        alpha: Math.random() * 0.8 + 0.2,
+        sway: Math.random() * Math.PI * 2
+      });
+    }
 
     const createParticles = (x: number, y: number, color: string) => {
-      const count = 35 + Math.floor(Math.random() * 25);
+      const count = 45 + Math.floor(Math.random() * 35);
       const particles: Particle[] = [];
       for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 6 + 2;
+        const speed = Math.random() * 8 + 2;
         particles.push({
           x,
           y,
@@ -88,23 +115,23 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
           vy: Math.sin(angle) * speed,
           alpha: 1,
           color,
-          size: Math.random() * 3.5 + 1.5,
-          decay: Math.random() * 0.025 + 0.015,
-          gravity: 0.12
+          size: Math.random() * 4 + 1.5,
+          decay: Math.random() * 0.02 + 0.012,
+          gravity: 0.14
         });
       }
       return particles;
     };
 
     const spawnFirework = () => {
-      const x = Math.random() * (width * 0.8) + width * 0.1;
-      const targetY = Math.random() * (height * 0.45) + height * 0.1;
+      const x = Math.random() * (width * 0.85) + width * 0.075;
+      const targetY = Math.random() * (height * 0.5) + height * 0.08;
       const color = colors[Math.floor(Math.random() * colors.length)];
       fireworks.push({
         x,
         y: height,
         targetY,
-        vy: - (Math.random() * 4 + 9),
+        vy: - (Math.random() * 5 + 10),
         color,
         exploded: false,
         particles: []
@@ -115,24 +142,47 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
     const loop = () => {
       ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
       ctx.fillRect(0, 0, width, height);
       ctx.globalCompositeOperation = 'lighter';
 
       const now = Date.now();
-      if (now - lastSpawn > 320) {
+      // Dispara fogos de artifício com maior frequência
+      if (now - lastSpawn > 220) {
         spawnFirework();
         lastSpawn = now;
       }
 
+      // 1. Renderiza centenas de partículas/glitter flutuando para o alto
+      for (let s of floatingSparks) {
+        s.y += s.vy;
+        s.x += Math.sin(s.sway) * 0.8;
+        s.sway += 0.04;
+        if (s.y < -10) {
+          s.y = height + 10;
+          s.x = Math.random() * width;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = s.alpha;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fillStyle = s.color;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = s.color;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // 2. Renderiza explosões de fogos e feixes
       for (let i = fireworks.length - 1; i >= 0; i--) {
         const fw = fireworks[i];
         if (!fw.exploded) {
           fw.y += fw.vy;
           ctx.beginPath();
-          ctx.arc(fw.x, fw.y, 3, 0, Math.PI * 2);
+          ctx.arc(fw.x, fw.y, 3.5, 0, Math.PI * 2);
           ctx.fillStyle = fw.color;
-          ctx.shadowBlur = 12;
+          ctx.shadowBlur = 15;
           ctx.shadowColor = fw.color;
           ctx.fill();
 
@@ -156,7 +206,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
               ctx.beginPath();
               ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
               ctx.fillStyle = p.color;
-              ctx.shadowBlur = 10;
+              ctx.shadowBlur = 12;
               ctx.shadowColor = p.color;
               ctx.fill();
               ctx.restore();
@@ -171,7 +221,8 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
       animationFrameId = requestAnimationFrame(loop);
     };
 
-    // Dispara 3 fogos iniciais instantâneos
+    // Dispara 4 fogos iniciais instantâneos
+    spawnFirework();
     spawnFirework();
     spawnFirework();
     spawnFirework();
@@ -257,8 +308,9 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
       {/* Elementos Decorativos: Balões e Confetes Flutuantes */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-1" aria-hidden="true">
-        {/* Balão 1 - Dourado */}
-        <div className="absolute -bottom-28 left-[6%] bf-balloon-1 pointer-events-none">
+        {/* BALÕES COLORIDOS EM MOVIMENTO SUBINDO */}
+        {/* Balão 1 - Dourado Especial 1º Ano (Esquerda) */}
+        <div className="absolute -bottom-28 left-[4%] bf-balloon-1 pointer-events-none" style={{ animationDelay: '0s' }}>
           <div className="relative flex flex-col items-center">
             <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-amber-500 via-yellow-300 to-yellow-100 shadow-2xl border border-yellow-200/50 flex items-center justify-center">
               <span className="text-[11px] font-black text-amber-900 tracking-tighter">1º ANO</span>
@@ -268,10 +320,10 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
           </div>
         </div>
 
-        {/* Balão 2 - Vermelho */}
-        <div className="absolute -bottom-28 right-[8%] bf-balloon-2 pointer-events-none" style={{ animationDelay: '0.4s' }}>
+        {/* Balão 2 - Vermelho Vivo Festivo (Direita) */}
+        <div className="absolute -bottom-28 right-[5%] bf-balloon-2 pointer-events-none" style={{ animationDelay: '0.4s' }}>
           <div className="relative flex flex-col items-center">
-            <div className="w-18 h-22 sm:w-22 sm:h-26 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-red-800 via-red-500 to-rose-300 shadow-2xl border border-red-300/40 flex items-center justify-center">
+            <div className="w-18 h-22 sm:w-22 sm:h-26 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-red-700 via-red-500 to-rose-300 shadow-2xl border border-red-300/40 flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-yellow-200 animate-spin" style={{ animationDuration: '4s' }} />
             </div>
             <div className="w-3 h-2 bg-red-900 rounded-sm -mt-0.5" />
@@ -279,11 +331,64 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
           </div>
         </div>
 
-        {/* Confetes em cascata */}
-        <div className="absolute top-0 left-[15%] w-3 h-4 bg-yellow-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0s', animationDuration: '2.6s' }} />
-        <div className="absolute top-0 left-[35%] w-3 h-3 bg-sky-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.2s', animationDuration: '2.8s' }} />
-        <div className="absolute top-0 left-[55%] w-4 h-2 bg-rose-300 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.2s', animationDuration: '2.4s' }} />
-        <div className="absolute top-0 left-[75%] w-2 h-6 bg-emerald-300 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.5s', animationDuration: '2.1s' }} />
+        {/* Balão 3 - Azul Real BelaFarma (Centro-Esquerda) */}
+        <div className="absolute -bottom-28 left-[22%] bf-balloon-1 pointer-events-none" style={{ animationDelay: '1.2s' }}>
+          <div className="relative flex flex-col items-center">
+            <div className="w-15 h-19 sm:w-18 sm:h-22 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-blue-700 via-sky-400 to-sky-100 shadow-xl border border-sky-200/40 flex items-center justify-center">
+              <span className="text-[10px] font-black text-white/90">BELA</span>
+            </div>
+            <div className="w-2.5 h-1.5 bg-blue-900 rounded-sm -mt-0.5" />
+            <div className="w-0.5 h-20 bg-sky-200/50 -mt-0.5" />
+          </div>
+        </div>
+
+        {/* Balão 4 - Dourado Claro com Brilho (Centro-Direita) */}
+        <div className="absolute -bottom-28 right-[24%] bf-balloon-2 pointer-events-none" style={{ animationDelay: '1.8s' }}>
+          <div className="relative flex flex-col items-center">
+            <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-amber-600 via-amber-300 to-yellow-100 shadow-2xl border border-yellow-100/50 flex items-center justify-center">
+              <span className="text-xs font-black text-amber-900 tracking-tighter">FARMA</span>
+            </div>
+            <div className="w-3 h-2 bg-amber-700 rounded-sm -mt-0.5" />
+            <div className="w-0.5 h-22 bg-amber-100/60 -mt-0.5" />
+          </div>
+        </div>
+
+        {/* Balão 5 - Verde Saúde / Sucesso (Canto Esquerdo Suave) */}
+        <div className="absolute -bottom-28 left-[12%] bf-balloon-2 pointer-events-none" style={{ animationDelay: '2.3s' }}>
+          <div className="relative flex flex-col items-center">
+            <div className="w-13 h-17 sm:w-15 sm:h-19 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-emerald-600 via-teal-400 to-emerald-200 shadow-xl border border-emerald-200/40" />
+            <div className="w-2 h-1 bg-emerald-800 rounded-sm -mt-0.5" />
+            <div className="w-0.5 h-16 bg-emerald-200/40 -mt-0.5" />
+          </div>
+        </div>
+
+        {/* Balão 6 - Roxo / Violeta Festivo (Canto Direito Suave) */}
+        <div className="absolute -bottom-28 right-[14%] bf-balloon-1 pointer-events-none" style={{ animationDelay: '0.9s' }}>
+          <div className="relative flex flex-col items-center">
+            <div className="w-14 h-18 sm:w-16 sm:h-20 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-fuchsia-700 via-pink-400 to-purple-200 shadow-xl border border-pink-200/40" />
+            <div className="w-2 h-1 bg-fuchsia-900 rounded-sm -mt-0.5" />
+            <div className="w-0.5 h-18 bg-purple-200/40 -mt-0.5" />
+          </div>
+        </div>
+
+        {/* Balão 7 - Vermelho Cereja (Fundo Centro) */}
+        <div className="absolute -bottom-28 left-[45%] bf-balloon-2 pointer-events-none opacity-80" style={{ animationDelay: '2.7s' }}>
+          <div className="relative flex flex-col items-center">
+            <div className="w-14 h-18 rounded-[50%_50%_50%_50%/40%_40%_60%_60%] bg-gradient-to-tr from-rose-800 via-red-600 to-red-300 shadow-lg border border-red-200/30" />
+            <div className="w-2 h-1 bg-red-950 rounded-sm -mt-0.5" />
+            <div className="w-0.5 h-16 bg-red-200/30 -mt-0.5" />
+          </div>
+        </div>
+
+        {/* Confetes em cascata contínua */}
+        <div className="absolute top-0 left-[8%] w-3 h-4 bg-yellow-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0s', animationDuration: '2.4s' }} />
+        <div className="absolute top-0 left-[20%] w-2.5 h-5 bg-amber-200 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.6s', animationDuration: '2.1s' }} />
+        <div className="absolute top-0 left-[35%] w-3 h-3 bg-sky-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.2s', animationDuration: '2.6s' }} />
+        <div className="absolute top-0 left-[48%] w-4 h-2 bg-rose-300 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.3s', animationDuration: '2.3s' }} />
+        <div className="absolute top-0 left-[62%] w-3 h-4 bg-yellow-400 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.9s', animationDuration: '2.5s' }} />
+        <div className="absolute top-0 left-[75%] w-2 h-6 bg-emerald-300 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.5s', animationDuration: '2.0s' }} />
+        <div className="absolute top-0 left-[88%] w-3 h-3 bg-amber-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.4s', animationDuration: '2.8s' }} />
+        <div className="absolute top-0 left-[94%] w-2.5 h-4 bg-purple-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.1s', animationDuration: '2.2s' }} />
       </div>
 
       {/* Cabeçalho de Topo com Botão Destacado para Entrar Direto */}

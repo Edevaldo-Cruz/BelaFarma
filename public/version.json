@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "588d46b",
-  "commitMessage": "feat(vitrine): animacao festiva com baloes 3D flutuantes, chuva de confetes e efeitos de comemoracao",
-  "buildTime": "06/10/2026, 17:54:40"
+  "commitHash": "90d0a03",
+  "commitMessage": "feat(vitrine): adicionar show de fogos canvas, contagem regressiva 4s e letreiro marquee neon",
+  "buildTime": "06/10/2026, 18:13:49"
 }
