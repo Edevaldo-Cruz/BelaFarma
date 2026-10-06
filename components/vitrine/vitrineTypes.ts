@@ -67,6 +67,8 @@ export function isPublicVitrineRoute(
   let hash = '';
   let search = '';
 
+  let hostname = '';
+
   if (typeof input === 'string') {
     try {
       if (input.startsWith('http://') || input.startsWith('https://')) {
@@ -74,6 +76,7 @@ export function isPublicVitrineRoute(
         pathname = parsed.pathname;
         hash = parsed.hash;
         search = parsed.search;
+        hostname = parsed.hostname;
       } else {
         const hashIdx = input.indexOf('#');
         let remaining = input;
@@ -100,6 +103,7 @@ export function isPublicVitrineRoute(
     pathname = window.location.pathname || '';
     hash = window.location.hash || '';
     search = window.location.search || '';
+    hostname = window.location.hostname || '';
   } else {
     return false;
   }
@@ -107,6 +111,10 @@ export function isPublicVitrineRoute(
   const p = pathname.toLowerCase();
   const h = hash.toLowerCase();
   const s = search.toLowerCase();
+  const host = hostname.toLowerCase();
+
+  // 0. Subdomain / Host check (ex: liquida.drogariabelafarma.com.br abre a vitrine direto na raiz)
+  const hostMatches = host.startsWith('liquida.') || host.includes('liquida.drogariabelafarma');
 
   // 1. Direct path check
   const pathMatches =
@@ -142,5 +150,5 @@ export function isPublicVitrineRoute(
     searchMatches = s.includes('vitrine=aniversario') || s.includes('promocao') || s.includes('aniversario');
   }
 
-  return pathMatches || hashMatches || searchMatches;
+  return hostMatches || pathMatches || hashMatches || searchMatches;
 }

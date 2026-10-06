@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c5b40b1",
-  "commitMessage": "feat: adicionar botao para limpar ofertas do robo e limpar cadastros antigos",
-  "buildTime": "06/10/2026, 11:30:52"
+  "commitHash": "9b31abf",
+  "commitMessage": "feat(vitrine): vitrine publica de aniversario/liquidacao com splash 3s, carrinho 1-click e checkout via WhatsApp",
+  "buildTime": "06/10/2026, 15:23:23"
 }
