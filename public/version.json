@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "867af91",
-  "commitMessage": "fix(liquidacao): ocultar produtos com estoque zerado na vitrine publica",
-  "buildTime": "06/10/2026, 17:47:17"
+  "commitHash": "588d46b",
+  "commitMessage": "feat(vitrine): animacao festiva com baloes 3D flutuantes, chuva de confetes e efeitos de comemoracao",
+  "buildTime": "06/10/2026, 17:54:40"
 }

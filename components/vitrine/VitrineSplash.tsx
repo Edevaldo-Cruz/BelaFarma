@@ -60,6 +60,52 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
         isExiting ? "opacity-0 scale-95 pointer-events-none" : "opacity-100 scale-100"
       }`}
     >
+      {/* Estilos CSS nativos encapsulados para garantir que os balões e confetes se movam em qualquer navegador */}
+      <style>{`
+        @keyframes bfRise1 {
+          0% { transform: translateY(115vh) translateX(0px) rotate(0deg); opacity: 0; }
+          10% { opacity: 1; }
+          50% { transform: translateY(45vh) translateX(30px) rotate(8deg); }
+          80% { transform: translateY(15vh) translateX(-20px) rotate(-6deg); }
+          100% { transform: translateY(-25vh) translateX(25px) rotate(12deg); opacity: 1; }
+        }
+        @keyframes bfRise2 {
+          0% { transform: translateY(115vh) translateX(0px) rotate(-5deg); opacity: 0; }
+          12% { opacity: 1; }
+          45% { transform: translateY(50vh) translateX(-35px) rotate(10deg); }
+          75% { transform: translateY(20vh) translateX(20px) rotate(-8deg); }
+          100% { transform: translateY(-30vh) translateX(-15px) rotate(6deg); opacity: 1; }
+        }
+        @keyframes bfRise3 {
+          0% { transform: translateY(115vh) translateX(0px) rotate(4deg); opacity: 0; }
+          15% { opacity: 1; }
+          50% { transform: translateY(40vh) translateX(20px) rotate(-10deg); }
+          80% { transform: translateY(10vh) translateX(-30px) rotate(6deg); }
+          100% { transform: translateY(-30vh) translateX(10px) rotate(-4deg); opacity: 1; }
+        }
+        @keyframes bfConfetti {
+          0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+          50% { transform: translateY(50vh) rotate(360deg); opacity: 0.9; }
+          100% { transform: translateY(115vh) rotate(720deg); opacity: 0.2; }
+        }
+        @keyframes bfBadgePop {
+          0% { transform: scale(0.5) rotate(-12deg); opacity: 0; }
+          60% { transform: scale(1.15) rotate(4deg); opacity: 1; }
+          80% { transform: scale(0.95) rotate(-2deg); }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes bfGlowPulse {
+          0%, 100% { box-shadow: 0 0 25px rgba(251, 191, 36, 0.5), 0 0 50px rgba(239, 68, 68, 0.4); }
+          50% { box-shadow: 0 0 45px rgba(251, 191, 36, 0.9), 0 0 90px rgba(239, 68, 68, 0.7); }
+        }
+        .bf-balloon-1 { animation: bfRise1 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite !important; }
+        .bf-balloon-2 { animation: bfRise2 3.8s cubic-bezier(0.2, 0.6, 0.4, 1) infinite !important; }
+        .bf-balloon-3 { animation: bfRise3 3.5s cubic-bezier(0.2, 0.6, 0.4, 1) infinite !important; }
+        .bf-confetti-drop { animation: bfConfetti 2.6s linear infinite !important; }
+        .bf-pop-badge { animation: bfBadgePop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important; }
+        .bf-box-glow { animation: bfGlowPulse 1.8s ease-in-out infinite !important; }
+      `}</style>
+
       {/* Decorative festive animated background - Balões subindo e confetes */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
         {/* Glows de iluminação de festa */}
@@ -70,7 +116,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
         {/* BALÕES COLORIDOS EM MOVIMENTO SUBINDO PELA TELA */}
         {/* Balão 1 - Dourado / Amarelo (Esquerda) */}
         <div
-          className="absolute -bottom-24 left-[8%] animate-balloon-1 z-0"
+          className="absolute -bottom-28 left-[8%] bf-balloon-1 z-0 pointer-events-none"
           style={{ animationDelay: '0s' }}
         >
           <div className="relative flex flex-col items-center">
@@ -86,7 +132,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
         {/* Balão 2 - Vermelho Vivo Festivo (Direita) */}
         <div
-          className="absolute -bottom-24 right-[10%] animate-balloon-2 z-0"
+          className="absolute -bottom-28 right-[10%] bf-balloon-2 z-0 pointer-events-none"
           style={{ animationDelay: '0.4s' }}
         >
           <div className="relative flex flex-col items-center">
@@ -100,7 +146,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
         {/* Balão 3 - Azul Real BelaFarma (Centro-Esquerda) */}
         <div
-          className="absolute -bottom-28 left-[28%] animate-balloon-3 z-0"
+          className="absolute -bottom-28 left-[28%] bf-balloon-3 z-0 pointer-events-none"
           style={{ animationDelay: '1.1s' }}
         >
           <div className="relative flex flex-col items-center">
@@ -112,7 +158,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
         {/* Balão 4 - Dourado Grande (Centro-Direita) */}
         <div
-          className="absolute -bottom-32 right-[25%] animate-balloon-1 z-0"
+          className="absolute -bottom-32 right-[25%] bf-balloon-1 z-0 pointer-events-none"
           style={{ animationDelay: '1.7s' }}
         >
           <div className="relative flex flex-col items-center">
@@ -126,7 +172,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
         {/* Balão 5 - Verde Sucesso / Saúde (Canto Esquerdo) */}
         <div
-          className="absolute -bottom-24 left-[2%] animate-balloon-2 z-0"
+          className="absolute -bottom-28 left-[2%] bf-balloon-2 z-0 pointer-events-none"
           style={{ animationDelay: '2.1s' }}
         >
           <div className="relative flex flex-col items-center">
@@ -138,7 +184,7 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
 
         {/* Balão 6 - Roxo / Violeta Festivo (Canto Direito) */}
         <div
-          className="absolute -bottom-24 right-[2%] animate-balloon-3 z-0"
+          className="absolute -bottom-28 right-[2%] bf-balloon-3 z-0 pointer-events-none"
           style={{ animationDelay: '0.8s' }}
         >
           <div className="relative flex flex-col items-center">
@@ -149,15 +195,15 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
         </div>
 
         {/* CHUVA DE CONFETES EM MOVIMENTO */}
-        <div className="absolute top-0 left-[12%] w-3 h-4 bg-yellow-300 rounded-sm animate-confetti" style={{ animationDelay: '0s', animationDuration: '2.6s' }} />
-        <div className="absolute top-0 left-[22%] w-2 h-5 bg-amber-200 rounded-full animate-confetti" style={{ animationDelay: '0.5s', animationDuration: '2.2s' }} />
-        <div className="absolute top-0 left-[35%] w-3 h-3 bg-sky-300 rounded-sm animate-confetti" style={{ animationDelay: '1.2s', animationDuration: '2.8s' }} />
-        <div className="absolute top-0 left-[48%] w-4 h-2 bg-rose-300 rounded-full animate-confetti" style={{ animationDelay: '0.2s', animationDuration: '2.4s' }} />
-        <div className="absolute top-0 left-[62%] w-3 h-4 bg-yellow-400 rounded-sm animate-confetti" style={{ animationDelay: '0.8s', animationDuration: '2.5s' }} />
-        <div className="absolute top-0 left-[75%] w-2 h-6 bg-emerald-300 rounded-full animate-confetti" style={{ animationDelay: '1.5s', animationDuration: '2.1s' }} />
-        <div className="absolute top-0 left-[88%] w-3 h-3 bg-amber-300 rounded-sm animate-confetti" style={{ animationDelay: '0.3s', animationDuration: '2.9s' }} />
-        <div className="absolute top-0 left-[5%] w-2.5 h-4 bg-pink-300 rounded-sm animate-confetti" style={{ animationDelay: '0.9s', animationDuration: '2.7s' }} />
-        <div className="absolute top-0 left-[95%] w-3 h-4 bg-yellow-200 rounded-sm animate-confetti" style={{ animationDelay: '1.1s', animationDuration: '2.3s' }} />
+        <div className="absolute top-0 left-[12%] w-3 h-4 bg-yellow-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0s', animationDuration: '2.6s' }} />
+        <div className="absolute top-0 left-[22%] w-2 h-5 bg-amber-200 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.5s', animationDuration: '2.2s' }} />
+        <div className="absolute top-0 left-[35%] w-3 h-3 bg-sky-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.2s', animationDuration: '2.8s' }} />
+        <div className="absolute top-0 left-[48%] w-4 h-2 bg-rose-300 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.2s', animationDuration: '2.4s' }} />
+        <div className="absolute top-0 left-[62%] w-3 h-4 bg-yellow-400 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.8s', animationDuration: '2.5s' }} />
+        <div className="absolute top-0 left-[75%] w-2 h-6 bg-emerald-300 rounded-full bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.5s', animationDuration: '2.1s' }} />
+        <div className="absolute top-0 left-[88%] w-3 h-3 bg-amber-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.3s', animationDuration: '2.9s' }} />
+        <div className="absolute top-0 left-[5%] w-2.5 h-4 bg-pink-300 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '0.9s', animationDuration: '2.7s' }} />
+        <div className="absolute top-0 left-[95%] w-3 h-4 bg-yellow-200 rounded-sm bf-confetti-drop pointer-events-none" style={{ animationDelay: '1.1s', animationDuration: '2.3s' }} />
       </div>
 
       {/* Top Bar with Skip Button */}
@@ -182,8 +228,8 @@ export const VitrineSplash: React.FC<VitrineSplashProps> = ({
       {/* Center Festive Content */}
       <div className="w-full max-w-lg flex flex-col items-center text-center px-4 relative z-10 my-auto">
         {/* Anniversary Badge com animação Pop & Glow */}
-        <div className="relative mb-3 sm:mb-5 animate-badge-pop">
-          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-amber-400 via-yellow-200 to-amber-500 p-1 festive-box-glow flex items-center justify-center rotate-3 transform hover:rotate-0 transition-transform">
+        <div className="relative mb-3 sm:mb-5 bf-pop-badge">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-amber-400 via-yellow-200 to-amber-500 p-1 bf-box-glow flex items-center justify-center rotate-3 transform hover:rotate-0 transition-transform">
             <div className="w-full h-full bg-gradient-to-br from-red-700 via-red-800 to-red-950 rounded-[22px] flex flex-col items-center justify-center p-2 text-center shadow-inner">
               <div className="flex items-center gap-1 text-amber-300">
                 <Sparkles className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
