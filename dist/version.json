@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9b31abf",
-  "commitMessage": "feat(vitrine): vitrine publica de aniversario/liquidacao com splash 3s, carrinho 1-click e checkout via WhatsApp",
-  "buildTime": "06/10/2026, 15:23:23"
+  "commitHash": "867af91",
+  "commitMessage": "fix(liquidacao): ocultar produtos com estoque zerado na vitrine publica",
+  "buildTime": "06/10/2026, 17:47:17"
 }
