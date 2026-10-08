@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "39dce70",
-  "commitMessage": "feat(analytics): monitoramento completo da vitrine com localizacao, carrinhos abandonados e métricas no Belinha",
-  "buildTime": "08/10/2026, 09:13:30"
+  "commitHash": "0cf220f",
+  "commitMessage": "feat(vitrine): persistencia de carrinho ao retornar e aviso suave de oportunidade com escassez",
+  "buildTime": "08/10/2026, 09:56:08"
 }

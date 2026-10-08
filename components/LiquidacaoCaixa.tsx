@@ -18,6 +18,8 @@ import {
   Tag, 
   Package, 
   TrendingDown, 
+  TrendingUp,
+  BarChart3, 
   ShieldCheck, 
   Clock,
   X,
