@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "a219061",
-  "commitMessage": "fix(vitrine): reposicionar tag de estoque no rodape da imagem e ampliar fontes de desconto e precos",
-  "buildTime": "06/10/2026, 19:43:47"
+  "commitHash": "b9d63a5",
+  "commitMessage": "feat(footer): adicionar Edevaldo Cruz como desenvolvedor e link direto para WhatsApp",
+  "buildTime": "08/10/2026, 09:00:56"
 }

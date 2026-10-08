@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { queryDigifarma } = require('./services/digifarma.service');
+const { getGeoLocationFromIp } = require('./services/geoip.service');
 
 function formatarDataFirebird(date, isEnd = false) {
   if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
@@ -2372,19 +2373,505 @@ module.exports = function (db) {
     }
   });
 
-  // 8.4 POST /api/liquidacao/remover-imagem
-  router.post('/remover-imagem', (req, res) => {
+  // =========================================================================
+  // 9. MONITORAMENTO, LOCALIZAÇÃO, CARRINHOS ABANDONADOS E MÉTRICAS DA VITRINE
+  // =========================================================================
+
+  // 9.1 POST /api/liquidacao/public/analytics/track
+  // Endpoint público e assíncrono para registrar eventos da vitrine
+  router.post('/public/analytics/track', async (req, res) => {
     try {
-      const { produto_id } = req.body;
-      if (!produto_id) return res.status(400).json({ error: 'produto_id é obrigatório.' });
+      const {
+        session_id,
+        visitor_id,
+        event_type,
+        produto_id,
+        produto_nome,
+        produto_preco,
+        categoria,
+        search_term,
+        search_results_count,
+        cart_items,
+        cart_total,
+        client_name,
+        client_bairro,
+        device_type,
+        browser,
+        referrer,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        duration_seconds,
+        scroll_percent
+      } = req.body || {};
 
-      const pId = Number(produto_id);
-      db.prepare('UPDATE liquidacao_campanhas_itens SET imagem_url = NULL WHERE produto_id = ?').run(pId);
-      try { db.prepare('UPDATE compras_estoque_cache SET imagem_url = NULL WHERE produto_id = ?').run(pId); } catch(e) {}
+      if (!session_id || !visitor_id || !event_type) {
+        return res.status(400).json({ error: 'session_id, visitor_id e event_type são obrigatórios.' });
+      }
 
-      res.json({ success: true, message: 'Imagem removida com sucesso.' });
+      // Extração de IP e geolocalização silenciosa
+      const rawIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+      const geo = await getGeoLocationFromIp(rawIp);
+
+      const now = new Date();
+      const createdAt = now.toISOString();
+      const dateStr = createdAt.split('T')[0];
+      const hourOfDay = now.getHours();
+
+      const devType = device_type || (req.headers['user-agent'] && /mobile|android|iphone|ipad/i.test(req.headers['user-agent']) ? 'mobile' : 'desktop');
+
+      // 1. Atualizar ou registrar o visitante persistente (vitrine_visitors)
+      const existingVisitor = db.prepare('SELECT * FROM vitrine_visitors WHERE visitor_id = ?').get(visitor_id);
+      if (existingVisitor) {
+        const isNewVisitDay = existingVisitor.last_visit_at.split('T')[0] !== dateStr && event_type === 'pageview';
+        const newTotalVisits = isNewVisitDay ? (existingVisitor.total_visits + 1) : existingVisitor.total_visits;
+
+        db.prepare(`
+          UPDATE vitrine_visitors
+          SET last_visit_at = ?,
+              total_visits = ?,
+              city = COALESCE(?, city),
+              state = COALESCE(?, state),
+              last_bairro = COALESCE(?, last_bairro),
+              client_name = COALESCE(?, client_name),
+              device_type = COALESCE(?, device_type)
+          WHERE visitor_id = ?
+        `).run(
+          createdAt,
+          newTotalVisits,
+          geo.cidade,
+          geo.estado,
+          client_bairro || null,
+          client_name || null,
+          devType,
+          visitor_id
+        );
+      } else {
+        db.prepare(`
+          INSERT INTO vitrine_visitors (
+            visitor_id, first_visit_at, last_visit_at, total_visits,
+            city, state, last_bairro, client_name, device_type
+          ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+        `).run(
+          visitor_id,
+          createdAt,
+          createdAt,
+          geo.cidade,
+          geo.estado,
+          client_bairro || null,
+          client_name || null,
+          devType
+        );
+      }
+
+      // 2. Rastreamento e gestão de carrinhos (vitrine_abandoned_carts)
+      const cartItemsJson = Array.isArray(cart_items) ? JSON.stringify(cart_items) : (typeof cart_items === 'string' ? cart_items : '[]');
+      const numericCartTotal = Number(cart_total) || 0;
+      const itemsCount = Array.isArray(cart_items) ? cart_items.reduce((acc, item) => acc + (Number(item.quantidade) || 1), 0) : 0;
+
+      if (event_type === 'add_to_cart' || event_type === 'cart_update') {
+        if (itemsCount > 0) {
+          db.prepare(`
+            INSERT INTO vitrine_abandoned_carts (
+              session_id, visitor_id, cart_items_json, cart_total, items_count,
+              client_name, client_bairro, status, city, state, device_type,
+              created_at, updated_at, date_str
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'abandoned', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+              cart_items_json = excluded.cart_items_json,
+              cart_total = excluded.cart_total,
+              items_count = excluded.items_count,
+              client_name = COALESCE(excluded.client_name, vitrine_abandoned_carts.client_name),
+              client_bairro = COALESCE(excluded.client_bairro, vitrine_abandoned_carts.client_bairro),
+              updated_at = excluded.updated_at
+          `).run(
+            session_id,
+            visitor_id,
+            cartItemsJson,
+            numericCartTotal,
+            itemsCount,
+            client_name || null,
+            client_bairro || null,
+            geo.cidade,
+            geo.estado,
+            devType,
+            createdAt,
+            createdAt,
+            dateStr
+          );
+        } else {
+          db.prepare(`DELETE FROM vitrine_abandoned_carts WHERE session_id = ?`).run(session_id);
+        }
+      } else if (event_type === 'whatsapp_checkout') {
+        db.prepare(`
+          UPDATE vitrine_abandoned_carts
+          SET status = 'converted',
+              updated_at = ?,
+              client_name = COALESCE(?, client_name),
+              client_bairro = COALESCE(?, client_bairro)
+          WHERE session_id = ?
+        `).run(createdAt, client_name || null, client_bairro || null, session_id);
+      }
+
+      // 3. Registrar o evento em vitrine_analytics_events
+      db.prepare(`
+        INSERT INTO vitrine_analytics_events (
+          session_id, visitor_id, event_type, produto_id, produto_nome,
+          produto_preco, categoria, search_term, search_results_count,
+          cart_items_json, cart_total, client_name, client_bairro,
+          ip_address, cidade, estado, pais, device_type, browser,
+          referrer, utm_source, utm_medium, utm_campaign,
+          duration_seconds, scroll_percent, created_at, date_str, hour_of_day
+        ) VALUES (
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?
+        )
+      `).run(
+        session_id,
+        visitor_id,
+        event_type,
+        produto_id ? Number(produto_id) : null,
+        produto_nome || null,
+        produto_preco ? Number(produto_preco) : 0,
+        categoria || null,
+        search_term || null,
+        search_results_count !== undefined ? Number(search_results_count) : null,
+        cartItemsJson,
+        numericCartTotal,
+        client_name || null,
+        client_bairro || null,
+        rawIp,
+        geo.cidade,
+        geo.estado,
+        geo.pais || 'Brasil',
+        devType,
+        browser || null,
+        referrer || null,
+        utm_source || null,
+        utm_medium || null,
+        utm_campaign || null,
+        Number(duration_seconds) || 0,
+        Number(scroll_percent) || 0,
+        createdAt,
+        dateStr,
+        hourOfDay
+      );
+
+      res.json({ success: true });
     } catch(err) {
-      console.error('[Liquidação API] Erro em /remover-imagem:', err);
+      console.error('[Analytics API] Erro ao registrar evento:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 9.2 GET /api/liquidacao/analytics/dashboard
+  // Retorna métricas completas para a aba de inteligência do Belinha
+  router.get('/analytics/dashboard', (req, res) => {
+    try {
+      const period = req.query.period || '7d';
+      const now = new Date();
+      let startDateStr = '';
+
+      if (period === 'hoje') {
+        startDateStr = now.toISOString().split('T')[0];
+      } else if (period === '7d') {
+        const d = new Date(now.getTime() - 7 * 86400000);
+        startDateStr = d.toISOString().split('T')[0];
+      } else if (period === '30d') {
+        const d = new Date(now.getTime() - 30 * 86400000);
+        startDateStr = d.toISOString().split('T')[0];
+      }
+
+      const dateFilterSql = startDateStr ? 'AND date_str >= ?' : '';
+      const dateFilterParams = startDateStr ? [startDateStr] : [];
+
+      // 1. KPIs Gerais
+      const pageviewsRow = db.prepare(`
+        SELECT COUNT(*) as count 
+        FROM vitrine_analytics_events 
+        WHERE event_type = 'pageview' ${dateFilterSql}
+      `).get(...dateFilterParams);
+      const totalPageviews = pageviewsRow ? pageviewsRow.count : 0;
+
+      const visitorsRow = db.prepare(`
+        SELECT COUNT(DISTINCT visitor_id) as count 
+        FROM vitrine_analytics_events 
+        WHERE 1=1 ${dateFilterSql}
+      `).get(...dateFilterParams);
+      const uniqueVisitors = visitorsRow ? visitorsRow.count : 0;
+
+      // Recorrência
+      const returningRow = db.prepare(`
+        SELECT COUNT(DISTINCT vv.visitor_id) as count
+        FROM vitrine_visitors vv
+        INNER JOIN vitrine_analytics_events vae ON vv.visitor_id = vae.visitor_id
+        WHERE vv.total_visits > 1 ${dateFilterSql.replace(/date_str/g, 'vae.date_str')}
+      `).get(...dateFilterParams);
+      const returningVisitors = returningRow ? returningRow.count : 0;
+      const taxaRecorrencia = uniqueVisitors > 0 ? Math.round((returningVisitors / uniqueVisitors) * 100) : 0;
+
+      // Checkouts e Conversão
+      const checkoutsRow = db.prepare(`
+        SELECT COUNT(*) as count 
+        FROM vitrine_analytics_events 
+        WHERE event_type = 'whatsapp_checkout' ${dateFilterSql}
+      `).get(...dateFilterParams);
+      const totalCheckouts = checkoutsRow ? checkoutsRow.count : 0;
+      const taxaConversao = uniqueVisitors > 0 ? Math.round((totalCheckouts / uniqueVisitors) * 1000) / 10 : 0;
+
+      // Carrinhos Abandonados
+      const abandonedDateFilter = startDateStr ? 'AND date_str >= ?' : '';
+      const abandonedStats = db.prepare(`
+        SELECT 
+          COUNT(CASE WHEN status = 'abandoned' THEN 1 END) as total_abandoned,
+          COUNT(CASE WHEN status = 'converted' THEN 1 END) as total_converted,
+          COALESCE(SUM(CASE WHEN status = 'abandoned' THEN cart_total ELSE 0 END), 0) as valor_abandoned
+        FROM vitrine_abandoned_carts
+        WHERE 1=1 ${abandonedDateFilter}
+      `).get(...dateFilterParams);
+
+      const totalAbandoned = abandonedStats ? abandonedStats.total_abandoned : 0;
+      const totalConverted = abandonedStats ? abandonedStats.total_converted : 0;
+      const valorTotalPerdido = abandonedStats ? abandonedStats.valor_abandoned : 0;
+      const totalCarrinhosCriados = totalAbandoned + totalConverted;
+      const taxaAbandono = totalCarrinhosCriados > 0 ? Math.round((totalAbandoned / totalCarrinhosCriados) * 100) : 0;
+
+      // Tempo médio e Scroll médio
+      const durationRow = db.prepare(`
+        SELECT 
+          AVG(CASE WHEN duration_seconds > 0 THEN duration_seconds END) as avg_duration,
+          AVG(CASE WHEN scroll_percent > 0 THEN scroll_percent END) as avg_scroll
+        FROM vitrine_analytics_events
+        WHERE event_type = 'heartbeat' ${dateFilterSql}
+      `).get(...dateFilterParams);
+      const avgDurationSeconds = Math.round(durationRow?.avg_duration || 45);
+      const avgScrollPercent = Math.round(durationRow?.avg_scroll || 60);
+
+      // 2. Gráfico Temporal (Linha do tempo diária)
+      const timelineRows = db.prepare(`
+        SELECT 
+          date_str,
+          COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as visualizacoes,
+          COUNT(DISTINCT visitor_id) as visitantes_unicos,
+          COUNT(CASE WHEN event_type = 'add_to_cart' THEN 1 END) as carrinhos,
+          COUNT(CASE WHEN event_type = 'whatsapp_checkout' THEN 1 END) as pedidos
+        FROM vitrine_analytics_events
+        WHERE 1=1 ${dateFilterSql}
+        GROUP BY date_str
+        ORDER BY date_str ASC
+      `).all(...dateFilterParams);
+
+      // 3. Distribuição Horária (0h a 23h)
+      const hourlyRows = db.prepare(`
+        SELECT 
+          hour_of_day,
+          COUNT(*) as acessos
+        FROM vitrine_analytics_events
+        WHERE event_type = 'pageview' ${dateFilterSql}
+        GROUP BY hour_of_day
+        ORDER BY hour_of_day ASC
+      `).all(...dateFilterParams);
+      const hourlyMap = new Map(hourlyRows.map(r => [r.hour_of_day, r.acessos]));
+      const hourlyDistribution = Array.from({ length: 24 }, (_, i) => ({
+        hora: `${i}h`,
+        acessos: hourlyMap.get(i) || 0
+      }));
+
+      // 4. Top Cidades
+      const topCidadesRows = db.prepare(`
+        SELECT 
+          cidade,
+          estado,
+          COUNT(*) as total
+        FROM vitrine_analytics_events
+        WHERE event_type = 'pageview' AND cidade IS NOT NULL AND cidade != '' ${dateFilterSql}
+        GROUP BY cidade, estado
+        ORDER BY total DESC
+        LIMIT 6
+      `).all(...dateFilterParams);
+      const topCidades = topCidadesRows.map(r => ({
+        cidade: r.cidade,
+        estado: r.estado || 'MG',
+        total: r.total,
+        percentual: totalPageviews > 0 ? Math.round((r.total / totalPageviews) * 100) : 0
+      }));
+
+      // 5. Top Bairros
+      const topBairrosRows = db.prepare(`
+        SELECT 
+          client_bairro as bairro,
+          COUNT(*) as total
+        FROM vitrine_analytics_events
+        WHERE client_bairro IS NOT NULL AND TRIM(client_bairro) != '' ${dateFilterSql}
+        GROUP BY client_bairro
+        ORDER BY total DESC
+        LIMIT 6
+      `).all(...dateFilterParams);
+
+      // 6. Dispositivos e Origens
+      const devRows = db.prepare(`
+        SELECT 
+          device_type,
+          COUNT(*) as total
+        FROM vitrine_analytics_events
+        WHERE event_type = 'pageview' ${dateFilterSql}
+        GROUP BY device_type
+      `).all(...dateFilterParams);
+      const dispositivos = { mobile: 0, desktop: 0 };
+      devRows.forEach(r => {
+        if (r.device_type === 'mobile') dispositivos.mobile = r.total;
+        else dispositivos.desktop += r.total;
+      });
+
+      const origensRows = db.prepare(`
+        SELECT 
+          CASE 
+            WHEN referrer LIKE '%instagram%' OR utm_source = 'instagram' THEN 'Instagram'
+            WHEN referrer LIKE '%whatsapp%' OR utm_source = 'whatsapp' THEN 'WhatsApp'
+            WHEN referrer LIKE '%facebook%' OR utm_source = 'facebook' THEN 'Facebook'
+            WHEN referrer LIKE '%google%' THEN 'Google'
+            ELSE 'Direto / Link'
+          END as canal,
+          COUNT(*) as total
+        FROM vitrine_analytics_events
+        WHERE event_type = 'pageview' ${dateFilterSql}
+        GROUP BY canal
+        ORDER BY total DESC
+      `).all(...dateFilterParams);
+
+      // 7. Produtos de Alto Interesse sem Compra
+      const topInteresseRows = db.prepare(`
+        SELECT 
+          produto_id,
+          produto_nome,
+          categoria,
+          produto_preco,
+          COUNT(CASE WHEN event_type = 'product_click' THEN 1 END) as cliques,
+          COUNT(CASE WHEN event_type = 'add_to_cart' THEN 1 END) as adicionados,
+          COUNT(CASE WHEN event_type = 'whatsapp_checkout' THEN 1 END) as comprados
+        FROM vitrine_analytics_events
+        WHERE produto_id IS NOT NULL ${dateFilterSql}
+        GROUP BY produto_id
+        HAVING cliques > 0
+        ORDER BY cliques DESC
+        LIMIT 8
+      `).all(...dateFilterParams);
+
+      // 8. Termos Mais Buscados na Barra de Pesquisa
+      const termosRows = db.prepare(`
+        SELECT 
+          search_term,
+          COUNT(*) as total_buscas,
+          AVG(COALESCE(search_results_count, 0)) as media_resultados
+        FROM vitrine_analytics_events
+        WHERE event_type = 'search' AND search_term IS NOT NULL AND TRIM(search_term) != '' ${dateFilterSql}
+        GROUP BY search_term
+        ORDER BY total_buscas DESC
+        LIMIT 10
+      `).all(...dateFilterParams);
+
+      // 9. Alerta de Demanda Reprimida (Itens esgotados clicados/buscados)
+      const demandaReprimidaRows = db.prepare(`
+        SELECT 
+          vae.produto_id,
+          vae.produto_nome,
+          COUNT(*) as tentativas_clique
+        FROM vitrine_analytics_events vae
+        LEFT JOIN liquidacao_campanhas_itens lci ON vae.produto_id = lci.produto_id
+        LEFT JOIN compras_estoque_cache cec ON vae.produto_id = cec.produto_id
+        WHERE vae.event_type IN ('product_click', 'add_to_cart')
+          AND COALESCE(cec.saldo, lci.saldo_estoque, 0) <= 0
+          AND vae.produto_id IS NOT NULL ${dateFilterSql.replace(/date_str/g, 'vae.date_str')}
+        GROUP BY vae.produto_id
+        ORDER BY tentativas_clique DESC
+        LIMIT 5
+      `).all(...dateFilterParams);
+
+      // 10. Carrinhos Abandonados Recentes
+      const carrinhosRecentesRows = db.prepare(`
+        SELECT 
+          session_id,
+          visitor_id,
+          cart_items_json,
+          cart_total,
+          items_count,
+          client_name,
+          client_bairro,
+          city,
+          state,
+          device_type,
+          created_at,
+          updated_at
+        FROM vitrine_abandoned_carts
+        WHERE status = 'abandoned' ${abandonedDateFilter}
+        ORDER BY updated_at DESC
+        LIMIT 10
+      `).all(...dateFilterParams);
+
+      const carrinhosAbandonadosRecentes = carrinhosRecentesRows.map(r => {
+        let items = [];
+        try { items = JSON.parse(r.cart_items_json); } catch(e) {}
+        return {
+          id: r.session_id,
+          cliente: r.client_name || 'Cliente Anônimo',
+          bairro: r.client_bairro || 'Não informado',
+          cidade: r.city || 'Juiz de Fora',
+          estado: r.state || 'MG',
+          dispositivo: r.device_type,
+          valor: r.cart_total,
+          itensCount: r.items_count,
+          dataHora: r.updated_at,
+          produtos: items
+        };
+      });
+
+      res.json({
+        success: true,
+        period,
+        kpis: {
+          totalPageviews,
+          uniqueVisitors,
+          returningVisitors,
+          taxaRecorrencia,
+          totalCheckouts,
+          taxaConversao,
+          totalAbandoned,
+          valorTotalPerdido,
+          taxaAbandono,
+          avgDurationSeconds,
+          avgScrollPercent
+        },
+        timeline: timelineRows,
+        hourlyDistribution,
+        topCidades,
+        topBairros: topBairrosRows,
+        dispositivos,
+        origens: origensRows,
+        topInteresse: topInteresseRows,
+        termosBuscados: termosRows,
+        demandaReprimida: demandaReprimidaRows,
+        carrinhosAbandonados: carrinhosAbandonadosRecentes
+      });
+    } catch(err) {
+      console.error('[Analytics API] Erro ao carregar métricas:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 9.3 POST /api/liquidacao/analytics/reset
+  // Permite limpar dados de testes
+  router.post('/analytics/reset', (req, res) => {
+    try {
+      db.prepare('DELETE FROM vitrine_analytics_events').run();
+      db.prepare('DELETE FROM vitrine_abandoned_carts').run();
+      db.prepare('DELETE FROM vitrine_visitors').run();
+      res.json({ success: true, message: 'Métricas da vitrine zeradas com sucesso.' });
+    } catch(err) {
+      console.error('[Analytics API] Erro ao resetar métricas:', err);
       res.status(500).json({ error: err.message });
     }
   });

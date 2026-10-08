@@ -29,6 +29,7 @@ import {
   extractCartTotals,
   OFFICIAL_WHATSAPP_PHONE,
 } from './whatsappUtils';
+import { vitrineAnalytics } from './vitrineAnalytics';
 
 export interface VitrineCartDrawerProps {
   isOpen: boolean;
@@ -85,6 +86,13 @@ export const VitrineCartDrawer: React.FC<VitrineCartDrawerProps> = ({
     return extractCartTotals(items);
   }, [items]);
 
+  // Telemetria contínua do carrinho e captura de nome/bairro
+  useEffect(() => {
+    if (items.length > 0) {
+      vitrineAnalytics.trackCartUpdate(items, subtotal, nome.trim() || undefined, bairro.trim() || undefined);
+    }
+  }, [items, subtotal, nome, bairro]);
+
   // Manipulador de finalização do pedido via WhatsApp
   const handleFinalizeOrder = () => {
     const checkoutData: CheckoutData = {
@@ -105,6 +113,14 @@ export const VitrineCartDrawer: React.FC<VitrineCartDrawerProps> = ({
     }
 
     setErrorMessage(null);
+
+    // Registra conversão de pedido
+    vitrineAnalytics.trackCheckout(
+      items,
+      subtotal,
+      nome.trim(),
+      modalidade === 'entrega' ? bairro.trim() : undefined
+    );
 
     const whatsappUrl = generateWhatsAppOrderUrl(items, checkoutData);
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');

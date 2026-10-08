@@ -222,6 +222,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Estado e busca do Contador de Visitantes
   const [visitorStats, setVisitorStats] = React.useState<{ todayVisits: number; totalVisits: number } | null>(null);
+  const [vitrineStats, setVitrineStats] = React.useState<{ pageviews: number; visitors: number; abandoned: number } | null>(null);
 
   React.useEffect(() => {
     const recordAndFetchVisitors = async () => {
@@ -246,6 +247,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     };
     recordAndFetchVisitors();
+
+    // Busca estatísticas da vitrine pública de liquidação
+    fetch('/api/liquidacao/analytics/dashboard?period=hoje')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.kpis) {
+          setVitrineStats({
+            pageviews: d.kpis.totalPageviews || 0,
+            visitors: d.kpis.uniqueVisitors || 0,
+            abandoned: d.kpis.totalAbandoned || 0,
+          });
+        }
+      })
+      .catch(() => {});
   }, [user.name]);
 
   // Estado e busca de Revisões Pendentes de WhatsApp
@@ -1936,6 +1951,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Acumulado</span>
               <span className="text-sm font-black text-slate-800 dark:text-slate-100">
                 {visitorStats !== null ? visitorStats.totalVisits.toLocaleString('pt-BR') : '...'}
+              </span>
+            </div>
+          </div>
+
+          {/* Vitrine Liquida Hoje */}
+          <div className="flex-1 md:flex-initial bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/80 border border-blue-200/80 dark:border-blue-900/50 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-2xs">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-300 uppercase tracking-widest flex items-center gap-1">
+                Vitrine Liquida Hoje
+              </span>
+              <span className="text-sm font-black text-slate-900 dark:text-white">
+                {vitrineStats !== null ? `${vitrineStats.pageviews} acessos (${vitrineStats.visitors} únicos)` : '0 acessos'}
               </span>
             </div>
           </div>

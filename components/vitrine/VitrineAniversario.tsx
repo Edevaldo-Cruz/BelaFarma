@@ -24,6 +24,7 @@ import { VitrineSplash } from './VitrineSplash';
 import { VitrineProductCard, formatBRL } from './VitrineProductCard';
 import { VitrineCartDrawer } from './VitrineCartDrawer';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
+import { vitrineAnalytics } from './vitrineAnalytics';
 
 export interface VitrineAniversarioProps {
   onExit?: () => void;
@@ -76,6 +77,35 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
       console.error('Erro ao salvar carrinho no localStorage:', e);
     }
   }, [cartItems]);
+
+  // Telemetria da Vitrine: Pageview, Duração e Profundidade de Scroll
+  useEffect(() => {
+    vitrineAnalytics.trackPageView();
+    const startTime = Date.now();
+    let maxScroll = 0;
+
+    const handleScroll = () => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (scrollHeight > 0) {
+        const percent = Math.min(100, Math.round((scrollTop / scrollHeight) * 100));
+        if (percent > maxScroll) maxScroll = percent;
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    const interval = setInterval(() => {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      vitrineAnalytics.trackHeartbeat(elapsed, maxScroll);
+    }, 25000);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      clearInterval(interval);
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      vitrineAnalytics.trackHeartbeat(elapsed, maxScroll);
+    };
+  }, []);
 
   // Busca de Dados da API Pública
   const fetchOfertas = async () => {
@@ -235,6 +265,17 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
       return descB - descA;
     });
   }, [produtos, searchTerm, selectedCategoria]);
+
+  // Telemetria de Buscas de Clientes na Vitrine (identifica interesse e demandas)
+  useEffect(() => {
+    const trimmed = searchTerm.trim();
+    if (trimmed.length >= 3) {
+      const timer = setTimeout(() => {
+        vitrineAnalytics.trackSearch(trimmed, produtosFiltrados.length);
+      }, 750);
+      return () => clearTimeout(timer);
+    }
+  }, [searchTerm, produtosFiltrados.length]);
 
   // Contagem por Categoria para as Abas/Pills
   const categoryCounts = useMemo(() => {

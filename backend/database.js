@@ -1987,6 +1987,77 @@ try {
     } catch(e) {}
     console.log('✅ Contador de Visitantes: Tabela page_visitors criada/verificada!');
 
+    // Tabelas de Métricas Avançadas, Localização e Carrinhos da Vitrine de Liquidação
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS vitrine_analytics_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        visitor_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        produto_id INTEGER,
+        produto_nome TEXT,
+        produto_preco REAL,
+        categoria TEXT,
+        search_term TEXT,
+        search_results_count INTEGER,
+        cart_items_json TEXT,
+        cart_total REAL DEFAULT 0,
+        client_name TEXT,
+        client_bairro TEXT,
+        ip_address TEXT,
+        cidade TEXT,
+        estado TEXT,
+        pais TEXT DEFAULT 'BR',
+        device_type TEXT,
+        browser TEXT,
+        referrer TEXT,
+        utm_source TEXT,
+        utm_medium TEXT,
+        utm_campaign TEXT,
+        duration_seconds INTEGER DEFAULT 0,
+        scroll_percent INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        date_str TEXT NOT NULL,
+        hour_of_day INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vitrine_visitors (
+        visitor_id TEXT PRIMARY KEY,
+        first_visit_at TEXT NOT NULL,
+        last_visit_at TEXT NOT NULL,
+        total_visits INTEGER DEFAULT 1,
+        city TEXT,
+        state TEXT,
+        last_bairro TEXT,
+        client_name TEXT,
+        device_type TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS vitrine_abandoned_carts (
+        session_id TEXT PRIMARY KEY,
+        visitor_id TEXT NOT NULL,
+        cart_items_json TEXT NOT NULL,
+        cart_total REAL DEFAULT 0,
+        items_count INTEGER DEFAULT 0,
+        client_name TEXT,
+        client_bairro TEXT,
+        status TEXT DEFAULT 'abandoned',
+        city TEXT,
+        state TEXT,
+        device_type TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        date_str TEXT NOT NULL
+      );
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vae_event_date ON vitrine_analytics_events(event_type, date_str)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vae_session ON vitrine_analytics_events(session_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vae_visitor ON vitrine_analytics_events(visitor_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vac_date ON vitrine_abandoned_carts(date_str, status)');
+    } catch(e) {}
+    console.log('✅ Vitrine Analytics: Tabelas de métricas, visitantes e carrinhos criadas/verificadas!');
+
     // Migrations para Card Machines (Bandeiras, Fim de semana acumulado, Maquininhas M1/M2) e Fechamento (Crédito Parcelado, Grade)
     try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN brand TEXT NOT NULL DEFAULT 'Outros'"); } catch(e) {}
     try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN is_weekend_accumulated INTEGER DEFAULT 0"); } catch(e) {}

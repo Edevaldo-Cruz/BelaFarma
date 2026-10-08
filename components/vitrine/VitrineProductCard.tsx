@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShoppingBag, Check, Package, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { VitrineProduto, formatBRL } from './vitrineTypes';
+import { vitrineAnalytics } from './vitrineAnalytics';
 
 export { formatBRL } from './vitrineTypes';
 
@@ -34,7 +35,10 @@ export const VitrineProductCard: React.FC<VitrineProductCardProps> = ({
 
   const handleAddClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isOutOfStock) return;
+    if (isOutOfStock) {
+      vitrineAnalytics.trackProductClick(produto);
+      return;
+    }
     if (onAddToCart) {
       onAddToCart(produto);
     }
@@ -55,7 +59,8 @@ export const VitrineProductCard: React.FC<VitrineProductCardProps> = ({
 
   return (
     <div
-      className={`flex flex-col justify-between bg-white dark:bg-slate-800 rounded-2xl border-2 border-slate-200/90 dark:border-slate-700/90 shadow-sm hover:shadow-xl hover:border-red-500 dark:hover:border-red-500 transition-all duration-200 overflow-hidden relative group select-none ${className}`}
+      onClick={() => vitrineAnalytics.trackProductClick(produto)}
+      className={`flex flex-col justify-between bg-white dark:bg-slate-800 rounded-2xl border-2 border-slate-200/90 dark:border-slate-700/90 shadow-sm hover:shadow-xl hover:border-red-500 dark:hover:border-red-500 transition-all duration-200 overflow-hidden relative group select-none cursor-pointer ${className}`}
     >
       {/* Badges de Topo: Desconto chamativo e Economia */}
       <div className="absolute top-2 left-2 z-10 pointer-events-none flex flex-col gap-1 items-start">

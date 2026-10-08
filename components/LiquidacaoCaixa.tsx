@@ -41,6 +41,7 @@ import {
 import { User } from '../types';
 import { useToast } from './ToastContext';
 import { LiquidacaoEncarteArtes } from './LiquidacaoEncarteArtes';
+import { LiquidacaoAcessosTab } from './LiquidacaoAcessosTab';
 
 export interface VendaDetalhadaLiquidacao {
   id?: number | string;
@@ -155,7 +156,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
 
   const [resumo, setResumo] = useState<ResumoData | null>(null);
   const [itensAtivos, setItensAtivos] = useState<ItemAtivo[]>([]);
-  const [abaModulo, setAbaModulo] = useState<'ofertas' | 'artes'>('ofertas');
+  const [abaModulo, setAbaModulo] = useState<'ofertas' | 'artes' | 'acessos'>('ofertas');
 
   const [loadingResumo, setLoadingResumo] = useState(true);
   const [loadingItens, setLoadingItens] = useState(false);
@@ -1731,9 +1732,24 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           <Sparkles size={15} className={abaModulo === 'artes' ? 'text-yellow-200' : 'text-amber-500'} />
           <span>🎨 Encartes & Artes Promocionais (1º Aniversário)</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaModulo('acessos')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+            abaModulo === 'acessos'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+          }`}
+        >
+          <TrendingUp size={15} className={abaModulo === 'acessos' ? 'text-cyan-200' : 'text-blue-500'} />
+          <span>📊 Acessos & Métricas da Vitrine</span>
+        </button>
       </div>
 
-      {abaModulo === 'artes' ? (
+      {abaModulo === 'acessos' ? (
+        <LiquidacaoAcessosTab />
+      ) : abaModulo === 'artes' ? (
         <LiquidacaoEncarteArtes
           itens={itensAtivos}
           onAtualizarItens={fetchItensAtivos}
