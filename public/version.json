@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4322552",
-  "commitMessage": "fix(liquidacao): importar TrendingUp e BarChart3 de lucide-react em LiquidacaoCaixa",
-  "buildTime": "08/10/2026, 11:18:55"
+  "commitHash": "11b4e30",
+  "commitMessage": "fix(vitrine): corrigir referencia filteredProdutos no trackSearch e recompilar bundle",
+  "buildTime": "08/10/2026, 19:36:39"
 }

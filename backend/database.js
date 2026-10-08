@@ -2034,8 +2034,8 @@ try {
       );
 
       CREATE TABLE IF NOT EXISTS vitrine_abandoned_carts (
-        session_id TEXT PRIMARY KEY,
-        visitor_id TEXT NOT NULL,
+        visitor_id TEXT PRIMARY KEY,
+        session_id TEXT,
         cart_items_json TEXT NOT NULL,
         cart_total REAL DEFAULT 0,
         items_count INTEGER DEFAULT 0,
@@ -2056,6 +2056,95 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_vae_visitor ON vitrine_analytics_events(visitor_id)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_vac_date ON vitrine_abandoned_carts(date_str, status)');
     } catch(e) {}
+
+    // Migração de Unificação de Carrinhos por ID do Cliente (visitor_id)
+    try {
+      const vacInfo = db.prepare('PRAGMA table_info(vitrine_abandoned_carts)').all();
+      const sessionPk = vacInfo.find(c => c.name === 'session_id' && c.pk === 1);
+      if (sessionPk) {
+        console.log('🔄 Vitrine Analytics: Unificando carrinhos repetidos por ID do cliente (visitor_id)...');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS vitrine_abandoned_carts_unificada (
+            visitor_id TEXT PRIMARY KEY,
+            session_id TEXT,
+            cart_items_json TEXT NOT NULL,
+            cart_total REAL DEFAULT 0,
+            items_count INTEGER DEFAULT 0,
+            client_name TEXT,
+            client_bairro TEXT,
+            status TEXT DEFAULT 'abandoned',
+            city TEXT,
+            state TEXT,
+            device_type TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            date_str TEXT NOT NULL
+          );
+        `);
+
+        // Busca registros antigos ordenados por updated_at ascendente para que o mais recente prevaleça
+        const oldRows = db.prepare('SELECT * FROM vitrine_abandoned_carts ORDER BY updated_at ASC').all();
+        const map = new Map();
+        for (const row of oldRows) {
+          const vid = row.visitor_id;
+          if (!map.has(vid)) {
+            map.set(vid, row);
+          } else {
+            const existing = map.get(vid);
+            const isConverted = row.status === 'converted' || existing.status === 'converted';
+            map.set(vid, {
+              ...existing,
+              ...row,
+              visitor_id: vid,
+              client_name: row.client_name || existing.client_name,
+              client_bairro: row.client_bairro || existing.client_bairro,
+              city: row.city || existing.city,
+              state: row.state || existing.state,
+              status: isConverted ? 'converted' : (row.status || existing.status),
+              created_at: existing.created_at || row.created_at,
+              updated_at: row.updated_at || existing.updated_at,
+              date_str: row.date_str || existing.date_str
+            });
+          }
+        }
+
+        const insertStmt = db.prepare(`
+          INSERT INTO vitrine_abandoned_carts_unificada (
+            visitor_id, session_id, cart_items_json, cart_total, items_count,
+            client_name, client_bairro, status, city, state, device_type,
+            created_at, updated_at, date_str
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const item of map.values()) {
+          insertStmt.run(
+            item.visitor_id,
+            item.session_id,
+            item.cart_items_json,
+            item.cart_total,
+            item.items_count,
+            item.client_name,
+            item.client_bairro,
+            item.status,
+            item.city,
+            item.state,
+            item.device_type,
+            item.created_at,
+            item.updated_at,
+            item.date_str
+          );
+        }
+
+        db.exec(`
+          DROP TABLE vitrine_abandoned_carts;
+          ALTER TABLE vitrine_abandoned_carts_unificada RENAME TO vitrine_abandoned_carts;
+          CREATE INDEX IF NOT EXISTS idx_vac_date ON vitrine_abandoned_carts(date_str, status);
+        `);
+        console.log('✅ Vitrine Analytics: Carrinhos unificados com sucesso por ID de cliente!');
+      }
+    } catch(migErr) {
+      console.warn('⚠️ Falha ao unificar vitrine_abandoned_carts:', migErr.message);
+    }
     console.log('✅ Vitrine Analytics: Tabelas de métricas, visitantes e carrinhos criadas/verificadas!');
 
     // Migrations para Card Machines (Bandeiras, Fim de semana acumulado, Maquininhas M1/M2) e Fechamento (Crédito Parcelado, Grade)

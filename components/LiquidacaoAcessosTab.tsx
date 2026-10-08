@@ -91,6 +91,8 @@ export interface AnalyticsData {
   }>;
   carrinhosAbandonados: Array<{
     id: string;
+    visitorId?: string;
+    sessionId?: string;
     cliente: string;
     bairro: string;
     cidade: string;
@@ -685,9 +687,19 @@ export const LiquidacaoAcessosTab: React.FC = () => {
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex flex-col">
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          {cart.cliente}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {cart.cliente}
+                          </span>
+                          {cart.visitorId && (
+                            <span
+                              className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                              title={`ID do Cliente: ${cart.visitorId}`}
+                            >
+                              #{cart.visitorId.replace(/^vid_/, '').slice(0, 8)}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[11px] text-slate-400">
                           📍 {cart.bairro} ({cart.cidade})
                         </span>

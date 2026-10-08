@@ -87,10 +87,13 @@ export const VitrineCartDrawer: React.FC<VitrineCartDrawerProps> = ({
     return extractCartTotals(items);
   }, [items]);
 
-  // Telemetria contínua do carrinho e captura de nome/bairro
+  // Telemetria contínua do carrinho e captura de nome/bairro (com debounce suave para digitação)
   useEffect(() => {
     if (items.length > 0) {
-      vitrineAnalytics.trackCartUpdate(items, subtotal, nome.trim() || undefined, bairro.trim() || undefined);
+      const timer = setTimeout(() => {
+        vitrineAnalytics.trackCartUpdate(items, subtotal, nome.trim() || undefined, bairro.trim() || undefined);
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [items, subtotal, nome, bairro]);
 

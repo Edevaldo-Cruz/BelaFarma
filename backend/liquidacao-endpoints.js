@@ -2464,34 +2464,45 @@ module.exports = function (db) {
         );
       }
 
-      // 2. Rastreamento e gestão de carrinhos (vitrine_abandoned_carts)
+      // 2. Rastreamento e gestão de carrinhos (vitrine_abandoned_carts) unificados pelo ID do Cliente (visitor_id)
       const cartItemsJson = Array.isArray(cart_items) ? JSON.stringify(cart_items) : (typeof cart_items === 'string' ? cart_items : '[]');
       const numericCartTotal = Number(cart_total) || 0;
       const itemsCount = Array.isArray(cart_items) ? cart_items.reduce((acc, item) => acc + (Number(item.quantidade) || 1), 0) : 0;
 
       if (event_type === 'add_to_cart' || event_type === 'cart_update') {
         if (itemsCount > 0) {
+          // Busca nome e bairro salvos previamente no perfil do visitante se não fornecidos no momento
+          const visitorRecord = db.prepare('SELECT client_name, last_bairro FROM vitrine_visitors WHERE visitor_id = ?').get(visitor_id);
+          const resolvedName = client_name || (visitorRecord ? visitorRecord.client_name : null);
+          const resolvedBairro = client_bairro || (visitorRecord ? visitorRecord.last_bairro : null);
+
           db.prepare(`
             INSERT INTO vitrine_abandoned_carts (
-              session_id, visitor_id, cart_items_json, cart_total, items_count,
+              visitor_id, session_id, cart_items_json, cart_total, items_count,
               client_name, client_bairro, status, city, state, device_type,
               created_at, updated_at, date_str
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'abandoned', ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET
+            ON CONFLICT(visitor_id) DO UPDATE SET
+              session_id = excluded.session_id,
               cart_items_json = excluded.cart_items_json,
               cart_total = excluded.cart_total,
               items_count = excluded.items_count,
               client_name = COALESCE(excluded.client_name, vitrine_abandoned_carts.client_name),
               client_bairro = COALESCE(excluded.client_bairro, vitrine_abandoned_carts.client_bairro),
-              updated_at = excluded.updated_at
+              city = COALESCE(excluded.city, vitrine_abandoned_carts.city),
+              state = COALESCE(excluded.state, vitrine_abandoned_carts.state),
+              device_type = COALESCE(excluded.device_type, vitrine_abandoned_carts.device_type),
+              status = 'abandoned',
+              updated_at = excluded.updated_at,
+              date_str = excluded.date_str
           `).run(
-            session_id,
             visitor_id,
+            session_id,
             cartItemsJson,
             numericCartTotal,
             itemsCount,
-            client_name || null,
-            client_bairro || null,
+            resolvedName,
+            resolvedBairro,
             geo.cidade,
             geo.estado,
             devType,
@@ -2500,7 +2511,7 @@ module.exports = function (db) {
             dateStr
           );
         } else {
-          db.prepare(`DELETE FROM vitrine_abandoned_carts WHERE session_id = ?`).run(session_id);
+          db.prepare(`DELETE FROM vitrine_abandoned_carts WHERE visitor_id = ?`).run(visitor_id);
         }
       } else if (event_type === 'whatsapp_checkout') {
         db.prepare(`
@@ -2509,8 +2520,8 @@ module.exports = function (db) {
               updated_at = ?,
               client_name = COALESCE(?, client_name),
               client_bairro = COALESCE(?, client_bairro)
-          WHERE session_id = ?
-        `).run(createdAt, client_name || null, client_bairro || null, session_id);
+          WHERE visitor_id = ?
+        `).run(createdAt, client_name || null, client_bairro || null, visitor_id);
       }
 
       // 3. Registrar o evento em vitrine_analytics_events
@@ -2651,14 +2662,14 @@ module.exports = function (db) {
       const avgDurationSeconds = Math.round(durationRow?.avg_duration || 45);
       const avgScrollPercent = Math.round(durationRow?.avg_scroll || 60);
 
-      // 2. Gráfico Temporal (Linha do tempo diária)
+      // 2. Gráfico Temporal (Linha do tempo diária unificada por cliente)
       const timelineRows = db.prepare(`
         SELECT 
           date_str,
           COUNT(CASE WHEN event_type = 'pageview' THEN 1 END) as visualizacoes,
           COUNT(DISTINCT visitor_id) as visitantes_unicos,
-          COUNT(CASE WHEN event_type = 'add_to_cart' THEN 1 END) as carrinhos,
-          COUNT(CASE WHEN event_type = 'whatsapp_checkout' THEN 1 END) as pedidos
+          COUNT(DISTINCT CASE WHEN event_type IN ('add_to_cart', 'cart_update') THEN visitor_id END) as carrinhos,
+          COUNT(DISTINCT CASE WHEN event_type = 'whatsapp_checkout' THEN visitor_id END) as pedidos
         FROM vitrine_analytics_events
         WHERE 1=1 ${dateFilterSql}
         GROUP BY date_str
@@ -2791,11 +2802,11 @@ module.exports = function (db) {
         LIMIT 5
       `).all(...dateFilterParams);
 
-      // 10. Carrinhos Abandonados Recentes
+      // 10. Carrinhos Abandonados Recentes (Unificados pelo ID do Cliente)
       const carrinhosRecentesRows = db.prepare(`
         SELECT 
-          session_id,
           visitor_id,
+          session_id,
           cart_items_json,
           cart_total,
           items_count,
@@ -2816,7 +2827,9 @@ module.exports = function (db) {
         let items = [];
         try { items = JSON.parse(r.cart_items_json); } catch(e) {}
         return {
-          id: r.session_id,
+          id: r.visitor_id,
+          visitorId: r.visitor_id,
+          sessionId: r.session_id,
           cliente: r.client_name || 'Cliente Anônimo',
           bairro: r.client_bairro || 'Não informado',
           cidade: r.city || 'Juiz de Fora',
