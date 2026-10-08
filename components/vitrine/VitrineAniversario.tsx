@@ -293,11 +293,11 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
     const trimmed = searchTerm.trim();
     if (trimmed.length >= 3) {
       const timer = setTimeout(() => {
-        vitrineAnalytics.trackSearch(trimmed, produtosFiltrados.length);
+        vitrineAnalytics.trackSearch(trimmed, filteredProdutos.length);
       }, 750);
       return () => clearTimeout(timer);
     }
-  }, [searchTerm, produtosFiltrados.length]);
+  }, [searchTerm, filteredProdutos.length]);
 
   // Contagem por Categoria para as Abas/Pills
   const categoryCounts = useMemo(() => {
