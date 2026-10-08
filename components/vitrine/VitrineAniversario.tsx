@@ -23,6 +23,7 @@ import { VitrineProduto, VitrineCartItem, VitrineApiResponse } from './vitrineTy
 import { VitrineSplash } from './VitrineSplash';
 import { VitrineProductCard, formatBRL } from './VitrineProductCard';
 import { VitrineCartDrawer } from './VitrineCartDrawer';
+import { VitrineCartRecoveryBanner } from './VitrineCartRecoveryBanner';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
 import { vitrineAnalytics } from './vitrineAnalytics';
 
@@ -68,6 +69,7 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
     return [];
   });
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [showCartRecoveryBanner, setShowCartRecoveryBanner] = useState<boolean>(false);
 
   // Sincronização do Carrinho com o LocalStorage
   useEffect(() => {
@@ -77,6 +79,26 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
       console.error('Erro ao salvar carrinho no localStorage:', e);
     }
   }, [cartItems]);
+
+  // Notificação Suave de Retorno com Carrinho Salvo & Escassez
+  useEffect(() => {
+    if (!showSplash && cartItems.length > 0) {
+      const dismissed = sessionStorage.getItem('belafarma_cart_recovery_dismissed');
+      if (!dismissed) {
+        const timer = setTimeout(() => {
+          setShowCartRecoveryBanner(true);
+        }, 1200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [showSplash, cartItems.length]);
+
+  const handleDismissCartRecovery = () => {
+    setShowCartRecoveryBanner(false);
+    try {
+      sessionStorage.setItem('belafarma_cart_recovery_dismissed', 'true');
+    } catch (e) {}
+  };
 
   // Telemetria da Vitrine: Pageview, Duração e Profundidade de Scroll
   useEffect(() => {
@@ -627,6 +649,19 @@ export const VitrineAniversario: React.FC<VitrineAniversarioProps> = ({
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
       />
+
+      {/* 7.1 Notificação Suave de Retorno com Carrinho Salvo & Escassez */}
+      {showCartRecoveryBanner && !isCartOpen && cartItems.length > 0 && (
+        <VitrineCartRecoveryBanner
+          items={cartItems}
+          subtotal={cartSubtotal}
+          onOpenCart={() => {
+            setIsCartOpen(true);
+            setShowCartRecoveryBanner(false);
+          }}
+          onDismiss={handleDismissCartRecovery}
+        />
+      )}
 
       {/* 8. Rodapé Institucional com Identidade Visual Oficial */}
       <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 mt-auto py-8">

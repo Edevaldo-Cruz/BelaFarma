@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "b9d63a5",
-  "commitMessage": "feat(footer): adicionar Edevaldo Cruz como desenvolvedor e link direto para WhatsApp",
-  "buildTime": "08/10/2026, 09:00:56"
+  "commitHash": "39dce70",
+  "commitMessage": "feat(analytics): monitoramento completo da vitrine com localizacao, carrinhos abandonados e métricas no Belinha",
+  "buildTime": "08/10/2026, 09:13:30"
 }

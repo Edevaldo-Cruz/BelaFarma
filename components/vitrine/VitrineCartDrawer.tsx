@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
+  Clock,
 } from 'lucide-react';
 import type {
   VitrineCartItem,
@@ -187,6 +188,18 @@ export const VitrineCartDrawer: React.FC<VitrineCartDrawerProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Aviso Suave de Escassez & Estoque Promocional */}
+        {items.length > 0 && (
+          <div className="mx-4 mt-3 p-2.5 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border border-amber-200 dark:border-amber-900/50 flex items-center gap-2.5 text-xs text-amber-950 dark:text-amber-200 shadow-2xs">
+            <div className="p-1.5 rounded-xl bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-300 shrink-0">
+              <Clock className="w-4 h-4 animate-pulse" />
+            </div>
+            <p className="text-[11px] leading-tight font-medium">
+              <strong className="font-bold">Estoque Promocional Concorrido:</strong> Seus produtos estão guardados, mas o lote de liquidação pode esgotar. Finalize seu pedido no WhatsApp para garantir os preços especiais!
+            </p>
+          </div>
+        )}
 
         {/* Lista de Itens do Carrinho */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 overscroll-contain">
