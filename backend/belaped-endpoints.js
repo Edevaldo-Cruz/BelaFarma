@@ -14,6 +14,7 @@ const express = require('express');
 const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
 const { ProfarmaRobot } = require('./belaped-robot-profarma');
+const { DpcRobot } = require('./belaped-robot-dpc');
 
 function belapedEndpoints(db) {
   const router = express.Router();
@@ -175,12 +176,13 @@ function belapedEndpoints(db) {
       // Itens avulsos adicionados manualmente pelo usuário
       const avulsos = db.prepare(`SELECT * FROM belaped_itens_avulsos ORDER BY created_at DESC`).all();
 
-      // Cotações reais obtidas pelos robôs (Profarma, etc.)
+      // Cotações reais obtidas pelos robôs (Profarma, DPC, etc.)
       const cotacoesReaisMap = {};
       try {
-        const rowsCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais WHERE disponivel = 1`).all();
+        const rowsCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais WHERE disponivel = 1 AND preco > 0 ORDER BY preco ASC`).all();
         for (const c of rowsCotacoes) {
-          cotacoesReaisMap[c.ean] = c;
+          if (!cotacoesReaisMap[c.ean]) cotacoesReaisMap[c.ean] = [];
+          cotacoesReaisMap[c.ean].push(c);
         }
       } catch (e) {}
 
@@ -219,20 +221,30 @@ function belapedEndpoints(db) {
           totalItensAbaixoMinimo++;
         }
 
-        // Verifica se há cotação REAL capturada pelo robô para este EAN
-        const cotacaoReal = r.ean ? cotacoesReaisMap[r.ean] : null;
+        // Verifica se há cotação REAL capturada pelos robôs para este EAN
+        const cotacoesReais = r.ean ? cotacoesReaisMap[r.ean] : null;
         let fornecedor1 = '';
         let preco1 = 0;
         let fornecedor2 = '';
         let preco2 = 0;
         let diferencaPct = 0;
 
-        if (cotacaoReal && cotacaoReal.preco > 0) {
-          fornecedor1 = 'PROFARMA';
-          preco1 = Number(cotacaoReal.preco.toFixed(2));
-          fornecedor2 = 'DISTRIMED';
-          preco2 = Number((preco1 * 1.055).toFixed(2));
-          diferencaPct = 5.5;
+        if (cotacoesReais && cotacoesReais.length > 0) {
+          // 1º Colocado real (melhor preço real de mercado)
+          fornecedor1 = cotacoesReais[0].fornecedor;
+          preco1 = Number(cotacoesReais[0].preco.toFixed(2));
+
+          if (cotacoesReais.length > 1) {
+            // Disputa real entre distribuidores cotados ao vivo (ex: Profarma vs DPC)
+            fornecedor2 = cotacoesReais[1].fornecedor;
+            preco2 = Number(cotacoesReais[1].preco.toFixed(2));
+            diferencaPct = preco1 > 0 ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
+          } else {
+            // Se apenas 1 distribuidor cotou, projeta o 2º com +5%
+            fornecedor2 = fornecedor1 === 'PROFARMA' ? 'DPC DISTRIBUIDORA' : 'PROFARMA';
+            preco2 = Number((preco1 * 1.05).toFixed(2));
+            diferencaPct = 5.0;
+          }
         } else {
           // Determina 1º e 2º colocados da cotação baseados no histórico
           const listaDistribuidores = ['PROFARMA', 'DISTRIMED', 'PANPHARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'MARTINS ATACADO'];
@@ -803,71 +815,87 @@ function belapedEndpoints(db) {
 
       // Executa o processo do robô em segundo plano
       (async () => {
-        let robot = null;
-        try {
-          console.log(`[BelaPed Cotação] Iniciando robô para ${fornecedor}...`);
-          robot = new ProfarmaRobot({ headless: true });
-          await robot.iniciar();
+        const stmtSalvar = db.prepare(`
+          INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(ean, fornecedor) DO UPDATE SET
+            preco = excluded.preco,
+            disponivel = excluded.disponivel,
+            descricao = excluded.descricao,
+            desc_pct = excluded.desc_pct,
+            updated_at = excluded.updated_at
+        `);
 
-          const stmtSalvar = db.prepare(`
-            INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(ean, fornecedor) DO UPDATE SET
-              preco = excluded.preco,
-              disponivel = excluded.disponivel,
-              descricao = excluded.descricao,
-              desc_pct = excluded.desc_pct,
-              updated_at = excluded.updated_at
-          `);
+        const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass) => {
+          let robot = null;
+          try {
+            console.log(`[BelaPed Cotação] Iniciando robô para ${nomeFornecedor}...`);
+            robot = new RobotClass({ headless: true });
+            await robot.iniciar();
 
-          for (let i = 0; i < listaEans.length; i++) {
-            const eanAtual = listaEans[i];
-            cotacaoStatus.atual = i + 1;
-            cotacaoStatus.ultimoItem = eanAtual;
+            for (let i = 0; i < listaEans.length; i++) {
+              const eanAtual = listaEans[i];
+              cotacaoStatus.atual = i + 1;
+              cotacaoStatus.ultimoItem = `${nomeFornecedor}: ${eanAtual}`;
 
-            const resultado = await robot.cotarEAN(eanAtual);
+              const resultado = await robot.cotarEAN(eanAtual);
 
-            if (resultado.disponivel && resultado.preco > 0) {
-              cotacaoStatus.encontrados++;
-              stmtSalvar.run(
-                resultado.ean,
-                'PROFARMA',
-                resultado.preco,
-                1,
-                resultado.descricao,
-                resultado.descPct || 0
-              );
-              cotacaoStatus.log.push({
-                ean: eanAtual,
-                status: 'OK',
-                preco: resultado.preco,
-                descricao: resultado.descricao
-              });
-            } else {
-              stmtSalvar.run(
-                eanAtual,
-                'PROFARMA',
-                null,
-                0,
-                resultado.mensagem || 'Indisponível',
-                0
-              );
-              cotacaoStatus.log.push({
-                ean: eanAtual,
-                status: 'INDISPONIVEL',
-                motivo: resultado.mensagem || 'Sem estoque'
-              });
+              if (resultado.disponivel && resultado.preco > 0) {
+                cotacaoStatus.encontrados++;
+                stmtSalvar.run(
+                  resultado.ean,
+                  nomeFornecedor,
+                  resultado.preco,
+                  1,
+                  resultado.descricao || '',
+                  resultado.descPct || 0
+                );
+                cotacaoStatus.log.push({
+                  fornecedor: nomeFornecedor,
+                  ean: eanAtual,
+                  status: 'OK',
+                  preco: resultado.preco,
+                  descricao: resultado.descricao
+                });
+              } else {
+                stmtSalvar.run(
+                  eanAtual,
+                  nomeFornecedor,
+                  null,
+                  0,
+                  resultado.mensagem || 'Indisponível',
+                  0
+                );
+                cotacaoStatus.log.push({
+                  fornecedor: nomeFornecedor,
+                  ean: eanAtual,
+                  status: 'INDISPONIVEL',
+                  motivo: resultado.mensagem || 'Sem estoque'
+                });
+              }
             }
+          } catch (botErr) {
+            console.error(`[BelaPed Cotação] Erro no robô ${nomeFornecedor}:`, botErr.message);
+            cotacaoStatus.log.push({ fornecedor: nomeFornecedor, erro: botErr.message });
+          } finally {
+            if (robot) await robot.fechar().catch(() => {});
           }
+        };
 
-        } catch (botErr) {
-          console.error('[BelaPed Cotação] Erro durante execução do robô:', botErr.message);
-          cotacaoStatus.log.push({ erroGeral: botErr.message });
+        try {
+          if (fornecedor === 'DPC') {
+            await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
+          } else if (fornecedor === 'TODOS') {
+            await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
+            await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
+          } else {
+            // Padrão PROFARMA
+            await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
+          }
         } finally {
-          if (robot) await robot.fechar().catch(() => {});
           cotacaoStatus.emAndamento = false;
           cotacaoStatus.finalizadoEm = new Date().toISOString();
-          console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} de ${cotacaoStatus.total} produtos encontrados.`);
+          console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} preços capturados.`);
         }
       })();
 
@@ -896,17 +924,12 @@ function belapedEndpoints(db) {
    */
   router.get('/exportar-planilha-profarma', (req, res) => {
     try {
-      const { apenasGanhadores = 'false' } = req.query;
-
-      // Busca os itens de falta de 7 dias com EAN e quantidade sugerida
       const produtos = db.prepare(`
         SELECT 
           c.ean,
           c.descricao,
           c.saldo,
-          c.vmd_ponderado,
-          c.preco_unitario_ult_compra,
-          c.custo_unitario
+          c.vmd_ponderado
         FROM compras_estoque_cache c
         WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
           AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
@@ -915,24 +938,60 @@ function belapedEndpoints(db) {
         LIMIT 100
       `).all();
 
-      // Monta as linhas CSV conforme a imagem do usuário: Codigo/EAN e Quantidade
       let csvContent = 'Codigo/EAN;Quantidade\r\n';
-
       for (const p of produtos) {
         const vmd = Number(p.vmd_ponderado) || 0;
         const saldo = Number(p.saldo) || 0;
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-
         csvContent += `${p.ean};${qtd}\r\n`;
       }
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="pedido_profarma_belaped.csv"');
       res.send(csvContent);
-
     } catch (err) {
       console.error('[BelaPed] Erro ao exportar planilha Profarma:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/exportar-planilha-dpc
+   * Gera e faz o download da planilha no formato exato da DPC:
+   * Colunas: codigo ou ean;quantidade
+   */
+  router.get('/exportar-planilha-dpc', (req, res) => {
+    try {
+      const produtos = db.prepare(`
+        SELECT 
+          c.ean,
+          c.descricao,
+          c.saldo,
+          c.vmd_ponderado
+        FROM compras_estoque_cache c
+        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+          AND c.curva_abc IN ('A', 'B')
+        ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+        LIMIT 100
+      `).all();
+
+      // Layout exato DPC: "codigo ou ean;quantidade"
+      let csvContent = 'codigo ou ean;quantidade\r\n';
+      for (const p of produtos) {
+        const vmd = Number(p.vmd_ponderado) || 0;
+        const saldo = Number(p.saldo) || 0;
+        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+        csvContent += `${p.ean};${qtd}\r\n`;
+      }
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="pedido_dpc_belaped.csv"');
+      res.send(csvContent);
+    } catch (err) {
+      console.error('[BelaPed] Erro ao exportar planilha DPC:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });

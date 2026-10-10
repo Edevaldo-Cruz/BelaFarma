@@ -397,8 +397,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer na Profarma
-  const handleIniciarCotacaoAoVivo = async () => {
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Todas)
+  const handleIniciarCotacaoAoVivo = async (fornecedor: 'PROFARMA' | 'DPC' | 'TODOS' = 'TODOS') => {
     try {
       setCotandoAoVivo(true);
 
@@ -412,7 +412,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fornecedor: 'PROFARMA',
+          fornecedor,
           limite: 20,
           eans: eansParaCotar.length > 0 ? eansParaCotar : undefined
         })
@@ -425,7 +425,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         return;
       }
 
-      addToast(data.message || 'Robô Profarma iniciado!', 'success');
+      addToast(data.message || `Robô de cotação iniciado para ${fornecedor}!`, 'success');
 
       // Monitora o progresso em segundo plano a cada 2.5s
       const timer = setInterval(async () => {
@@ -437,7 +437,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             if (!stData.status.emAndamento) {
               clearInterval(timer);
               setCotandoAoVivo(false);
-              addToast(`Cotação Profarma concluída! ${stData.status.encontrados} produtos obtiveram preços ao vivo!`, 'success');
+              addToast(`Cotação concluída! ${stData.status.encontrados} produtos obtiveram preços ao vivo!`, 'success');
               carregarDados();
             }
           }
@@ -457,6 +457,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleExportarPlanilhaProfarma = () => {
     window.open('/api/belaped/exportar-planilha-profarma', '_blank');
     addToast('Download da planilha de pedido Profarma gerado com sucesso!', 'info');
+  };
+
+  // Baixar Planilha Pronta no Modelo do Pedido DPC (codigo ou ean e quantidade)
+  const handleExportarPlanilhaDpc = () => {
+    window.open('/api/belaped/exportar-planilha-dpc', '_blank');
+    addToast('Download da planilha de pedido DPC gerado com sucesso!', 'info');
   };
 
   return (
@@ -706,25 +712,35 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               </div>
 
-              {/* Ações: Adicionar Avulso, Robô Profarma ao Vivo, Planilha e Otimização */}
+              {/* Ações: Planilhas de Pedido, Robôs de Cotação ao Vivo e Otimização */}
               <div className="flex flex-wrap items-center gap-2">
                 
-                {/* Botão Baixar Planilha Modelo Profarma */}
-                <button
-                  onClick={handleExportarPlanilhaProfarma}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-700/60 bg-emerald-950/30 hover:bg-emerald-950/60 text-emerald-300 text-xs font-bold transition-all cursor-pointer shadow-xs"
-                  title="Baixar planilha modelo (Codigo/EAN e Quantidade) para importação direta na Profarma"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Planilha Pedido</span>
-                </button>
+                {/* Exportar Planilhas de Pedido */}
+                <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                  <button
+                    onClick={handleExportarPlanilhaProfarma}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-950/60 transition-all cursor-pointer"
+                    title="Baixar planilha modelo aceita pela Profarma (Codigo/EAN e Quantidade)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Planilha Profarma</span>
+                  </button>
+                  <button
+                    onClick={handleExportarPlanilhaDpc}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-cyan-300 hover:text-white hover:bg-cyan-950/60 transition-all cursor-pointer"
+                    title="Baixar planilha modelo aceita pela DPC (codigo ou ean e quantidade)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Planilha DPC</span>
+                  </button>
+                </div>
 
-                {/* Botão Robô Profarma ao Vivo */}
+                {/* Botão Cotação ao Vivo com Robôs (Profarma e DPC) */}
                 <button
-                  onClick={handleIniciarCotacaoAoVivo}
+                  onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                   disabled={cotandoAoVivo}
-                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
-                  title="Executar robô no portal da Profarma para raspar preços reais dos EANs"
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-md shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
+                  title="Executar robôs nos portais da Profarma e da DPC simultaneamente para disputa real de preços"
                 >
                   {cotandoAoVivo ? (
                     <>
@@ -734,7 +750,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   ) : (
                     <>
                       <Bot className="w-3.5 h-3.5 text-emerald-200" />
-                      <span>Cotar ao Vivo (Profarma)</span>
+                      <span>Cotar ao Vivo (Profarma & DPC)</span>
                     </>
                   )}
                 </button>
