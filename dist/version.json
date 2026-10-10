@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3598e6e",
-  "commitMessage": "feat(belaped): regra estrita de cobertura 7d, priorizacao Curva A com rentabilidade e filtro de Curva B",
-  "buildTime": "10/10/2026, 14:43:12"
+  "commitHash": "d730ce2",
+  "commitMessage": "feat(belaped): portal standalone com visual dark cyber B2B sem menu lateral do Belinha e reinicio da API",
+  "buildTime": "10/10/2026, 16:50:41"
 }

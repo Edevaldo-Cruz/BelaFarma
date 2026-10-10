@@ -21,7 +21,11 @@ import {
   Building2,
   TrendingUp,
   Sliders,
-  Filter
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -52,6 +56,11 @@ interface FaltaItem7d {
   qtd_sugerida_7d: number;
   subtotal_7d: number;
   tipo_categoria: 'MEDICAMENTO' | 'PERFUMARIA';
+  fornecedor_1?: string;
+  preco_1?: number;
+  fornecedor_2?: string;
+  preco_2?: number;
+  diferenca_percentual?: number;
 }
 
 interface PortalDistribuidora {
@@ -214,6 +223,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     });
   }, [faltas, filtroCurva, filtroCategoria, buscaFalta]);
 
+  // Paginação da Tabela de Faltas
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [itensPorPagina, setItensPorPagina] = useState(20);
+
+  // Reseta para a primeira página ao alterar filtros ou busca
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [filtroCurva, filtroCategoria, buscaFalta, itensPorPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(faltasFiltradas.length / itensPorPagina));
+
+  // Itens fatiados para a página atual
+  const itensPaginados = useMemo(() => {
+    const inicio = (paginaAtual - 1) * itensPorPagina;
+    return faltasFiltradas.slice(inicio, inicio + itensPorPagina);
+  }, [faltasFiltradas, paginaAtual, itensPorPagina]);
+
   // Totais dos itens selecionados
   const totaisSelecionados = useMemo(() => {
     let qtdItens = 0;
@@ -227,9 +253,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return { qtdItens, valorTotal };
   }, [faltasFiltradas, itensSelecionados]);
 
-  // Toggle de seleção de todos
+  // Toggle de seleção de todos (filtrados)
   const handleToggleTodos = () => {
-    const todosMarcados = faltasFiltradas.every(f => itensSelecionados[f.produto_id]);
+    const todosMarcados = faltasFiltradas.length > 0 && faltasFiltradas.every(f => itensSelecionados[f.produto_id]);
     const novoMap = { ...itensSelecionados };
     faltasFiltradas.forEach(f => {
       novoMap[f.produto_id] = !todosMarcados;
@@ -634,38 +660,63 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       <th className="py-2.5 px-3 w-8 text-center whitespace-nowrap">
                         <input
                           type="checkbox"
-                          checked={faltasFiltradas.length > 0 && faltasFiltradas.every(f => itensSelecionados[f.produto_id])}
-                          onChange={handleToggleTodos}
+                          checked={itensPaginados.length > 0 && itensPaginados.every(f => itensSelecionados[f.produto_id])}
+                          onChange={() => {
+                            const todosPaginaMarcados = itensPaginados.length > 0 && itensPaginados.every(f => itensSelecionados[f.produto_id]);
+                            const novoMap = { ...itensSelecionados };
+                            itensPaginados.forEach(f => {
+                              novoMap[f.produto_id] = !todosPaginaMarcados;
+                            });
+                            setItensSelecionados(novoMap);
+                          }}
                           className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                          title="Selecionar todos os itens da página atual"
                         />
                       </th>
-                      <th className="py-2.5 px-3 whitespace-nowrap">Produto / Metadados</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-20">Curva</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-24">Saldo Atual</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-24">Giro / Dia</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-24">Cobertura</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-28 bg-cyan-950/40 text-cyan-300 font-black">
+                      <th className="py-2.5 px-3 whitespace-nowrap min-w-[220px]">Produto / Metadados</th>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-16">Curva</th>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-20">Saldo</th>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-20">Cobertura</th>
+                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-24 bg-cyan-950/40 text-cyan-300 font-black">
                         Pedir 7 Dias
                       </th>
-                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-24">Últ. Custo</th>
+                      
+                      {/* 4 COLUNAS DE COTAÇÃO: 1º E 2º COLOCADOS */}
+                      <th className="py-2.5 px-3 whitespace-nowrap w-36 bg-cyan-950/20 text-cyan-400 font-black">
+                        1º Colocado (Vendedor)
+                      </th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-24 bg-cyan-950/20 text-cyan-300 font-black">
+                        1º Preço
+                      </th>
+                      <th className="py-2.5 px-3 whitespace-nowrap w-36 bg-slate-900/60 text-slate-400">
+                        2º Colocado (Vendedor)
+                      </th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-28 bg-slate-900/60 text-slate-400">
+                        2º Preço
+                      </th>
+
                       <th className="py-2.5 px-3 text-right whitespace-nowrap w-20 text-emerald-400">Margem</th>
                       <th className="py-2.5 px-3 text-right whitespace-nowrap w-28 bg-slate-900/60 font-black text-white">
                         Subtotal 7d
                       </th>
-                      <th className="py-2.5 px-3 whitespace-nowrap w-44">Último Fornecedor</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 text-xs">
-                    {faltasFiltradas.length === 0 ? (
+                    {itensPaginados.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-12 text-center text-slate-500 font-medium">
+                        <td colSpan={12} className="py-12 text-center text-slate-500 font-medium">
                           Nenhum produto encontrado com os filtros selecionados.
                         </td>
                       </tr>
                     ) : (
-                      faltasFiltradas.map((item) => {
+                      itensPaginados.map((item) => {
                         const isSelected = Boolean(itensSelecionados[item.produto_id]);
                         const isRuptura = item.saldo <= 0;
+                        const preco1 = item.preco_1 ?? item.custo_unitario;
+                        const preco2 = item.preco_2 ?? (item.custo_unitario * 1.05);
+                        const fornecedor1 = item.fornecedor_1 || item.fornecedor_ult_compra || 'PROFARMA';
+                        const fornecedor2 = item.fornecedor_2 || 'DISTRIMED';
+                        const diffPct = item.diferenca_percentual ?? Number((((preco2 - preco1) / preco1) * 100).toFixed(1));
 
                         return (
                           <tr 
@@ -699,7 +750,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   {item.apresentacao && (
                                     <>
                                       <span>•</span>
-                                      <span>{item.apresentacao}</span>
+                                      <span className="truncate max-w-[120px]">{item.apresentacao}</span>
                                     </>
                                   )}
                                 </div>
@@ -726,11 +777,6 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               </span>
                             </td>
 
-                            {/* Giro / Dia */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap text-slate-300 font-medium">
-                              {item.vmd_ponderado} /dia
-                            </td>
-
                             {/* Cobertura */}
                             <td className="py-2 px-3 text-center whitespace-nowrap">
                               <span className={`font-bold text-[11px] ${
@@ -747,9 +793,36 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               </span>
                             </td>
 
-                            {/* Últ. Custo */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap text-slate-300 font-medium">
-                              R$ {item.custo_unitario.toFixed(2)}
+                            {/* 1º Colocado (Vendedor) */}
+                            <td className="py-2 px-3 whitespace-nowrap bg-cyan-950/10">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
+                                <span className="font-bold text-cyan-300 text-[11px] truncate max-w-[130px]" title={fornecedor1}>
+                                  {fornecedor1}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* 1º Preço */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap font-black text-cyan-300 bg-cyan-950/10 text-xs">
+                              R$ {preco1.toFixed(2)}
+                            </td>
+
+                            {/* 2º Colocado (Vendedor) */}
+                            <td className="py-2 px-3 whitespace-nowrap bg-slate-900/30">
+                              <span className="text-slate-400 text-[11px] truncate max-w-[130px] block" title={fornecedor2}>
+                                {fornecedor2}
+                              </span>
+                            </td>
+
+                            {/* 2º Preço (+X%) */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap bg-slate-900/30 text-xs">
+                              <span className="text-slate-300 font-medium">R$ {preco2.toFixed(2)}</span>
+                              {diffPct > 0 && (
+                                <span className="text-[10px] text-amber-400/90 ml-1 font-semibold">
+                                  +{diffPct}%
+                                </span>
+                              )}
                             </td>
 
                             {/* Margem de Lucro */}
@@ -765,17 +838,77 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             <td className="py-2 px-3 text-right whitespace-nowrap font-black text-white bg-slate-900/40">
                               R$ {item.subtotal_7d.toFixed(2)}
                             </td>
-
-                            {/* Último Fornecedor */}
-                            <td className="py-2 px-3 whitespace-nowrap text-slate-400 text-[11px] truncate max-w-[180px]" title={item.fornecedor_ult_compra}>
-                              {item.fornecedor_ult_compra}
-                            </td>
                           </tr>
                         );
                       })
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* ─── CONTROLE DE PAGINAÇÃO DA TABELA ─────────────────────────────── */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-[#09101f] border-t border-slate-800 text-xs">
+                {/* Lado Esquerdo: Contagem de Itens e Seletor de Tamanho */}
+                <div className="flex items-center gap-3 text-slate-400">
+                  <span>
+                    Mostrando <b className="text-white">{faltasFiltradas.length > 0 ? (paginaAtual - 1) * itensPorPagina + 1 : 0}</b> a <b className="text-white">{Math.min(paginaAtual * itensPorPagina, faltasFiltradas.length)}</b> de <b className="text-white">{faltasFiltradas.length}</b> produtos
+                  </span>
+                  <span className="text-slate-700">|</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400">Itens por pág:</span>
+                    <select
+                      value={itensPorPagina}
+                      onChange={(e) => setItensPorPagina(Number(e.target.value))}
+                      className="px-2 py-0.5 rounded-lg border border-slate-700 bg-[#0e1626] text-white text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer"
+                    >
+                      <option value={15}>15</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Lado Direito: Navegação de Páginas */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setPaginaAtual(1)}
+                    disabled={paginaAtual === 1}
+                    className="p-1.5 rounded-lg border border-slate-700 bg-[#0e1626] text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Primeira Página"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setPaginaAtual(prev => Math.max(1, prev - 1))}
+                    disabled={paginaAtual === 1}
+                    className="p-1.5 rounded-lg border border-slate-700 bg-[#0e1626] text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Página Anterior"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex items-center px-3 py-1 rounded-lg border border-slate-700 bg-[#0e1626] text-xs font-bold text-slate-200">
+                    <span>Página <b className="text-cyan-400">{paginaAtual}</b> de <b className="text-white">{totalPaginas}</b></span>
+                  </div>
+
+                  <button
+                    onClick={() => setPaginaAtual(prev => Math.min(totalPaginas, prev + 1))}
+                    disabled={paginaAtual === totalPaginas || totalPaginas === 0}
+                    className="p-1.5 rounded-lg border border-slate-700 bg-[#0e1626] text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Próxima Página"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setPaginaAtual(totalPaginas)}
+                    disabled={paginaAtual === totalPaginas || totalPaginas === 0}
+                    className="p-1.5 rounded-lg border border-slate-700 bg-[#0e1626] text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Última Página"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

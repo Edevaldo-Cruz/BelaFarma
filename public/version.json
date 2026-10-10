@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e8ce1d5",
-  "commitMessage": "feat(vitrine): unificar contagem de carrinhos por id do cliente (visitor_id)",
-  "buildTime": "10/10/2026, 14:18:05"
+  "commitHash": "d730ce2",
+  "commitMessage": "feat(belaped): portal standalone com visual dark cyber B2B sem menu lateral do Belinha e reinicio da API",
+  "buildTime": "10/10/2026, 16:50:41"
 }
