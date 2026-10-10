@@ -190,6 +190,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     sucesso: boolean;
   } | null>(null);
 
+  // Registro de horário da última sincronização para feedback visual
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string>('');
+
   // Carrega todos os dados iniciais
   const carregarDados = async () => {
     try {
@@ -230,10 +233,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         setRelatorioPrecos(dataRel.produtos || []);
       }
 
+      setUltimaAtualizacao(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
     } catch (e: any) {
       addToast('Erro ao sincronizar dados do BelaPed: ' + e.message, 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // Sincronização manual com feedback visual garantido
+  const handleSincronizarManual = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    addToast('Sincronizando dados com o servidor...', 'info');
+    const t0 = Date.now();
+    try {
+      await carregarDados();
+      const restante = Math.max(0, 600 - (Date.now() - t0));
+      if (restante > 0) await new Promise(r => setTimeout(r, restante));
+      addToast('Dados da tabela e estoque sincronizados com sucesso!', 'success');
+    } catch (err: any) {
+      addToast('Erro ao sincronizar dados: ' + err.message, 'error');
+    } finally {
       setRefreshing(false);
     }
   };
@@ -428,6 +451,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         ? selecionados.map(s => s.ean).filter(e => e && e.length >= 7)
         : faltasFiltradas.slice(0, 20).map(s => s.ean).filter(e => e && e.length >= 7);
 
+      const nomeExibicao = fornecedor === 'TODOS' ? '4 Portais (Profarma, DPC, Soton e Distrimed)' : fornecedor;
+
+      // Resposta visual IMEDIATA (0ms): Mostra o banner e status instantaneamente
+      setStatusCotacao({
+        emAndamento: true,
+        fornecedor: nomeExibicao,
+        total: eansParaCotar.length || 20,
+        atual: 0,
+        encontrados: 0,
+        ultimoItem: 'Conectando aos navegadores e portais...'
+      });
+
+      addToast(`Robô de cotação iniciado para ${nomeExibicao}!`, 'info');
+
       const res = await fetch('/api/belaped/cotar-ao-vivo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -442,13 +479,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       if (!data.success) {
         addToast(data.error || 'Erro ao iniciar cotação', 'error');
         setCotandoAoVivo(false);
+        setStatusCotacao(null);
         return;
       }
 
-      addToast(data.message || `Robô de cotação iniciado para ${fornecedor}!`, 'success');
+      if (data.status) {
+        setStatusCotacao(data.status);
+      }
 
-      // Monitora o progresso em segundo plano a cada 2.5s
-      const timer = setInterval(async () => {
+      addToast(data.message || `Robô pesquisando preços nos portais!`, 'success');
+
+      // Monitora o progresso em segundo plano a cada 2s com verificação rápida inicial
+      const verificarProgresso = async () => {
         try {
           const stRes = await fetch('/api/belaped/status-cotacao');
           const stData = await stRes.json();
@@ -465,11 +507,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           clearInterval(timer);
           setCotandoAoVivo(false);
         }
-      }, 2500);
+      };
+
+      setTimeout(verificarProgresso, 600);
+      const timer = setInterval(verificarProgresso, 2000);
 
     } catch (err: any) {
       addToast('Erro na cotação: ' + err.message, 'error');
       setCotandoAoVivo(false);
+      setStatusCotacao(null);
     }
   };
 
@@ -909,40 +955,47 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   )}
                 </button>
 
-                {/* Botão Cotação ao Vivo com Robôs (Profarma, DPC, Soton e Distrimed) */}
+                {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 4 PORTAIS) */}
                 <button
                   onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                   disabled={cotandoAoVivo}
-                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-md shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
-                  title="Executar robôs em todos os 4 portais (Profarma, DPC, Soton Farma e Distrimed) para disputa real de preços"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 hover:shadow-cyan-900/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                  title="Disparar os robôs agora para consultar preços ao vivo na Profarma, DPC, Soton Farma e Distrimed"
                 >
                   {cotandoAoVivo ? (
                     <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                      <span>Cotando ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>Cotando nos 4 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
                     </>
                   ) : (
                     <>
-                      <Bot className="w-3.5 h-3.5 text-emerald-200" />
-                      <span>Cotar ao Vivo (4 Portais)</span>
+                      <Bot className="w-4 h-4 text-emerald-200 animate-pulse" />
+                      <span>Recarregar Cotação (Robôs)</span>
                     </>
                   )}
                 </button>
 
-                {/* Botão Recarregar Cotações */}
+                {/* BOTÃO SECUNDÁRIO: ATUALIZAR TABELA (SINCRONIZAR BANCO) */}
                 <button
-                  onClick={carregarDados}
+                  onClick={handleSincronizarManual}
                   disabled={refreshing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-cyan-800/60 text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                  title="Recarregar cotações e sincronizar dados com o banco de dados"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-cyan-800/60 text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50 active:scale-95"
+                  title="Sincronizar dados e cotações da tabela com o banco de dados"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`} />
-                  <span>Recarregar Cotações</span>
+                  <span>{refreshing ? 'Atualizando...' : 'Atualizar Tabela'}</span>
                 </button>
+
+                {/* Badge com Horário da Última Sincronização */}
+                {ultimaAtualizacao && (
+                  <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap hidden xl:inline-block">
+                    Atualizado às <b className="text-slate-200">{ultimaAtualizacao}</b>
+                  </span>
+                )}
 
                 <button
                   onClick={() => setAvulsoModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-cyan-400" />
                   <span>+ Item Avulso</span>
@@ -951,7 +1004,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 <button
                   onClick={handleExecutarSimulacao}
                   disabled={simulando || totaisSelecionados.qtdItens === 0}
-                  className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-cyan-200" />
                   <span>Otimizar Carrinhos ({totaisSelecionados.qtdItens} itens • R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
@@ -961,25 +1014,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
             {/* BARRA DE PROGRESSO DA COTAÇÃO AO VIVO (SE ATIVA) */}
             {statusCotacao && statusCotacao.emAndamento && (
-              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/80 flex items-center justify-between gap-4 animate-pulse">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-emerald-900/60 text-emerald-300">
-                    <Bot className="w-4 h-4 animate-bounce" />
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/90 via-slate-900 to-cyan-950/90 border-2 border-emerald-500/70 shadow-2xl shadow-emerald-950/60 ring-2 ring-emerald-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 shadow-inner">
+                    <Bot className="w-6 h-6 animate-bounce" />
                   </div>
                   <div>
-                    <span className="text-xs font-black text-emerald-200 block">
-                      Robô BelaPed em Execução ({statusCotacao.fornecedor}): item {statusCotacao.atual} de {statusCotacao.total}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-white uppercase tracking-wider">
+                        Robô BelaPed Cotando ao Vivo
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50">
+                        EM ANDAMENTO
+                      </span>
+                    </div>
+                    <span className="text-xs text-emerald-300 font-bold block mt-0.5">
+                      {statusCotacao.fornecedor} • Processando item {statusCotacao.atual || 1} de {statusCotacao.total || 1}
                     </span>
-                    <span className="text-[11px] text-emerald-400/90 font-medium">
-                      Item atual: {statusCotacao.ultimoItem || 'Pesquisando...'} • {statusCotacao.encontrados} produtos com preço real encontrado
+                    <span className="text-xs text-slate-300 font-medium block">
+                      Item: <b className="text-white">{statusCotacao.ultimoItem || 'Iniciando robôs...'}</b> • <b className="text-emerald-400">{statusCotacao.encontrados} preços capturados</b>
                     </span>
                   </div>
                 </div>
-                <div className="w-36 bg-slate-800 rounded-full h-2 overflow-hidden border border-emerald-800">
-                  <div
-                    className="bg-emerald-400 h-full transition-all duration-300"
-                    style={{ width: `${Math.round(((statusCotacao.atual || 1) / (statusCotacao.total || 1)) * 100)}%` }}
-                  ></div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="w-48 bg-slate-800 rounded-full h-3 overflow-hidden border border-emerald-700/60 p-0.5">
+                    <div
+                      className="bg-gradient-to-r from-emerald-400 to-cyan-400 h-full rounded-full transition-all duration-300 shadow-sm"
+                      style={{ width: `${Math.max(5, Math.round(((statusCotacao.atual || 0) / (statusCotacao.total || 1)) * 100))}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-xs font-black text-emerald-300 w-12 text-right">
+                    {Math.round(((statusCotacao.atual || 0) / (statusCotacao.total || 1)) * 100)}%
+                  </span>
                 </div>
               </div>
             )}
@@ -1049,7 +1116,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             )}
 
             {/* TABELA DE ALTA DENSIDADE (DIRETRIZES AGENTS.MD: 1 LINHA COMPACTA) */}
-            <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+            <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
+              
+              {/* Barra animada de status durante carregamento ou cotação */}
+              {(refreshing || (statusCotacao && statusCotacao.emAndamento)) && (
+                <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500 animate-pulse"></div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
