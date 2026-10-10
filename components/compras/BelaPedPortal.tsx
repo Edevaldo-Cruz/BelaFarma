@@ -1098,11 +1098,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       itensPaginados.map((item) => {
                         const isSelected = Boolean(itensSelecionados[item.produto_id]);
                         const isRuptura = item.saldo <= 0;
-                        const preco1 = item.preco_1 ?? item.custo_unitario;
-                        const preco2 = item.preco_2 ?? (item.custo_unitario * 1.05);
-                        const fornecedor1 = item.fornecedor_1 || item.fornecedor_ult_compra || 'PROFARMA';
-                        const fornecedor2 = item.fornecedor_2 || 'DISTRIMED';
-                        const diffPct = item.diferenca_percentual ?? Number((((preco2 - preco1) / preco1) * 100).toFixed(1));
+                        const temCotacaoReal = Boolean(item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && item.preco_1 && item.preco_1 > 0);
+                        const fornecedor1 = temCotacaoReal ? item.fornecedor_1! : 'Não Cotado';
+                        const preco1 = temCotacaoReal ? item.preco_1! : null;
+                        const fornecedor2 = (item.fornecedor_2 && item.fornecedor_2 !== '—') ? item.fornecedor_2 : null;
+                        const preco2 = (item.preco_2 && item.preco_2 > 0) ? item.preco_2 : null;
+                        const diffPct = (preco1 && preco2 && preco2 > preco1) ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
 
                         return (
                           <tr 
@@ -1181,33 +1182,51 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
                             {/* 1º Colocado (Vendedor) */}
                             <td className="py-2 px-3 whitespace-nowrap bg-cyan-950/10">
-                              <div className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
-                                <span className="font-bold text-cyan-300 text-[11px] truncate max-w-[130px]" title={fornecedor1}>
-                                  {fornecedor1}
-                                </span>
-                              </div>
+                              {temCotacaoReal ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                                  <span className="font-bold text-emerald-300 text-[11px] truncate max-w-[130px]" title={fornecedor1}>
+                                    {fornecedor1}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-500 text-[10px] italic">Aguardando Robô</span>
+                              )}
                             </td>
 
                             {/* 1º Preço */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap font-black text-cyan-300 bg-cyan-950/10 text-xs">
-                              R$ {preco1.toFixed(2)}
+                            <td className="py-2 px-3 text-right whitespace-nowrap font-black bg-cyan-950/10 text-xs">
+                              {preco1 !== null ? (
+                                <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
+                              ) : (
+                                <span className="text-slate-600">—</span>
+                              )}
                             </td>
 
                             {/* 2º Colocado (Vendedor) */}
                             <td className="py-2 px-3 whitespace-nowrap bg-slate-900/30">
-                              <span className="text-slate-400 text-[11px] truncate max-w-[130px] block" title={fornecedor2}>
-                                {fornecedor2}
-                              </span>
+                              {fornecedor2 ? (
+                                <span className="text-slate-400 text-[11px] truncate max-w-[130px] block" title={fornecedor2}>
+                                  {fornecedor2}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600 text-[10px]">—</span>
+                              )}
                             </td>
 
                             {/* 2º Preço (+X%) */}
                             <td className="py-2 px-3 text-right whitespace-nowrap bg-slate-900/30 text-xs">
-                              <span className="text-slate-300 font-medium">R$ {preco2.toFixed(2)}</span>
-                              {diffPct > 0 && (
-                                <span className="text-[10px] text-amber-400/90 ml-1 font-semibold">
-                                  +{diffPct}%
-                                </span>
+                              {preco2 !== null ? (
+                                <>
+                                  <span className="text-slate-300 font-medium">R$ {preco2.toFixed(2)}</span>
+                                  {diffPct > 0 && (
+                                    <span className="text-[10px] text-amber-400/90 ml-1 font-semibold">
+                                      +{diffPct}%
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-slate-600">—</span>
                               )}
                             </td>
 

@@ -234,46 +234,27 @@ function belapedEndpoints(db) {
         let diferencaPct = 0;
 
         if (cotacoesReais && cotacoesReais.length > 0) {
-          // 1º Colocado real (melhor preço real de mercado)
+          // 1º Colocado real (melhor preço real de mercado capturado pelo robô)
           fornecedor1 = cotacoesReais[0].fornecedor;
           preco1 = Number(cotacoesReais[0].preco.toFixed(2));
 
           if (cotacoesReais.length > 1) {
-            // Disputa real entre distribuidores cotados ao vivo (ex: Profarma vs DPC)
+            // 2º Colocado real (disputa real entre portais capturados)
             fornecedor2 = cotacoesReais[1].fornecedor;
             preco2 = Number(cotacoesReais[1].preco.toFixed(2));
             diferencaPct = preco1 > 0 ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
           } else {
-            // Se apenas 1 distribuidor cotou, projeta o 2º com +5%
-            fornecedor2 = fornecedor1 === 'PROFARMA' ? 'DPC DISTRIBUIDORA' : 'PROFARMA';
-            preco2 = Number((preco1 * 1.05).toFixed(2));
-            diferencaPct = 5.0;
+            fornecedor2 = '—';
+            preco2 = 0;
+            diferencaPct = 0;
           }
         } else {
-          // Determina 1º e 2º colocados da cotação baseados no histórico
-          const listaDistribuidores = ['PROFARMA', 'DISTRIMED', 'PANPHARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'MARTINS ATACADO'];
-          const hashSeed = Math.abs(Number(r.produto_id) || 1);
-          
-          fornecedor1 = (r.ultima_compra_fornecedor && r.ultima_compra_fornecedor !== 'Cadastro Geral Digifarma')
-            ? r.ultima_compra_fornecedor.toUpperCase()
-            : listaDistribuidores[hashSeed % listaDistribuidores.length];
-
-          if (fornecedor1.includes('PROFARMA')) fornecedor1 = 'PROFARMA';
-          else if (fornecedor1.includes('DISTRIMED') || fornecedor1.includes('DISTRMED')) fornecedor1 = 'DISTRIMED';
-          else if (fornecedor1.includes('PANPHARMA')) fornecedor1 = 'PANPHARMA';
-          else if (fornecedor1.includes('NAVARRO')) fornecedor1 = 'NAVARRO';
-          else if (fornecedor1.includes('SOTON')) fornecedor1 = 'SOTON FARMA';
-          else if (fornecedor1.includes('DPC')) fornecedor1 = 'DPC DISTRIBUIDORA';
-          else if (fornecedor1.includes('MARTINS')) fornecedor1 = 'MARTINS';
-          else if (fornecedor1.includes('CENTRO OESTE')) fornecedor1 = 'DISTRIMED';
-
-          const alternativas = listaDistribuidores.filter(d => !fornecedor1.includes(d));
-          fornecedor2 = alternativas[(hashSeed + 1) % alternativas.length] || 'PROFARMA';
-
-          preco1 = Number(custo.toFixed(2));
-          const variacao = 1 + (((hashSeed % 6) + 3) / 100);
-          preco2 = Number((preco1 * variacao).toFixed(2));
-          diferencaPct = Number((((preco2 - preco1) / preco1) * 100).toFixed(1));
+          // Nenhum dado falso: se ainda não foi cotado ao vivo pelo robô, exibe claramente
+          fornecedor1 = 'Não Cotado';
+          preco1 = Number(custo.toFixed(2)); // Mantém custo da loja para cálculo do orçamento
+          fornecedor2 = '—';
+          preco2 = 0;
+          diferencaPct = 0;
         }
 
         const subtotal7d = Number((qtdSugerida7d * preco1).toFixed(2));
