@@ -929,6 +929,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   )}
                 </button>
 
+                {/* Botão Recarregar Cotações */}
+                <button
+                  onClick={carregarDados}
+                  disabled={refreshing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-cyan-800/60 text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Recarregar cotações e sincronizar dados com o banco de dados"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`} />
+                  <span>Recarregar Cotações</span>
+                </button>
+
                 <button
                   onClick={() => setAvulsoModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
@@ -1059,30 +1070,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           title="Selecionar todos os itens da página atual"
                         />
                       </th>
-                      <th className="py-2.5 px-3 whitespace-nowrap min-w-[220px]">Produto / Metadados</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-16">Curva</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-20">Saldo</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-20">Cobertura</th>
-                      <th className="py-2.5 px-3 text-center whitespace-nowrap w-24 bg-cyan-950/40 text-cyan-300 font-black">
+                      <th className="py-3 px-3.5 whitespace-nowrap min-w-[240px] text-xs font-black uppercase tracking-wider text-slate-300">Produto / Metadados</th>
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-20 text-xs font-black uppercase tracking-wider text-slate-300">Curva</th>
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-24 text-xs font-black uppercase tracking-wider text-slate-300">Saldo</th>
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-24 text-xs font-black uppercase tracking-wider text-slate-300">Cobertura</th>
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-28 bg-cyan-950/40 text-cyan-300 text-xs font-black uppercase tracking-wider">
                         Pedir 7 Dias
                       </th>
                       
                       {/* 4 COLUNAS DE COTAÇÃO: 1º E 2º COLOCADOS */}
-                      <th className="py-2.5 px-3 whitespace-nowrap w-36 bg-cyan-950/20 text-cyan-400 font-black">
+                      <th className="py-3 px-3.5 whitespace-nowrap w-40 bg-cyan-950/20 text-cyan-400 text-xs font-black uppercase tracking-wider">
                         1º Colocado (Vendedor)
                       </th>
-                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-24 bg-cyan-950/20 text-cyan-300 font-black">
+                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-cyan-950/20 text-cyan-300 text-xs font-black uppercase tracking-wider">
                         1º Preço
                       </th>
-                      <th className="py-2.5 px-3 whitespace-nowrap w-36 bg-slate-900/60 text-slate-400">
+                      <th className="py-3 px-3.5 whitespace-nowrap w-40 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
                         2º Colocado (Vendedor)
                       </th>
-                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-28 bg-slate-900/60 text-slate-400">
+                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-32 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
                         2º Preço
                       </th>
 
-                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-20 text-emerald-400">Margem</th>
-                      <th className="py-2.5 px-3 text-right whitespace-nowrap w-28 bg-slate-900/60 font-black text-white">
+                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-24 text-emerald-400 text-xs font-black uppercase tracking-wider">Margem</th>
+                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-32 bg-slate-900/60 font-black text-white text-xs uppercase tracking-wider">
                         Subtotal 7d
                       </th>
                     </tr>
@@ -1108,36 +1119,36 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         return (
                           <tr 
                             key={item.produto_id}
-                            className={`hover:bg-slate-800/40 transition-colors ${
-                              isSelected ? 'bg-cyan-950/15' : ''
+                            className={`hover:bg-slate-800/50 transition-colors ${
+                              isSelected ? 'bg-cyan-950/20' : ''
                             }`}
                           >
                             {/* Checkbox */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                               <input
                                 type="checkbox"
                                 checked={isSelected}
                                 onChange={() => setItensSelecionados(prev => ({ ...prev, [item.produto_id]: !prev[item.produto_id] }))}
-                                className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
                               />
                             </td>
 
                             {/* Produto e Metadados em 1 linha compacta */}
-                            <td className="py-2 px-3">
+                            <td className="py-2.5 px-3.5">
                               <div className="flex flex-col">
-                                <span className="font-bold text-slate-100 leading-tight">
+                                <span className="text-sm font-bold text-white leading-snug">
                                   {item.descricao}
                                 </span>
-                                <div className="inline-flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                                  <span>EAN: {item.ean || 'Sem EAN'}</span>
-                                  <span>•</span>
-                                  <span className={item.tipo_categoria === 'MEDICAMENTO' ? 'text-emerald-400 font-semibold' : 'text-purple-400 font-semibold'}>
+                                <div className="inline-flex items-center gap-2 text-xs text-slate-300 mt-1">
+                                  <span className="font-mono text-slate-300">EAN: {item.ean || 'Sem EAN'}</span>
+                                  <span className="text-slate-500">•</span>
+                                  <span className={item.tipo_categoria === 'MEDICAMENTO' ? 'text-emerald-400 font-bold' : 'text-purple-400 font-bold'}>
                                     {item.tipo_categoria}
                                   </span>
                                   {item.apresentacao && (
                                     <>
-                                      <span>•</span>
-                                      <span className="truncate max-w-[120px]">{item.apresentacao}</span>
+                                      <span className="text-slate-500">•</span>
+                                      <span className="truncate max-w-[150px] text-slate-300">{item.apresentacao}</span>
                                     </>
                                   )}
                                 </div>
@@ -1145,8 +1156,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Curva ABC Badge */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                              <span className={`px-2.5 py-1 rounded-md text-xs font-black ${
                                 item.curva_abc === 'A' 
                                   ? 'bg-rose-950 text-rose-300 border border-rose-800' 
                                   : item.curva_abc === 'B' 
@@ -1158,89 +1169,89 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Saldo Atual */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              <span className={`font-black ${isRuptura ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`}>
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                              <span className={`text-sm font-black ${isRuptura ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`}>
                                 {item.saldo} un
                               </span>
                             </td>
 
                             {/* Cobertura */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              <span className={`font-bold text-[11px] ${
-                                item.dias_estoque_restante <= 0 ? 'text-rose-400' : 'text-amber-400'
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                              <span className={`text-xs font-bold ${
+                                item.dias_estoque_restante <= 0 ? 'text-rose-400' : 'text-amber-300'
                               }`}>
                                 {item.dias_estoque_restante <= 0 ? '0d (Ruptura)' : `${item.dias_estoque_restante}d`}
                               </span>
                             </td>
 
                             {/* Pedir 7 Dias */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap bg-cyan-950/30">
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap bg-cyan-950/30">
                               <span className="font-black text-cyan-300 text-sm">
                                 {item.qtd_sugerida_7d} un
                               </span>
                             </td>
 
                             {/* 1º Colocado (Vendedor) */}
-                            <td className="py-2 px-3 whitespace-nowrap bg-cyan-950/10">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap bg-cyan-950/10">
                               {temCotacaoReal ? (
                                 <div className="flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
-                                  <span className="font-bold text-emerald-300 text-[11px] truncate max-w-[130px]" title={fornecedor1}>
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                                  <span className="font-bold text-emerald-300 text-xs truncate max-w-[140px]" title={fornecedor1}>
                                     {fornecedor1}
                                   </span>
                                 </div>
                               ) : (
-                                <span className="text-slate-500 text-[10px] italic">Aguardando Robô</span>
+                                <span className="text-slate-400 text-xs italic">Aguardando Robô</span>
                               )}
                             </td>
 
                             {/* 1º Preço */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap font-black bg-cyan-950/10 text-xs">
+                            <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black bg-cyan-950/10 text-sm">
                               {preco1 !== null ? (
                                 <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
                               ) : (
-                                <span className="text-slate-600">—</span>
+                                <span className="text-slate-500">—</span>
                               )}
                             </td>
 
                             {/* 2º Colocado (Vendedor) */}
-                            <td className="py-2 px-3 whitespace-nowrap bg-slate-900/30">
+                            <td className="py-2.5 px-3.5 whitespace-nowrap bg-slate-900/30">
                               {fornecedor2 ? (
-                                <span className="text-slate-400 text-[11px] truncate max-w-[130px] block" title={fornecedor2}>
+                                <span className="text-slate-300 font-medium text-xs truncate max-w-[140px] block" title={fornecedor2}>
                                   {fornecedor2}
                                 </span>
                               ) : (
-                                <span className="text-slate-600 text-[10px]">—</span>
+                                <span className="text-slate-500 text-xs">—</span>
                               )}
                             </td>
 
                             {/* 2º Preço (+X%) */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap bg-slate-900/30 text-xs">
+                            <td className="py-2.5 px-3.5 text-right whitespace-nowrap bg-slate-900/30 text-sm">
                               {preco2 !== null ? (
                                 <>
-                                  <span className="text-slate-300 font-medium">R$ {preco2.toFixed(2)}</span>
+                                  <span className="text-slate-200 font-bold">R$ {preco2.toFixed(2)}</span>
                                   {diffPct > 0 && (
-                                    <span className="text-[10px] text-amber-400/90 ml-1 font-semibold">
+                                    <span className="text-xs text-amber-400/90 ml-1.5 font-bold">
                                       +{diffPct}%
                                     </span>
                                   )}
                                 </>
                               ) : (
-                                <span className="text-slate-600">—</span>
+                                <span className="text-slate-500">—</span>
                               )}
                             </td>
 
                             {/* Margem de Lucro */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap">
-                              <span className={`font-black text-xs ${
-                                item.margem_lucro_percentual >= 30 ? 'text-emerald-400' : 'text-slate-400'
+                            <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                              <span className={`font-black text-sm ${
+                                item.margem_lucro_percentual >= 30 ? 'text-emerald-400' : 'text-slate-300'
                               }`}>
                                 {item.margem_lucro_percentual}%
                               </span>
                             </td>
 
                             {/* Subtotal 7d */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap font-black text-white bg-slate-900/40">
+                            <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black text-white bg-slate-900/40 text-sm">
                               R$ {item.subtotal_7d.toFixed(2)}
                             </td>
                           </tr>

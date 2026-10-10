@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "89cdc63",
-  "commitMessage": "feat(belaped): integracao distrimed com cotacao, exportacao csv e robo importador via modal",
-  "buildTime": "10/10/2026, 19:13:08"
+  "commitHash": "5ae6c18",
+  "commitMessage": "refactor(belaped): remocao total de cotacoes simuladas e exibicao estrita de precos reais dos robos",
+  "buildTime": "10/10/2026, 19:31:23"
 }
