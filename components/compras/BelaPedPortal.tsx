@@ -25,7 +25,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  Bot,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -155,6 +158,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Relatório de Preços
   const [relatorioPrecos, setRelatorioPrecos] = useState<any[]>([]);
+
+  // Cotação ao Vivo com Robô
+  const [cotandoAoVivo, setCotandoAoVivo] = useState(false);
+  const [statusCotacao, setStatusCotacao] = useState<{
+    emAndamento: boolean;
+    fornecedor: string;
+    total: number;
+    atual: number;
+    encontrados: number;
+    ultimoItem: string;
+  } | null>(null);
 
   // Carrega todos os dados iniciais
   const carregarDados = async () => {
@@ -378,9 +392,71 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Abrir Navegador no Portal da Distribuidora (Finalizar Compra)
   const handleAbrirNavegadorCarrinho = (carrinho: any) => {
     const portal = portais.find(p => p.nome.toUpperCase() === carrinho.distribuidora.toUpperCase());
-    const url = portal?.url_portal || 'https://b2b.profarma.com.br';
+    const url = portal?.url_portal || 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido';
     window.open(url, '_blank');
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
+  };
+
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer na Profarma
+  const handleIniciarCotacaoAoVivo = async () => {
+    try {
+      setCotandoAoVivo(true);
+
+      // Pega os itens selecionados ou os itens da página/críticos
+      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
+      const eansParaCotar = selecionados.length > 0
+        ? selecionados.map(s => s.ean).filter(e => e && e.length >= 7)
+        : faltasFiltradas.slice(0, 20).map(s => s.ean).filter(e => e && e.length >= 7);
+
+      const res = await fetch('/api/belaped/cotar-ao-vivo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fornecedor: 'PROFARMA',
+          limite: 20,
+          eans: eansParaCotar.length > 0 ? eansParaCotar : undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        addToast(data.error || 'Erro ao iniciar cotação', 'error');
+        setCotandoAoVivo(false);
+        return;
+      }
+
+      addToast(data.message || 'Robô Profarma iniciado!', 'success');
+
+      // Monitora o progresso em segundo plano a cada 2.5s
+      const timer = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-cotacao');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCotacao(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timer);
+              setCotandoAoVivo(false);
+              addToast(`Cotação Profarma concluída! ${stData.status.encontrados} produtos obtiveram preços ao vivo!`, 'success');
+              carregarDados();
+            }
+          }
+        } catch (e) {
+          clearInterval(timer);
+          setCotandoAoVivo(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro na cotação: ' + err.message, 'error');
+      setCotandoAoVivo(false);
+    }
+  };
+
+  // Baixar Planilha Pronta no Modelo do Pedido Profarma (Codigo/EAN e Quantidade)
+  const handleExportarPlanilhaProfarma = () => {
+    window.open('/api/belaped/exportar-planilha-profarma', '_blank');
+    addToast('Download da planilha de pedido Profarma gerado com sucesso!', 'info');
   };
 
   return (
@@ -630,8 +706,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               </div>
 
-              {/* Ações: Adicionar Avulso e Cotar nos Portais */}
-              <div className="flex items-center gap-2">
+              {/* Ações: Adicionar Avulso, Robô Profarma ao Vivo, Planilha e Otimização */}
+              <div className="flex flex-wrap items-center gap-2">
+                
+                {/* Botão Baixar Planilha Modelo Profarma */}
+                <button
+                  onClick={handleExportarPlanilhaProfarma}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-700/60 bg-emerald-950/30 hover:bg-emerald-950/60 text-emerald-300 text-xs font-bold transition-all cursor-pointer shadow-xs"
+                  title="Baixar planilha modelo (Codigo/EAN e Quantidade) para importação direta na Profarma"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Planilha Pedido</span>
+                </button>
+
+                {/* Botão Robô Profarma ao Vivo */}
+                <button
+                  onClick={handleIniciarCotacaoAoVivo}
+                  disabled={cotandoAoVivo}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
+                  title="Executar robô no portal da Profarma para raspar preços reais dos EANs"
+                >
+                  {cotandoAoVivo ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                      <span>Cotando ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>Cotar ao Vivo (Profarma)</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   onClick={() => setAvulsoModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
@@ -646,10 +753,35 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-cyan-200" />
-                  <span>Cotar nos Portais ({totaisSelecionados.qtdItens} itens • R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
+                  <span>Otimizar Carrinhos ({totaisSelecionados.qtdItens} itens • R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
                 </button>
               </div>
             </div>
+
+            {/* BARRA DE PROGRESSO DA COTAÇÃO AO VIVO (SE ATIVA) */}
+            {statusCotacao && statusCotacao.emAndamento && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/80 flex items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-900/60 text-emerald-300">
+                    <Bot className="w-4 h-4 animate-bounce" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-emerald-200 block">
+                      Robô da Profarma em Execução: item {statusCotacao.atual} de {statusCotacao.total}
+                    </span>
+                    <span className="text-[11px] text-emerald-400/90 font-medium">
+                      EAN atual: {statusCotacao.ultimoItem || 'Pesquisando...'} • {statusCotacao.encontrados} produtos com preço real encontrado
+                    </span>
+                  </div>
+                </div>
+                <div className="w-36 bg-slate-800 rounded-full h-2 overflow-hidden border border-emerald-800">
+                  <div
+                    className="bg-emerald-400 h-full transition-all duration-300"
+                    style={{ width: `${Math.round(((statusCotacao.atual || 1) / (statusCotacao.total || 1)) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
 
             {/* TABELA DE ALTA DENSIDADE (DIRETRIZES AGENTS.MD: 1 LINHA COMPACTA) */}
             <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden">

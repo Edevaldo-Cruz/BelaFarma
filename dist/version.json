@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "d730ce2",
-  "commitMessage": "feat(belaped): portal standalone com visual dark cyber B2B sem menu lateral do Belinha e reinicio da API",
-  "buildTime": "10/10/2026, 16:50:41"
+  "commitHash": "54132e3",
+  "commitMessage": "feat(belaped): adicionar colunas de cotacao de 1o e 2o colocados e paginacao na tabela de faltas",
+  "buildTime": "10/10/2026, 18:26:30"
 }

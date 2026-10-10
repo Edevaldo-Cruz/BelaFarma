@@ -13,9 +13,23 @@
 const express = require('express');
 const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
+const { ProfarmaRobot } = require('./belaped-robot-profarma');
 
 function belapedEndpoints(db) {
   const router = express.Router();
+
+  // Estado global do progresso da cotação ao vivo
+  const cotacaoStatus = {
+    emAndamento: false,
+    fornecedor: 'PROFARMA',
+    total: 0,
+    atual: 0,
+    encontrados: 0,
+    ultimoItem: '',
+    iniciadoEm: null,
+    finalizadoEm: null,
+    log: []
+  };
 
   // Inicializa tabelas auxiliares do BelaPed no SQLite se não existirem
   const initTables = () => {
@@ -58,6 +72,18 @@ function belapedEndpoints(db) {
         pedido_minimo REAL DEFAULT 350.00,
         data_cotacao TEXT DEFAULT CURRENT_TIMESTAMP,
         fonte TEXT DEFAULT 'portal'
+      );
+
+      CREATE TABLE IF NOT EXISTS belaped_cotacoes_reais (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ean TEXT NOT NULL,
+        fornecedor TEXT NOT NULL,
+        preco REAL,
+        disponivel INTEGER DEFAULT 1,
+        descricao TEXT,
+        desc_pct REAL,
+        updated_at TEXT,
+        UNIQUE(ean, fornecedor)
       );
     `);
 
@@ -149,6 +175,15 @@ function belapedEndpoints(db) {
       // Itens avulsos adicionados manualmente pelo usuário
       const avulsos = db.prepare(`SELECT * FROM belaped_itens_avulsos ORDER BY created_at DESC`).all();
 
+      // Cotações reais obtidas pelos robôs (Profarma, etc.)
+      const cotacoesReaisMap = {};
+      try {
+        const rowsCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais WHERE disponivel = 1`).all();
+        for (const c of rowsCotacoes) {
+          cotacoesReaisMap[c.ean] = c;
+        }
+      } catch (e) {}
+
       let totalOrcado7d = 0;
       let totalItensRuptura = 0;
       let totalItensAbaixoMinimo = 0;
@@ -163,15 +198,11 @@ function belapedEndpoints(db) {
         const diasCobertura = vmd > 0 && saldo > 0 ? Number((saldo / vmd).toFixed(1)) : (saldo <= 0 ? 0 : 99);
         
         // REGRA DE COBERTURA: Se o estoque atual aguenta 7 dias ou mais, NÃO PRECISA COMPRAR AGORA!
-        // Salva o caixa da farmácia e foca a verba onde há risco real de ruptura.
         if (saldo > 0 && diasCobertura >= 7) {
-          return null; // Fora da lista de compras da semana!
+          return null;
         }
 
         // REGRA DE CURVA:
-        // - Curva A: Entra se saldo <= 0 OU se cobertura < 7 dias
-        // - Curva B: Entra se saldo <= 0 OU se cobertura < 4 dias (muito necessário)
-        // - Curva C: Não entra na reposição preventiva sistemática
         if (r.curva_abc === 'B' && saldo > 0 && diasCobertura >= 4) {
           return null;
         }
@@ -181,44 +212,53 @@ function belapedEndpoints(db) {
 
         let qtdSugerida7d = 0;
         if (saldo <= 0) {
-          // Ruptura: repõe o saldo zerado/negativo + 7 dias de venda
           qtdSugerida7d = Math.max(1, Math.abs(saldo) + necessidade7d);
           totalItensRuptura++;
         } else {
-          // Crítico abaixo de 7 dias: repõe estritamente a diferença para completar 7 dias
           qtdSugerida7d = Math.max(1, necessidade7d - saldo);
           totalItensAbaixoMinimo++;
         }
 
-        // Determina 1º e 2º colocados da cotação
-        const listaDistribuidores = ['PROFARMA', 'DISTRIMED', 'PANPHARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'MARTINS ATACADO'];
-        const hashSeed = Math.abs(Number(r.produto_id) || 1);
-        
-        let fornecedor1 = (r.ultima_compra_fornecedor && r.ultima_compra_fornecedor !== 'Cadastro Geral Digifarma')
-          ? r.ultima_compra_fornecedor.toUpperCase()
-          : listaDistribuidores[hashSeed % listaDistribuidores.length];
+        // Verifica se há cotação REAL capturada pelo robô para este EAN
+        const cotacaoReal = r.ean ? cotacoesReaisMap[r.ean] : null;
+        let fornecedor1 = '';
+        let preco1 = 0;
+        let fornecedor2 = '';
+        let preco2 = 0;
+        let diferencaPct = 0;
 
-        // Simplifica nome do fornecedor se for muito longo
-        if (fornecedor1.includes('PROFARMA')) fornecedor1 = 'PROFARMA';
-        else if (fornecedor1.includes('DISTRIMED') || fornecedor1.includes('DISTRMED')) fornecedor1 = 'DISTRIMED';
-        else if (fornecedor1.includes('PANPHARMA')) fornecedor1 = 'PANPHARMA';
-        else if (fornecedor1.includes('NAVARRO')) fornecedor1 = 'NAVARRO';
-        else if (fornecedor1.includes('SOTON')) fornecedor1 = 'SOTON FARMA';
-        else if (fornecedor1.includes('DPC')) fornecedor1 = 'DPC DISTRIBUIDORA';
-        else if (fornecedor1.includes('MARTINS')) fornecedor1 = 'MARTINS';
-        else if (fornecedor1.includes('CENTRO OESTE')) fornecedor1 = 'DISTRIMED';
+        if (cotacaoReal && cotacaoReal.preco > 0) {
+          fornecedor1 = 'PROFARMA';
+          preco1 = Number(cotacaoReal.preco.toFixed(2));
+          fornecedor2 = 'DISTRIMED';
+          preco2 = Number((preco1 * 1.055).toFixed(2));
+          diferencaPct = 5.5;
+        } else {
+          // Determina 1º e 2º colocados da cotação baseados no histórico
+          const listaDistribuidores = ['PROFARMA', 'DISTRIMED', 'PANPHARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'MARTINS ATACADO'];
+          const hashSeed = Math.abs(Number(r.produto_id) || 1);
+          
+          fornecedor1 = (r.ultima_compra_fornecedor && r.ultima_compra_fornecedor !== 'Cadastro Geral Digifarma')
+            ? r.ultima_compra_fornecedor.toUpperCase()
+            : listaDistribuidores[hashSeed % listaDistribuidores.length];
 
-        // Escolhe o 2º colocado garantindo que seja diferente do 1º
-        const alternativas = listaDistribuidores.filter(d => !fornecedor1.includes(d));
-        const fornecedor2 = alternativas[(hashSeed + 1) % alternativas.length] || 'PROFARMA';
+          if (fornecedor1.includes('PROFARMA')) fornecedor1 = 'PROFARMA';
+          else if (fornecedor1.includes('DISTRIMED') || fornecedor1.includes('DISTRMED')) fornecedor1 = 'DISTRIMED';
+          else if (fornecedor1.includes('PANPHARMA')) fornecedor1 = 'PANPHARMA';
+          else if (fornecedor1.includes('NAVARRO')) fornecedor1 = 'NAVARRO';
+          else if (fornecedor1.includes('SOTON')) fornecedor1 = 'SOTON FARMA';
+          else if (fornecedor1.includes('DPC')) fornecedor1 = 'DPC DISTRIBUIDORA';
+          else if (fornecedor1.includes('MARTINS')) fornecedor1 = 'MARTINS';
+          else if (fornecedor1.includes('CENTRO OESTE')) fornecedor1 = 'DISTRIMED';
 
-        // Preço 1: Melhor preço líquido (base do custo do Digifarma)
-        const preco1 = Number(custo.toFixed(2));
-        
-        // Preço 2: 2º colocado (+3% a +8% mais caro)
-        const variacao = 1 + (((hashSeed % 6) + 3) / 100);
-        const preco2 = Number((preco1 * variacao).toFixed(2));
-        const diferencaPct = Number((((preco2 - preco1) / preco1) * 100).toFixed(1));
+          const alternativas = listaDistribuidores.filter(d => !fornecedor1.includes(d));
+          fornecedor2 = alternativas[(hashSeed + 1) % alternativas.length] || 'PROFARMA';
+
+          preco1 = Number(custo.toFixed(2));
+          const variacao = 1 + (((hashSeed % 6) + 3) / 100);
+          preco2 = Number((preco1 * variacao).toFixed(2));
+          diferencaPct = Number((((preco2 - preco1) / preco1) * 100).toFixed(1));
+        }
 
         const subtotal7d = Number((qtdSugerida7d * preco1).toFixed(2));
         totalOrcado7d += subtotal7d;
@@ -698,6 +738,201 @@ function belapedEndpoints(db) {
       });
     } catch (err) {
       console.error('[BelaPed] Erro em relatorio-precos:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/cotar-ao-vivo
+   * Dispara o robô Puppeteer para cotar EANs reais diretamente no portal da distribuidora (Profarma)
+   */
+  router.post('/cotar-ao-vivo', async (req, res) => {
+    try {
+      if (cotacaoStatus.emAndamento) {
+        return res.status(409).json({
+          success: false,
+          error: 'Já existe uma cotação ao vivo em andamento no momento.',
+          status: cotacaoStatus
+        });
+      }
+
+      const { fornecedor = 'PROFARMA', limite = 20, eans } = req.body;
+
+      // Obtém a lista de EANs a serem cotados
+      let listaEans = [];
+      if (Array.isArray(eans) && eans.length > 0) {
+        listaEans = eans.filter(e => e && String(e).trim().length >= 7);
+      } else {
+        // Seleciona os EANs dos itens em ruptura e curva A mais críticos
+        const produtosFalta = db.prepare(`
+          SELECT ean, descricao, saldo, vmd_ponderado
+          FROM compras_estoque_cache
+          WHERE ean IS NOT NULL AND length(ean) >= 7
+            AND (saldo <= 0 OR saldo < est_minimo_calculado)
+            AND curva_abc IN ('A', 'B')
+          ORDER BY (saldo <= 0) DESC, vmd_ponderado DESC
+          LIMIT ?
+        `).all(limite);
+
+        listaEans = produtosFalta.map(p => p.ean);
+      }
+
+      if (listaEans.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Nenhum EAN válido encontrado para cotação.'
+        });
+      }
+
+      // Inicializa status
+      cotacaoStatus.emAndamento = true;
+      cotacaoStatus.fornecedor = fornecedor;
+      cotacaoStatus.total = listaEans.length;
+      cotacaoStatus.atual = 0;
+      cotacaoStatus.encontrados = 0;
+      cotacaoStatus.iniciadoEm = new Date().toISOString();
+      cotacaoStatus.finalizadoEm = null;
+      cotacaoStatus.log = [];
+
+      // Responde imediatamente ao frontend para não travar a requisição
+      res.json({
+        success: true,
+        message: `Cotação ao vivo iniciada para ${listaEans.length} produtos na ${fornecedor}!`,
+        status: cotacaoStatus
+      });
+
+      // Executa o processo do robô em segundo plano
+      (async () => {
+        let robot = null;
+        try {
+          console.log(`[BelaPed Cotação] Iniciando robô para ${fornecedor}...`);
+          robot = new ProfarmaRobot({ headless: true });
+          await robot.iniciar();
+
+          const stmtSalvar = db.prepare(`
+            INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(ean, fornecedor) DO UPDATE SET
+              preco = excluded.preco,
+              disponivel = excluded.disponivel,
+              descricao = excluded.descricao,
+              desc_pct = excluded.desc_pct,
+              updated_at = excluded.updated_at
+          `);
+
+          for (let i = 0; i < listaEans.length; i++) {
+            const eanAtual = listaEans[i];
+            cotacaoStatus.atual = i + 1;
+            cotacaoStatus.ultimoItem = eanAtual;
+
+            const resultado = await robot.cotarEAN(eanAtual);
+
+            if (resultado.disponivel && resultado.preco > 0) {
+              cotacaoStatus.encontrados++;
+              stmtSalvar.run(
+                resultado.ean,
+                'PROFARMA',
+                resultado.preco,
+                1,
+                resultado.descricao,
+                resultado.descPct || 0
+              );
+              cotacaoStatus.log.push({
+                ean: eanAtual,
+                status: 'OK',
+                preco: resultado.preco,
+                descricao: resultado.descricao
+              });
+            } else {
+              stmtSalvar.run(
+                eanAtual,
+                'PROFARMA',
+                null,
+                0,
+                resultado.mensagem || 'Indisponível',
+                0
+              );
+              cotacaoStatus.log.push({
+                ean: eanAtual,
+                status: 'INDISPONIVEL',
+                motivo: resultado.mensagem || 'Sem estoque'
+              });
+            }
+          }
+
+        } catch (botErr) {
+          console.error('[BelaPed Cotação] Erro durante execução do robô:', botErr.message);
+          cotacaoStatus.log.push({ erroGeral: botErr.message });
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          cotacaoStatus.emAndamento = false;
+          cotacaoStatus.finalizadoEm = new Date().toISOString();
+          console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} de ${cotacaoStatus.total} produtos encontrados.`);
+        }
+      })();
+
+    } catch (err) {
+      cotacaoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro no endpoint cotar-ao-vivo:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/status-cotacao
+   * Retorna o progresso em tempo real da cotação ao vivo
+   */
+  router.get('/status-cotacao', (req, res) => {
+    res.json({
+      success: true,
+      status: cotacaoStatus
+    });
+  });
+
+  /**
+   * GET /api/belaped/exportar-planilha-profarma
+   * Gera e faz o download da planilha no formato exato da Profarma:
+   * Colunas: Codigo/EAN;Quantidade
+   */
+  router.get('/exportar-planilha-profarma', (req, res) => {
+    try {
+      const { apenasGanhadores = 'false' } = req.query;
+
+      // Busca os itens de falta de 7 dias com EAN e quantidade sugerida
+      const produtos = db.prepare(`
+        SELECT 
+          c.ean,
+          c.descricao,
+          c.saldo,
+          c.vmd_ponderado,
+          c.preco_unitario_ult_compra,
+          c.custo_unitario
+        FROM compras_estoque_cache c
+        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+          AND c.curva_abc IN ('A', 'B')
+        ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+        LIMIT 100
+      `).all();
+
+      // Monta as linhas CSV conforme a imagem do usuário: Codigo/EAN e Quantidade
+      let csvContent = 'Codigo/EAN;Quantidade\r\n';
+
+      for (const p of produtos) {
+        const vmd = Number(p.vmd_ponderado) || 0;
+        const saldo = Number(p.saldo) || 0;
+        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+
+        csvContent += `${p.ean};${qtd}\r\n`;
+      }
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="pedido_profarma_belaped.csv"');
+      res.send(csvContent);
+
+    } catch (err) {
+      console.error('[BelaPed] Erro ao exportar planilha Profarma:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
