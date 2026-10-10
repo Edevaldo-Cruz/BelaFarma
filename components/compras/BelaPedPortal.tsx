@@ -54,6 +54,7 @@ interface FaltaItem7d {
   status_ruptura: string;
   custo_unitario: number;
   preco_venda_vigente: number;
+  margem_lucro_percentual: number;
   fornecedor_ult_compra: string;
   data_ult_compra: string;
   nf_ult_compra: string;
@@ -658,7 +659,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <th className="py-2.5 px-3 text-center whitespace-nowrap w-28 bg-red-50/50 dark:bg-red-950/20 text-red-700 dark:text-red-300 font-black">
                       Pedir 7 Dias
                     </th>
-                    <th className="py-2.5 px-3 text-right whitespace-nowrap w-28">Últ. Custo</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap w-24">Últ. Custo</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap w-20">Margem</th>
                     <th className="py-2.5 px-3 text-right whitespace-nowrap w-28 bg-slate-100/50 dark:bg-slate-800/50 font-black">
                       Subtotal 7d
                     </th>
@@ -761,6 +763,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           {/* Último Custo Alinhado à Direita */}
                           <td className="py-2 px-3 text-right whitespace-nowrap text-slate-600 dark:text-slate-300 font-medium">
                             R$ {item.custo_unitario.toFixed(2)}
+                          </td>
+
+                          {/* Margem de Lucro Alinhada à Direita */}
+                          <td className="py-2 px-3 text-right whitespace-nowrap">
+                            <span className={`font-black text-xs ${
+                              item.margem_lucro_percentual >= 30 
+                                ? 'text-emerald-600 dark:text-emerald-400' 
+                                : item.margem_lucro_percentual >= 15 
+                                ? 'text-blue-600 dark:text-blue-400' 
+                                : 'text-slate-500'
+                            }`}>
+                              {item.margem_lucro_percentual}%
+                            </span>
                           </td>
 
                           {/* Subtotal 7d */}

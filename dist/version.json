@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e8ce1d5",
-  "commitMessage": "feat(vitrine): unificar contagem de carrinhos por id do cliente (visitor_id)",
-  "buildTime": "10/10/2026, 14:18:05"
+  "commitHash": "8d8631b",
+  "commitMessage": "feat(belaped): implementa modulo BelaPed de cotacoes, reposicao 7d e otimizacao com trava de orcamento",
+  "buildTime": "10/10/2026, 14:31:30"
 }

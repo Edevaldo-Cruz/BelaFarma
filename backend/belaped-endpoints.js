@@ -159,14 +159,33 @@ function belapedEndpoints(db) {
         const custo = Number(r.preco_unitario_ult_compra) || Number(r.custo_unitario) || 0;
 
         // Meta de 1 semana (7 dias) com 15% de margem de segurança
-        // Se saldo for negativo, repõe o saldo faltante + 7 dias de venda
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
-        let qtdSugerida7d = 0;
+        const diasCobertura = vmd > 0 && saldo > 0 ? Number((saldo / vmd).toFixed(1)) : (saldo <= 0 ? 0 : 99);
+        
+        // REGRA DE COBERTURA: Se o estoque atual aguenta 7 dias ou mais, NÃO PRECISA COMPRAR AGORA!
+        // Salva o caixa da farmácia e foca a verba onde há risco real de ruptura.
+        if (saldo > 0 && diasCobertura >= 7) {
+          return null; // Fora da lista de compras da semana!
+        }
 
+        // REGRA DE CURVA:
+        // - Curva A: Entra se saldo <= 0 OU se cobertura < 7 dias
+        // - Curva B: Entra se saldo <= 0 OU se cobertura < 4 dias (muito necessário)
+        // - Curva C: Não entra na reposição preventiva sistemática
+        if (r.curva_abc === 'B' && saldo > 0 && diasCobertura >= 4) {
+          return null;
+        }
+        if (r.curva_abc !== 'A' && r.curva_abc !== 'B' && saldo > 0) {
+          return null;
+        }
+
+        let qtdSugerida7d = 0;
         if (saldo <= 0) {
+          // Ruptura: repõe o saldo zerado/negativo + 7 dias de venda
           qtdSugerida7d = Math.max(1, Math.abs(saldo) + necessidade7d);
           totalItensRuptura++;
         } else {
+          // Crítico abaixo de 7 dias: repõe estritamente a diferença para completar 7 dias
           qtdSugerida7d = Math.max(1, necessidade7d - saldo);
           totalItensAbaixoMinimo++;
         }
@@ -174,8 +193,13 @@ function belapedEndpoints(db) {
         const subtotal7d = Number((qtdSugerida7d * custo).toFixed(2));
         totalOrcado7d += subtotal7d;
 
+        const precoVenda = Number((Number(r.preco_venda_vigente) || 0).toFixed(2));
+        const margemLucro = precoVenda > custo && precoVenda > 0
+          ? Number((((precoVenda - custo) / precoVenda) * 100).toFixed(1))
+          : 0;
+
         // Classificação amigável da categoria (medicamento vs perfumaria)
-        const isMedicamento = r.categoria_id !== 5 && r.categoria_id !== 7; // id 5 e 7 costumam ser perfumaria/conveniencia
+        const isMedicamento = r.categoria_id !== 5 && r.categoria_id !== 7;
 
         return {
           produto_id: r.produto_id,
@@ -186,10 +210,11 @@ function belapedEndpoints(db) {
           saldo: saldo,
           vmd_ponderado: Number(vmd.toFixed(2)),
           vendas_30d: r.vendas_30d || 0,
-          dias_estoque_restante: vmd > 0 && saldo > 0 ? Math.round(saldo / vmd) : 0,
-          status_ruptura: r.status_ruptura,
+          dias_estoque_restante: diasCobertura,
+          status_ruptura: saldo <= 0 ? 'RUPTURA' : 'RISCO_SEMANAL',
           custo_unitario: Number(custo.toFixed(2)),
-          preco_venda_vigente: Number((Number(r.preco_venda_vigente) || 0).toFixed(2)),
+          preco_venda_vigente: precoVenda,
+          margem_lucro_percentual: margemLucro,
           fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
           data_ult_compra: r.ultima_compra_data || '',
           nf_ult_compra: r.ultima_compra_nf || '',
@@ -197,11 +222,23 @@ function belapedEndpoints(db) {
           subtotal_7d: subtotal7d,
           tipo_categoria: isMedicamento ? 'MEDICAMENTO' : 'PERFUMARIA'
         };
+      }).filter(Boolean);
+
+      // Ordenação estratégica:
+      // 1. Ruptura real (saldo <= 0) no topo absoluto!
+      // 2. Curva A antes de B
+      // 3. Maior margem de lucro / giro (o que mais dá retorno para a loja)
+      items.sort((a, b) => {
+        if (a.saldo <= 0 && b.saldo > 0) return -1;
+        if (b.saldo <= 0 && a.saldo > 0) return 1;
+        if (a.curva_abc === 'A' && b.curva_abc !== 'A') return -1;
+        if (b.curva_abc === 'A' && a.curva_abc !== 'A') return 1;
+        return (b.margem_lucro_percentual * b.vmd_ponderado) - (a.margem_lucro_percentual * a.vmd_ponderado);
       });
 
       res.json({
         success: true,
-        meta_cobertura: '7 dias (1 semana - Vendeu, comprou de novo)',
+        meta_cobertura: '7 dias estritos (Compre o que vende e dá lucro; ignora estoque >= 7 dias)',
         total_itens: items.length,
         total_ruptura: totalItensRuptura,
         total_abaixo_minimo: totalItensAbaixoMinimo,
