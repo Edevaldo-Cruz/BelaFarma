@@ -13,9 +13,12 @@
 const express = require('express');
 const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
+const fs = require('fs');
+const path = require('path');
 const { ProfarmaRobot } = require('./belaped-robot-profarma');
 const { DpcRobot } = require('./belaped-robot-dpc');
 const { SotonRobot } = require('./belaped-robot-soton');
+const { DistrimedRobot } = require('./belaped-robot-distrimed');
 
 function belapedEndpoints(db) {
   const router = express.Router();
@@ -888,10 +891,13 @@ function belapedEndpoints(db) {
             await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
           } else if (fornecedor === 'SOTON') {
             await executarRoboParaFornecedor('SOTON FARMA', SotonRobot);
+          } else if (fornecedor === 'DISTRIMED') {
+            await executarRoboParaFornecedor('DISTRIMED', DistrimedRobot);
           } else if (fornecedor === 'TODOS') {
             await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
             await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
             await executarRoboParaFornecedor('SOTON FARMA', SotonRobot);
+            await executarRoboParaFornecedor('DISTRIMED', DistrimedRobot);
           } else {
             // Padrão PROFARMA
             await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -1130,6 +1136,141 @@ function belapedEndpoints(db) {
     res.json({
       success: true,
       status: sotonCarrinhoStatus
+    });
+  });
+
+  /**
+   * GET /api/belaped/exportar-planilha-distrimed
+   * Exporta arquivo no modelo aceito pela Modal da Distrimed (EAN;Quantidade)
+   */
+  router.get('/exportar-planilha-distrimed', (req, res) => {
+    try {
+      const produtos = db.prepare(`
+        SELECT 
+          c.ean,
+          c.descricao,
+          c.saldo,
+          c.vmd_ponderado
+        FROM compras_estoque_cache c
+        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+          AND c.curva_abc IN ('A', 'B')
+        ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+        LIMIT 100
+      `).all();
+
+      let csvContent = 'EAN;Quantidade\r\n';
+      for (const p of produtos) {
+        const vmd = Number(p.vmd_ponderado) || 0;
+        const saldo = Number(p.saldo) || 0;
+        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+        csvContent += `${p.ean};${qtd}\r\n`;
+      }
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="pedido_distrimed_belaped.csv"');
+      res.send(csvContent);
+    } catch (err) {
+      console.error('[BelaPed] Erro ao exportar planilha Distrimed:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Estado do robô de importação na modal da Distrimed
+  const distrimedImportStatus = {
+    emAndamento: false,
+    mensagem: '',
+    iniciadoEm: null,
+    sucesso: false
+  };
+
+  /**
+   * POST /api/belaped/importar-carrinho-distrimed
+   * Robô executa o fluxo completo: login, clica em Importar, confirma condição de preço e anexa o arquivo na modal!
+   */
+  router.post('/importar-carrinho-distrimed', async (req, res) => {
+    try {
+      if (distrimedImportStatus.emAndamento) {
+        return res.status(400).json({
+          success: false,
+          message: 'Uma importação na Distrimed já está em andamento.'
+        });
+      }
+
+      distrimedImportStatus.emAndamento = true;
+      distrimedImportStatus.mensagem = 'Iniciando robô Distrimed...';
+      distrimedImportStatus.iniciadoEm = new Date().toISOString();
+      distrimedImportStatus.sucesso = false;
+
+      // Gera arquivo temporário no disco
+      const tempPath = path.resolve(__dirname, 'pedido_temp_distrimed.csv');
+      const produtos = db.prepare(`
+        SELECT 
+          c.ean,
+          c.descricao,
+          c.saldo,
+          c.vmd_ponderado
+        FROM compras_estoque_cache c
+        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+          AND c.curva_abc IN ('A', 'B')
+        ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+        LIMIT 60
+      `).all();
+
+      let csvContent = 'EAN;Quantidade\r\n';
+      for (const p of produtos) {
+        const vmd = Number(p.vmd_ponderado) || 0;
+        const saldo = Number(p.saldo) || 0;
+        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+        csvContent += `${p.ean};${qtd}\r\n`;
+      }
+      fs.writeFileSync(tempPath, csvContent, 'utf-8');
+
+      res.json({
+        success: true,
+        message: 'Robô Distrimed iniciado para realizar o upload automático na modal de carrinho!'
+      });
+
+      // Executa em background
+      (async () => {
+        let robot = null;
+        try {
+          robot = new DistrimedRobot({ headless: true });
+          await robot.iniciar();
+          distrimedImportStatus.mensagem = 'Logado. Abrindo modal e anexando arquivo...';
+
+          const resultado = await robot.importarCarrinhoArquivo(tempPath);
+          distrimedImportStatus.sucesso = resultado.sucesso;
+          distrimedImportStatus.mensagem = resultado.sucesso
+            ? 'Pedido importado na modal da Distrimed com sucesso!'
+            : (resultado.motivo || 'Erro ao importar na modal');
+        } catch (botErr) {
+          distrimedImportStatus.sucesso = false;
+          distrimedImportStatus.mensagem = 'Erro no robô: ' + botErr.message;
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          distrimedImportStatus.emAndamento = false;
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (e) {}
+        }
+      })();
+
+    } catch (err) {
+      distrimedImportStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em importar-carrinho-distrimed:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/status-carrinho-distrimed
+   */
+  router.get('/status-carrinho-distrimed', (req, res) => {
+    res.json({
+      success: true,
+      status: distrimedImportStatus
     });
   });
 

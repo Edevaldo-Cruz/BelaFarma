@@ -28,7 +28,8 @@ import {
   ChevronsRight,
   Bot,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ShoppingCart
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -179,6 +180,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     sucessos: number;
     erros: number;
     ultimoItem: string;
+  } | null>(null);
+
+  // Importação Robótica na Modal da Distrimed
+  const [importandoDistrimed, setImportandoDistrimed] = useState(false);
+  const [statusImportDistrimed, setStatusImportDistrimed] = useState<{
+    emAndamento: boolean;
+    mensagem: string;
+    sucesso: boolean;
   } | null>(null);
 
   // Carrega todos os dados iniciais
@@ -408,8 +417,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Todas)
-  const handleIniciarCotacaoAoVivo = async (fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'TODOS' = 'TODOS') => {
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Todas)
+  const handleIniciarCotacaoAoVivo = async (fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS' = 'TODOS') => {
     try {
       setCotandoAoVivo(true);
 
@@ -531,6 +540,55 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleExportarPlanilhaDpc = () => {
     window.open('/api/belaped/exportar-planilha-dpc', '_blank');
     addToast('Download da planilha de pedido DPC gerado com sucesso!', 'info');
+  };
+
+  // Baixar Planilha no Modelo da Distrimed (EAN;Quantidade)
+  const handleExportarPlanilhaDistrimed = () => {
+    window.open('/api/belaped/exportar-planilha-distrimed', '_blank');
+    addToast('Download da planilha de pedido Distrimed gerado com sucesso!', 'info');
+  };
+
+  // Importar Carrinho Automaticamente na Modal da Distrimed via Robô Puppeteer
+  const handleImportarCarrinhoDistrimed = async () => {
+    try {
+      setImportandoDistrimed(true);
+      const res = await fetch('/api/belaped/importar-carrinho-distrimed', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) {
+        addToast(data.message || 'Erro ao iniciar robô Distrimed', 'error');
+        setImportandoDistrimed(false);
+        return;
+      }
+
+      addToast('Robô Distrimed iniciado! Conectando para importar via modal...', 'success');
+
+      // Polling do status da importação
+      const timerDist = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-distrimed');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusImportDistrimed(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerDist);
+              setImportandoDistrimed(false);
+              if (stData.status.sucesso) {
+                addToast('Pedido importado com sucesso na modal da Distrimed!', 'success');
+              } else {
+                addToast(stData.status.mensagem || 'Falha na importação Distrimed', 'error');
+              }
+            }
+          }
+        } catch (e) {
+          clearInterval(timerDist);
+          setImportandoDistrimed(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao importar na Distrimed: ' + err.message, 'error');
+      setImportandoDistrimed(false);
+    }
   };
 
   return (
@@ -787,7 +845,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
                   <button
                     onClick={handleExportarPlanilhaProfarma}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-950/60 transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-950/60 transition-all cursor-pointer"
                     title="Baixar planilha modelo aceita pela Profarma (Codigo/EAN e Quantidade)"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
@@ -795,11 +853,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </button>
                   <button
                     onClick={handleExportarPlanilhaDpc}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-cyan-300 hover:text-white hover:bg-cyan-950/60 transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-cyan-300 hover:text-white hover:bg-cyan-950/60 transition-all cursor-pointer"
                     title="Baixar planilha modelo aceita pela DPC (codigo ou ean e quantidade)"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
                     <span>Planilha DPC</span>
+                  </button>
+                  <button
+                    onClick={handleExportarPlanilhaDistrimed}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-indigo-300 hover:text-white hover:bg-indigo-950/60 transition-all cursor-pointer"
+                    title="Baixar planilha modelo aceita pela Distrimed (EAN e Quantidade)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Planilha Distrimed</span>
                   </button>
                 </div>
 
@@ -807,8 +873,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 <button
                   onClick={handleMontarCarrinhoSoton}
                   disabled={montandoCarrinhoSoton}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                  title="O robô fará login na Soton e adicionará item por item os produtos vencedores da cotação no carrinho"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  title="O robô fará login na Soton e adicionará item por item os produtos no carrinho"
                 >
                   {montandoCarrinhoSoton ? (
                     <>
@@ -818,17 +884,37 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   ) : (
                     <>
                       <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Montar Carrinho Soton (Robô)</span>
+                      <span>Montar Soton (Robô)</span>
                     </>
                   )}
                 </button>
 
-                {/* Botão Cotação ao Vivo com Robôs (Profarma, DPC e Soton) */}
+                {/* Robô Importador na Modal da Distrimed */}
+                <button
+                  onClick={handleImportarCarrinhoDistrimed}
+                  disabled={importandoDistrimed}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-100 border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  title="O robô fará login na Distrimed, abrirá a modal de importação e subirá o pedido automaticamente"
+                >
+                  {importandoDistrimed ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                      <span>Importando Distrimed...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Importar Distrimed (Robô)</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Botão Cotação ao Vivo com Robôs (Profarma, DPC, Soton e Distrimed) */}
                 <button
                   onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                   disabled={cotandoAoVivo}
                   className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-md shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
-                  title="Executar robôs nos portais da Profarma, DPC e Soton Farma simultaneamente para disputa real de preços"
+                  title="Executar robôs em todos os 4 portais (Profarma, DPC, Soton Farma e Distrimed) para disputa real de preços"
                 >
                   {cotandoAoVivo ? (
                     <>
@@ -838,7 +924,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   ) : (
                     <>
                       <Bot className="w-3.5 h-3.5 text-emerald-200" />
-                      <span>Cotar ao Vivo (Profarma, DPC & Soton)</span>
+                      <span>Cotar ao Vivo (4 Portais)</span>
                     </>
                   )}
                 </button>
@@ -917,6 +1003,35 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     className="text-[11px] text-amber-300 underline font-bold"
                   >
                     Abrir Carrinho
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* BARRA DE PROGRESSO DO ROBÔ DISTRIMED (IMPORTAÇÃO VIA MODAL) */}
+            {statusImportDistrimed && statusImportDistrimed.emAndamento && (
+              <div className="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-800/80 flex items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-900/60 text-indigo-300">
+                    <Download className="w-4 h-4 animate-bounce" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-indigo-200 block">
+                      Robô Distrimed em Ação (Automação de Modal de Importação)
+                    </span>
+                    <span className="text-[11px] text-indigo-400/90 font-medium">
+                      {statusImportDistrimed.mensagem || 'Efetuando login, abrindo modal e anexando pedido...'}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <a
+                    href="https://inovacao.distrimed.com.br/produtos"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-indigo-300 underline font-bold"
+                  >
+                    Abrir Portal Distrimed
                   </a>
                 </div>
               </div>

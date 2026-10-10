@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "118c276",
-  "commitMessage": "feat(belaped): integracao completa do robo da DPC Distribuidora e exportacao de planilha",
-  "buildTime": "10/10/2026, 18:46:47"
+  "commitHash": "7c9664c",
+  "commitMessage": "feat(belaped): integracao robo soton farma cotacao e montagem de carrinho produto a produto",
+  "buildTime": "10/10/2026, 19:05:59"
 }
