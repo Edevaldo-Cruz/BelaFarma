@@ -1252,6 +1252,19 @@ const App: React.FC = () => {
     );
   }
 
+  if (currentView === "belaped" && user.role === UserRole.ADM) {
+    return (
+      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#070b14]">
+        <PwaUpdater />
+        <BelaPedPortal
+          user={user}
+          theme={theme}
+          onNavigate={handleNavigate}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col md:flex-row h-screen transition-colors duration-500 overflow-hidden" style={{ backgroundColor: 'var(--bf-main-bg)', color: 'var(--bf-main-text)' }}>
       <PwaUpdater />
@@ -1302,13 +1315,6 @@ const App: React.FC = () => {
                   onUpdateOrder={updateOrder}
                   onUpdateBoletos={handleUpdateBoletos}
                   isMobile={isMobile}
-                />
-              )}
-              {currentView === "belaped" && user.role === UserRole.ADM && (
-                <BelaPedPortal
-                  user={user}
-                  theme={theme}
-                  onNavigate={handleNavigate}
                 />
               )}
               {currentView === "central-compras" && user.role === UserRole.ADM && (
