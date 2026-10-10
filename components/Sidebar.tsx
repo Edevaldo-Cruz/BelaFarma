@@ -263,6 +263,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
+    { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },
     { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
     { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
@@ -313,7 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
+    const adminOnly = ['logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;

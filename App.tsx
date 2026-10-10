@@ -58,6 +58,7 @@ import { CardMachinesManager } from "./components/CardMachinesManager";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
+import { BelaPedPortal } from "./components/compras/BelaPedPortal";
 import { EstoqueIdealModal } from "./components/compras/EstoqueIdealModal";
 import { VersionNotifier } from "./components/VersionNotifier";
 import { VersionModal } from "./components/VersionModal";
@@ -1301,6 +1302,13 @@ const App: React.FC = () => {
                   onUpdateOrder={updateOrder}
                   onUpdateBoletos={handleUpdateBoletos}
                   isMobile={isMobile}
+                />
+              )}
+              {currentView === "belaped" && user.role === UserRole.ADM && (
+                <BelaPedPortal
+                  user={user}
+                  theme={theme}
+                  onNavigate={handleNavigate}
                 />
               )}
               {currentView === "central-compras" && user.role === UserRole.ADM && (

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "11b4e30",
-  "commitMessage": "fix(vitrine): corrigir referencia filteredProdutos no trackSearch e recompilar bundle",
-  "buildTime": "08/10/2026, 19:36:39"
+  "commitHash": "e8ce1d5",
+  "commitMessage": "feat(vitrine): unificar contagem de carrinhos por id do cliente (visitor_id)",
+  "buildTime": "10/10/2026, 14:18:05"
 }

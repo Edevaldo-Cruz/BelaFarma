@@ -38,7 +38,9 @@ import {
   PieChart,
   Eye,
   MessageSquare,
-  Heart
+  Heart,
+  ShoppingBag,
+  ArrowRight
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -764,6 +766,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </header>
 
+      {/* 🛒 BANNER EXECUTIVO BELAPED • CENTRAL DE COTAÇÕES & COMPRAS */}
+      {isAdmin && (
+        <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 rounded-3xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all hover:shadow-lg animate-in fade-in duration-300">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl shrink-0 shadow-inner">
+              <ShoppingBag className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-black text-sm md:text-base uppercase tracking-tight">
+                  BelaPed • Cotação & Carrinho Inteligente
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/30 text-white uppercase tracking-wider">
+                  1 Semana (Vendeu/Comprou)
+                </span>
+              </div>
+              <p className="text-xs text-rose-100 font-medium mt-0.5">
+                Prevenção de rupturas, cotação multi-portais, menor preço com pedido mínimo e proteção do orçamento.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('belaped')}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-white text-rose-700 hover:bg-rose-50 text-xs font-black shadow-md transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0 uppercase tracking-wider"
+          >
+            <span>Acessar BelaPed</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* 🔔 BANNER DE ALERTA VISUAL - REVISÕES PENDENTES DE WHATSAPP */}
       {pendingReviewCount > 0 && (
         <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-4 rounded-3xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-300">
@@ -811,6 +844,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
             
             const allShortcuts = [
+              { id: 'belaped', label: 'BelaPed', icon: ShoppingBag, color: 'red', adminOnly: true },
               { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
               { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
               { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },

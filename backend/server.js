@@ -4229,6 +4229,11 @@ const medicamentosBuscaService = require('./services/medicamentos-busca.service'
 app.use('/api/medicamentos', medicamentosEndpoints(db));
 console.log('💊 Motor de Busca e Inteligência de Medicamentos inicializado em /api/medicamentos.');
 
+// BelaPed - Central de Cotação, Otimização de Carrinho e Gestão Orçamentária
+const belapedEndpoints = require('./belaped-endpoints.js');
+app.use('/api/belaped', belapedEndpoints(db));
+console.log('🛒 BelaPed inicializado em /api/belaped.');
+
 // Agendamento Diário (08:45 e 15:45): Sincronização e Reposição Inteligente de Medicamentos
 let ultimoHorarioMedicamentosSync = '';
 setInterval(async () => {
