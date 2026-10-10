@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
 const { ProfarmaRobot } = require('./belaped-robot-profarma');
 const { DpcRobot } = require('./belaped-robot-dpc');
+const { SotonRobot } = require('./belaped-robot-soton');
 
 function belapedEndpoints(db) {
   const router = express.Router();
@@ -885,9 +886,12 @@ function belapedEndpoints(db) {
         try {
           if (fornecedor === 'DPC') {
             await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
+          } else if (fornecedor === 'SOTON') {
+            await executarRoboParaFornecedor('SOTON FARMA', SotonRobot);
           } else if (fornecedor === 'TODOS') {
             await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
             await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
+            await executarRoboParaFornecedor('SOTON FARMA', SotonRobot);
           } else {
             // Padrão PROFARMA
             await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -994,6 +998,139 @@ function belapedEndpoints(db) {
       console.error('[BelaPed] Erro ao exportar planilha DPC:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  // Estado de montagem do carrinho na Soton
+  const sotonCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: []
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-soton
+   * Inicia o robô Puppeteer para adicionar produto a produto no carrinho da Soton Farma
+   */
+  router.post('/montar-carrinho-soton', async (req, res) => {
+    try {
+      if (sotonCarrinhoStatus.emAndamento) {
+        return res.status(400).json({
+          success: false,
+          message: 'Uma montagem de carrinho na Soton já está em andamento. Aguarde a conclusão.'
+        });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+
+      // Se não passou lista explícita, seleciona os itens de ruptura onde Soton é o 1º colocado
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT 
+            c.ean,
+            c.descricao,
+            c.saldo,
+            c.vmd_ponderado,
+            cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'SOTON FARMA' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 50
+        `).all();
+
+        itensParaAdicionar = produtosGanhadores.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nenhum produto vencedor na Soton Farma para adicionar ao carrinho no momento.'
+        });
+      }
+
+      sotonCarrinhoStatus.emAndamento = true;
+      sotonCarrinhoStatus.total = itensParaAdicionar.length;
+      sotonCarrinhoStatus.atual = 0;
+      sotonCarrinhoStatus.sucessos = 0;
+      sotonCarrinhoStatus.erros = 0;
+      sotonCarrinhoStatus.ultimoItem = '';
+      sotonCarrinhoStatus.itens = [];
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Soton Farma com ${itensParaAdicionar.length} produtos.`,
+        status: sotonCarrinhoStatus
+      });
+
+      // Executa adição em background
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Soton para montagem de carrinho...');
+          robot = new SotonRobot({ headless: true });
+          await robot.iniciar();
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            sotonCarrinhoStatus.atual = i + 1;
+            sotonCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+
+            console.log(`[BelaPed Carrinho Soton] Adicionando EAN ${item.ean} - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade);
+
+            if (resItem.sucesso) {
+              sotonCarrinhoStatus.sucessos++;
+              sotonCarrinhoStatus.itens.push({
+                ean: item.ean,
+                quantidade: item.quantidade,
+                status: 'ADICIONADO'
+              });
+            } else {
+              sotonCarrinhoStatus.erros++;
+              sotonCarrinhoStatus.itens.push({
+                ean: item.ean,
+                quantidade: item.quantidade,
+                status: 'FALHOU',
+                motivo: resItem.motivo
+              });
+            }
+          }
+          console.log(`[BelaPed Carrinho Soton] Concluído: ${sotonCarrinhoStatus.sucessos} adicionados, ${sotonCarrinhoStatus.erros} falhas.`);
+        } catch (botErr) {
+          console.error('[BelaPed Carrinho Soton] Erro crítico no robô:', botErr.message);
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          sotonCarrinhoStatus.emAndamento = false;
+        }
+      })();
+
+    } catch (err) {
+      sotonCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-soton:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/status-carrinho-soton
+   */
+  router.get('/status-carrinho-soton', (req, res) => {
+    res.json({
+      success: true,
+      status: sotonCarrinhoStatus
+    });
   });
 
   return router;

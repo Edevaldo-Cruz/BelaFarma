@@ -170,6 +170,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     ultimoItem: string;
   } | null>(null);
 
+  // Montagem Robótica de Carrinho na Soton
+  const [montandoCarrinhoSoton, setMontandoCarrinhoSoton] = useState(false);
+  const [statusCarrinhoSoton, setStatusCarrinhoSoton] = useState<{
+    emAndamento: boolean;
+    total: number;
+    atual: number;
+    sucessos: number;
+    erros: number;
+    ultimoItem: string;
+  } | null>(null);
+
   // Carrega todos os dados iniciais
   const carregarDados = async () => {
     try {
@@ -397,8 +408,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Todas)
-  const handleIniciarCotacaoAoVivo = async (fornecedor: 'PROFARMA' | 'DPC' | 'TODOS' = 'TODOS') => {
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Todas)
+  const handleIniciarCotacaoAoVivo = async (fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'TODOS' = 'TODOS') => {
     try {
       setCotandoAoVivo(true);
 
@@ -450,6 +461,63 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     } catch (err: any) {
       addToast('Erro na cotação: ' + err.message, 'error');
       setCotandoAoVivo(false);
+    }
+  };
+
+  // Montar Carrinho Roboticamente na Soton Farma (Produto a Produto)
+  const handleMontarCarrinhoSoton = async () => {
+    try {
+      setMontandoCarrinhoSoton(true);
+
+      // Filtra itens selecionados onde a Soton é o 1º colocado (ou todos os selecionados se o usuário desejar)
+      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
+      const itensSoton = selecionados
+        .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('SOTON') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          quantidade: f.qtd_sugerida_7d,
+          descricao: f.descricao
+        }));
+
+      const res = await fetch('/api/belaped/montar-carrinho-soton', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itens: itensSoton.length > 0 ? itensSoton : undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        addToast(data.message || 'Erro ao iniciar montagem do carrinho', 'error');
+        setMontandoCarrinhoSoton(false);
+        return;
+      }
+
+      addToast(data.message || 'Robô conectando na Soton para adicionar os produtos no carrinho!', 'success');
+
+      // Polling do status da montagem de carrinho
+      const timerSoton = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-soton');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCarrinhoSoton(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerSoton);
+              setMontandoCarrinhoSoton(false);
+              addToast(`Carrinho montado na Soton! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+            }
+          }
+        } catch (e) {
+          clearInterval(timerSoton);
+          setMontandoCarrinhoSoton(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao acionar robô Soton: ' + err.message, 'error');
+      setMontandoCarrinhoSoton(false);
     }
   };
 
@@ -735,12 +803,32 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </button>
                 </div>
 
-                {/* Botão Cotação ao Vivo com Robôs (Profarma e DPC) */}
+                {/* Robô Montador de Carrinho na Soton Farma (Item a Item) */}
+                <button
+                  onClick={handleMontarCarrinhoSoton}
+                  disabled={montandoCarrinhoSoton}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  title="O robô fará login na Soton e adicionará item por item os produtos vencedores da cotação no carrinho"
+                >
+                  {montandoCarrinhoSoton ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                      <span>Montando Soton ({statusCarrinhoSoton?.atual || 0}/{statusCarrinhoSoton?.total || 0})...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Montar Carrinho Soton (Robô)</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Botão Cotação ao Vivo com Robôs (Profarma, DPC e Soton) */}
                 <button
                   onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                   disabled={cotandoAoVivo}
                   className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-md shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
-                  title="Executar robôs nos portais da Profarma e da DPC simultaneamente para disputa real de preços"
+                  title="Executar robôs nos portais da Profarma, DPC e Soton Farma simultaneamente para disputa real de preços"
                 >
                   {cotandoAoVivo ? (
                     <>
@@ -750,7 +838,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   ) : (
                     <>
                       <Bot className="w-3.5 h-3.5 text-emerald-200" />
-                      <span>Cotar ao Vivo (Profarma & DPC)</span>
+                      <span>Cotar ao Vivo (Profarma, DPC & Soton)</span>
                     </>
                   )}
                 </button>
@@ -783,10 +871,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </div>
                   <div>
                     <span className="text-xs font-black text-emerald-200 block">
-                      Robô da Profarma em Execução: item {statusCotacao.atual} de {statusCotacao.total}
+                      Robô BelaPed em Execução ({statusCotacao.fornecedor}): item {statusCotacao.atual} de {statusCotacao.total}
                     </span>
                     <span className="text-[11px] text-emerald-400/90 font-medium">
-                      EAN atual: {statusCotacao.ultimoItem || 'Pesquisando...'} • {statusCotacao.encontrados} produtos com preço real encontrado
+                      Item atual: {statusCotacao.ultimoItem || 'Pesquisando...'} • {statusCotacao.encontrados} produtos com preço real encontrado
                     </span>
                   </div>
                 </div>
@@ -795,6 +883,41 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     className="bg-emerald-400 h-full transition-all duration-300"
                     style={{ width: `${Math.round(((statusCotacao.atual || 1) / (statusCotacao.total || 1)) * 100)}%` }}
                   ></div>
+                </div>
+              </div>
+            )}
+
+            {/* BARRA DE PROGRESSO DO ROBÔ SOTON (MONTAGEM DE CARRINHO) */}
+            {statusCarrinhoSoton && statusCarrinhoSoton.emAndamento && (
+              <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-800/80 flex items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-amber-900/60 text-amber-300">
+                    <ShoppingCart className="w-4 h-4 animate-bounce" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-amber-200 block">
+                      Robô Inserindo Produtos no Carrinho da Soton Farma: item {statusCarrinhoSoton.atual} de {statusCarrinhoSoton.total}
+                    </span>
+                    <span className="text-[11px] text-amber-400/90 font-medium">
+                      Item: {statusCarrinhoSoton.ultimoItem} • {statusCarrinhoSoton.sucessos} adicionados com sucesso
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-36 bg-slate-800 rounded-full h-2 overflow-hidden border border-amber-800">
+                    <div
+                      className="bg-amber-400 h-full transition-all duration-300"
+                      style={{ width: `${Math.round(((statusCarrinhoSoton.atual || 1) / (statusCarrinhoSoton.total || 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <a
+                    href="https://sotonfarma.meuspedidos.com.br/carrinho"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-amber-300 underline font-bold"
+                  >
+                    Abrir Carrinho
+                  </a>
                 </div>
               </div>
             )}
