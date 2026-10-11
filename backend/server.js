@@ -19,16 +19,18 @@ app.disable('x-powered-by');
 // Middlewares de Segurança e CORS
 app.use(security.securityHeadersMiddleware);
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    if (security.isAllowedCorsOrigin(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origem bloqueada pela política de segurança CORS.'));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  next();
-}, express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', security.uploadsAuthMiddleware, express.static(path.join(__dirname, 'uploads')));
 
 // Redirecionar logs para arquivo persistente (volume Docker /data)
 const LOG_DIR = process.platform === 'win32' 
@@ -400,7 +402,7 @@ app.get('/api/all-data', async (req, res) => {
 });
 
 // --- Monthly Limits CUD ---
-app.post('/api/monthly-limits', (req, res) => {
+app.post('/api/monthly-limits', security.requireAdmin, (req, res) => {
   try {
     const { month, year, limit } = req.body;
     const stmt = db.prepare(`
@@ -527,7 +529,7 @@ app.put('/api/fixed-accounts/:id', (req, res) => {
   }
 });
 
-app.delete('/api/fixed-accounts/:id', (req, res) => {
+app.delete('/api/fixed-accounts/:id', security.requireAdmin, (req, res) => {
   const { id } = req.params;
   console.log(`[FixedAccounts] Tentando excluir conta fixa: ${id}`);
 

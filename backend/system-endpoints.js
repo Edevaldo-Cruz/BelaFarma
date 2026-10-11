@@ -179,7 +179,7 @@ module.exports = (db) => {
   });
 
   // DELETE /api/system/incidents/clear - Limpa o histórico de incidentes
-  router.delete('/incidents/clear', (req, res) => {
+  router.delete('/incidents/clear', security.requireAdmin, (req, res) => {
     try {
       const success = incidentTracker.clearIncidents();
       res.json({ success, message: 'Histórico de incidentes limpo com sucesso.' });

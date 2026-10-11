@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f37274b",
-  "commitMessage": "feat(belaped): resposta visual imediata no recarregar cotacoes e sincronizacao com barra de progresso",
-  "buildTime": "11/10/2026, 13:22:22"
+  "commitHash": "9237d7e",
+  "commitMessage": "sec(phase1): blindagem de autenticacao JWT/Cookie, hash scrypt, RBAC, rate limit e protecao de APIs",
+  "buildTime": "11/10/2026, 16:56:58"
 }

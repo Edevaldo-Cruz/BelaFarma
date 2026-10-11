@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { queryDigifarma } = require('./services/digifarma.service');
 const { getGeoLocationFromIp } = require('./services/geoip.service');
+const security = require('./security.js');
 
 function formatarDataFirebird(date, isEnd = false) {
   if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
@@ -1764,7 +1765,7 @@ module.exports = function (db) {
 
   // 5.2 POST /api/liquidacao/reset-digifarma
   // Reseta todos os preços no Firebird de volta para os preços originais pré-liquidação
-  router.post('/reset-digifarma', async (req, res) => {
+  router.post('/reset-digifarma', security.requireAdmin, async (req, res) => {
     try {
       const itens = db.prepare(`
         SELECT produto_id, preco_promocao_original, inicio_promocao_original, termino_promocao_original 
@@ -2249,6 +2250,9 @@ module.exports = function (db) {
       const { produto_id, url } = req.body;
       if (!produto_id || !url) {
         return res.status(400).json({ error: 'produto_id e url são obrigatórios.' });
+      }
+      if (!security.isSafeExternalUrl(String(url))) {
+        return res.status(400).json({ error: 'URL externa inválida ou bloqueada por política de segurança (Anti-SSRF).' });
       }
 
       const pId = Number(produto_id);

@@ -326,8 +326,91 @@ function securityHeadersMiddleware(req, res, next) {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(self)');
   next();
 }
+
+// ============================================================================
+// Validação Inteligente de CORS (Bloqueia origens externas não autorizadas)
+// ============================================================================
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true; // Requisições same-origin, servidor-a-servidor ou mobile
+  try {
+    const o = String(origin).toLowerCase().trim();
+    if (
+      o.startsWith('http://localhost') ||
+      o.startsWith('https://localhost') ||
+      o.startsWith('http://127.0.0.1') ||
+      o.startsWith('https://127.0.0.1') ||
+      o.startsWith('http://192.168.') ||
+      o.startsWith('https://192.168.') ||
+      o.startsWith('http://10.') ||
+      o.startsWith('tauri://')
+    ) {
+      return true;
+    }
+
+    const parsed = new URL(o);
+    const host = (parsed.hostname || '').toLowerCase();
+    if (
+      host === 'tauri.localhost' ||
+      host === 'drogariabelafarma.com.br' ||
+      host.endsWith('.drogariabelafarma.com.br') ||
+      host === 'belafarma.com.br' ||
+      host.endsWith('.belafarma.com.br') ||
+      host === 'valeouro.com.br' ||
+      host.endsWith('.valeouro.com.br')
+    ) {
+      return true;
+    }
+
+    if (process.env.ALLOWED_ORIGINS) {
+      const allowedList = process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim().toLowerCase());
+      if (allowedList.includes(o) || allowedList.includes(host)) return true;
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
+// ============================================================================
+// Rate Limiting Global de API (Anti-DoS / Anti-Scraper)
+// ============================================================================
+const apiRequestsMap = new Map();
+const MAX_API_REQ_PER_MIN = 600;
+const API_WINDOW_MS = 60 * 1000;
+
+function checkApiRateLimit(req) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const rec = apiRequestsMap.get(ip);
+
+  if (!rec || now - rec.windowStart > API_WINDOW_MS) {
+    apiRequestsMap.set(ip, { count: 1, windowStart: now });
+    return { allowed: true };
+  }
+
+  rec.count += 1;
+  if (rec.count > MAX_API_REQ_PER_MIN) {
+    return { allowed: false };
+  }
+  return { allowed: true };
+}
+
+function clearApiRateLimit(req) {
+  const ip = getClientIp(req);
+  apiRequestsMap.delete(ip);
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of apiRequestsMap.entries()) {
+    if (now - rec.windowStart > API_WINDOW_MS) {
+      apiRequestsMap.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000).unref();
 
 // Rotas públicas que NÃO exigem sessão de colaborador (Vitrine, Login, Webhooks, RPA)
 function isPublicApiRoute(req) {
@@ -374,6 +457,15 @@ function isPublicApiRoute(req) {
 }
 
 function apiAuthMiddleware(req, res, next) {
+  // 0. Proteção contra flood/DoS na API
+  const rate = checkApiRateLimit(req);
+  if (!rate.allowed) {
+    return res.status(429).json({
+      error: 'Limite de requisições por minuto excedido. Tente novamente em instantes.',
+      code: 'RATE_LIMIT_EXCEEDED'
+    });
+  }
+
   // 1. Chamadas internas do próprio servidor (ex: system-endpoints acionando backup)
   if (req.headers && req.headers['x-internal-key'] === internalKey) {
     req.user = { id: 'system-internal', name: 'Sistema Interno', role: 'Administrador' };
@@ -416,17 +508,89 @@ function requireAdmin(req, res, next) {
 }
 
 // ============================================================================
-// Sanitização de Uploads e Proteção contra Path Traversal
+// Proteção de Arquivos Estáticos em /uploads (Público vs Privado/LGPD)
+// ============================================================================
+const PUBLIC_MEDIA_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.svg']);
+
+function isPublicUploadPath(reqPath) {
+  const clean = String(reqPath || '').split('?')[0].replace(/\\/g, '/');
+  if (clean.includes('..')) return false;
+
+  // 1. Fotos de produtos da Vitrine Pública e Encartes são públicas
+  if (clean.startsWith('/produtos/') || clean.startsWith('produtos/')) {
+    return true;
+  }
+
+  // 2. Pastas estritamente privadas (receitas médicas LGPD, notas internas, temp financeiro)
+  if (
+    clean.startsWith('/recipes/') ||
+    clean.startsWith('recipes/') ||
+    clean.startsWith('/notes/') ||
+    clean.startsWith('notes/') ||
+    clean.startsWith('/finance_temp/') ||
+    clean.startsWith('finance_temp/')
+  ) {
+    return false;
+  }
+
+  // 3. Boletos e arquivos compactados/documentos na raiz de /uploads são privados
+  const base = path.basename(clean);
+  if (base.startsWith('boletoFile-') || base.startsWith('stockPdf-')) {
+    return false;
+  }
+
+  const ext = path.extname(base).toLowerCase();
+  // Imagens/vídeos na raiz de /uploads (usadas pelo Banco de Ofertas / WhatsApp) permanecem públicas
+  if (PUBLIC_MEDIA_EXTS.has(ext) && !clean.slice(1).includes('/')) {
+    return true;
+  }
+
+  return false;
+}
+
+function uploadsAuthMiddleware(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox"
+  );
+
+  const reqPath = req.path || req.url || '';
+  if (reqPath.includes('..')) {
+    return res.status(400).json({ error: 'Caminho de arquivo inválido.' });
+  }
+
+  if (isPublicUploadPath(reqPath)) {
+    return next();
+  }
+
+  // Arquivo privado (receita médica, boleto, nota interna, zip, pdf): exige colaborador autenticado
+  const token = extractToken(req);
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({
+      error: 'Acesso restrito. Faça login para visualizar este arquivo confidencial.',
+      code: 'UNAUTHORIZED_UPLOAD_ACCESS'
+    });
+  }
+
+  req.user = payload;
+  return next();
+}
+
+// ============================================================================
+// Sanitização de Uploads, Path Traversal e Anti-SSRF
 // ============================================================================
 const BLOCKED_UPLOAD_EXTENSIONS = new Set([
   '.exe', '.bat', '.cmd', '.sh', '.php', '.phtml', '.phar',
   '.js', '.cjs', '.mjs', '.ts', '.vbs', '.ps1', '.scr',
   '.dll', '.msi', '.com', '.jar', '.jsp', '.asp', '.aspx',
-  '.py', '.rb', '.pl', '.cgi', '.htaccess', '.env'
+  '.py', '.rb', '.pl', '.cgi', '.htaccess', '.env', '.html', '.htm'
 ]);
 
 function isSafeUploadFile(filename) {
   if (!filename || typeof filename !== 'string') return false;
+  if (filename.includes('\0')) return false;
   const ext = path.extname(filename).toLowerCase();
   if (BLOCKED_UPLOAD_EXTENSIONS.has(ext)) {
     return false;
@@ -434,16 +598,81 @@ function isSafeUploadFile(filename) {
   return true;
 }
 
-function sanitizeBackupFilename(filename) {
+function sanitizeSafeFilename(filename, allowedExtensions = null) {
   if (!filename || typeof filename !== 'string') return null;
+  if (filename.includes('\0')) return null;
   const base = path.basename(filename);
   if (base !== filename || base.includes('..') || base.includes('/') || base.includes('\\')) {
     return null;
   }
-  if (!base.endsWith('.db') && !base.endsWith('.sqlite')) {
-    return null;
+  if (Array.isArray(allowedExtensions) && allowedExtensions.length > 0) {
+    const ext = path.extname(base).toLowerCase();
+    const normalizedAllowed = allowedExtensions.map((e) => e.toLowerCase());
+    if (!normalizedAllowed.includes(ext)) {
+      return null;
+    }
   }
   return base;
+}
+
+function sanitizeBackupFilename(filename) {
+  return sanitizeSafeFilename(filename, ['.db', '.sqlite']);
+}
+
+// Proteção Anti-SSRF para evitar que rotas de proxy/download acessem rede interna ou metadados da VPS
+function isSafeExternalUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    const host = (parsed.hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+    if (!host) return false;
+
+    // Bloqueia localhost, loopback, containers internos e metadados cloud (AWS/GCP/Azure/DigitalOcean)
+    if (
+      host === 'localhost' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === '0:0:0:0:0:0:0:1' ||
+      host === 'backend' ||
+      host === 'evolution-api' ||
+      host === 'frontend' ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host.endsWith('.docker')
+    ) {
+      return false;
+    }
+
+    // Verifica faixas de IPv4 privadas / reservadas (127.x, 10.x, 192.168.x, 172.16-31.x, 169.254.x)
+    const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const [, a, b] = ipv4Match.map(Number);
+      if (
+        a === 0 ||
+        a === 10 ||
+        a === 127 ||
+        (a === 169 && b === 254) ||
+        (a === 192 && b === 168) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 100 && b >= 64 && b <= 127)
+      ) {
+        return false;
+      }
+    }
+
+    // Bloqueia IPv6 link-local / unique-local
+    if (host.startsWith('fe80:') || host.startsWith('fc00:') || host.startsWith('fd00:') || host.startsWith('::ffff:127.')) {
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 module.exports = {
@@ -462,10 +691,18 @@ module.exports = {
   checkLoginRateLimit,
   recordLoginFailure,
   clearLoginFailures,
+  checkApiRateLimit,
+  clearApiRateLimit,
+  isAllowedCorsOrigin,
   securityHeadersMiddleware,
   apiAuthMiddleware,
   requireAdmin,
+  isPublicUploadPath,
+  uploadsAuthMiddleware,
   isSafeUploadFile,
+  sanitizeSafeFilename,
   sanitizeBackupFilename,
+  isSafeExternalUrl,
   isPublicApiRoute
 };
+

@@ -7,6 +7,7 @@ const messageSender = require('./services/message-sender.service');
 const db = require('./database-factory');
 const { callAI } = require('./services/ai.service');
 const { buscarClimaReal } = require('./services/marketing-agent.service');
+const security = require('./security.js');
 
 // Configuração do diretório de uploads persistente (Windows = public/uploads, Linux/Docker = ../data/uploads)
 const uploadDir = process.platform === 'win32'
@@ -17,14 +18,16 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Configuração do Multer para upload de imagens
+// Configuração do Multer para upload de imagens com sanitização e filtro
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
+    const safeOriginal = path.basename(file.originalname || 'media');
+    const safeExt = path.extname(safeOriginal).replace(/[^a-zA-Z0-9.]/g, '');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    cb(null, uniqueSuffix + safeExt);
   }
 });
 
@@ -33,6 +36,12 @@ const upload = multer({
   limits: {
     fileSize: 100 * 1024 * 1024,
     fieldSize: 100 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    if (!security.isSafeUploadFile(file.originalname)) {
+      return cb(new Error('Tipo de arquivo não permitido por segurança.'));
+    }
+    cb(null, true);
   }
 });
 
@@ -42,8 +51,8 @@ const upload = multer({
  */
 function initializeWhatsAppGroupEndpoints(app) {
   
-  // Expõe a pasta de uploads de forma estática e persistente na URL /uploads
-  app.use('/uploads', express.static(uploadDir));
+  // Expõe a pasta de uploads com proteção de arquivos privados vs públicos
+  app.use('/uploads', security.uploadsAuthMiddleware, express.static(uploadDir));
   
   // 1. Listar Grupos (Consome a Evolution API + Grupos locais salvos no banco SQLite)
   app.get('/api/whatsapp/groups', async (req, res) => {
@@ -744,8 +753,8 @@ Responda apenas com o JSON.`;
     }
   });
 
-  // 3b. Limpar TODAS as Ofertas do Banco
-  app.delete('/api/whatsapp/offers-bank/clear-all', async (req, res) => {
+  // 3b. Limpar TODAS as Ofertas do Banco (Apenas Administrador)
+  app.delete('/api/whatsapp/offers-bank/clear-all', security.requireAdmin, async (req, res) => {
     try {
       const offers = await db.prepare('SELECT mediaPath FROM whatsapp_offers_bank').all();
       for (const offer of offers) {
@@ -962,8 +971,8 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
     }
   });
 
-  // 15. Abrir pasta do agente localmente no Windows Explorer
-  app.get('/api/system/open-agent-folder', (req, res) => {
+  // 15. Abrir pasta do agente localmente no Windows Explorer (Apenas Administrador)
+  app.get('/api/system/open-agent-folder', security.requireAdmin, (req, res) => {
     try {
       const { exec } = require('child_process');
       const folderPath = path.join(__dirname, 'windows-rpa-agent');
@@ -976,8 +985,8 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
     }
   });
 
-  // 16. Baixar Instalador do Robô RPA compactado em ZIP (excluindo node_modules)
-  app.get('/api/system/download-agent', (req, res) => {
+  // 16. Baixar Instalador do Robô RPA compactado em ZIP (excluindo node_modules) - Apenas Administrador
+  app.get('/api/system/download-agent', security.requireAdmin, (req, res) => {
     try {
       const AdmZip = require('adm-zip');
       const zip = new AdmZip();
