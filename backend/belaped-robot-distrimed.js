@@ -2,13 +2,45 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
+function findChromeExecutable() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Users\\User\\.cache\\puppeteer\\chrome\\win64-148.0.7778.97\\chrome-win64\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+  ].filter(Boolean);
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+function extrairTermoLimpo(descricao) {
+  if (!descricao) return '';
+  let s = String(descricao).toUpperCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/P344\/98/g, ' ')
+    .replace(/\b(\d+)\s*(MG|ML|MCG|G|GR)\b/g, '$1$2')
+    .replace(/(\d+)GR\b/g, '$1G')
+    .replace(/([A-Z])\./g, '$1 ')
+    .replace(/[^A-Z0-9,.\s]/g, ' ');
+
+  const stopWords = new Set([
+    'C', 'COM', 'CPR', 'CPS', 'CP', 'COMP', 'CAPS', 'FR', 'SOL', 'AD', 'PED',
+    'CLORID', 'CLORIDRATO', 'POTASS', 'POTASSICA', 'SOD', 'SODICO', 'SODICA',
+    'FUMARATO', 'FUM', 'SULFATO', 'MALEATO', 'BESILATO', 'HEMITARTARATO',
+    'GEN', 'GN', 'GENERICO', 'NEO', 'NEOQ', 'NOVA', 'QUIM', 'QUIMICA', 'CIMED',
+    'MEDIX', 'BRASIL', 'UN', 'UNID', 'CX', 'PDA', 'POM', 'CR', 'CREME'
+  ]);
+
+  const tokens = s.split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
+  return tokens.slice(0, 2).join(' ');
+}
+
 /**
  * Módulo de Automação e Raspagem B2B da Distrimed (BelaPed)
  * Plataforma: Inovação Distrimed (inovacao.distrimed.com.br)
- * Funções:
- * 1. Login automatizado
- * 2. Cotação de produtos por EAN
- * 3. Importação robótica de pedidos via Modal (upload de arquivo ou preenchimento de itens)
  */
 class DistrimedRobot {
   constructor(options = {}) {
@@ -20,9 +52,11 @@ class DistrimedRobot {
   }
 
   async iniciar() {
-    console.log('[DistrimedRobot] Iniciando navegador Puppeteer...');
+    const execPath = findChromeExecutable();
+    console.log(`[DistrimedRobot] Iniciando navegador Puppeteer (${execPath || 'default'})...`);
     this.browser = await puppeteer.launch({
       headless: this.headless,
+      executablePath: execPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -52,7 +86,7 @@ class DistrimedRobot {
       if (btn) btn.click();
     });
 
-    await new Promise(r => setTimeout(r, 6000));
+    await new Promise(r => setTimeout(r, 5000));
 
     if (!this.page.url().includes('/produtos')) {
       await this.page.goto('https://inovacao.distrimed.com.br/produtos', {
@@ -63,12 +97,12 @@ class DistrimedRobot {
 
     console.log('[DistrimedRobot] Login efetuado com sucesso!');
 
-    // Garante que a condição comercial PADRÃO seja ativada
+    // Garante que a condição comercial PADRÃO seja ativada e confirmada
     await this.ativarCondicaoPadrao();
   }
 
   /**
-   * Garante que a condição comercial PADRÃO está ativa para exibição de preços
+   * Garante que a condição comercial PADRÃO está ativa e confirmada para exibição de preços
    */
   async ativarCondicaoPadrao() {
     try {
@@ -77,98 +111,151 @@ class DistrimedRobot {
         return btn ? btn.innerText : '';
       });
 
-      if (condicaoAtual.includes('Nenhuma')) {
+      if (condicaoAtual.includes('Nenhuma') || !condicaoAtual.includes('PADRÃO')) {
         console.log('[DistrimedRobot] Ativando condição comercial PADRÃO...');
         await this.page.evaluate(() => {
           const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('sell'));
           if (btn) btn.click();
         });
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 1200));
 
+        // Clica no item PADRÃO da lista
         await this.page.evaluate(() => {
           const li = Array.from(document.querySelectorAll('li, div, button')).find(el => (el.innerText || '').trim() === 'PADRÃO');
           if (li) li.click();
         });
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 800));
+
+        // Clica no botão Confirmar da modal de condição de preços
+        await this.page.evaluate(() => {
+          const btnConfirmar = document.querySelector('button.botao-confirmar') ||
+            Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('Confirmar'));
+          if (btnConfirmar) btnConfirmar.click();
+        });
+        await new Promise(r => setTimeout(r, 2500));
+
+        // Fecha eventual aviso "Entendido"
+        await this.page.evaluate(() => {
+          const btnEntendido = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('Entendido'));
+          if (btnEntendido) btnEntendido.click();
+        });
       }
     } catch (e) {
       console.warn('[DistrimedRobot] Aviso ao ajustar condição de preço:', e.message);
     }
   }
 
-  /**
-   * Consulta um único EAN no catálogo da Distrimed
-   */
-  async cotarEAN(ean) {
-    if (!this.page) throw new Error('Robô Distrimed não iniciado.');
+  async _buscarNoCatalogo(termo) {
+    const searchSel = 'input[placeholder*="Pesquise por: produtos"]';
+    await this.page.waitForSelector(searchSel, { timeout: 15000 });
 
-    try {
-      const searchSel = 'input[placeholder*="Pesquise por: produtos"]';
-      await this.page.waitForSelector(searchSel, { timeout: 15000 });
+    // Limpa e digita o termo
+    await this.page.click(searchSel, { clickCount: 3 });
+    await this.page.keyboard.press('Backspace');
+    await this.page.keyboard.down('Control');
+    await this.page.keyboard.press('A');
+    await this.page.keyboard.up('Control');
+    await this.page.keyboard.press('Backspace');
 
-      // Limpa e digita o EAN
-      await this.page.click(searchSel);
-      await this.page.keyboard.down('Control');
-      await this.page.keyboard.press('A');
-      await this.page.keyboard.up('Control');
-      await page.keyboard.press('Backspace');
+    await this.page.type(searchSel, termo, { delay: 12 });
+    await this.page.keyboard.press('Enter');
 
-      await this.page.type(searchSel, ean, { delay: 15 });
+    await new Promise(r => setTimeout(r, 2500));
 
-      await this.page.evaluate(() => {
-        const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('Buscar'));
-        if (btn) btn.click();
-      });
+    return await this.page.evaluate(() => {
+      const bodyText = document.body.innerText || '';
+      const idxImportar = bodyText.indexOf('Importar');
+      const areaProdutos = idxImportar >= 0 ? bodyText.slice(idxImportar) : bodyText;
 
-      await new Promise(r => setTimeout(r, 3000));
+      if (areaProdutos.includes('Produto não encontrado') || areaProdutos.includes('Nenhum produto')) {
+        return [];
+      }
 
-      const dados = await this.page.evaluate(() => {
-        const bodyText = document.body.innerText || '';
-        if (bodyText.includes('Nenhum produto') || bodyText.includes('não encontrado')) {
-          return { disponivel: false, motivo: 'Nenhum produto retornado na busca' };
-        }
+      // Na Distrimed, cada card começa com "VAL. DD/MM/AAAA"
+      const blocos = areaProdutos.split(/VAL\.\s*\d{2}\/\d{2}\/\d{4}/).slice(1);
+      const encontrados = [];
 
-        const elementosPreco = Array.from(document.querySelectorAll('*'))
-          .filter(el => {
-            const t = el.innerText || '';
-            return t.startsWith('R$') && el.children.length === 0 && !el.closest('header');
-          });
+      for (const bloco of blocos) {
+        const linhas = bloco.split('\n').map(l => l.trim()).filter(Boolean);
+        let eanCard = '';
+        let descricaoCard = '';
+        let precoUnit = null;
 
-        if (elementosPreco.length === 0) {
-          return { disponivel: false, motivo: 'Preço não localizado' };
-        }
-
-        let menorPreco = Infinity;
-        for (const el of elementosPreco) {
-          const txt = el.innerText.replace('R$', '').trim().replace(/\./g, '').replace(',', '.');
-          const val = parseFloat(txt);
-          if (!isNaN(val) && val > 0 && val < menorPreco) {
-            menorPreco = val;
+        for (let i = 0; i < linhas.length; i++) {
+          const l = linhas[i];
+          if (l.startsWith('EAN:')) {
+            eanCard = l.replace('EAN:', '').split('/')[0].trim();
+          } else if (/^R\$\s*[\d.,]+$/.test(l)) {
+            const num = parseFloat(l.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
+            if (!isNaN(num) && num > 0 && precoUnit === null) {
+              precoUnit = num;
+              if (i > 0 && !linhas[i - 1].startsWith('PMC')) {
+                descricaoCard = linhas[i - 1];
+              } else if (i > 1) {
+                descricaoCard = linhas[i - 1];
+              }
+            }
           }
         }
 
-        let titulo = '';
-        const titulos = Array.from(document.querySelectorAll('h1, h2, h3, h4, [class*="title"], p'))
-          .map(el => (el.innerText || '').trim())
-          .filter(t => t.length > 5 && !t.includes('R$') && !t.includes('Buscar') && !t.includes('Menu'));
-        if (titulos.length > 0) {
-          titulo = titulos[0];
+        if (precoUnit !== null && precoUnit > 0) {
+          encontrados.push({
+            ean: eanCard,
+            descricao: descricaoCard,
+            preco: precoUnit
+          });
         }
+      }
 
+      return encontrados;
+    });
+  }
+
+  /**
+   * Consulta um EAN no catálogo da Distrimed (com fallback por nome/dosagem)
+   */
+  async cotarEAN(ean, descricaoProduto = '') {
+    if (!this.page) throw new Error('Robô Distrimed não iniciado.');
+
+    try {
+      const eanLimpo = String(ean || '').trim();
+      if (!eanLimpo) return { fornecedor: 'DISTRIMED', disponivel: false, preco: null };
+
+      // 1. Busca exata por EAN
+      let itens = await this._buscarNoCatalogo(eanLimpo);
+
+      // 2. Fallback por nome/dosagem se não achar o EAN exato
+      if (itens.length === 0 && descricaoProduto) {
+        const termoNome = extrairTermoLimpo(descricaoProduto);
+        if (termoNome && termoNome.length >= 4) {
+          const primeiraPalavra = termoNome.split(' ')[0];
+          const todosNome = await this._buscarNoCatalogo(termoNome);
+          itens = todosNome.filter(it => (it.descricao || '').toUpperCase().includes(primeiraPalavra));
+        }
+      }
+
+      if (!itens || itens.length === 0) {
         return {
-          disponivel: menorPreco < Infinity,
-          preco: menorPreco < Infinity ? menorPreco : null,
-          descricao: titulo
+          fornecedor: 'DISTRIMED',
+          ean: eanLimpo,
+          disponivel: false,
+          preco: null,
+          descricao: '',
+          mensagem: 'Indisponível na Distrimed'
         };
-      });
+      }
+
+      itens.sort((a, b) => a.preco - b.preco);
+      const melhor = itens[0];
 
       return {
         fornecedor: 'DISTRIMED',
-        ean,
-        disponivel: dados.disponivel,
-        preco: dados.preco,
-        descricao: dados.descricao || '',
-        mensagem: dados.motivo || ''
+        ean: eanLimpo,
+        eanEncontrado: melhor.ean,
+        disponivel: true,
+        preco: melhor.preco,
+        descricao: melhor.descricao || '',
+        mensagem: ''
       };
 
     } catch (err) {
@@ -184,7 +271,6 @@ class DistrimedRobot {
 
   /**
    * Importa pedido no carrinho da Distrimed via Modal
-   * Faz o upload do arquivo CSV/Excel gerado ou preenche diretamente
    */
   async importarCarrinhoArquivo(caminhoArquivo) {
     if (!this.page) throw new Error('Robô Distrimed não iniciado.');
@@ -242,7 +328,7 @@ class DistrimedRobot {
   async fechar() {
     if (this.browser) {
       console.log('[DistrimedRobot] Fechando navegador...');
-      await this.browser.close();
+      await this.browser.close().catch(() => {});
       this.browser = null;
       this.page = null;
     }

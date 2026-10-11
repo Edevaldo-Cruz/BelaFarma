@@ -185,13 +185,17 @@ function belapedEndpoints(db) {
       // Itens avulsos adicionados manualmente pelo usuário
       const avulsos = db.prepare(`SELECT * FROM belaped_itens_avulsos ORDER BY created_at DESC`).all();
 
-      // Cotações reais obtidas pelos robôs (Profarma, DPC, etc.)
+      // Cotações reais obtidas pelos robôs (Profarma, DPC, Soton, Distrimed)
       const cotacoesReaisMap = {};
+      const eansConsultadosSet = new Set();
       try {
-        const rowsCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais WHERE disponivel = 1 AND preco > 0 ORDER BY preco ASC`).all();
-        for (const c of rowsCotacoes) {
-          if (!cotacoesReaisMap[c.ean]) cotacoesReaisMap[c.ean] = [];
-          cotacoesReaisMap[c.ean].push(c);
+        const todasCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais ORDER BY preco ASC`).all();
+        for (const c of todasCotacoes) {
+          if (c.ean) eansConsultadosSet.add(c.ean);
+          if (c.disponivel === 1 && c.preco > 0) {
+            if (!cotacoesReaisMap[c.ean]) cotacoesReaisMap[c.ean] = [];
+            cotacoesReaisMap[c.ean].push(c);
+          }
         }
       } catch (e) {}
 
@@ -232,6 +236,7 @@ function belapedEndpoints(db) {
 
         // Verifica se há cotação REAL capturada pelos robôs para este EAN
         const cotacoesReais = r.ean ? cotacoesReaisMap[r.ean] : null;
+        const jaConsultado = r.ean ? eansConsultadosSet.has(r.ean) : false;
         let fornecedor1 = '';
         let preco1 = 0;
         let fornecedor2 = '';
@@ -253,6 +258,12 @@ function belapedEndpoints(db) {
             preco2 = 0;
             diferencaPct = 0;
           }
+        } else if (jaConsultado) {
+          fornecedor1 = 'Sem Estoque (Portais)';
+          preco1 = Number(custo.toFixed(2));
+          fornecedor2 = '—';
+          preco2 = 0;
+          diferencaPct = 0;
         } else {
           // Nenhum dado falso: se ainda não foi cotado ao vivo pelo robô, exibe claramente
           fornecedor1 = 'Não Cotado';
@@ -757,27 +768,66 @@ function belapedEndpoints(db) {
       return false;
     }
 
+    // Mapa de descrições por EAN do cache de estoque
+    const mapaDescricoes = {};
+    const todosCache = db.prepare(`
+      SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, status_ruptura, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario
+      FROM compras_estoque_cache
+      WHERE ean IS NOT NULL AND length(ean) >= 7
+    `).all();
+    for (const c of todosCache) {
+      if (c.ean) mapaDescricoes[String(c.ean).trim()] = c.descricao || '';
+    }
+
+    // EANs que já possuem preço válido cotado
+    const eansComPreco = new Set(
+      db.prepare(`SELECT DISTINCT ean FROM belaped_cotacoes_reais WHERE disponivel = 1 AND preco > 0`).all().map(r => r.ean)
+    );
+
     let listaEans = [];
     if (Array.isArray(eans) && eans.length > 0) {
-      listaEans = eans.filter(e => e && String(e).trim().length >= 7);
+      const filtrados = eans.map(e => String(e || '').trim()).filter(e => e.length >= 7);
+      // Prioriza os que ainda não têm preço cotado, mantendo a ordem da página
+      const semPreco = filtrados.filter(e => !eansComPreco.has(e));
+      const comPreco = filtrados.filter(e => eansComPreco.has(e));
+      listaEans = [...semPreco, ...comPreco].slice(0, limite || 25);
     } else {
       const produtosFalta = db.prepare(`
-        SELECT ean, descricao, saldo, vmd_ponderado
+        SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario
         FROM compras_estoque_cache
         WHERE ean IS NOT NULL AND length(ean) >= 7
           AND (saldo <= 0 OR saldo < est_minimo_calculado)
-          AND curva_abc IN ('A', 'B')
-        ORDER BY (saldo <= 0) DESC, vmd_ponderado DESC
-        LIMIT ?
-      `).all(limite);
+          AND (curva_abc IN ('A', 'B') OR saldo <= 0)
+      `).all();
 
-      listaEans = produtosFalta.map(p => p.ean);
+      // Ordena exatamente igual à tela principal do BelaPed (Ruptura -> Curva A -> Giro * Margem)
+      produtosFalta.sort((a, b) => {
+        if (a.saldo <= 0 && b.saldo > 0) return -1;
+        if (b.saldo <= 0 && a.saldo > 0) return 1;
+        if (a.curva_abc === 'A' && b.curva_abc !== 'A') return -1;
+        if (b.curva_abc === 'A' && a.curva_abc !== 'A') return 1;
+        const custoA = Number(a.preco_unitario_ult_compra) || Number(a.custo_unitario) || 0;
+        const vendaA = Number(a.preco_venda_vigente) || 0;
+        const margemA = vendaA > custoA && vendaA > 0 ? ((vendaA - custoA) / vendaA) * 100 : 0;
+        const custoB = Number(b.preco_unitario_ult_compra) || Number(b.custo_unitario) || 0;
+        const vendaB = Number(b.preco_venda_vigente) || 0;
+        const margemB = vendaB > custoB && vendaB > 0 ? ((vendaB - custoB) / vendaB) * 100 : 0;
+        return (margemB * (Number(b.vmd_ponderado) || 0)) - (margemA * (Number(a.vmd_ponderado) || 0));
+      });
+
+      const todosEansOrdenados = produtosFalta.map(p => String(p.ean).trim());
+      const semPreco = todosEansOrdenados.filter(e => !eansComPreco.has(e));
+      const comPreco = todosEansOrdenados.filter(e => eansComPreco.has(e));
+      listaEans = [...semPreco, ...comPreco].slice(0, limite || 25);
     }
 
     if (listaEans.length === 0) {
       console.log('[BelaPed Cotação] Nenhum EAN em falta/ruptura para cotar no momento.');
       return false;
     }
+
+    const numWorkers = fornecedor === 'TODOS' ? 4 : 1;
+    let passosConcluidos = 0;
 
     // Inicializa status
     cotacaoStatus.emAndamento = true;
@@ -789,7 +839,7 @@ function belapedEndpoints(db) {
     cotacaoStatus.finalizadoEm = null;
     cotacaoStatus.log = [];
 
-    // Executa o processo do robô em segundo plano
+    // Executa os robôs em segundo plano (em paralelo quando fornecedor === 'TODOS')
     (async () => {
       const stmtSalvar = db.prepare(`
         INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, updated_at)
@@ -811,19 +861,22 @@ function belapedEndpoints(db) {
 
           for (let i = 0; i < listaEans.length; i++) {
             const eanAtual = listaEans[i];
-            cotacaoStatus.atual = i + 1;
-            cotacaoStatus.ultimoItem = `${nomeFornecedor}: ${eanAtual}`;
+            const descAtual = mapaDescricoes[eanAtual] || '';
+            cotacaoStatus.ultimoItem = `${nomeFornecedor}: ${descAtual || eanAtual}`;
 
-            const resultado = await robot.cotarEAN(eanAtual);
+            const resultado = await robot.cotarEAN(eanAtual, descAtual);
+            passosConcluidos++;
+            cotacaoStatus.atual = Math.min(listaEans.length, Math.max(1, Math.ceil(passosConcluidos / numWorkers)));
 
             if (resultado.disponivel && resultado.preco > 0) {
               cotacaoStatus.encontrados++;
+              cotacaoStatus.ultimoItem = `✅ ${nomeFornecedor}: ${descAtual || eanAtual} -> R$ ${resultado.preco.toFixed(2)}`;
               stmtSalvar.run(
-                resultado.ean,
+                eanAtual,
                 nomeFornecedor,
                 resultado.preco,
                 1,
-                resultado.descricao || '',
+                resultado.descricao || descAtual,
                 resultado.descPct || 0
               );
               cotacaoStatus.log.push({
@@ -831,7 +884,7 @@ function belapedEndpoints(db) {
                 ean: eanAtual,
                 status: 'OK',
                 preco: resultado.preco,
-                descricao: resultado.descricao
+                descricao: resultado.descricao || descAtual
               });
             } else {
               stmtSalvar.run(
@@ -866,15 +919,17 @@ function belapedEndpoints(db) {
         } else if (fornecedor === 'DISTRIMED') {
           await executarRoboParaFornecedor('DISTRIMED', DistrimedRobot);
         } else if (fornecedor === 'TODOS') {
-          await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
-          await executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot);
-          await executarRoboParaFornecedor('SOTON FARMA', SotonRobot);
-          await executarRoboParaFornecedor('DISTRIMED', DistrimedRobot);
+          await Promise.all([
+            executarRoboParaFornecedor('PROFARMA', ProfarmaRobot),
+            executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot),
+            executarRoboParaFornecedor('SOTON FARMA', SotonRobot),
+            executarRoboParaFornecedor('DISTRIMED', DistrimedRobot)
+          ]);
         } else {
-          // Padrão PROFARMA
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
         }
       } finally {
+        cotacaoStatus.atual = listaEans.length;
         cotacaoStatus.emAndamento = false;
         cotacaoStatus.finalizadoEm = new Date().toISOString();
         console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} preços reais capturados.`);

@@ -445,11 +445,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     try {
       setCotandoAoVivo(true);
 
-      // Pega os itens selecionados ou os itens da página/críticos
+      // Prioriza os itens da página atual que o usuário está vendo na tela
+      const eansPaginaAtual = itensPaginados.map(s => s.ean).filter(e => e && e.length >= 7);
       const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
-      const eansParaCotar = selecionados.length > 0
-        ? selecionados.map(s => s.ean).filter(e => e && e.length >= 7)
-        : faltasFiltradas.slice(0, 20).map(s => s.ean).filter(e => e && e.length >= 7);
+      const eansRestantes = selecionados
+        .map(s => s.ean)
+        .filter(e => e && e.length >= 7 && !eansPaginaAtual.includes(e));
+
+      const eansParaCotar = [...eansPaginaAtual, ...eansRestantes].slice(0, 25);
 
       const nomeExibicao = fornecedor === 'TODOS' ? '4 Portais (Profarma, DPC, Soton e Distrimed)' : fornecedor;
 
@@ -470,7 +473,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fornecedor,
-          limite: 20,
+          limite: 25,
           eans: eansParaCotar.length > 0 ? eansParaCotar : undefined
         })
       });
@@ -489,17 +492,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
       addToast(data.message || `Robô pesquisando preços nos portais!`, 'success');
 
-      // Monitora o progresso em segundo plano a cada 2s com verificação rápida inicial
+      let ultimoEncontrados = 0;
+
+      // Monitora o progresso em segundo plano a cada 2s e atualiza a tabela ao vivo conforme preços chegam
       const verificarProgresso = async () => {
         try {
           const stRes = await fetch('/api/belaped/status-cotacao');
           const stData = await stRes.json();
           if (stData.success && stData.status) {
             setStatusCotacao(stData.status);
+            if (stData.status.encontrados > ultimoEncontrados) {
+              ultimoEncontrados = stData.status.encontrados;
+              carregarDados();
+            }
             if (!stData.status.emAndamento) {
               clearInterval(timer);
               setCotandoAoVivo(false);
-              addToast(`Cotação concluída! ${stData.status.encontrados} produtos obtiveram preços ao vivo!`, 'success');
+              addToast(`Cotação concluída! ${stData.status.encontrados} preços ao vivo capturados!`, 'success');
               carregarDados();
             }
           }
@@ -509,8 +518,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         }
       };
 
-      setTimeout(verificarProgresso, 600);
-      const timer = setInterval(verificarProgresso, 2000);
+      setTimeout(verificarProgresso, 800);
+      const timer = setInterval(verificarProgresso, 2500);
 
     } catch (err: any) {
       addToast('Erro na cotação: ' + err.message, 'error');
@@ -1181,8 +1190,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       itensPaginados.map((item) => {
                         const isSelected = Boolean(itensSelecionados[item.produto_id]);
                         const isRuptura = item.saldo <= 0;
-                        const temCotacaoReal = Boolean(item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && item.preco_1 && item.preco_1 > 0);
-                        const fornecedor1 = temCotacaoReal ? item.fornecedor_1! : 'Não Cotado';
+                        const semEstoquePortais = item.fornecedor_1 === 'Sem Estoque (Portais)';
+                        const temCotacaoReal = Boolean(item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !semEstoquePortais && item.preco_1 && item.preco_1 > 0);
+                        const fornecedor1 = temCotacaoReal ? item.fornecedor_1! : (semEstoquePortais ? 'Sem Estoque (Portais)' : 'Não Cotado');
                         const preco1 = temCotacaoReal ? item.preco_1! : null;
                         const fornecedor2 = (item.fornecedor_2 && item.fornecedor_2 !== '—') ? item.fornecedor_2 : null;
                         const preco2 = (item.preco_2 && item.preco_2 > 0) ? item.preco_2 : null;
@@ -1270,6 +1280,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
                                   <span className="font-bold text-emerald-300 text-xs truncate max-w-[140px]" title={fornecedor1}>
                                     {fornecedor1}
+                                  </span>
+                                </div>
+                              ) : semEstoquePortais ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                                  <span className="font-semibold text-amber-400/90 text-xs" title="Consultado nos 4 portais sem estoque disponível">
+                                    Sem Estoque (4 Portais)
                                   </span>
                                 </div>
                               ) : (

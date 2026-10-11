@@ -1,12 +1,45 @@
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+
+function findChromeExecutable() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Users\\User\\.cache\\puppeteer\\chrome\\win64-148.0.7778.97\\chrome-win64\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+  ].filter(Boolean);
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+function extrairTermoLimpo(descricao) {
+  if (!descricao) return '';
+  let s = String(descricao).toUpperCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/P344\/98/g, ' ')
+    .replace(/\b(\d+)\s*(MG|ML|MCG|G|GR)\b/g, '$1$2')
+    .replace(/(\d+)GR\b/g, '$1G')
+    .replace(/([A-Z])\./g, '$1 ')
+    .replace(/[^A-Z0-9,.\s]/g, ' ');
+
+  const stopWords = new Set([
+    'C', 'COM', 'CPR', 'CPS', 'CP', 'COMP', 'CAPS', 'FR', 'SOL', 'AD', 'PED',
+    'CLORID', 'CLORIDRATO', 'POTASS', 'POTASSICA', 'SOD', 'SODICO', 'SODICA',
+    'FUMARATO', 'FUM', 'SULFATO', 'MALEATO', 'BESILATO', 'HEMITARTARATO',
+    'GEN', 'GN', 'GENERICO', 'NEO', 'NEOQ', 'NOVA', 'QUIM', 'QUIMICA', 'CIMED',
+    'MEDIX', 'BRASIL', 'UN', 'UNID', 'CX', 'PDA', 'POM', 'CR', 'CREME', 'FARMAX'
+  ]);
+
+  const tokens = s.split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
+  return tokens.slice(0, 2).join(' ');
+}
 
 /**
  * Módulo de Automação e Raspagem B2B da Soton Farma (BelaPed)
  * Plataforma: Mercos / MeusPedidos (sotonfarma.meuspedidos.com.br)
- * Funções:
- * 1. Login automatizado
- * 2. Cotação de produtos por EAN em tempo real
- * 3. Montagem robótica de carrinho produto a produto
  */
 class SotonRobot {
   constructor(options = {}) {
@@ -18,9 +51,11 @@ class SotonRobot {
   }
 
   async iniciar() {
-    console.log('[SotonRobot] Iniciando navegador Puppeteer...');
+    const execPath = findChromeExecutable();
+    console.log(`[SotonRobot] Iniciando navegador Puppeteer (${execPath || 'default'})...`);
     this.browser = await puppeteer.launch({
       headless: this.headless,
+      executablePath: execPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -64,87 +99,109 @@ class SotonRobot {
     console.log('[SotonRobot] Login na Soton efetuado com sucesso!');
   }
 
+  async _buscarTermoNaSoton(termo) {
+    const urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(termo)}`;
+    await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
+    await new Promise(r => setTimeout(r, 1500));
+
+    return await this.page.evaluate(() => {
+      const bodyText = document.body.innerText || '';
+      if (
+        bodyText.includes('Nenhum resultado encontrado') ||
+        bodyText.includes('Nenhum produto encontrado') ||
+        bodyText.includes('não encontramos')
+      ) {
+        return [];
+      }
+
+      // Na Soton (MeusPedidos), os itens ficam entre "Resultados para" e "contato@sotonfarma"
+      const idxInicio = bodyText.indexOf('Resultados para');
+      const idxFim = bodyText.indexOf('contato@sotonfarma');
+      const trecho = idxInicio >= 0
+        ? bodyText.slice(idxInicio, idxFim > idxInicio ? idxFim : undefined)
+        : bodyText;
+
+      const linhas = trecho.split('\n').map(l => l.trim()).filter(Boolean);
+      const encontrados = [];
+
+      for (let i = 0; i < linhas.length; i++) {
+        // Exemplo:
+        // linhas[i-1]: "SORO FISIOLOGICO 500ML - FARMAX"
+        // linhas[i]:   "Cód. 188 • UN"
+        // linhas[i+1]: "R$ 4,79" (ou "Ops! Já vendemos todo o estoque.")
+        if (linhas[i].startsWith('Cód.') && i > 0 && i + 1 < linhas.length) {
+          const titulo = linhas[i - 1];
+          const prox1 = linhas[i + 1] || '';
+          const prox2 = linhas[i + 2] || '';
+
+          if (prox1.includes('vendemos todo o estoque') || prox2.includes('vendemos todo o estoque')) {
+            continue;
+          }
+
+          const linhaPreco = prox1.startsWith('R$') ? prox1 : (prox2.startsWith('R$') ? prox2 : '');
+          if (linhaPreco && !linhaPreco.includes('shopping_cart')) {
+            const num = parseFloat(linhaPreco.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
+            if (!isNaN(num) && num > 0) {
+              encontrados.push({
+                descricao: titulo,
+                preco: num
+              });
+            }
+          }
+        }
+      }
+
+      return encontrados;
+    });
+  }
+
   /**
-   * Consulta um único EAN no catálogo da Soton Farma
-   * Retorna { fornecedor: 'SOTON FARMA', ean, disponivel: boolean, preco: number, descricao: string }
+   * Consulta um EAN no catálogo da Soton Farma (com fallback por descrição pois o MeusPedidos nem sempre indexa EAN)
    */
-  async cotarEAN(ean) {
+  async cotarEAN(ean, descricaoProduto = '') {
     if (!this.page) throw new Error('Robô Soton não iniciado.');
 
     try {
-      const urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(ean)}`;
-      await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
-      await new Promise(r => setTimeout(r, 2000));
+      const eanLimpo = String(ean || '').trim();
+      if (!eanLimpo) return { fornecedor: 'SOTON FARMA', disponivel: false, preco: null };
 
-      const dados = await this.page.evaluate(() => {
-        const bodyText = document.body.innerText || '';
-        if (bodyText.includes('Nenhum produto encontrado') || bodyText.includes('não encontramos')) {
-          return { disponivel: false, motivo: 'Nenhum produto retornado na busca' };
-        }
+      // 1. Tenta pelo EAN
+      let itens = await this._buscarTermoNaSoton(eanLimpo);
 
-        // Procura cartões de produto na Mercos
-        const cards = document.querySelectorAll('[class*="Catalog__card"]');
-        if (cards && cards.length > 0) {
-          const primeiroCard = cards[0];
-          const linhas = (primeiroCard.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
-          const titulo = linhas[0] || '';
-
-          // Acha a linha com R$
-          let preco = null;
-          for (const l of linhas) {
-            if (l.startsWith('R$')) {
-              const clean = l.replace('R$', '').trim().replace(/\./g, '').replace(',', '.');
-              const val = parseFloat(clean);
-              if (!isNaN(val) && val > 0) {
-                preco = val;
-                break;
-              }
-            }
-          }
-
-          if (preco) {
-            return {
-              disponivel: true,
-              preco,
-              descricao: titulo
-            };
-          }
-        }
-
-        // Fallback genérico para elementos de preço
-        const elementosPreco = Array.from(document.querySelectorAll('*'))
-          .filter(el => {
-            const t = el.innerText || '';
-            return t.startsWith('R$') && el.children.length === 0 && !el.closest('header');
+      // 2. Se não retornou pelo EAN e temos descrição, busca pelo termo limpo
+      if (itens.length === 0 && descricaoProduto) {
+        const termoNome = extrairTermoLimpo(descricaoProduto);
+        if (termoNome && termoNome.length >= 4) {
+          const palavras = termoNome.split(' ').filter(p => p.length >= 2);
+          const todosNome = await this._buscarTermoNaSoton(termoNome);
+          itens = todosNome.filter(it => {
+            const descUp = (it.descricao || '').toUpperCase();
+            return palavras.every(p => descUp.includes(p));
           });
-
-        if (elementosPreco.length === 0) {
-          return { disponivel: false, motivo: 'Preço não localizado' };
         }
+      }
 
-        let menorPreco = Infinity;
-        for (const el of elementosPreco) {
-          const txt = el.innerText.replace('R$', '').trim().replace(/\./g, '').replace(',', '.');
-          const val = parseFloat(txt);
-          if (!isNaN(val) && val > 0 && val < menorPreco) {
-            menorPreco = val;
-          }
-        }
-
+      if (!itens || itens.length === 0) {
         return {
-          disponivel: menorPreco < Infinity,
-          preco: menorPreco < Infinity ? menorPreco : null,
-          descricao: 'Produto localizado na Soton Farma'
+          fornecedor: 'SOTON FARMA',
+          ean: eanLimpo,
+          disponivel: false,
+          preco: null,
+          descricao: '',
+          mensagem: 'Indisponível na Soton Farma'
         };
-      });
+      }
+
+      itens.sort((a, b) => a.preco - b.preco);
+      const melhor = itens[0];
 
       return {
         fornecedor: 'SOTON FARMA',
-        ean,
-        disponivel: dados.disponivel,
-        preco: dados.preco,
-        descricao: dados.descricao || '',
-        mensagem: dados.motivo || ''
+        ean: eanLimpo,
+        disponivel: true,
+        preco: melhor.preco,
+        descricao: melhor.descricao || '',
+        mensagem: ''
       };
 
     } catch (err) {
@@ -161,30 +218,39 @@ class SotonRobot {
   /**
    * Adiciona um produto ao carrinho produto a produto na plataforma Mercos
    */
-  async adicionarAoCarrinho(ean, quantidade) {
+  async adicionarAoCarrinho(ean, quantidade, descricaoProduto = '') {
     if (!this.page) throw new Error('Robô Soton não iniciado.');
     const qtdNum = Math.max(1, parseInt(quantidade) || 1);
 
     try {
-      const urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(ean)}`;
+      let urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(ean)}`;
       await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 1800));
+
+      const semResultadoEan = await this.page.evaluate(() => {
+        return (document.body.innerText || '').includes('Nenhum resultado encontrado');
+      });
+
+      if (semResultadoEan && descricaoProduto) {
+        const termoNome = extrairTermoLimpo(descricaoProduto);
+        if (termoNome) {
+          urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(termoNome)}`;
+          await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
+          await new Promise(r => setTimeout(r, 1800));
+        }
+      }
 
       const adicionou = await this.page.evaluate(async (qtd) => {
         const card = document.querySelector('[class*="Catalog__card"]') || document;
-        
-        // Encontra o input de quantidade do primeiro card
         const inputQtd = card.querySelector('input[type="number"]');
         if (!inputQtd) return { sucesso: false, motivo: 'Campo de quantidade não encontrado no item' };
 
-        // Foca e altera o valor
         inputQtd.focus();
         inputQtd.value = '';
         inputQtd.value = qtd.toString();
         inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
         inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
 
-        // Clica no botão de comprar
         const botaoComprar = card.querySelector('button.catalog-item-b2b-button, button[class*="AddToCartButton"], button[class*="Button__info"]');
         if (!botaoComprar) return { sucesso: false, motivo: 'Botão COMPRAR não encontrado no item' };
 
@@ -193,7 +259,7 @@ class SotonRobot {
       }, qtdNum);
 
       if (adicionou.sucesso) {
-        await new Promise(r => setTimeout(r, 2000)); // Aguarda requisição da Mercos
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       return {
@@ -216,7 +282,7 @@ class SotonRobot {
   async fechar() {
     if (this.browser) {
       console.log('[SotonRobot] Fechando navegador...');
-      await this.browser.close();
+      await this.browser.close().catch(() => {});
       this.browser = null;
       this.page = null;
     }

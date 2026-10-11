@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "9237d7e",
-  "commitMessage": "sec(phase1): blindagem de autenticacao JWT/Cookie, hash scrypt, RBAC, rate limit e protecao de APIs",
-  "buildTime": "11/10/2026, 16:56:58"
+  "commitHash": "6591af3",
+  "commitMessage": "feat(security): Fase 3 - auditoria imutavel, criptografia AES-256-GCM em repouso, auth webhook e hardening Nginx",
+  "buildTime": "11/10/2026, 20:21:56"
 }

@@ -1,4 +1,19 @@
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+
+function findChromeExecutable() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Users\\User\\.cache\\puppeteer\\chrome\\win64-148.0.7778.97\\chrome-win64\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+  ].filter(Boolean);
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
 
 /**
  * Módulo de Automação e Raspagem B2B da DPC Distribuidora (BelaPed)
@@ -14,9 +29,11 @@ class DpcRobot {
   }
 
   async iniciar() {
-    console.log('[DpcRobot] Iniciando navegador Puppeteer...');
+    const execPath = findChromeExecutable();
+    console.log(`[DpcRobot] Iniciando navegador Puppeteer (${execPath || 'default'})...`);
     this.browser = await puppeteer.launch({
       headless: this.headless,
+      executablePath: execPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -61,55 +78,75 @@ class DpcRobot {
   }
 
   /**
-   * Consulta um único EAN no catálogo da DPC
-   * Retorna { fornecedor: 'DPC', ean, disponivel: boolean, preco: number, descricao: string }
+   * Consulta um EAN no catálogo da DPC
    */
-  async cotarEAN(ean) {
+  async cotarEAN(ean, descricaoProduto = '') {
     if (!this.page) throw new Error('Robô DPC não iniciado.');
 
     try {
-      const eanLimpo = String(ean).trim();
-      if (!eanLimpo) return { fornecedor: 'DPC', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
+      const eanLimpo = String(ean || '').trim();
+      if (!eanLimpo) return { fornecedor: 'DPC DISTRIBUIDORA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
 
-      const urlBusca = `https://dpcnet.com.br/catalogo?busca=${eanLimpo}&visualizacao=bloco-1&ordenacao=ordem-0`;
+      const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(eanLimpo)}&visualizacao=bloco-1&ordenacao=ordem-0`;
       await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
-
-      // Pausa rápida para hidratação do React
-      await new Promise(r => setTimeout(r, 1200));
+      await new Promise(r => setTimeout(r, 900));
 
       const dados = await this.page.evaluate(() => {
-        const bodyText = document.body.innerText;
-        if (bodyText.includes('Nenhum resultado encontrado') || bodyText.includes('Foram encontrados 0 produtos')) {
+        const bodyText = document.body.innerText || '';
+        const idxIni = bodyText.indexOf('Resultado da Busca:');
+        const idxFim = bodyText.indexOf('Empresa especializada na distribuição');
+        const areaBusca = idxIni >= 0
+          ? bodyText.slice(idxIni, idxFim > idxIni ? idxFim : undefined)
+          : '';
+
+        if (
+          !areaBusca ||
+          areaBusca.includes('Foram encontrados 0 produtos') ||
+          areaBusca.includes('Não localizamos nenhum resultado')
+        ) {
           return { encontrado: false };
         }
 
-        // Procura os preços nos cards (excluindo o carrinho do topo)
-        const elementosComPreco = Array.from(document.querySelectorAll('*'))
-          .filter(el => {
-            const t = el.innerText || '';
-            // Ignora o valor do carrinho do cabeçalho
-            return t.startsWith('R$') && el.children.length === 0 && !el.closest('header');
-          })
-          .map(el => el.innerText.trim());
+        const linhas = areaBusca.split('\n').map(l => l.trim()).filter(Boolean);
+        // Estrutura típica no bloco da DPC:
+        // "Emb.: 1 unidade"
+        // "Gel Fixador Ny Looks 240g Azul"
+        // "R$ 8,71"
+        // "Info"
+        let descricao = '';
+        let precoUnit = null;
+        let fatorEmbalagem = 1;
 
-        // Procura título do produto
-        const titulos = Array.from(document.querySelectorAll('h2, h3, h4, p, a'))
-          .filter(el => {
-            const t = el.innerText || '';
-            return t.length > 5 && t.length < 150 && !el.closest('header') && !el.closest('footer');
-          })
-          .map(el => el.innerText.trim());
+        for (let i = 0; i < linhas.length; i++) {
+          const l = linhas[i];
+          if (l.startsWith('Emb.:')) {
+            const matchQtd = l.match(/(\d+)/);
+            if (matchQtd) {
+              const n = parseInt(matchQtd[1], 10);
+              if (n > 1) fatorEmbalagem = n;
+            }
+            if (i + 1 < linhas.length) {
+              descricao = linhas[i + 1];
+            }
+          } else if (/^R\$\s*[\d.,]+$/.test(l) && precoUnit === null) {
+            const num = parseFloat(l.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
+            if (!isNaN(num) && num > 0) {
+              precoUnit = fatorEmbalagem > 1 ? Number((num / fatorEmbalagem).toFixed(2)) : num;
+              break;
+            }
+          }
+        }
 
         return {
-          encontrado: elementosComPreco.length > 0,
-          precos: elementosComPreco,
-          titulos
+          encontrado: precoUnit !== null && precoUnit > 0,
+          preco: precoUnit,
+          descricao
         };
       });
 
-      if (!dados.encontrado || dados.precos.length === 0) {
+      if (!dados.encontrado || !dados.preco) {
         return {
-          fornecedor: 'DPC',
+          fornecedor: 'DPC DISTRIBUIDORA',
           ean: eanLimpo,
           disponivel: false,
           preco: null,
@@ -117,31 +154,19 @@ class DpcRobot {
         };
       }
 
-      // Pega o primeiro preço válido do produto
-      let precoFinal = null;
-      for (const p of dados.precos) {
-        // Formato R$ 7,76
-        const limpo = p.replace('R$', '').trim().replace('.', '').replace(',', '.');
-        const num = parseFloat(limpo);
-        if (!isNaN(num) && num > 0) {
-          precoFinal = num;
-          break;
-        }
-      }
-
       return {
-        fornecedor: 'DPC',
+        fornecedor: 'DPC DISTRIBUIDORA',
         ean: eanLimpo,
-        disponivel: precoFinal !== null,
-        descricao: dados.titulos[0] || '',
-        preco: precoFinal,
+        disponivel: true,
+        descricao: dados.descricao || '',
+        preco: dados.preco,
         dataHora: new Date().toISOString()
       };
 
     } catch (err) {
       console.error(`[DpcRobot] Erro ao cotar EAN ${ean}:`, err.message);
       return {
-        fornecedor: 'DPC',
+        fornecedor: 'DPC DISTRIBUIDORA',
         ean,
         disponivel: false,
         preco: null,
