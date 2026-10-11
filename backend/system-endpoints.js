@@ -3,6 +3,7 @@ const router = express.Router();
 const fetch = require('node-fetch');
 const watcherService = require('./services/watcher.service.js');
 const incidentTracker = require('./services/incident-tracker.service.js');
+const security = require('./security.js');
 
 module.exports = (db) => {
 
@@ -35,7 +36,10 @@ module.exports = (db) => {
           switch (serviceName) {
             case 'backup':
               // Faz chamada interna para a rota de backup que já trata o backup completo
-              const backupRes = await fetch(`http://localhost:3001/api/backups/create`, { method: 'POST' });
+              const backupRes = await fetch(`http://localhost:3001/api/backups/create`, {
+                method: 'POST',
+                headers: { 'x-internal-key': security.getInternalKey() }
+              });
               if (!backupRes.ok) {
                 const errData = await backupRes.json().catch(() => ({}));
                 throw new Error(errData.error || `Erro HTTP ${backupRes.status}`);

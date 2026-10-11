@@ -8,16 +8,27 @@ const fs = require('fs');
 const fetch = require('node-fetch');
 const config = require('./config.js');
 const { queryDigifarma } = require('./services/digifarma.service');
+const security = require('./security.js');
 
 const app = express();
 const PORT = 3001;
 
-// Middlewares
-app.use(cors());
+// Desabilita cabeçalho que expõe tecnologia do servidor
+app.disable('x-powered-by');
+
+// Middlewares de Segurança e CORS
+app.use(security.securityHeadersMiddleware);
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Redirecionar logs para arquivo persistente (volume Docker /data)
 const LOG_DIR = process.platform === 'win32' 
@@ -54,6 +65,9 @@ const safelyParseJSON = (jsonString, fallback = []) => {
   }
 };
 
+// 🛡️ Middleware Global de Autenticação para todas as rotas /api
+app.use('/api', security.apiAuthMiddleware);
+
 app.get('/api/version', (req, res) => {
   let pkgVersion = '1.1.0';
   let commitHash = 'unknown';
@@ -87,7 +101,7 @@ app.get('/api/version', (req, res) => {
   });
 });
 
-app.get('/api/backups', (req, res) => {
+app.get('/api/backups', security.requireAdmin, (req, res) => {
   const backupDir = config.backupDir;
 
   if (!fs.existsSync(backupDir)) {
@@ -127,7 +141,7 @@ app.get('/api/backups', (req, res) => {
   });
 });
 
-app.post('/api/backups/create', (req, res) => {
+app.post('/api/backups/create', security.requireAdmin, (req, res) => {
   const backupDir = config.backupDir;
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
@@ -164,11 +178,14 @@ app.post('/api/backups/create', (req, res) => {
   }
 });
 
-// Restore is dangerous, so we just run the restore script which handles logic
-app.post('/api/backups/:filename/restore', (req, res) => {
-  const { filename } = req.params;
+// Restore is dangerous, so we require admin and sanitize filename against path traversal
+app.post('/api/backups/:filename/restore', security.requireAdmin, (req, res) => {
+  const safeFilename = security.sanitizeBackupFilename(req.params.filename);
+  if (!safeFilename) {
+    return res.status(400).json({ error: 'Nome de arquivo de backup inválido.' });
+  }
   const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : 'data/backups');
-  const backupPath = path.join(backupDir, filename);
+  const backupPath = path.join(backupDir, safeFilename);
 
   // Determine source DB path (target for restore)
   let targetPath = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
@@ -245,20 +262,28 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
-// Multer storage configuration
+// Multer storage configuration with filename sanitization & executable filter
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
+    const safeOriginal = path.basename(file.originalname || 'file');
+    const safeExt = path.extname(safeOriginal).replace(/[^a-zA-Z0-9.]/g, '');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, file.fieldname + '-' + uniqueSuffix + safeExt);
   }
 });
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (req, file, cb) => {
+    if (!security.isSafeUploadFile(file.originalname)) {
+      return cb(new Error('Tipo de arquivo não permitido por segurança.'));
+    }
+    cb(null, true);
+  }
 });
 
 
@@ -283,7 +308,8 @@ app.get('/api/all-data', async (req, res) => {
     return res.status(500).json({ error: 'Database connection not established.' });
   }
   try {
-    const users = db.prepare('SELECT * FROM users').all();
+    // Nunca expor accessKey ou accessKeyHash na listagem de usuários
+    const users = db.prepare('SELECT id, name, role, jobRole, phone FROM users').all();
     const ordersRaw = db.prepare('SELECT * FROM orders ORDER BY orderDate DESC').all();
     const shortagesRaw = db.prepare('SELECT * FROM shortages ORDER BY createdAt DESC').all();
     const logs = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC LIMIT 100').all();
@@ -652,8 +678,16 @@ app.get('/api/fixed-account-payments/history/:fixedAccountId', (req, res) => {
 // --- AUTH ---
 app.post('/api/login', (req, res) => {
   try {
-    const { accessKey } = req.body;
-    const MASTER_KEY = 'belafarma2024';
+    // 1. Verifica Rate Limiting contra força bruta
+    const rateCheck = security.checkLoginRateLimit(req);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Muitas tentativas incorretas. Aguarde ${Math.ceil(rateCheck.retryAfterSec / 60)} minuto(s) e tente novamente.`
+      });
+    }
+
+    const { accessKey } = req.body || {};
+    const MASTER_KEY = process.env.MASTER_ACCESS_KEY || 'belafarma2024';
 
     if (!accessKey) {
       return res.status(400).json({ error: 'Access key is required.' });
@@ -661,30 +695,71 @@ app.post('/api/login', (req, res) => {
 
     const keyStr = String(accessKey).trim();
 
-    // 1. Check for Master Key
-    if (keyStr === MASTER_KEY || keyStr.toLowerCase() === MASTER_KEY) {
+    // 2. Check for Master Key
+    if (security.verifyAccessKey(keyStr, MASTER_KEY)) {
+      security.clearLoginFailures(req);
       const masterUser = { 
         id: 'master-admin', 
         name: 'Administrador Bela', 
         role: 'Administrador',
-        accessKey: MASTER_KEY 
+        jobRole: 'Gerente'
       };
-      return res.status(200).json(masterUser);
+      const token = security.signToken(masterUser);
+      security.setAuthCookie(req, res, token);
+      return res.status(200).json({ ...masterUser, token });
     }
     
-    // 2. Check for user in the database
-    const stmt = db.prepare('SELECT * FROM users WHERE accessKey = ? OR LOWER(accessKey) = LOWER(?)');
-    const user = stmt.get(keyStr, keyStr);
+    // 3. Check for user in the database (suporta hash scrypt e migração automática de chaves antigas)
+    const allUsers = db.prepare('SELECT * FROM users').all();
+    const matchedUser = allUsers.find(u => security.verifyAccessKey(keyStr, u.accessKey, u.accessKeyHash));
 
-    if (user) {
-      res.status(200).json(user);
+    if (matchedUser) {
+      security.clearLoginFailures(req);
+
+      // Migração transparente: se ainda não possui accessKeyHash, gera e salva no banco
+      if (!matchedUser.accessKeyHash) {
+        try {
+          const newHash = security.hashAccessKey(keyStr);
+          db.prepare('UPDATE users SET accessKeyHash = ? WHERE id = ?').run(newHash, matchedUser.id);
+        } catch (migErr) {
+          console.warn('[Auth] Aviso ao atualizar hash do usuário:', migErr.message);
+        }
+      }
+
+      const safeUser = security.sanitizeUser(matchedUser);
+      const token = security.signToken(safeUser);
+      security.setAuthCookie(req, res, token);
+      return res.status(200).json({ ...safeUser, token });
     } else {
-      res.status(401).json({ error: 'Chave de acesso não autorizada.' });
+      security.recordLoginFailure(req);
+      return res.status(401).json({ error: 'Chave de acesso não autorizada.' });
     }
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error during login.' });
   }
+});
+
+app.post('/api/logout', (req, res) => {
+  security.clearAuthCookie(res);
+  res.status(200).json({ success: true, message: 'Sessão encerrada com segurança.' });
+});
+
+app.get('/api/auth/session', (req, res) => {
+  const token = security.extractToken(req);
+  const payload = security.verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ authenticated: false });
+  }
+  return res.status(200).json({
+    authenticated: true,
+    user: {
+      id: payload.id,
+      name: payload.name,
+      role: payload.role,
+      jobRole: payload.jobRole
+    }
+  });
 });
 
 
@@ -1093,20 +1168,31 @@ app.post('/api/whatsapp/force-shortage-scan', async (req, res) => {
 
 // --- Users CUD ---
 // CREATE User
-app.post('/api/users', (req, res) => {
+app.post('/api/users', security.requireAdmin, (req, res) => {
   try {
     const user = req.body;
+    if (!user || !user.name || !user.accessKey) {
+      return res.status(400).json({ error: 'Nome e chave de acesso são obrigatórios.' });
+    }
+    const existingUsers = db.prepare('SELECT * FROM users').all();
+    const conflict = existingUsers.some(u => security.verifyAccessKey(user.accessKey, u.accessKey, u.accessKeyHash));
+    if (conflict) {
+      return res.status(409).json({ error: 'Chave de acesso já está em uso.' });
+    }
+
+    const keyHash = security.hashAccessKey(user.accessKey);
     const stmt = db.prepare(`
-      INSERT INTO users (id, name, role, jobRole, phone, accessKey)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO users (id, name, role, jobRole, phone, accessKey, accessKeyHash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(
+    stmt.run(
       user.id,
       user.name,
       user.role,
       user.jobRole || 'Outro',
       user.phone || '',
-      user.accessKey
+      user.accessKey,
+      keyHash
     );
     res.status(201).json({ id: user.id });
   } catch (err) {
@@ -1119,23 +1205,35 @@ app.post('/api/users', (req, res) => {
 });
 
 // UPDATE User
-app.put('/api/users/:id', (req, res) => {
+app.put('/api/users/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const { name, role, jobRole, phone, accessKey } = req.body;
+    const cleanKey = accessKey && String(accessKey).trim().length > 0 ? String(accessKey).trim() : null;
+
+    if (cleanKey) {
+      const existingUsers = db.prepare('SELECT * FROM users WHERE id != ?').all(id);
+      const conflict = existingUsers.some(u => security.verifyAccessKey(cleanKey, u.accessKey, u.accessKeyHash));
+      if (conflict) {
+        return res.status(409).json({ error: 'Chave de acesso já está em uso por outro usuário.' });
+      }
+    }
+
+    const keyHash = cleanKey ? security.hashAccessKey(cleanKey) : null;
     const stmt = db.prepare(`
       UPDATE users 
       SET name = COALESCE(?, name),
           role = COALESCE(?, role),
           jobRole = COALESCE(?, jobRole),
           phone = COALESCE(?, phone),
-          accessKey = COALESCE(?, accessKey)
+          accessKey = COALESCE(?, accessKey),
+          accessKeyHash = COALESCE(?, accessKeyHash)
       WHERE id = ?
     `);
-    const result = stmt.run(name, role, jobRole, phone, accessKey, id);
+    const result = stmt.run(name, role, jobRole, phone, cleanKey, keyHash, id);
     if (result.changes > 0) {
       const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-      res.status(200).json({ success: true, user: updatedUser });
+      res.status(200).json({ success: true, user: security.sanitizeUser(updatedUser) });
     } else {
       res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -1149,7 +1247,7 @@ app.put('/api/users/:id', (req, res) => {
 });
 
 // DELETE User
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const stmt = db.prepare('DELETE FROM users WHERE id = ?');

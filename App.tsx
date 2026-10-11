@@ -319,9 +319,22 @@ const App: React.FC = () => {
     setUser(null);
     handleNavigate("dashboard");
     localStorage.removeItem("belinha_session_user");
+    localStorage.removeItem("belinha_auth_token");
+    fetch("/api/logout", { method: "POST" }).catch(() => {});
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
     handleCloseStartup();
   };
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      if (user && !isPublicRoute) {
+        handleLogout();
+        addToast("Sessão expirada ou atualizada por segurança. Faça login novamente.", "warning");
+      }
+    };
+    window.addEventListener("belinha:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("belinha:unauthorized", onUnauthorized);
+  }, [user, isPublicRoute]);
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
@@ -341,7 +354,30 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      fetchData();
+      const initSessionAndFetch = async () => {
+        // Migração transparente: se a sessão legada tinha accessKey mas não token JWT, renova silenciosamente
+        const existingToken = localStorage.getItem("belinha_auth_token");
+        const legacyKey = (user as any).accessKey;
+        if (!existingToken && legacyKey) {
+          try {
+            const loginRes = await fetch("/api/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ accessKey: legacyKey })
+            });
+            if (loginRes.ok) {
+              const loginData = await loginRes.json();
+              if (loginData && loginData.token) {
+                localStorage.setItem("belinha_auth_token", loginData.token);
+              }
+              const { token, accessKey, ...cleanUser } = loginData || user;
+              localStorage.setItem("belinha_session_user", JSON.stringify(cleanUser));
+            }
+          } catch (e) {}
+        }
+        await fetchData();
+      };
+      initSessionAndFetch();
       
       const events = ["mousedown", "keydown", "touchstart"];
       const reset = () => resetLogoutTimer();

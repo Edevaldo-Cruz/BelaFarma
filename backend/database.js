@@ -956,6 +956,15 @@ try {
     }
 
     try {
+      db.prepare('SELECT accessKeyHash FROM users LIMIT 1').get();
+    } catch (e) {
+      try {
+        db.exec('ALTER TABLE users ADD COLUMN accessKeyHash TEXT');
+        console.log('Added accessKeyHash column to users table.');
+      } catch (err) {}
+    }
+
+    try {
       const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
       if (!userCount || userCount.count === 0) {
         console.log('[Database] Populando banco com usuários padrão...');

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "be964b4",
-  "commitMessage": "feat(belaped): agendador 4x ao dia (07:50, 10:30, 14:30, 18:00), botao de recarregar e aumento na legibilidade da tabela",
-  "buildTime": "10/10/2026, 19:44:09"
+  "commitHash": "f37274b",
+  "commitMessage": "feat(belaped): resposta visual imediata no recarregar cotacoes e sincronizacao com barra de progresso",
+  "buildTime": "11/10/2026, 13:22:22"
 }

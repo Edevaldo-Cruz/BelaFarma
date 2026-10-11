@@ -23,6 +23,8 @@ dist-ssr
 
 # Environment & Configs
 .env
+.jwt_secret
+*/.jwt_secret
 auth.json
 auth_check.json
 current_auth.json

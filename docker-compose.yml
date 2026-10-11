@@ -22,8 +22,10 @@ services:
       - GPT_MODEL=${GPT_MODEL:-gpt-4o-mini}
       - WA_NOTIFICATIONS_ENABLED=${WA_NOTIFICATIONS_ENABLED:-true}
       - BACKEND_URL=http://backend:3001
-      - NAPP_EMAIL=${NAPP_EMAIL:-edevaldo_cruz@hotmail.com}
-      - NAPP_PASSWORD=${NAPP_PASSWORD:-Ed_88249483}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - MASTER_ACCESS_KEY=${MASTER_ACCESS_KEY:-}
+      - NAPP_EMAIL=${NAPP_EMAIL}
+      - NAPP_PASSWORD=${NAPP_PASSWORD}
       - NAPP_LOGIN_URL=${NAPP_LOGIN_URL:-https://app.nappsolutions.com/login}
       - NAPP_BASE_URL=${NAPP_BASE_URL:-https://app.nappsolutions.com}
     env_file:
@@ -71,8 +73,8 @@ services:
     volumes:
       - evolution_data:/evolution/instances
     ports:
-      # Expõe para acesso local (escanear QR Code pelo navegador)
-      - "8080:8080"
+      # Expõe apenas em localhost no host para evitar exposição pública na internet
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
   frontend:
