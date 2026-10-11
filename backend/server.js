@@ -67,8 +67,36 @@ const safelyParseJSON = (jsonString, fallback = []) => {
   }
 };
 
-// 🛡️ Middleware Global de Autenticação para todas as rotas /api
+// 🛡️ Middleware Global de Autenticação e Trilha de Auditoria para todas as rotas /api
 app.use('/api', security.apiAuthMiddleware);
+app.use('/api', security.createAuditMiddleware(db));
+
+// Endpoint exclusivo para Administradores consultarem a trilha de auditoria de segurança
+app.get('/api/security/audit-logs', security.requireAdmin, (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const category = req.query.category ? String(req.query.category).trim() : null;
+    const userId = req.query.userId ? String(req.query.userId).trim() : null;
+
+    let sql = 'SELECT * FROM security_audit_logs WHERE 1=1';
+    const params = [];
+    if (category) {
+      sql += ' AND action_category = ?';
+      params.push(category);
+    }
+    if (userId) {
+      sql += ' AND user_id = ?';
+      params.push(userId);
+    }
+    sql += ' ORDER BY timestamp DESC LIMIT ?';
+    params.push(limit);
+
+    const logs = db.prepare(sql).all(...params);
+    res.json({ success: true, count: logs.length, logs });
+  } catch (err) {
+    res.status(500).json({ error: 'Falha ao consultar trilha de auditoria.', details: err.message });
+  }
+});
 
 app.get('/api/version', (req, res) => {
   let pkgVersion = '1.1.0';
@@ -3952,15 +3980,32 @@ app.get('/api/napp/orders-status', (req, res) => {
 // GET all settings or a specific setting
 app.get('/api/settings/:key?', (req, res) => {
   try {
+    const isAdmin = security.isAdminUser(req.user);
+
     if (req.params.key) {
-      const setting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(req.params.key);
+      const key = req.params.key;
+      if (security.isSensitiveSettingKey(key) && !isAdmin) {
+        return res.status(403).json({ error: 'Acesso restrito a administradores para chaves sensíveis.' });
+      }
+      const setting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
       if (!setting) {
         // Retorna a chave com valor null ao invés de 404 — permite o frontend tratar graciosamente
-        return res.json({ key: req.params.key, value: null, updated_at: null });
+        return res.json({ key, value: null, updated_at: null });
       }
-      res.json(setting);
+      const outValue = security.isSensitiveSettingKey(key)
+        ? (req.query.masked === '1' ? security.maskSecret(setting.value) : security.decryptSecret(setting.value))
+        : setting.value;
+      res.json({ ...setting, value: outValue });
     } else {
-      const settings = db.prepare('SELECT * FROM system_settings').all();
+      const settings = db.prepare('SELECT * FROM system_settings').all().map((s) => {
+        if (security.isSensitiveSettingKey(s.key)) {
+          return {
+            ...s,
+            value: isAdmin && req.query.masked !== '1' ? security.decryptSecret(s.value) : security.maskSecret(s.value)
+          };
+        }
+        return s;
+      });
       res.json(settings);
     }
   } catch (err) {
@@ -3979,13 +4024,21 @@ app.put('/api/settings/:key', (req, res) => {
       return res.status(400).json({ error: 'Value is required.' });
     }
 
+    if (security.isSensitiveSettingKey(key) && !security.isAdminUser(req.user)) {
+      return res.status(403).json({ error: 'Apenas administradores podem alterar chaves sensíveis do sistema.' });
+    }
+
+    const storedValue = security.isSensitiveSettingKey(key)
+      ? security.encryptSecret(String(value))
+      : String(value);
+
     const existing = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
     const now = new Date().toISOString();
     
     if (existing) {
-      db.prepare('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?').run(String(value), now, key);
+      db.prepare('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?').run(storedValue, now, key);
     } else {
-      db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), now);
+      db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, storedValue, now);
     }
 
     // Se a chave for temperature_config, sincroniza também na tabela temperature_config
@@ -4014,7 +4067,10 @@ app.put('/api/settings/:key', (req, res) => {
     }
 
     const updated = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
-    res.json(updated);
+    res.json({
+      ...updated,
+      value: security.isSensitiveSettingKey(key) ? security.maskSecret(updated.value) : updated.value
+    });
   } catch (err) {
     console.error('Error updating setting:', err);
     res.status(500).json({ error: 'Failed to update setting.' });

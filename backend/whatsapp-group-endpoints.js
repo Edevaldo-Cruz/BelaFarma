@@ -336,12 +336,12 @@ function initializeWhatsAppGroupEndpoints(app) {
   });
 
 
-  // 7. Ver Logs do RPA (Debug)
-  app.get('/api/whatsapp/rpa-logs', (req, res) => {
+  // 7. Ver Logs do RPA (Debug - Apenas Administrador)
+  app.get('/api/whatsapp/rpa-logs', security.requireAdmin, (req, res) => {
     try {
         const logPath = path.join(__dirname, 'rpa-debug.log');
         if (fs.existsSync(logPath)) {
-            const content = fs.readFileSync(logPath, 'utf8');
+            const content = fs.readFileSync(logPath, 'utf8').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             res.send(`<pre>${content}</pre>`);
         } else {
             res.send('Arquivo de log não encontrado.');
@@ -351,8 +351,8 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 8. Debug Evolution API Status
-  app.get('/api/whatsapp/debug-evolution', async (req, res) => {
+  // 8. Debug Evolution API Status (Apenas Administrador)
+  app.get('/api/whatsapp/debug-evolution', security.requireAdmin, async (req, res) => {
     try {
         const url = `${process.env.EVOLUTION_API_URL || 'http://evolution-api:8080'}/instance/connectionState/${process.env.EVOLUTION_INSTANCE_NAME || 'belaFarma'}`;
         const response = await fetch(url, {
@@ -387,15 +387,15 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 10. Ver Logs do Sistema (Arquivo)
-  app.get('/api/system/logs', (req, res) => {
+  // 10. Ver Logs do Sistema (Arquivo - Apenas Administrador)
+  app.get('/api/system/logs', security.requireAdmin, (req, res) => {
     try {
         const logPath = process.platform === 'win32'
             ? path.join(__dirname, 'backend.log')
             : path.join(__dirname, 'data', 'backend.log');
         if (fs.existsSync(logPath)) {
             const content = fs.readFileSync(logPath, 'utf8');
-            const lines = content.split('\n').slice(-200).join('\n');
+            const lines = content.split('\n').slice(-200).join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace; white-space:pre-wrap;">${lines}</pre>`);
         } else {
             res.send('Arquivo de log ainda não gerado.');
@@ -405,8 +405,8 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 10b. Busca no log completo por palavra-chave
-  app.get('/api/system/logs/search', (req, res) => {
+  // 10b. Busca no log completo por palavra-chave (Apenas Administrador)
+  app.get('/api/system/logs/search', security.requireAdmin, (req, res) => {
     try {
         const { q } = req.query;
         if (!q) return res.status(400).send('Use ?q=termo para buscar.');
@@ -416,18 +416,20 @@ function initializeWhatsAppGroupEndpoints(app) {
         if (!fs.existsSync(logPath)) return res.send('Log não encontrado.');
         const content = fs.readFileSync(logPath, 'utf8');
         const lines = content.split('\n').filter(l => l.toLowerCase().includes(q.toLowerCase()));
-        const result = lines.length > 0 ? lines.join('\n') : `Nenhum resultado para: "${q}"`;
+        const result = (lines.length > 0 ? lines.join('\n') : `Nenhum resultado para: "${q}"`)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace; white-space:pre-wrap;">${result}</pre>`);
     } catch (err) {
         res.status(500).send(err.message);
     }
   });
 
-  // 11. Rodar Comando de Diagnóstico/Criação (Evolution API)
-  app.get('/api/system/run-diag', async (req, res) => {
+  // 11. Rodar Comando de Diagnóstico/Criação (Evolution API - Apenas Administrador)
+  app.get('/api/system/run-diag', security.requireAdmin, async (req, res) => {
     try {
         const { exec } = require('child_process');
-        const cmd = `curl -X POST http://evolution-api:8080/instance/create -H 'Content-Type: application/json' -H 'apikey: BelafarmaSul2026' -d '{"instanceName": "belaFarma", "token": "BelafarmaSul2026", "qrcode": true}'`;
+        const evoKey = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+        const cmd = `curl -X POST http://evolution-api:8080/instance/create -H 'Content-Type: application/json' -H 'apikey: ${evoKey}' -d '{"instanceName": "belaFarma", "token": "${evoKey}", "qrcode": true}'`;
         exec(cmd, (error, stdout, stderr) => {
             res.json({ 
                 command: 'Criar Instância belaFarma',

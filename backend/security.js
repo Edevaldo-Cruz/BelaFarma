@@ -456,6 +456,71 @@ function isPublicApiRoute(req) {
   return false;
 }
 
+function isPrivateOrLocalIp(rawIp) {
+  if (!rawIp || typeof rawIp !== 'string') return false;
+  const ip = rawIp.trim().toLowerCase().replace(/^::ffff:/, '');
+  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost' || ip === 'unknown') return true;
+
+  const ipv4Match = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [, a, b] = ipv4Match.map(Number);
+    if (
+      a === 127 ||
+      a === 10 ||
+      (a === 192 && b === 168) ||
+      (a === 172 && b >= 16 && b <= 31)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function verifyWebhookOrLocalRequest(req) {
+  const expectedKey = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+  const headerKey =
+    (req.headers && (req.headers['apikey'] || req.headers['x-webhook-token'] || req.headers['x-api-key'])) ||
+    (req.query && (req.query.token || req.query.apikey)) ||
+    extractToken(req);
+
+  if (headerKey && String(headerKey).trim() === expectedKey) {
+    return true;
+  }
+
+  const clientIp = getClientIp(req);
+  if (isPrivateOrLocalIp(clientIp)) {
+    return true;
+  }
+
+  return false;
+}
+
+// Rate limit específico para rotas públicas de escrita (Analytics da Vitrine / Visitantes)
+const publicWriteMap = new Map();
+const MAX_PUBLIC_WRITE_PER_MIN = 120;
+
+function checkPublicWriteRateLimit(req) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const rec = publicWriteMap.get(ip);
+
+  if (!rec || now - rec.windowStart > API_WINDOW_MS) {
+    publicWriteMap.set(ip, { count: 1, windowStart: now });
+    return { allowed: true };
+  }
+
+  rec.count += 1;
+  if (rec.count > MAX_PUBLIC_WRITE_PER_MIN) {
+    return { allowed: false };
+  }
+  return { allowed: true };
+}
+
+function clearPublicWriteRateLimit(req) {
+  const ip = getClientIp(req);
+  publicWriteMap.delete(ip);
+}
+
 function apiAuthMiddleware(req, res, next) {
   // 0. Proteção contra flood/DoS na API
   const rate = checkApiRateLimit(req);
@@ -472,8 +537,33 @@ function apiAuthMiddleware(req, res, next) {
     return next();
   }
 
-  // 2. Rotas públicas (Vitrine, Login, Webhooks, Agente RPA)
+  const reqPath = (req.path || req.url || '').split('?')[0];
+  const method = (req.method || 'GET').toUpperCase();
+
+  // 1b. Proteção do Webhook Evolution API contra chamadas falsas da internet pública
+  if (reqPath === '/webhook/evolution' && method === 'POST') {
+    if (!verifyWebhookOrLocalRequest(req)) {
+      return res.status(401).json({
+        error: 'Webhook não autorizado: origem externa sem chave de autenticação válida.',
+        code: 'UNAUTHORIZED_WEBHOOK'
+      });
+    }
+    return next();
+  }
+
+  // 2. Rotas públicas (Vitrine, Login, Agente RPA)
   if (isPublicApiRoute(req)) {
+    // Se for escrita pública (analytics/visitors), aplica limite anti-spam dedicado
+    if (method === 'POST' && (reqPath.startsWith('/liquidacao/public/') || reqPath === '/system/visitors/record')) {
+      const pubRate = checkPublicWriteRateLimit(req);
+      if (!pubRate.allowed) {
+        return res.status(429).json({
+          error: 'Muitas requisições públicas em curto intervalo.',
+          code: 'PUBLIC_WRITE_RATE_LIMIT'
+        });
+      }
+    }
+
     const optionalToken = extractToken(req);
     if (optionalToken) {
       const payload = verifyToken(optionalToken);
@@ -675,6 +765,203 @@ function isSafeExternalUrl(rawUrl) {
   }
 }
 
+// ============================================================================
+// Fase 3: Criptografia Simétrica AES-256-GCM para Segredos em Repouso
+// ============================================================================
+function getEncryptionKeyBuffer() {
+  return crypto.createHash('sha256').update(getJwtSecret()).digest();
+}
+
+function encryptSecret(plainText) {
+  if (plainText === null || plainText === undefined) return plainText;
+  const str = String(plainText);
+  if (!str || str.startsWith('enc:v1:')) return str;
+
+  const key = getEncryptionKeyBuffer();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(str, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  return `enc:v1:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptSecret(storedValue) {
+  if (storedValue === null || storedValue === undefined) return storedValue;
+  const str = String(storedValue);
+  if (!str.startsWith('enc:v1:')) return str;
+
+  try {
+    const parts = str.split(':');
+    if (parts.length !== 5) return str;
+    const [, , ivHex, tagHex, cipherHex] = parts;
+    const key = getEncryptionKeyBuffer();
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(tagHex, 'hex');
+    const encrypted = Buffer.from(cipherHex, 'hex');
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch (e) {
+    return str;
+  }
+}
+
+function maskSecret(rawSecret) {
+  if (!rawSecret || typeof rawSecret !== 'string') return '';
+  const plain = decryptSecret(rawSecret);
+  if (plain.length <= 6) return '******';
+  return `${plain.slice(0, 3)}${'*'.repeat(Math.min(10, plain.length - 6))}${plain.slice(-3)}`;
+}
+
+function isSensitiveSettingKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  const k = key.toLowerCase().trim();
+  return (
+    k.includes('api_key') ||
+    k.includes('apikey') ||
+    k.includes('secret') ||
+    k.includes('password') ||
+    k.includes('senha') ||
+    k.includes('access_token') ||
+    k.includes('auth_token') ||
+    k.includes('gemini_key') ||
+    k.includes('openai_key') ||
+    k.includes('evolution_key')
+  );
+}
+
+// ============================================================================
+// Fase 3: Trilha de Auditoria Imutável (security_audit_logs)
+// ============================================================================
+function classifyAuditCategory(method, reqPath) {
+  const m = String(method || '').toUpperCase();
+  const p = String(reqPath || '').toLowerCase();
+
+  if (m === 'GET' || m === 'OPTIONS' || m === 'HEAD') {
+    if (p.startsWith('/backups/download') || p === '/system/download-agent') {
+      return 'BACKUP_OR_AGENT_DOWNLOAD';
+    }
+    return null;
+  }
+
+  // Ignora rotas de telemetria/leitura frequente que não são ações administrativas/financeiras
+  if (
+    p.startsWith('/liquidacao/public/') ||
+    p === '/system/visitors/record' ||
+    p === '/webhook/evolution' ||
+    p.startsWith('/whatsapp/agent/')
+  ) {
+    return null;
+  }
+
+  if (p === '/login' || p === '/logout') return 'AUTH_SESSION';
+  if (p.startsWith('/users')) return 'USERS_RBAC';
+  if (p.startsWith('/backups')) return 'DATABASE_BACKUP';
+  if (p.startsWith('/cash-closings') || p.startsWith('/safe-entries') || p.startsWith('/checking-account')) return 'FINANCIAL_CASH';
+  if (p.startsWith('/boletos') || p.startsWith('/fixed-accounts') || p.startsWith('/accounts-payable') || p.startsWith('/monthly-limits')) return 'FINANCIAL_PAYABLES';
+  if (p.startsWith('/customers') || p.startsWith('/customer-debts')) return 'CRM_CREDIARIO';
+  if (p.startsWith('/settings')) return 'SYSTEM_SETTINGS';
+  if (p.startsWith('/liquidacao/reset-digifarma') || p.startsWith('/liquidacao/aplicar') || p.startsWith('/price-manager')) return 'PRICING_DIGIFARMA';
+  if (m === 'DELETE') return 'RESOURCE_DELETION';
+
+  return null;
+}
+
+function sanitizeAuditPayload(body) {
+  if (!body || typeof body !== 'object') return null;
+  const REDACTED_KEYS = new Set([
+    'accesskey', 'accesskeyhash', 'password', 'senha', 'token',
+    'imagem_base64', 'media', 'base64', 'rawmessage'
+  ]);
+
+  const clean = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (REDACTED_KEYS.has(k.toLowerCase())) {
+      clean[k] = '[REDACTED]';
+    } else if (typeof v === 'string' && v.length > 200) {
+      clean[k] = v.slice(0, 200) + '...';
+    } else if (Array.isArray(v)) {
+      clean[k] = `[Array(${v.length})]`;
+    } else {
+      clean[k] = v;
+    }
+  }
+  return clean;
+}
+
+function recordAuditLog(db, entry) {
+  if (!db || !entry) return null;
+  try {
+    const id = `aud_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const timestamp = entry.timestamp || new Date().toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO security_audit_logs (
+        id, timestamp, user_id, user_name, user_role,
+        ip, method, path, action_category, target_id, details, status_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      id,
+      timestamp,
+      entry.userId || null,
+      entry.userName || 'Anônimo',
+      entry.userRole || null,
+      entry.ip || 'unknown',
+      entry.method || 'UNKNOWN',
+      entry.path || '/',
+      entry.actionCategory || 'GENERAL',
+      entry.targetId || null,
+      typeof entry.details === 'string' ? entry.details : JSON.stringify(entry.details || {}),
+      entry.statusCode || 200
+    );
+    return id;
+  } catch (e) {
+    console.warn('[SecurityAudit] Aviso ao gravar log de auditoria:', e.message);
+    return null;
+  }
+}
+
+function createAuditMiddleware(db) {
+  return function auditMiddleware(req, res, next) {
+    const reqPath = (req.path || req.url || '').split('?')[0];
+    const category = classifyAuditCategory(req.method, reqPath);
+    if (!category) {
+      return next();
+    }
+
+    res.on('finish', () => {
+      const pathParts = reqPath.split('/').filter(Boolean);
+      const targetId =
+        (req.params && (req.params.id || req.params.key || req.params.filename)) ||
+        (req.body && (req.body.id || req.body.produto_id || req.body.key)) ||
+        (pathParts.length >= 2 ? pathParts[pathParts.length - 1] : null);
+
+      const sanitizedBody = sanitizeAuditPayload(req.body);
+      if (category === 'SYSTEM_SETTINGS' && targetId && isSensitiveSettingKey(String(targetId)) && sanitizedBody && sanitizedBody.value) {
+        sanitizedBody.value = '[ENCRYPTED_SECRET]';
+      }
+
+      recordAuditLog(db, {
+        userId: req.user?.id || null,
+        userName: req.user?.name || (category === 'AUTH_SESSION' ? 'Tentativa de Login' : 'Sistema'),
+        userRole: req.user?.role || req.user?.jobRole || null,
+        ip: getClientIp(req),
+        method: (req.method || 'GET').toUpperCase(),
+        path: reqPath,
+        actionCategory: category,
+        targetId: targetId ? String(targetId) : null,
+        details: sanitizedBody,
+        statusCode: res.statusCode
+      });
+    });
+
+    return next();
+  };
+}
+
 module.exports = {
   COOKIE_NAME,
   getJwtSecret,
@@ -693,6 +980,10 @@ module.exports = {
   clearLoginFailures,
   checkApiRateLimit,
   clearApiRateLimit,
+  checkPublicWriteRateLimit,
+  clearPublicWriteRateLimit,
+  isPrivateOrLocalIp,
+  verifyWebhookOrLocalRequest,
   isAllowedCorsOrigin,
   securityHeadersMiddleware,
   apiAuthMiddleware,
@@ -703,6 +994,15 @@ module.exports = {
   sanitizeSafeFilename,
   sanitizeBackupFilename,
   isSafeExternalUrl,
-  isPublicApiRoute
+  isPublicApiRoute,
+  encryptSecret,
+  decryptSecret,
+  maskSecret,
+  isSensitiveSettingKey,
+  classifyAuditCategory,
+  sanitizeAuditPayload,
+  recordAuditLog,
+  createAuditMiddleware
 };
+
 

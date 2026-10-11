@@ -2796,6 +2796,29 @@ try {
     `);
     console.log('🔥 Módulo Liquidação & Aceleração de Caixa: Tabelas criadas/verificadas com sucesso.');
 
+    // 🛡️ Fase 3 de Segurança: Trilha de Auditoria Imutável (security_audit_logs)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS security_audit_logs (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        user_id TEXT,
+        user_name TEXT,
+        user_role TEXT,
+        ip TEXT,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        action_category TEXT NOT NULL,
+        target_id TEXT,
+        details TEXT,
+        status_code INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sec_audit_ts ON security_audit_logs(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_sec_audit_cat ON security_audit_logs(action_category);
+      CREATE INDEX IF NOT EXISTS idx_sec_audit_user ON security_audit_logs(user_id);
+    `);
+    console.log('🛡️ Segurança Fase 3: Tabela security_audit_logs criada/verificada com sucesso.');
+
     console.log('Tabelas verificadas/criadas com sucesso.');
   };
 
