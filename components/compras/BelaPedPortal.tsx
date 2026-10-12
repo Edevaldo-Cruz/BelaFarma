@@ -51,6 +51,11 @@ interface FaltaItem7d {
   saldo: number;
   vmd_ponderado: number;
   vendas_30d: number;
+  vendas_historico_6m?: number;
+  is_esquecido_6m?: boolean;
+  chave_equivalencia?: string | null;
+  equivalentes_agrupados_count?: number;
+  equivalentes_agrupados_nomes?: string[];
   dias_estoque_restante: number;
   status_ruptura: string;
   custo_unitario: number;
@@ -61,6 +66,8 @@ interface FaltaItem7d {
   fornecedor_ult_compra: string;
   data_ult_compra: string;
   nf_ult_compra: string;
+  qtd_bruta_7d?: number;
+  qtd_equalizada_7d?: number;
   qtd_sugerida_7d: number;
   subtotal_7d: number;
   tipo_categoria: 'MEDICAMENTO' | 'PERFUMARIA';
@@ -124,15 +131,70 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     mesSeguinte: MesOrcamento | null;
   } | null>(null);
 
-  // Faltas 7 Dias
-  const [faltas, setFaltas] = useState<FaltaItem7d[]>([]);
+  // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
+  const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
   const [itensAvulsos, setItensAvulsos] = useState<any[]>([]);
-  const [filtroCurva, setFiltroCurva] = useState<'TODAS' | 'A' | 'B'>('TODAS');
+  const [filtroCurva, setFiltroCurva] = useState<'TODAS' | 'A' | 'B' | 'C' | 'ESQUECIDOS_6M'>('TODAS');
   const [filtroCategoria, setFiltroCategoria] = useState<'TODAS' | 'MEDICAMENTO' | 'PERFUMARIA'>('TODAS');
   const [filtroDistribuidora, setFiltroDistribuidora] = useState<string>('TODAS');
   const [agruparPorDistribuidora, setAgruparPorDistribuidora] = useState<boolean>(false);
   const [buscaFalta, setBuscaFalta] = useState('');
   const [itensSelecionados, setItensSelecionados] = useState<Record<number, boolean>>({});
+  const [equalizarAtivo, setEqualizarAtivo] = useState<boolean>(true);
+  const [tetoMaxUnidades, setTetoMaxUnidades] = useState<number>(10);
+  const [statsAntiRuptura, setStatsAntiRuptura] = useState<{
+    ocultadosEquiv: number;
+    agrupadosEquiv: number;
+    totalEsquecidos6m: number;
+  }>({ ocultadosEquiv: 0, agrupadosEquiv: 0, totalEsquecidos6m: 0 });
+
+  // Recalcula dinamicamente as quantidades sugeridas e subtotais conforme o Equalizador e Teto escolhidos na tela
+  const { faltas, economiaEqualizador } = useMemo(() => {
+    let unCortadas = 0;
+    let reaisEconomizados = 0;
+    const processadas = faltasRaw.map(item => {
+      const bruta = Math.max(1, Number(item.qtd_bruta_7d ?? item.qtd_sugerida_7d) || 1);
+      const precoRef = Number(item.preco_1 || item.custo_unitario || 0);
+      const saldoFisico = Math.max(0, Number(item.saldo) || 0);
+      const vmd = Number(item.vmd_ponderado) || 0;
+      const hist6m = Number(item.vendas_historico_6m ?? item.vendas_30d ?? 0);
+
+      let equalizada = bruta;
+      if (item.is_esquecido_6m || item.curva_abc === 'C') {
+        equalizada = hist6m >= 6 ? 2 : 1;
+      } else {
+        let metaEnxuta = precoRef >= 35
+          ? Math.max(1, Math.ceil(vmd * 5) - saldoFisico)
+          : Math.max(1, Math.ceil(vmd * 6.5) - saldoFisico);
+        if (tetoMaxUnidades > 0) {
+          metaEnxuta = Math.min(metaEnxuta, tetoMaxUnidades);
+        }
+        equalizada = Math.max(1, metaEnxuta);
+      }
+
+      const qtdFinal = equalizarAtivo ? equalizada : bruta;
+      if (bruta > equalizada) {
+        unCortadas += (bruta - equalizada);
+        reaisEconomizados += (bruta - equalizada) * precoRef;
+      }
+
+      return {
+        ...item,
+        qtd_bruta_7d: bruta,
+        qtd_equalizada_7d: equalizada,
+        qtd_sugerida_7d: qtdFinal,
+        subtotal_7d: Number((qtdFinal * precoRef).toFixed(2))
+      };
+    });
+
+    return {
+      faltas: processadas,
+      economiaEqualizador: {
+        unidadesCortadas: unCortadas,
+        valorEconomizado: Number(reaisEconomizados.toFixed(2))
+      }
+    };
+  }, [faltasRaw, equalizarAtivo, tetoMaxUnidades]);
 
   // Portais e Cotação
   const [portais, setPortais] = useState<PortalDistribuidora[]>([]);
@@ -208,7 +270,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
       const [resOrc, resFaltas, resPortais, resRel] = await Promise.all([
         fetch('/api/belaped/orcamento-boletos'),
-        fetch('/api/belaped/faltas-7d'),
+        fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}`),
         fetch('/api/belaped/portais'),
         fetch('/api/belaped/relatorio-precos')
       ]);
@@ -220,8 +282,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
       if (resFaltas.ok) {
         const dataFaltas = await resFaltas.json();
-        setFaltas(dataFaltas.items || []);
+        setFaltasRaw(dataFaltas.items || []);
         setItensAvulsos(dataFaltas.itens_avulsos || []);
+        setStatsAntiRuptura({
+          ocultadosEquiv: Number(dataFaltas.ocultados_equivalente_com_estoque) || 0,
+          agrupadosEquiv: Number(dataFaltas.agrupados_equivalencia) || 0,
+          totalEsquecidos6m: Number(dataFaltas.total_esquecidos_6m) || 0
+        });
         
         // Preserva seleção anterior se já existir, ou seleciona todos inicialmente
         setItensSelecionados(prev => {
@@ -312,10 +379,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return () => clearInterval(timer15m);
   }, []);
 
-  // Filtra itens base (por curva, categoria e busca) para calcular o resumo das distribuidoras
+  // Filtra itens base (por curva, esquecidos 6m, categoria e busca) para calcular o resumo das distribuidoras
   const faltasBaseFiltradas = useMemo(() => {
     return faltas.filter(f => {
-      if (filtroCurva !== 'TODAS' && f.curva_abc !== filtroCurva) return false;
+      if (filtroCurva === 'ESQUECIDOS_6M') {
+        if (!f.is_esquecido_6m) return false;
+      } else if (filtroCurva !== 'TODAS' && f.curva_abc !== filtroCurva) {
+        return false;
+      }
       if (filtroCategoria !== 'TODAS' && f.tipo_categoria !== filtroCategoria) return false;
       if (buscaFalta) {
         const termo = buscaFalta.toLowerCase();
@@ -1273,6 +1344,76 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
             </div>
 
+            {/* Painel Equalizador Inteligente & Proteção Anti-Ruptura (Equivalentes + Resgate 6m) */}
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-gradient-to-r from-[#0c182c] via-[#0e1b31] to-[#0a1324] p-3.5 rounded-2xl border border-cyan-800/60 shadow-lg">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-cyan-950/70 border border-cyan-700/60">
+                  <Sliders className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-cyan-200">
+                    Equalizador Anti-Ruptura:
+                  </span>
+                  <button
+                    onClick={() => setEqualizarAtivo(prev => !prev)}
+                    className={`px-2.5 py-0.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                      equalizarAtivo
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    title="Quando ativo, corta a gordura de grandes volumes num só produto e garante 1 a 2 unidades (estoque semente) para itens esquecidos/Curva C"
+                  >
+                    {equalizarAtivo ? 'ATIVO (MIX EQUALIZADO)' : 'DESATIVADO (VOLUME BRUTO)'}
+                  </button>
+                </div>
+
+                {equalizarAtivo && (
+                  <div className="flex items-center gap-1 rounded-xl border border-slate-700/80 p-1 bg-[#080d18] text-[11px] font-bold">
+                    <span className="px-2 text-slate-400">Teto Máx/Item:</span>
+                    {([
+                      { val: 6, label: 'Máx 6 un' },
+                      { val: 10, label: 'Máx 10 un' },
+                      { val: 15, label: 'Máx 15 un' },
+                      { val: 0, label: 'Sem Teto' }
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.val}
+                        onClick={() => setTetoMaxUnidades(opt.val)}
+                        className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+                          tetoMaxUnidades === opt.val
+                            ? 'bg-cyan-600 text-white font-black'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                <span
+                  className="px-2.5 py-1 rounded-xl bg-emerald-950/70 text-emerald-300 border border-emerald-700/60"
+                  title="Produtos zerados que foram ocultados automaticamente porque outro laboratório equivalente (mesmo princípio ativo + dosagem + apresentação) já possui estoque na loja"
+                >
+                  🛡️ <b>{statsAntiRuptura.ocultadosEquiv}</b> trocas de lab c/ estoque ignoradas
+                </span>
+                <span
+                  className="px-2.5 py-1 rounded-xl bg-indigo-950/70 text-indigo-300 border border-indigo-700/60"
+                  title="Laboratórios repetidos do mesmo medicamento zerado que foram unificados em 1 único item para evitar compra duplicada"
+                >
+                  🔗 <b>{statsAntiRuptura.agrupadosEquiv}</b> labs equivalentes unificados
+                </span>
+                {equalizarAtivo && economiaEqualizador.unidadesCortadas > 0 && (
+                  <span
+                    className="px-2.5 py-1 rounded-xl bg-amber-950/80 text-amber-300 border border-amber-700/70"
+                    title="Orçamento liberado ao enxugar grandes volumes exagerados para cobrir mais produtos em falta na loja"
+                  >
+                    💰 <b>R$ {economiaEqualizador.valorEconomizado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> liberados (-{economiaEqualizador.unidadesCortadas} un. de excesso)
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* Controles de Filtros e Disparo de Cotação */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md">
               <div className="flex flex-wrap items-center gap-2">
@@ -1289,25 +1430,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   />
                 </div>
 
-                {/* Filtro Curva ABC */}
-                <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                {/* Filtro Curva ABC + Esquecidos 6 Meses */}
+                <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
                   <button
                     onClick={() => setFiltroCurva('TODAS')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
                   >
-                    Todas Curvas
+                    Todas ({faltas.length})
                   </button>
                   <button
                     onClick={() => setFiltroCurva('A')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
                   >
-                    Curva A
+                    Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
                   </button>
                   <button
                     onClick={() => setFiltroCurva('B')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
                   >
-                    Curva B
+                    Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroCurva('C')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
+                  >
+                    Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
+                    title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
+                  >
+                    ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
                   </button>
                 </div>
 
@@ -1728,9 +1883,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     </td>
                                     <td className="py-2.5 px-3.5">
                                       <div className="flex flex-col">
-                                        <span className="text-sm font-bold text-white leading-snug">
-                                          {item.descricao}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className="text-sm font-bold text-white leading-snug">
+                                            {item.descricao}
+                                          </span>
+                                          {(item.equivalentes_agrupados_count || 0) > 0 && (
+                                            <span
+                                              className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap"
+                                              title={`Representante único de grupo equivalente (${item.chave_equivalencia || ''}). Unificado com: ${(item.equivalentes_agrupados_nomes || []).join(' | ')}`}
+                                            >
+                                              🔗 +{item.equivalentes_agrupados_count} Lab(s) Equiv.
+                                            </span>
+                                          )}
+                                          {item.is_esquecido_6m && (
+                                            <span
+                                              className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950/90 text-amber-300 border border-amber-700/70 whitespace-nowrap"
+                                              title={`Resgate 6 Meses: Vendeu ${item.vendas_historico_6m || 0} un. no histórico recente, zerou o estoque e parou de vender nos últimos 30 dias`}
+                                            >
+                                              ⏳ Esquecido 6m ({item.vendas_historico_6m || 1}vd)
+                                            </span>
+                                          )}
+                                        </div>
                                         <div className="inline-flex items-center gap-2 text-xs text-slate-300 mt-1">
                                           <span className="font-mono text-slate-300">EAN: {item.ean || 'Sem EAN'}</span>
                                           <span className="text-slate-500">•</span>
@@ -1771,10 +1944,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                         {item.dias_estoque_restante <= 0 ? '0d (Ruptura)' : `${item.dias_estoque_restante}d`}
                                       </span>
                                     </td>
-                                    <td className="py-2.5 px-3 text-center whitespace-nowrap bg-cyan-950/30">
-                                      <span className="font-black text-cyan-300 text-sm">
-                                        {item.qtd_sugerida_7d} un
-                                      </span>
+                                    <td
+                                      className="py-2.5 px-3 text-center whitespace-nowrap bg-cyan-950/30"
+                                      title={equalizarAtivo && (item.qtd_bruta_7d || 0) > item.qtd_sugerida_7d ? `Equalizado de ${item.qtd_bruta_7d} un para ${item.qtd_sugerida_7d} un (economia de ${(item.qtd_bruta_7d || 0) - item.qtd_sugerida_7d} un)` : undefined}
+                                    >
+                                      <div className="inline-flex items-center justify-center gap-1">
+                                        <span className="font-black text-cyan-300 text-sm">
+                                          {item.qtd_sugerida_7d} un
+                                        </span>
+                                        {equalizarAtivo && (item.qtd_bruta_7d || 0) > item.qtd_sugerida_7d && (
+                                          <span className="text-[10px] text-slate-400 line-through font-semibold">
+                                            {item.qtd_bruta_7d}
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                     <td
                                       className="py-2.5 px-3 text-right whitespace-nowrap bg-amber-950/10 font-bold text-amber-200 text-sm"
@@ -1898,9 +2081,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             {/* Produto e Metadados em 1 linha compacta */}
                             <td className="py-2.5 px-3.5">
                               <div className="flex flex-col">
-                                <span className="text-sm font-bold text-white leading-snug">
-                                  {item.descricao}
-                                </span>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-sm font-bold text-white leading-snug">
+                                    {item.descricao}
+                                  </span>
+                                  {(item.equivalentes_agrupados_count || 0) > 0 && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap"
+                                      title={`Representante único de grupo equivalente (${item.chave_equivalencia || ''}). Unificado com: ${(item.equivalentes_agrupados_nomes || []).join(' | ')}`}
+                                    >
+                                      🔗 +{item.equivalentes_agrupados_count} Lab(s) Equiv.
+                                    </span>
+                                  )}
+                                  {item.is_esquecido_6m && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950/90 text-amber-300 border border-amber-700/70 whitespace-nowrap"
+                                      title={`Resgate 6 Meses: Vendeu ${item.vendas_historico_6m || 0} un. no histórico recente, zerou o estoque e parou de vender nos últimos 30 dias`}
+                                    >
+                                      ⏳ Esquecido 6m ({item.vendas_historico_6m || 1}vd)
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="inline-flex items-center gap-2 text-xs text-slate-300 mt-1">
                                   <span className="font-mono text-slate-300">EAN: {item.ean || 'Sem EAN'}</span>
                                   <span className="text-slate-500">•</span>
@@ -1949,10 +2150,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Pedir 7 Dias */}
-                            <td className="py-2.5 px-3 text-center whitespace-nowrap bg-cyan-950/30">
-                              <span className="font-black text-cyan-300 text-sm">
-                                {item.qtd_sugerida_7d} un
-                              </span>
+                            <td
+                              className="py-2.5 px-3 text-center whitespace-nowrap bg-cyan-950/30"
+                              title={equalizarAtivo && (item.qtd_bruta_7d || 0) > item.qtd_sugerida_7d ? `Equalizado de ${item.qtd_bruta_7d} un para ${item.qtd_sugerida_7d} un (economia de ${(item.qtd_bruta_7d || 0) - item.qtd_sugerida_7d} un)` : undefined}
+                            >
+                              <div className="inline-flex items-center justify-center gap-1">
+                                <span className="font-black text-cyan-300 text-sm">
+                                  {item.qtd_sugerida_7d} un
+                                </span>
+                                {equalizarAtivo && (item.qtd_bruta_7d || 0) > item.qtd_sugerida_7d && (
+                                  <span className="text-[10px] text-slate-400 line-through font-semibold">
+                                    {item.qtd_bruta_7d}
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* Último Valor de Compra */}

@@ -14,6 +14,7 @@ const express = require('express');
 const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
 const comprasEstoqueService = require('./services/compras-estoque.service');
+const comprasEquivalentesService = require('./services/compras-equivalentes.service');
 const fs = require('fs');
 const path = require('path');
 const { ProfarmaRobot } = require('./belaped-robot-profarma');
@@ -184,13 +185,20 @@ function belapedEndpoints(db) {
   /**
    * GET /api/belaped/faltas-7d
    * Retorna os produtos em ruptura ou com saldo crítico para reposição de 1 SEMANA (7 dias)
-   * Prioriza Curva A e B no regime "Vendeu, comprou de novo"
+   * - Inclui Curva A e B sem corte artificial (sem LIMIT 200 que escondia a Curva B)
+   * - Inclui Curva C / Esquecidos 6m (saldo <= 0 que teve vendas reais nos últimos 6 a 10 meses)
+   * - Dupla Proteção de Equivalentes:
+   *   1) Oculta da lista se outro laboratório do mesmo princípio ativo + dosagem + apresentação já tiver estoque na loja
+   *   2) Agrupa laboratórios zerados equivalentes em 1 único representante (menor preço cotado ou maior giro)
+   * - Equalizador Inteligente de Volumes: corta gordura dos grandes volumes e garante 1 a 2 un. ("estoque semente") para esquecidos
    */
   router.get('/faltas-7d', (req, res) => {
     try {
-      const { busca, curva, categoria } = req.query;
+      const { busca, curva, categoria, equalizar, teto_max } = req.query;
+      const equalizarAtivo = equalizar === undefined ? true : (equalizar !== '0' && equalizar !== 'false');
+      const tetoMaxUnidades = teto_max !== undefined ? Math.max(0, parseInt(String(teto_max), 10) || 0) : 10;
 
-      // Garante que a tabela compras_estoque_cache existe
+      // 1. Consulta sem corte de LIMIT 200: traz toda a Curva A, Curva B e Curva C ativa no histórico (6-10 meses)
       let query = `
         SELECT 
           c.produto_id,
@@ -203,6 +211,8 @@ function belapedEndpoints(db) {
           c.vmd_ponderado,
           c.vendas_30d,
           c.vendas_31_60d,
+          COALESCE(c.vendas_61_90d, 0) as vendas_61_90d,
+          COALESCE(c.vendas_10m, 0) as vendas_10m,
           c.custo_unitario,
           c.status_ruptura,
           c.preco_venda_vigente,
@@ -213,14 +223,26 @@ function belapedEndpoints(db) {
           c.ultima_compra_nf
         FROM compras_estoque_cache c
         WHERE (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
-          AND (c.curva_abc IN ('A', 'B') OR c.saldo <= 0)
+          AND (
+            c.curva_abc IN ('A', 'B')
+            OR (
+              c.curva_abc = 'C'
+              AND c.saldo <= 0
+              AND (
+                COALESCE(c.vendas_10m, 0) > 0
+                OR COALESCE(c.vendas_61_90d, 0) > 0
+                OR COALESCE(c.vendas_31_60d, 0) > 0
+                OR COALESCE(c.vendas_30d, 0) > 0
+              )
+            )
+          )
       `;
 
       const params = [];
 
-      if (curva) {
+      if (curva && ['A', 'B', 'C'].includes(String(curva).toUpperCase())) {
         query += ` AND c.curva_abc = ?`;
-        params.push(curva.toUpperCase());
+        params.push(String(curva).toUpperCase());
       }
 
       if (busca) {
@@ -232,7 +254,6 @@ function belapedEndpoints(db) {
         CASE c.status_ruptura WHEN 'RUPTURA' THEN 1 WHEN 'ABAIXO_MINIMO' THEN 2 ELSE 3 END ASC,
         CASE c.curva_abc WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END ASC,
         c.vmd_ponderado DESC
-        LIMIT 200
       `;
 
       const rows = db.prepare(query).all(...params);
@@ -254,39 +275,202 @@ function belapedEndpoints(db) {
         }
       } catch (e) {}
 
+      // 2. Motor de Equivalentes (Princípio Ativo + Dosagem + Quantidade na caixa)
+      // Mapeia vínculos manuais + equivalência farmacêutica automática em todo o estoque positivo da loja
+      const vinculosManuaisMap = new Map();
+      try {
+        const vinculos = db.prepare(`SELECT produto_id, grupo_id FROM compras_produtos_equivalentes`).all();
+        for (const v of vinculos) {
+          vinculosManuaisMap.set(Number(v.produto_id), `MANUAL_${v.grupo_id}`);
+        }
+      } catch (e) {}
+
+      const obterChaveEquivalencia = (prodId, descricao, categoriaId) => {
+        if (vinculosManuaisMap.has(Number(prodId))) {
+          return vinculosManuaisMap.get(Number(prodId));
+        }
+        const isMed = categoriaId !== 5 && categoriaId !== 7;
+        if (!isMed || !comprasEquivalentesService || typeof comprasEquivalentesService.extrairAtributosProduto !== 'function') {
+          return null;
+        }
+        const attr = comprasEquivalentesService.extrairAtributosProduto(descricao || '');
+        if (!attr || !attr.dosagem || !attr.principio || attr.principio === 'OUTROS' || attr.principio.length < 4) {
+          return null;
+        }
+        return attr.chave;
+      };
+
+      // Mapeia todo o estoque positivo na farmácia por chave de equivalência para saber se outro laboratório cobre a demanda
+      const estoqueGrupoEquivMap = new Map();
+      try {
+        const catálogoComSaldoOuGiro = db.prepare(`
+          SELECT produto_id, descricao, categoria_id, saldo, vmd_ponderado
+          FROM compras_estoque_cache
+          WHERE saldo > 0 OR curva_abc IN ('A', 'B')
+        `).all();
+        for (const p of catálogoComSaldoOuGiro) {
+          const chaveEq = obterChaveEquivalencia(p.produto_id, p.descricao, p.categoria_id);
+          if (!chaveEq) continue;
+          let grp = estoqueGrupoEquivMap.get(chaveEq);
+          if (!grp) {
+            grp = { saldoPositivoTotal: 0, vmdTotal: 0, labsComEstoque: [] };
+            estoqueGrupoEquivMap.set(chaveEq, grp);
+          }
+          const s = Number(p.saldo) || 0;
+          if (s > 0) {
+            grp.saldoPositivoTotal += s;
+            grp.labsComEstoque.push({ produto_id: p.produto_id, descricao: p.descricao, saldo: s });
+          }
+          grp.vmdTotal += Math.max(0, Number(p.vmd_ponderado) || 0);
+        }
+      } catch (e) {}
+
+      let ocultadosEquivalenteComEstoque = 0;
+      let agrupadosEquivalenciaCount = 0;
+
+      // 3. Processa os candidatos e aplica Proteção 1 (Ocultar se outro laboratório equivalente já tiver estoque suficiente)
+      const candidatosProcessados = [];
+
+      for (const r of rows) {
+        const vmd = Number(r.vmd_ponderado) || 0;
+        const saldo = Number(r.saldo) || 0;
+        const vendas30d = Number(r.vendas_30d) || 0;
+        const vendas31_60d = Number(r.vendas_31_60d) || 0;
+        const vendas61_90d = Number(r.vendas_61_90d) || 0;
+        const vendas10m = Number(r.vendas_10m) || 0;
+        const vendasHistoricoAntigo = Math.max(vendas10m - vendas30d, vendas31_60d + vendas61_90d);
+
+        // Identifica se é um produto "Esquecido nos últimos 6 meses":
+        // Acabou o estoque (saldo <= 0), parou de vender nos últimos 30 dias (porque não tinha na prateleira), mas vendia antes!
+        const isEsquecido6m = saldo <= 0 && vendas30d === 0 && (vendasHistoricoAntigo > 0 || vendas10m > 0);
+
+        const diasCobertura = vmd > 0 && saldo > 0 ? Number((saldo / vmd).toFixed(1)) : (saldo <= 0 ? 0 : 99);
+
+        // REGRA DE COBERTURA: Se o estoque atual aguenta 7 dias ou mais, não precisa comprar agora
+        if (saldo > 0 && diasCobertura >= 7) continue;
+        if (r.curva_abc === 'B' && saldo > 0 && diasCobertura >= 4) continue;
+        if (r.curva_abc !== 'A' && r.curva_abc !== 'B' && saldo > 0) continue;
+
+        // Se for Curva C com saldo <= 0 mas sem nenhuma venda nos últimos 6-10 meses, ignora cadastro morto
+        if (r.curva_abc === 'C' && vendas30d === 0 && vendas31_60d === 0 && vendas61_90d === 0 && vendas10m === 0) {
+          continue;
+        }
+
+        // PROTEÇÃO 1 DE EQUIVALENTES:
+        // Verifica se outro laboratório do mesmo medicamento + dosagem + apresentação já tem estoque na loja cobrindo a semana
+        const chaveEq = obterChaveEquivalencia(r.produto_id, r.descricao, r.categoria_id);
+        if (chaveEq && estoqueGrupoEquivMap.has(chaveEq)) {
+          const grpEq = estoqueGrupoEquivMap.get(chaveEq);
+          const necessidadeGrupoSemana = Math.max(2, Math.ceil(grpEq.vmdTotal * 5));
+          // Se o próprio item está zerado (ou baixo), mas a soma dos laboratórios equivalentes na prateleira cobre a necessidade
+          if (grpEq.saldoPositivoTotal > saldo && grpEq.saldoPositivoTotal >= necessidadeGrupoSemana) {
+            ocultadosEquivalenteComEstoque++;
+            continue;
+          }
+          // Para itens Esquecidos 6m / Curva C: se já existe pelo menos 1 unidade de outro laboratório equivalente na prateleira, não é ruptura!
+          if ((isEsquecido6m || r.curva_abc === 'C') && grpEq.saldoPositivoTotal >= 1) {
+            ocultadosEquivalenteComEstoque++;
+            continue;
+          }
+        }
+
+        candidatosProcessados.push({
+          raw: r,
+          vmd,
+          saldo,
+          vendas30d,
+          vendasHistorico6m: Math.max(vendas10m, vendas30d + vendas31_60d + vendas61_90d),
+          isEsquecido6m,
+          diasCobertura,
+          chaveEq
+        });
+      }
+
+      // 4. PROTEÇÃO 2 DE EQUIVALENTES:
+      // Se múltiplos laboratórios do mesmo medicamento estão TODOS zerados, agrupa em 1 único representante!
+      // Escolhe o representante com menor preço cotado nas distribuidoras ou maior giro recente.
+      const gruposZeradosMap = new Map();
+      const candidatosFinais = [];
+
+      for (const cand of candidatosProcessados) {
+        if (!cand.chaveEq) {
+          candidatosFinais.push({ ...cand, equivalentesAgrupados: [] });
+          continue;
+        }
+        if (!gruposZeradosMap.has(cand.chaveEq)) {
+          gruposZeradosMap.set(cand.chaveEq, []);
+        }
+        gruposZeradosMap.get(cand.chaveEq).push(cand);
+      }
+
+      for (const [chaveEq, listaGrupo] of gruposZeradosMap.entries()) {
+        if (listaGrupo.length === 1) {
+          candidatosFinais.push({ ...listaGrupo[0], equivalentesAgrupados: [] });
+          continue;
+        }
+
+        // Ordena para eleger o melhor representante do grupo equivalente zerado:
+        // 1º: Tem cotação disponível nos portais com menor preço
+        // 2º: Maior VMD / vendas recentes
+        // 3º: Menor custo de última compra
+        listaGrupo.sort((a, b) => {
+          const cotA = a.raw.ean && cotacoesReaisMap[a.raw.ean]?.length > 0 ? cotacoesReaisMap[a.raw.ean][0].preco : Infinity;
+          const cotB = b.raw.ean && cotacoesReaisMap[b.raw.ean]?.length > 0 ? cotacoesReaisMap[b.raw.ean][0].preco : Infinity;
+          if (cotA !== cotB) return cotA - cotB;
+          if (b.vmd !== a.vmd) return b.vmd - a.vmd;
+          if (b.vendasHistorico6m !== a.vendasHistorico6m) return b.vendasHistorico6m - a.vendasHistorico6m;
+          return (Number(a.raw.custo_unitario) || 9999) - (Number(b.raw.custo_unitario) || 9999);
+        });
+
+        const vencedor = listaGrupo[0];
+        const outros = listaGrupo.slice(1);
+        agrupadosEquivalenciaCount += outros.length;
+
+        // Consolida o VMD e histórico do grupo no representante vencedor para não perder a dimensão real do giro da molécula
+        const vmdConsolidado = listaGrupo.reduce((acc, item) => acc + item.vmd, 0);
+        const vendas30dConsolidado = listaGrupo.reduce((acc, item) => acc + item.vendas30d, 0);
+        const vendasHistConsolidado = listaGrupo.reduce((acc, item) => acc + item.vendasHistorico6m, 0);
+        const melhorCurva = listaGrupo.some(i => i.raw.curva_abc === 'A')
+          ? 'A'
+          : (listaGrupo.some(i => i.raw.curva_abc === 'B') ? 'B' : vencedor.raw.curva_abc);
+
+        candidatosFinais.push({
+          ...vencedor,
+          raw: {
+            ...vencedor.raw,
+            curva_abc: melhorCurva
+          },
+          vmd: vmdConsolidado,
+          vendas30d: vendas30dConsolidado,
+          vendasHistorico6m: vendasHistConsolidado,
+          isEsquecido6m: vencedor.saldo <= 0 && vendas30dConsolidado === 0 && vendasHistConsolidado > 0,
+          equivalentesAgrupados: outros.map(o => o.raw.descricao)
+        });
+      }
+
       let totalOrcado7d = 0;
       let totalItensRuptura = 0;
       let totalItensAbaixoMinimo = 0;
+      let totalEsquecidos6m = 0;
+      let unidadesCortadasEqualizador = 0;
+      let economiaEqualizadorReais = 0;
 
-      const items = rows.map(r => {
-        const vmd = Number(r.vmd_ponderado) || 0;
-        const saldo = Number(r.saldo) || 0;
+      const items = candidatosFinais.map(cand => {
+        const { raw: r, vmd, saldo, vendas30d, vendasHistorico6m, isEsquecido6m, diasCobertura, chaveEq, equivalentesAgrupados } = cand;
         const custo = Number(r.preco_unitario_ult_compra) || Number(r.custo_unitario) || 0;
 
-        // Meta de 1 semana (7 dias) com 15% de margem de segurança
+        // Meta bruta de 1 semana (7 dias) com 15% de margem de segurança (sem somar saldo negativo virtual)
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
-        const diasCobertura = vmd > 0 && saldo > 0 ? Number((saldo / vmd).toFixed(1)) : (saldo <= 0 ? 0 : 99);
-        
-        // REGRA DE COBERTURA: Se o estoque atual aguenta 7 dias ou mais, NÃO PRECISA COMPRAR AGORA!
-        if (saldo > 0 && diasCobertura >= 7) {
-          return null;
-        }
+        const saldoFisico = Math.max(0, saldo);
+        const qtdBruta7d = Math.max(1, necessidade7d - saldoFisico);
 
-        // REGRA DE CURVA:
-        if (r.curva_abc === 'B' && saldo > 0 && diasCobertura >= 4) {
-          return null;
-        }
-        if (r.curva_abc !== 'A' && r.curva_abc !== 'B' && saldo > 0) {
-          return null;
-        }
-
-        let qtdSugerida7d = 0;
         if (saldo <= 0) {
-          qtdSugerida7d = Math.max(1, Math.abs(saldo) + necessidade7d);
           totalItensRuptura++;
         } else {
-          qtdSugerida7d = Math.max(1, necessidade7d - saldo);
           totalItensAbaixoMinimo++;
+        }
+        if (isEsquecido6m) {
+          totalEsquecidos6m++;
         }
 
         // Verifica se há cotação REAL capturada pelos robôs para este EAN
@@ -299,12 +483,10 @@ function belapedEndpoints(db) {
         let diferencaPct = 0;
 
         if (cotacoesReais && cotacoesReais.length > 0) {
-          // 1º Colocado real (melhor preço real de mercado capturado pelo robô)
           fornecedor1 = cotacoesReais[0].fornecedor;
           preco1 = Number(cotacoesReais[0].preco.toFixed(2));
 
           if (cotacoesReais.length > 1) {
-            // 2º Colocado real (disputa real entre portais capturados)
             fornecedor2 = cotacoesReais[1].fornecedor;
             preco2 = Number(cotacoesReais[1].preco.toFixed(2));
             diferencaPct = preco1 > 0 ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
@@ -320,12 +502,34 @@ function belapedEndpoints(db) {
           preco2 = 0;
           diferencaPct = 0;
         } else {
-          // Nenhum dado falso: se ainda não foi cotado ao vivo pelo robô, exibe claramente
           fornecedor1 = 'Não Cotado';
-          preco1 = Number(custo.toFixed(2)); // Mantém custo da loja para cálculo do orçamento
+          preco1 = Number(custo.toFixed(2));
           fornecedor2 = '—';
           preco2 = 0;
           diferencaPct = 0;
+        }
+
+        // 5. EQUALIZADOR INTELIGENTE DE VOLUMES:
+        // - Para Esquecidos (6m) ou Curva C em ruptura: garante 1 a 2 unidades ("estoque semente") para recompor a vitrine
+        // - Para itens caros (>= R$ 35) ou de alto volume: reduz a gordura para 5 dias reais e aplica o teto máximo por item
+        let qtdEqualizada7d = qtdBruta7d;
+        if (isEsquecido6m || r.curva_abc === 'C') {
+          qtdEqualizada7d = vendasHistorico6m >= 6 ? 2 : 1;
+        } else {
+          let metaEnxuta = preco1 >= 35
+            ? Math.max(1, Math.ceil(vmd * 5) - saldoFisico)
+            : Math.max(1, Math.ceil(vmd * 6.5) - saldoFisico);
+          if (tetoMaxUnidades > 0) {
+            metaEnxuta = Math.min(metaEnxuta, tetoMaxUnidades);
+          }
+          qtdEqualizada7d = Math.max(1, metaEnxuta);
+        }
+
+        const qtdSugerida7d = equalizarAtivo ? qtdEqualizada7d : qtdBruta7d;
+        if (qtdBruta7d > qtdEqualizada7d) {
+          const diffUn = qtdBruta7d - qtdEqualizada7d;
+          unidadesCortadasEqualizador += diffUn;
+          economiaEqualizadorReais += diffUn * preco1;
         }
 
         const subtotal7d = Number((qtdSugerida7d * preco1).toFixed(2));
@@ -342,7 +546,6 @@ function belapedEndpoints(db) {
           ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1))
           : 0;
 
-        // Classificação amigável da categoria (medicamento vs perfumaria)
         const isMedicamento = r.categoria_id !== 5 && r.categoria_id !== 7;
 
         return {
@@ -353,9 +556,14 @@ function belapedEndpoints(db) {
           curva_abc: r.curva_abc || 'C',
           saldo: saldo,
           vmd_ponderado: Number(vmd.toFixed(2)),
-          vendas_30d: r.vendas_30d || 0,
+          vendas_30d: vendas30d,
+          vendas_historico_6m: vendasHistorico6m,
+          is_esquecido_6m: isEsquecido6m,
+          chave_equivalencia: chaveEq || null,
+          equivalentes_agrupados_count: equivalentesAgrupados ? equivalentesAgrupados.length : 0,
+          equivalentes_agrupados_nomes: equivalentesAgrupados || [],
           dias_estoque_restante: diasCobertura,
-          status_ruptura: saldo <= 0 ? 'RUPTURA' : 'RISCO_SEMANAL',
+          status_ruptura: isEsquecido6m ? 'ESQUECIDO_6M' : (saldo <= 0 ? 'RUPTURA' : 'RISCO_SEMANAL'),
           custo_unitario: preco1,
           preco_ult_compra: precoUltCompra,
           variacao_ult_compra_pct: variacaoUltCompraPct,
@@ -372,6 +580,8 @@ function belapedEndpoints(db) {
           fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
           data_ult_compra: r.ultima_compra_data || '',
           nf_ult_compra: r.ultima_compra_nf || '',
+          qtd_bruta_7d: qtdBruta7d,
+          qtd_equalizada_7d: qtdEqualizada7d,
           qtd_sugerida_7d: qtdSugerida7d,
           subtotal_7d: subtotal7d,
           tipo_categoria: isMedicamento ? 'MEDICAMENTO' : 'PERFUMARIA'
@@ -379,15 +589,17 @@ function belapedEndpoints(db) {
       }).filter(Boolean);
 
       // Ordenação estratégica:
-      // 1. Ruptura real (saldo <= 0) no topo absoluto!
-      // 2. Curva A antes de B
-      // 3. Maior margem de lucro / giro (o que mais dá retorno para a loja)
+      // 1. Ruptura real (saldo <= 0) no topo absoluto
+      // 2. Ordem de Curva A -> B -> C
+      // 3. Maior giro / retorno para a loja
       items.sort((a, b) => {
         if (a.saldo <= 0 && b.saldo > 0) return -1;
         if (b.saldo <= 0 && a.saldo > 0) return 1;
-        if (a.curva_abc === 'A' && b.curva_abc !== 'A') return -1;
-        if (b.curva_abc === 'A' && a.curva_abc !== 'A') return 1;
-        return (b.margem_lucro_percentual * b.vmd_ponderado) - (a.margem_lucro_percentual * a.vmd_ponderado);
+        const ordemCurva = { A: 1, B: 2, C: 3 };
+        const ca = ordemCurva[a.curva_abc] || 3;
+        const cb = ordemCurva[b.curva_abc] || 3;
+        if (ca !== cb) return ca - cb;
+        return (b.margem_lucro_percentual * Math.max(0.05, b.vmd_ponderado)) - (a.margem_lucro_percentual * Math.max(0.05, a.vmd_ponderado));
       });
 
       // Resumo consolidado por distribuidora vencedora (1º Colocado)
@@ -433,10 +645,17 @@ function belapedEndpoints(db) {
 
       res.json({
         success: true,
-        meta_cobertura: '7 dias estritos (Compre o que vende e dá lucro; ignora estoque >= 7 dias)',
+        meta_cobertura: 'Equalização Anti-Ruptura: Curvas A, B e Resgate 6m sem duplicar equivalentes',
         total_itens: items.length,
         total_ruptura: totalItensRuptura,
         total_abaixo_minimo: totalItensAbaixoMinimo,
+        total_esquecidos_6m: totalEsquecidos6m,
+        ocultados_equivalente_com_estoque: ocultadosEquivalenteComEstoque,
+        agrupados_equivalencia: agrupadosEquivalenciaCount,
+        unidades_cortadas_equalizador: unidadesCortadasEqualizador,
+        economia_equalizador_reais: Number(economiaEqualizadorReais.toFixed(2)),
+        equalizar_ativo: equalizarAtivo,
+        teto_max_unidades: tetoMaxUnidades,
         total_orcado_7d: Number(totalOrcado7d.toFixed(2)),
         resumo_distribuidoras: resumoDistribuidoras,
         items,
