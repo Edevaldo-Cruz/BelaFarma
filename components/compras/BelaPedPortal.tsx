@@ -34,6 +34,7 @@ import {
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
 import PedidosTab from './BelaPedPedidosTab';
+import BelaPedResumoTremor from './BelaPedResumoTremor';
 
 interface BelaPedPortalProps {
   user: User;
@@ -854,6 +855,124 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       </header>
 
       {/* ─── CORPO PRINCIPAL COM SCROLL INTERNO ──────────────────────────────── */}
+      {/* ─── MENU LATERAL EXCLUSIVO DO BELAPED + CORPO ───────────────────────── */}
+      <div className="flex-1 flex overflow-hidden">
+      <aside className="w-64 shrink-0 bg-[#0b1222] border-r border-slate-800/80 flex flex-col overflow-y-auto custom-scrollbar">
+        <nav className="p-3 space-y-1.5">
+          <span className="px-2 text-[10px] font-black uppercase tracking-widest text-cyan-400/80 block mb-1">
+            Módulos Exclusivos BelaPed
+          </span>
+          {([
+            { id: 'faltas', label: '1. Reposição 1 Semana', icon: <Layers className="w-4 h-4 text-cyan-300" />, badge: faltas.length },
+            { id: 'cotacao', label: '2. Portais & Carrinho', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
+            { id: 'pedidos', label: '3. Meus Pedidos & NF', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
+            { id: 'orcamento', label: '4. Radar de Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
+            { id: 'relatorios', label: '5. Relatórios & Preços', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 }
+          ] as const).map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
+                activeTab === item.id
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 border border-cyan-400/40'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
+              }`}
+            >
+              {item.icon}
+              <span className="flex-1 truncate">{item.label}</span>
+              {item.badge > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">{item.badge}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* Filtro Rápido no Menu Lateral: Melhor Preço por Distribuidora */}
+        <div className="p-3 border-t border-slate-800/80 space-y-1.5">
+          <div className="flex items-center justify-between px-2 mb-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+              Melhor Preço por Empresa
+            </span>
+            <Filter className="w-3 h-3 text-emerald-400" />
+          </div>
+          <button
+            onClick={() => {
+              setActiveTab('faltas');
+              setFiltroDistribuidora('TODAS');
+            }}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black cursor-pointer border transition-all ${
+              activeTab === 'faltas' && filtroDistribuidora === 'TODAS'
+                ? 'bg-cyan-950/70 border-cyan-500 text-cyan-200 shadow-sm'
+                : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-slate-600'
+            }`}
+          >
+            <span>Todas Distribuidoras</span>
+            <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-[10px] text-cyan-200">{faltasBaseFiltradas.length} it.</span>
+          </button>
+
+          {(['DISTRIMED', 'PROFARMA', 'SOTON FARMA', 'DPC DISTRIBUIDORA'] as const).map(nomeDist => {
+            const grp = totaisPorDistribuidora.find(g => g.distribuidora === nomeDist);
+            const qtd = grp ? grp.qtdProdutos : 0;
+            const totalVal = grp ? grp.valorTotal : 0;
+            const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
+            return (
+              <button
+                key={nomeDist}
+                onClick={() => {
+                  setActiveTab('faltas');
+                  setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
+                }}
+                title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
+                className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
+                  ativo
+                    ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
+                    : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
+                }`}
+              >
+                <div className="flex items-center justify-between w-full gap-1">
+                  <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
+                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
+                    {qtd} it.
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-slate-400">
+                  Total: <b className="text-white">R$ {totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Ações Rápidas Exclusivas do Ped no Menu Lateral */}
+        <div className="p-3 border-t border-slate-800/80 space-y-2 mt-auto">
+          <span className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 block">
+            Ações Rápidas do Ped
+          </span>
+          <button
+            onClick={() => {
+              setActiveTab('faltas');
+              setAgruparPorDistribuidora(prev => !prev);
+            }}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border transition-all ${
+              agruparPorDistribuidora
+                ? 'bg-cyan-600 text-white border-cyan-400'
+                : 'bg-[#09101f] text-cyan-300 border-cyan-800/70 hover:border-cyan-500'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{agruparPorDistribuidora ? '✓ Agrupado por Empresa' : 'Agrupar por Empresa'}</span>
+          </button>
+          <button
+            onClick={() => setAvulsoModalOpen(true)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Adicionar Item Avulso</span>
+          </button>
+        </div>
+      </aside>
+
+
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-5 bg-gradient-to-b from-[#070b14] via-[#09101f] to-[#070b14]">
         
         {/* ─── BARRA DA REGRA MASTER: ORÇAMENTO & VENCIMENTO DE BOLETOS ─────────── */}
@@ -950,82 +1069,54 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         )}
 
-        {/* ─── NAVEGAÇÃO POR ABAS DO BELAPED (ESTILO CYBER B2B) ─────────────────── */}
-        <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3 overflow-x-auto scrollbar-none">
-          <button
-            onClick={() => setActiveTab('faltas')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'faltas'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 scale-105'
-                : 'bg-[#0e1626] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
-            }`}
-          >
-            <Layers className="w-4 h-4 text-cyan-300" />
-            <span>1. Reposição 1 Semana (Vendeu/Comprou)</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">
-              {faltas.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('cotacao')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'cotacao'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 scale-105'
-                : 'bg-[#0e1626] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
-            }`}
-          >
-            <Globe className="w-4 h-4 text-blue-400" />
-            <span>2. Portais B2B & Otimizador de Carrinho</span>
-            {carrinhosOtimizados.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-blue-900 text-blue-200">
-                {carrinhosOtimizados.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('orcamento')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'orcamento'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 scale-105'
-                : 'bg-[#0e1626] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
-            }`}
-          >
-            <DollarSign className="w-4 h-4 text-emerald-400" />
-            <span>3. Radar de Orçamento & Boletos</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('relatorios')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'relatorios'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 scale-105'
-                : 'bg-[#0e1626] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4 text-purple-400" />
-            <span>4. Relatórios & Preços</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('pedidos')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'pedidos'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 scale-105'
-                : 'bg-[#0e1626] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
-            }`}
-          >
-            <Layers className="w-4 h-4 text-amber-400" />
-            <span>5. Pedidos</span>
-          </button>
-        </div>
 
         {activeTab === 'pedidos' && <PedidosTab />}
 
         {/* ─── ABA 1: FALTAS & REPOSIÇÃO 1 SEMANA ─────────────────────────────── */}
         {activeTab === 'faltas' && (
           <div className="space-y-4">
+            {/* ─── PAINEL TREMOR DE INDICADORES EXECUTIVOS ─────────────────────── */}
+            <BelaPedResumoTremor faltas={faltas} totais={totaisPorDistribuidora} />
+
+            {/* ─── BARRA DE BOTÕES RÁPIDOS: MELHOR PREÇO DA DISTRIBUIDORA ──────── */}
+            <div className="bg-[#0e1626] px-4 py-3 rounded-2xl border border-slate-800 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5 mr-1">
+                <Filter className="w-3.5 h-3.5" />
+                Melhor Preço na Distribuidora:
+              </span>
+              <button
+                onClick={() => setFiltroDistribuidora('TODAS')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer border ${
+                  filtroDistribuidora === 'TODAS'
+                    ? 'bg-cyan-600 text-white border-cyan-400 shadow-md'
+                    : 'bg-[#080d18] text-slate-300 border-slate-700 hover:border-cyan-500'
+                }`}
+              >
+                Todas ({faltasBaseFiltradas.length})
+              </button>
+              {(['DISTRIMED', 'PROFARMA', 'SOTON FARMA', 'DPC DISTRIBUIDORA'] as const).map(dist => {
+                const grp = totaisPorDistribuidora.find(g => g.distribuidora === dist);
+                const qtd = grp ? grp.qtdProdutos : 0;
+                const val = grp ? grp.valorTotal : 0;
+                const isSel = filtroDistribuidora === dist;
+                return (
+                  <button
+                    key={dist}
+                    onClick={() => setFiltroDistribuidora(isSel ? 'TODAS' : dist)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer border flex items-center gap-2 ${
+                      isSel
+                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
+                        : 'bg-[#080d18] text-emerald-300 border-slate-700 hover:border-emerald-500'
+                    }`}
+                  >
+                    <span>{dist}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-black/30 text-[10px] text-white">
+                      {qtd} it. • R$ {val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             
             {/* ─── PAINEL EXECUTIVO: TOTAIS POR DISTRIBUIDORA & AGRUPAMENTO ────────── */}
             <div className="bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-3">
@@ -2321,6 +2412,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         )}
 
+      </div>
       </div>
 
       {/* ─── MODAL: CADASTRAR/EDITAR PORTAL ──────────────────────────────────── */}

@@ -85,7 +85,7 @@ export default defineConfig(({ mode }) => {
           workbox: {
             skipWaiting: true,
             clientsClaim: true,
-            maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
+            maximumFileSizeToCacheInBytes: 8 * 1024 * 1024, // 8 MiB
           },
           manifest: {
             name: 'Belinha',
