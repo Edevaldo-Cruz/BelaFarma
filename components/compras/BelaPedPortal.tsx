@@ -344,30 +344,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       itens: FaltaItem7d[];
     }> = {};
 
-    // Garante que as 4 distribuidoras oficiais sempre apareçam nos cards de resumo
-    ['DISTRIMED', 'PROFARMA', 'SOTON FARMA', 'DPC DISTRIBUIDORA'].forEach(nome => {
-      grupos[nome] = {
-        distribuidora: nome,
-        isEmpresaReal: true,
-        qtdProdutos: 0,
-        qtdUnidades: 0,
-        valorTotal: 0,
-        qtdSelecionados: 0,
-        valorSelecionado: 0,
-        pedidoMinimo: minimosPadrao[nome] || 300,
-        atingiuMinimo: false,
-        faltaParaMinimo: minimosPadrao[nome] || 300,
-        itens: []
-      };
-    });
-
     faltasBaseFiltradas.forEach(item => {
       const f1 = item.fornecedor_1 || 'Não Cotado';
       const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
       const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
 
       if (!grupos[chave]) {
-        const min = minimosPadrao[chave] || 0;
+        const min = isReal ? (minimosPadrao[chave] || 300) : 0;
         grupos[chave] = {
           distribuidora: chave,
           isEmpresaReal: isReal,
@@ -404,12 +387,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
     });
 
-    // Ordena: primeiro as 4 distribuidoras reais por maior valorTotal, depois Sem Estoque / Aguardando
-    return Object.values(grupos).sort((a, b) => {
-      if (a.isEmpresaReal && !b.isEmpresaReal) return -1;
-      if (!a.isEmpresaReal && b.isEmpresaReal) return 1;
-      return b.valorTotal - a.valorTotal;
-    });
+    // Retorna dinamicamente apenas distribuidoras/grupos que possuem itens (> 0)
+    return Object.values(grupos)
+      .filter(g => g.qtdProdutos > 0)
+      .sort((a, b) => {
+        if (a.isEmpresaReal && !b.isEmpresaReal) return -1;
+        if (!a.isEmpresaReal && b.isEmpresaReal) return 1;
+        return b.valorTotal - a.valorTotal;
+      });
   }, [faltasBaseFiltradas, portais, itensSelecionados]);
 
   // Filtra itens de falta (aplicando também o filtro de distribuidora clicada)
@@ -910,37 +895,37 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-[10px] text-cyan-200">{faltasBaseFiltradas.length} it.</span>
           </button>
 
-          {(['DISTRIMED', 'PROFARMA', 'SOTON FARMA', 'DPC DISTRIBUIDORA'] as const).map(nomeDist => {
-            const grp = totaisPorDistribuidora.find(g => g.distribuidora === nomeDist);
-            const qtd = grp ? grp.qtdProdutos : 0;
-            const totalVal = grp ? grp.valorTotal : 0;
-            const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
-            return (
-              <button
-                key={nomeDist}
-                onClick={() => {
-                  setActiveTab('faltas');
-                  setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
-                }}
-                title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
-                className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
-                  ativo
-                    ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
-                    : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full gap-1">
-                  <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
-                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
-                    {qtd} it.
+          {totaisPorDistribuidora
+            .filter(grp => grp.isEmpresaReal && grp.qtdProdutos > 0)
+            .map(grp => {
+              const nomeDist = grp.distribuidora;
+              const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
+              return (
+                <button
+                  key={nomeDist}
+                  onClick={() => {
+                    setActiveTab('faltas');
+                    setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
+                  }}
+                  title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
+                  className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
+                    ativo
+                      ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
+                      : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full gap-1">
+                    <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
+                    <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
+                      {grp.qtdProdutos} it.
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    Total: <b className="text-white">R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
                   </span>
-                </div>
-                <span className="text-[11px] font-bold text-slate-400">
-                  Total: <b className="text-white">R$ {totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                </span>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
         </div>
 
         {/* Ações Rápidas Exclusivas do Ped no Menu Lateral */}
@@ -1094,28 +1079,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               >
                 Todas ({faltasBaseFiltradas.length})
               </button>
-              {(['DISTRIMED', 'PROFARMA', 'SOTON FARMA', 'DPC DISTRIBUIDORA'] as const).map(dist => {
-                const grp = totaisPorDistribuidora.find(g => g.distribuidora === dist);
-                const qtd = grp ? grp.qtdProdutos : 0;
-                const val = grp ? grp.valorTotal : 0;
-                const isSel = filtroDistribuidora === dist;
-                return (
-                  <button
-                    key={dist}
-                    onClick={() => setFiltroDistribuidora(isSel ? 'TODAS' : dist)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer border flex items-center gap-2 ${
-                      isSel
-                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
-                        : 'bg-[#080d18] text-emerald-300 border-slate-700 hover:border-emerald-500'
-                    }`}
-                  >
-                    <span>{dist}</span>
-                    <span className="px-1.5 py-0.5 rounded bg-black/30 text-[10px] text-white">
-                      {qtd} it. • R$ {val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                  </button>
-                );
-              })}
+              {totaisPorDistribuidora
+                .filter(grp => grp.isEmpresaReal && grp.qtdProdutos > 0)
+                .map(grp => {
+                  const dist = grp.distribuidora;
+                  const isSel = filtroDistribuidora === dist;
+                  return (
+                    <button
+                      key={dist}
+                      onClick={() => setFiltroDistribuidora(isSel ? 'TODAS' : dist)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer border flex items-center gap-2 ${
+                        isSel
+                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
+                          : 'bg-[#080d18] text-emerald-300 border-slate-700 hover:border-emerald-500'
+                      }`}
+                    >
+                      <span>{dist}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-black/30 text-[10px] text-white">
+                        {grp.qtdProdutos} it. • R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
             
             {/* ─── PAINEL EXECUTIVO: TOTAIS POR DISTRIBUIDORA & AGRUPAMENTO ────────── */}

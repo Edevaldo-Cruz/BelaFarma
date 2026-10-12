@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e649d88",
-  "commitMessage": "feat(belaped): tela de conferencia de recebimento",
-  "buildTime": "12/10/2026, 10:42:37"
+  "commitHash": "0b349c6",
+  "commitMessage": "feat(belaped): instala Tremor, adiciona menu lateral exclusivo do Ped e botoes de filtro de melhor preco por distribuidora",
+  "buildTime": "12/10/2026, 10:50:45"
 }
