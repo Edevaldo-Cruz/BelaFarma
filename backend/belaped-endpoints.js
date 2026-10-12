@@ -1592,7 +1592,69 @@ function belapedEndpoints(db) {
           mensagem: `Pedido da ${p.distribuidora} passou do prazo previsto (${p.prazo_previsto}) e ainda não foi recebido.`
         });
       }
+      // Alertas de queda de preço: cotação real atual >=5% abaixo da última compra
+      try {
+        const quedas = db.prepare(`
+          SELECT r.fornecedor, r.descricao, r.preco, c.preco_unitario_ult_compra AS ult
+          FROM belaped_cotacoes_reais r
+          JOIN compras_estoque_cache c ON c.ean = r.ean
+          WHERE r.preco > 0 AND r.disponivel = 1 AND c.preco_unitario_ult_compra > 0
+            AND r.preco <= c.preco_unitario_ult_compra * 0.95
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+          ORDER BY (c.preco_unitario_ult_compra - r.preco) / c.preco_unitario_ult_compra DESC
+          LIMIT 10`).all();
+        for (const q of quedas) {
+          const pct = ((q.ult - q.preco) / q.ult) * 100;
+          alertas.push({
+            tipo: 'QUEDA_PRECO', nivel: 'info',
+            mensagem: `${q.descricao || 'Produto'}: ${q.fornecedor} a R$ ${Number(q.preco).toFixed(2)} (${pct.toFixed(0)}% abaixo da última compra, R$ ${Number(q.ult).toFixed(2)}).`
+          });
+        }
+      } catch (e) {
+        console.error('[BelaPed] Alertas de preço indisponíveis:', e.message);
+      }
       res.json({ success: true, alertas });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  try {
+    db.exec('ALTER TABLE belaped_pedidos_itens ADD COLUMN preco_cobrado REAL');
+  } catch (e) { /* coluna já existe */ }
+
+  /**
+   * PUT /api/belaped/pedidos/:id/conferencia
+   * Body: { itens: [{ ean, qtd_faturada, preco_cobrado }] }
+   * Compara com o pedido e devolve divergências de quantidade (corte) e de preço.
+   */
+  router.put('/pedidos/:id/conferencia', (req, res) => {
+    try {
+      const { itens } = req.body || {};
+      if (!Array.isArray(itens)) return res.status(400).json({ success: false, error: 'Informe itens.' });
+      const upd = db.prepare('UPDATE belaped_pedidos_itens SET qtd_faturada = ?, preco_cobrado = ? WHERE pedido_id = ? AND ean = ?');
+      db.transaction(() => {
+        for (const i of itens) upd.run(Number(i.qtd_faturada) || 0, i.preco_cobrado != null ? Number(i.preco_cobrado) : null, req.params.id, i.ean);
+      })();
+      const linhas = db.prepare('SELECT * FROM belaped_pedidos_itens WHERE pedido_id = ?').all(req.params.id);
+      const divergencias = [];
+      let pedidas = 0, faturadas = 0;
+      for (const l of linhas) {
+        pedidas += l.qtd_pedida || 0;
+        if (l.qtd_faturada == null) continue;
+        faturadas += l.qtd_faturada;
+        if (l.qtd_faturada < l.qtd_pedida) {
+          divergencias.push({ ean: l.ean, descricao: l.descricao, tipo: 'CORTE', pedido: l.qtd_pedida, faturado: l.qtd_faturada });
+        }
+        if (l.preco_cobrado != null && l.preco_cobrado > (l.preco_cotado || 0) * 1.005) {
+          divergencias.push({ ean: l.ean, descricao: l.descricao, tipo: 'PRECO_MAIOR', cotado: l.preco_cotado, cobrado: l.preco_cobrado });
+        }
+      }
+      res.json({
+        success: true,
+        taxa_atendimento_pct: pedidas ? Number(((faturadas / pedidas) * 100).toFixed(1)) : 0,
+        divergencias
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
