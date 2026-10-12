@@ -60,6 +60,42 @@ const PedidosTab: React.FC = () => {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // Conferência de recebimento (quantidade faturada / preço cobrado vs. pedido)
+  const [confId, setConfId] = useState<string | null>(null);
+  const [confItens, setConfItens] = useState<any[]>([]);
+  const [confResultado, setConfResultado] = useState<any>(null);
+
+  const abrirConferencia = async (id: string) => {
+    if (confId === id) { setConfId(null); return; }
+    const r = await fetch(`/api/belaped/pedidos/${id}`);
+    if (!r.ok) { addToast('Falha ao abrir pedido.', 'error'); return; }
+    const d = await r.json();
+    setConfItens((d.itens || []).map((i: any) => ({
+      ...i,
+      qtd_faturada: i.qtd_faturada ?? i.qtd_pedida,
+      preco_cobrado: i.preco_cobrado ?? i.preco_cotado
+    })));
+    setConfResultado(null);
+    setConfId(id);
+  };
+
+  const salvarConferencia = async () => {
+    if (!confId) return;
+    const r = await fetch(`/api/belaped/pedidos/${confId}/conferencia`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        itens: confItens.map(i => ({ ean: i.ean, qtd_faturada: Number(i.qtd_faturada), preco_cobrado: Number(i.preco_cobrado) }))
+      })
+    });
+    if (r.ok) {
+      setConfResultado(await r.json());
+      addToast('Conferência salva.', 'success');
+    } else {
+      addToast('Falha ao salvar conferência.', 'error');
+    }
+  };
+
   const mudarStatus = async (id: string, status: string) => {
     let nf: string | undefined;
     if (status === 'FATURADO' || status === 'RECEBIDO') {
@@ -125,7 +161,8 @@ const PedidosTab: React.FC = () => {
               </td></tr>
             )}
             {pedidos.map(p => (
-              <tr key={p.id} className="border-b border-slate-800/60 hover:bg-slate-900/40">
+              <React.Fragment key={p.id}>
+              <tr className="border-b border-slate-800/60 hover:bg-slate-900/40">
                 <td className="px-3 py-2 whitespace-nowrap text-slate-300">{new Date(p.created_at + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</td>
                 <td className="px-3 py-2 whitespace-nowrap font-bold text-white">{p.distribuidora}</td>
                 <td className="px-3 py-2 text-right text-slate-300">{p.qtd_itens}</td>
@@ -137,18 +174,81 @@ const PedidosTab: React.FC = () => {
                   <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold ${STATUS_COR[p.status] || STATUS_COR.RASCUNHO}`}>{STATUS_LABEL[p.status] || p.status}</span>
                 </td>
                 <td className="px-3 py-2">
-                  <select
-                    value=""
-                    onChange={e => e.target.value && mudarStatus(p.id, e.target.value)}
-                    className="bg-[#080d18] border border-slate-700 rounded-lg text-xs text-slate-200 px-2 py-1 cursor-pointer"
-                  >
-                    <option value="">Marcar como…</option>
-                    {['FINALIZADO_PELO_USUARIO', 'FATURADO', 'RECEBIDO', 'CANCELADO'].map(s => (
-                      <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => abrirConferencia(p.id)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer whitespace-nowrap"
+                      title="Conferir quantidades faturadas e preços cobrados"
+                    >
+                      {confId === p.id ? 'Fechar' : 'Conferir'}
+                    </button>
+                    <select
+                      value=""
+                      onChange={e => e.target.value && mudarStatus(p.id, e.target.value)}
+                      className="bg-[#080d18] border border-slate-700 rounded-lg text-xs text-slate-200 px-2 py-1 cursor-pointer"
+                    >
+                      <option value="">Marcar como…</option>
+                      {['FINALIZADO_PELO_USUARIO', 'FATURADO', 'RECEBIDO', 'CANCELADO'].map(s => (
+                        <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                      ))}
+                    </select>
+                  </div>
                 </td>
               </tr>
+              {confId === p.id && (
+                <tr className="bg-[#080d18]">
+                  <td colSpan={9} className="px-4 py-3">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-slate-400 uppercase">
+                          <th className="text-left px-2 py-1 whitespace-nowrap">Produto</th>
+                          <th className="text-right px-2 py-1 whitespace-nowrap">Pedido</th>
+                          <th className="text-right px-2 py-1 whitespace-nowrap">Faturado</th>
+                          <th className="text-right px-2 py-1 whitespace-nowrap">Preço cotado</th>
+                          <th className="text-right px-2 py-1 whitespace-nowrap">Preço cobrado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {confItens.map((it, idx) => {
+                          const corte = Number(it.qtd_faturada) < Number(it.qtd_pedida);
+                          const caro = Number(it.preco_cobrado) > Number(it.preco_cotado) * 1.005;
+                          return (
+                            <tr key={it.id} className="border-t border-slate-800/60">
+                              <td className="px-2 py-1 text-slate-200">{it.descricao || it.ean}</td>
+                              <td className="px-2 py-1 text-right text-slate-300">{it.qtd_pedida}</td>
+                              <td className="px-2 py-1 text-right">
+                                <input type="number" min={0} value={it.qtd_faturada}
+                                  onChange={e => setConfItens(prev => prev.map((x, i) => i === idx ? { ...x, qtd_faturada: e.target.value } : x))}
+                                  className={`w-20 text-right bg-[#0e1626] border rounded px-1 py-0.5 ${corte ? 'border-amber-500 text-amber-300' : 'border-slate-700 text-white'}`} />
+                              </td>
+                              <td className="px-2 py-1 text-right text-slate-300">{brl(it.preco_cotado)}</td>
+                              <td className="px-2 py-1 text-right">
+                                <input type="number" step="0.01" min={0} value={it.preco_cobrado}
+                                  onChange={e => setConfItens(prev => prev.map((x, i) => i === idx ? { ...x, preco_cobrado: e.target.value } : x))}
+                                  className={`w-24 text-right bg-[#0e1626] border rounded px-1 py-0.5 ${caro ? 'border-rose-500 text-rose-300' : 'border-slate-700 text-white'}`} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div className="flex items-center gap-3 mt-3">
+                      <button onClick={salvarConferencia} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer">
+                        Salvar conferência
+                      </button>
+                      {confResultado && (
+                        <span className="text-xs text-slate-300">
+                          Atendimento: <b className="text-white">{confResultado.taxa_atendimento_pct}%</b> •{' '}
+                          {confResultado.divergencias.length === 0
+                            ? <b className="text-emerald-400">sem divergências</b>
+                            : <b className="text-amber-400">{confResultado.divergencias.length} divergência(s): {confResultado.divergencias.filter((d: any) => d.tipo === 'CORTE').length} corte(s), {confResultado.divergencias.filter((d: any) => d.tipo === 'PRECO_MAIOR').length} preço(s) acima do cotado</b>}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>

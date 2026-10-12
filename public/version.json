@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ff90964",
-  "commitMessage": "feat(belaped): exibe valor da ultima compra, agrupamento e total por distribuidora e corrige saldo do orcamento",
-  "buildTime": "12/10/2026, 09:05:26"
+  "commitHash": "e593e61",
+  "commitMessage": "feat(belaped): alertas de queda de preco e conferencia de recebimento",
+  "buildTime": "12/10/2026, 10:11:21"
 }
