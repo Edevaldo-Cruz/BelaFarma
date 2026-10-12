@@ -1206,24 +1206,47 @@ function belapedEndpoints(db) {
           updated_at = excluded.updated_at
       `);
 
+      // Inicializa status detalhado por portal para o Mini-Monitor no canto inferior direito
+      cotacaoStatus.workers = {
+        'PROFARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
+        'DPC DISTRIBUIDORA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
+        'SOTON FARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
+        'DISTRIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
+      };
+
       const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass) => {
         let robot = null;
+        if (!cotacaoStatus.workers[nomeFornecedor]) {
+          cotacaoStatus.workers[nomeFornecedor] = { status: 'INICIANDO', itemAtual: 'Iniciando navegador...', avaliados: 0, encontrados: 0, semEstoque: 0 };
+        }
         try {
           console.log(`[BelaPed Cotação] Iniciando robô para ${nomeFornecedor}...`);
+          cotacaoStatus.workers[nomeFornecedor].status = 'AUTENTICANDO';
+          cotacaoStatus.workers[nomeFornecedor].itemAtual = 'Autenticando no portal B2B...';
+          cotacaoStatus.ultimoItem = `${nomeFornecedor}: Autenticando no portal...`;
+
           robot = new RobotClass({ headless: true });
           await robot.iniciar();
+
+          cotacaoStatus.workers[nomeFornecedor].status = 'COTANDO';
 
           for (let i = 0; i < listaEans.length; i++) {
             const eanAtual = listaEans[i];
             const descAtual = mapaDescricoes[eanAtual] || '';
+            cotacaoStatus.workers[nomeFornecedor].itemAtual = `Pesquisando: ${descAtual || eanAtual} (${i + 1}/${listaEans.length})`;
             cotacaoStatus.ultimoItem = `${nomeFornecedor}: ${descAtual || eanAtual}`;
 
             const resultado = await robot.cotarEAN(eanAtual, descAtual);
             passosConcluidos++;
+            cotacaoStatus.workers[nomeFornecedor].avaliados++;
             cotacaoStatus.atual = Math.min(listaEans.length, Math.max(1, Math.ceil(passosConcluidos / numWorkers)));
+
+            const horaLog = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
             if (resultado.disponivel && resultado.preco > 0) {
               cotacaoStatus.encontrados++;
+              cotacaoStatus.workers[nomeFornecedor].encontrados++;
+              cotacaoStatus.workers[nomeFornecedor].itemAtual = `✅ ${descAtual || eanAtual} -> R$ ${resultado.preco.toFixed(2)}`;
               cotacaoStatus.ultimoItem = `✅ ${nomeFornecedor}: ${descAtual || eanAtual} -> R$ ${resultado.preco.toFixed(2)}`;
               stmtSalvar.run(
                 eanAtual,
@@ -1234,6 +1257,7 @@ function belapedEndpoints(db) {
                 resultado.descPct || 0
               );
               cotacaoStatus.log.push({
+                hora: horaLog,
                 fornecedor: nomeFornecedor,
                 ean: eanAtual,
                 status: 'OK',
@@ -1241,6 +1265,8 @@ function belapedEndpoints(db) {
                 descricao: resultado.descricao || descAtual
               });
             } else {
+              cotacaoStatus.workers[nomeFornecedor].semEstoque++;
+              cotacaoStatus.workers[nomeFornecedor].itemAtual = `⚪ Sem estoque: ${descAtual || eanAtual}`;
               stmtSalvar.run(
                 eanAtual,
                 nomeFornecedor,
@@ -1250,16 +1276,30 @@ function belapedEndpoints(db) {
                 0
               );
               cotacaoStatus.log.push({
+                hora: horaLog,
                 fornecedor: nomeFornecedor,
                 ean: eanAtual,
+                descricao: descAtual || eanAtual,
                 status: 'INDISPONIVEL',
                 motivo: resultado.mensagem || 'Sem estoque'
               });
             }
+            if (cotacaoStatus.log.length > 80) {
+              cotacaoStatus.log = cotacaoStatus.log.slice(-80);
+            }
           }
+          cotacaoStatus.workers[nomeFornecedor].status = 'CONCLUIDO';
+          cotacaoStatus.workers[nomeFornecedor].itemAtual = 'Lote finalizado com sucesso';
         } catch (botErr) {
           console.error(`[BelaPed Cotação] Erro no robô ${nomeFornecedor}:`, botErr.message);
-          cotacaoStatus.log.push({ fornecedor: nomeFornecedor, erro: botErr.message });
+          cotacaoStatus.workers[nomeFornecedor].status = 'ERRO';
+          cotacaoStatus.workers[nomeFornecedor].itemAtual = `Erro: ${botErr.message}`;
+          cotacaoStatus.log.push({
+            hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            fornecedor: nomeFornecedor,
+            status: 'ERRO',
+            erro: botErr.message
+          });
         } finally {
           if (robot) await robot.fechar().catch(() => {});
         }
@@ -1311,7 +1351,7 @@ function belapedEndpoints(db) {
       if (HORARIOS_AGENDADOS.includes(horaMinutoAtual) && ultimoMinutoAgendado !== horaMinutoAtual) {
         ultimoMinutoAgendado = horaMinutoAtual;
         console.log(`[BelaPed Agendador] >>> HORÁRIO PROGRAMADO (${horaMinutoAtual}): Disparando cotação automática em 4 portais! <<<`);
-        executarCotacaoAoVivoInternal('TODOS', 30);
+        executarCotacaoAoVivoInternal('TODOS', 40);
       }
     } catch (schedErr) {
       console.error('[BelaPed Agendador] Erro no timer de cotação:', schedErr.message);
@@ -1332,7 +1372,7 @@ function belapedEndpoints(db) {
         });
       }
 
-      const { fornecedor = 'TODOS', limite = 25, eans } = req.body;
+      const { fornecedor = 'TODOS', limite = 40, eans } = req.body;
       const iniciado = await executarCotacaoAoVivoInternal(fornecedor, limite, eans);
 
       if (!iniciado) {
@@ -1357,12 +1397,41 @@ function belapedEndpoints(db) {
 
   /**
    * GET /api/belaped/status-cotacao
-   * Retorna o progresso em tempo real da cotação ao vivo
+   * Retorna o progresso em tempo real da cotação ao vivo + métricas da fila de itens sem cotação
    */
   router.get('/status-cotacao', (req, res) => {
+    let filaMetricas = { totalFaltasComEan: 0, jaCotados: 0, aguardandoRobo: 0 };
+    try {
+      const totalFaltasRow = db.prepare(`
+        SELECT COUNT(DISTINCT ean) as total
+        FROM compras_estoque_cache
+        WHERE ean IS NOT NULL AND length(ean) >= 7
+          AND (saldo <= 0 OR saldo < est_minimo_calculado)
+          AND (curva_abc IN ('A', 'B') OR saldo <= 0)
+      `).get();
+      const cotadosRow = db.prepare(`
+        SELECT COUNT(DISTINCT c.ean) as cotados
+        FROM compras_estoque_cache c
+        JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean
+        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+          AND (c.curva_abc IN ('A', 'B') OR c.saldo <= 0)
+      `).get();
+      const total = totalFaltasRow?.total || 0;
+      const cotados = cotadosRow?.cotados || 0;
+      filaMetricas = {
+        totalFaltasComEan: total,
+        jaCotados: cotados,
+        aguardandoRobo: Math.max(0, total - cotados)
+      };
+    } catch (e) {}
+
     res.json({
       success: true,
-      status: cotacaoStatus
+      status: {
+        ...cotacaoStatus,
+        fila: filaMetricas
+      }
     });
   });
 

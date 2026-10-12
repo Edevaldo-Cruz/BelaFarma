@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0f56065",
-  "commitMessage": "feat(belaped): simulador de giro com calendario visual de duracao de estoque e frequencia de venda",
-  "buildTime": "12/10/2026, 12:24:21"
+  "commitHash": "1b33a62",
+  "commitMessage": "feat: novo icone PWA alto contraste, fix Calendar no BelaPed e auditoria de recursos 15d com analise de dependencias",
+  "buildTime": "12/10/2026, 12:42:01"
 }

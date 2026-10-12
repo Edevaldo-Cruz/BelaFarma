@@ -37,6 +37,7 @@ import { useToast } from '../ToastContext';
 import PedidosTab from './BelaPedPedidosTab';
 import BelaPedResumoTremor from './BelaPedResumoTremor';
 import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
+import { BelaPedRobotMonitor } from './BelaPedRobotMonitor';
 
 interface BelaPedPortalProps {
   user: User;
@@ -689,14 +690,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     try {
       setCotandoAoVivo(true);
 
-      // Prioriza os itens da página atual que o usuário está vendo na tela
-      const eansPaginaAtual = itensPaginados.map(s => s.ean).filter(e => e && e.length >= 7);
-      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
-      const eansRestantes = selecionados
+      // Prioriza os itens "Aguardando Robô" (Não Cotado) da página atual e depois do restante da lista
+      const naoCotadosPagina = itensPaginados
+        .filter(s => !s.fornecedor_1 || s.fornecedor_1 === 'Não Cotado')
         .map(s => s.ean)
-        .filter(e => e && e.length >= 7 && !eansPaginaAtual.includes(e));
+        .filter(e => e && e.length >= 7);
 
-      const eansParaCotar = [...eansPaginaAtual, ...eansRestantes].slice(0, 25);
+      const todosNaoCotados = faltasFiltradas
+        .filter(s => (!s.fornecedor_1 || s.fornecedor_1 === 'Não Cotado') && s.ean && s.ean.length >= 7)
+        .map(s => s.ean)
+        .filter(e => !naoCotadosPagina.includes(e));
+
+      const selecionadosRestantes = faltasFiltradas
+        .filter(f => itensSelecionados[f.produto_id] && f.ean && f.ean.length >= 7)
+        .map(s => s.ean)
+        .filter(e => !naoCotadosPagina.includes(e) && !todosNaoCotados.includes(e));
+
+      const eansParaCotar = [...naoCotadosPagina, ...todosNaoCotados, ...selecionadosRestantes].slice(0, 40);
 
       const nomeExibicao = fornecedor === 'TODOS' ? '4 Portais (Profarma, DPC, Soton e Distrimed)' : fornecedor;
 
@@ -704,7 +714,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       setStatusCotacao({
         emAndamento: true,
         fornecedor: nomeExibicao,
-        total: eansParaCotar.length || 20,
+        total: eansParaCotar.length || 40,
         atual: 0,
         encontrados: 0,
         ultimoItem: 'Conectando aos navegadores e portais...'
@@ -717,7 +727,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fornecedor,
-          limite: 25,
+          limite: 40,
           eans: eansParaCotar.length > 0 ? eansParaCotar : undefined
         })
       });
@@ -2888,6 +2898,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
+      {(() => {
+        const grpAguardando = totaisPorDistribuidora.find(g => g.distribuidora === 'AGUARDANDO ROBÔ');
+        const aguardandoCount = grpAguardando ? grpAguardando.qtdProdutos : 0;
+        const aguardandoValor = grpAguardando ? grpAguardando.valorTotal : 0;
+        return (
+          <BelaPedRobotMonitor
+            aguardandoRoboCount={aguardandoCount}
+            aguardandoRoboValor={aguardandoValor}
+            cotandoAoVivo={cotandoAoVivo}
+            statusCotacao={statusCotacao}
+            onDispararRobo={(fornecedor = 'TODOS') => handleIniciarCotacaoAoVivo(fornecedor)}
+            onDadosAtualizados={() => carregarDados()}
+          />
+        );
+      })()}
 
     </div>
   );
