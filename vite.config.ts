@@ -88,10 +88,10 @@ export default defineConfig(({ mode }) => {
             maximumFileSizeToCacheInBytes: 8 * 1024 * 1024, // 8 MiB
           },
           manifest: {
-            name: 'Belinha',
-            short_name: 'Belinha',
-            description: 'Gestão Inteligente para Farmácias',
-            theme_color: '#ffffff',
+            name: 'Bela Farma Sul - Gestão Inteligente',
+            short_name: 'Bela Farma',
+            description: 'Gestão Inteligente para Farmácias - Bela Farma Sul',
+            theme_color: '#c8102e',
             background_color: '#ffffff',
             display: 'standalone',
             icons: [

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "c8ae1c2",
-  "commitMessage": "feat(belaped): sincronizacao automatica da lista de produtos e estoque com o ERP de 15 em 15 minutos",
-  "buildTime": "12/10/2026, 11:14:16"
+  "commitHash": "0f56065",
+  "commitMessage": "feat(belaped): simulador de giro com calendario visual de duracao de estoque e frequencia de venda",
+  "buildTime": "12/10/2026, 12:24:21"
 }

@@ -53,12 +53,81 @@ export const getDayFromDate = (dateString: string): number => {
     }
 };
 
-export const trackViewUsage = (view: string): void => {
+export interface FeatureUsageLocalEntry {
+  featureId: string;
+  usageCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface FeatureAuditLocalStore {
+  monitoringStartedAt: string;
+  features: Record<string, FeatureUsageLocalEntry>;
+  uninstalledFeatures: string[];
+  whitelistedUntil: Record<string, string>;
+}
+
+const AUDIT_STORAGE_KEY = 'belinha_feature_audit_v1';
+
+export const getLocalFeatureAuditStore = (): FeatureAuditLocalStore => {
   try {
+    const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.monitoringStartedAt && parsed.features) {
+        return {
+          monitoringStartedAt: parsed.monitoringStartedAt,
+          features: parsed.features || {},
+          uninstalledFeatures: Array.isArray(parsed.uninstalledFeatures) ? parsed.uninstalledFeatures : [],
+          whitelistedUntil: parsed.whitelistedUntil || {}
+        };
+      }
+    }
+  } catch (e) {}
+  const initial: FeatureAuditLocalStore = {
+    monitoringStartedAt: new Date().toISOString(),
+    features: {},
+    uninstalledFeatures: [],
+    whitelistedUntil: {}
+  };
+  try {
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(initial));
+  } catch (e) {}
+  return initial;
+};
+
+export const trackViewUsage = (view: string, userName?: string): void => {
+  try {
+    // Mantém compatibilidade com a chave legada
     const statsStr = localStorage.getItem('belinha_usage_stats') || '{}';
     const stats = JSON.parse(statsStr);
     stats[view] = (stats[view] || 0) + 1;
     localStorage.setItem('belinha_usage_stats', JSON.stringify(stats));
+
+    // Novo motor de auditoria de 15 dias (Local + Backend SQLite)
+    const nowIso = new Date().toISOString();
+    const store = getLocalFeatureAuditStore();
+    const current = store.features[view] || { featureId: view, usageCount: 0, lastUsedAt: null };
+    store.features[view] = {
+      featureId: view,
+      usageCount: (current.usageCount || 0) + 1,
+      lastUsedAt: nowIso
+    };
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(store));
+
+    // Sincroniza de forma assíncrona com o servidor SQLite da farmácia
+    let resolvedUser = userName;
+    if (!resolvedUser) {
+      try {
+        const uStr = localStorage.getItem('belinha_session_user');
+        if (uStr) resolvedUser = JSON.parse(uStr)?.name;
+      } catch (e) {}
+    }
+
+    fetch('/api/system/feature-audit/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ featureId: view, userName: resolvedUser || 'Operador' })
+    }).catch(() => {});
   } catch (e) {
     console.error('Erro ao salvar estatísticas de uso:', e);
   }

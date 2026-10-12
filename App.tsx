@@ -338,7 +338,7 @@ const App: React.FC = () => {
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
-    trackViewUsage(view);
+    trackViewUsage(view, user?.name);
   };
 
   const resetLogoutTimer = () => {

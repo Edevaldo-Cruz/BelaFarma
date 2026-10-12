@@ -29,7 +29,8 @@ import {
   Bot,
   Download,
   FileSpreadsheet,
-  ShoppingCart
+  ShoppingCart,
+  Calendar
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';

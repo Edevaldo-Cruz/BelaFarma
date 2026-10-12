@@ -200,5 +200,89 @@ module.exports = (db) => {
     }
   });
 
+  // ─── AUDITORIA DE USO E DESINSTALAÇÃO SEGURA DE FERRAMENTAS (15 DIAS) ───
+  const featureAuditService = require('./services/feature-audit.service.js');
+  try {
+    featureAuditService.initFeatureAuditTables(db);
+  } catch (err) {
+    console.error('[FEATURE-AUDIT] Erro ao inicializar tabelas de auditoria:', err.message);
+  }
+
+  // GET /api/system/feature-audit/status
+  router.get('/feature-audit/status', (req, res) => {
+    try {
+      const report = featureAuditService.getAuditStatus(db);
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/track
+  router.post('/feature-audit/track', (req, res) => {
+    try {
+      const { featureId, userName } = req.body || {};
+      if (!featureId) return res.status(400).json({ error: 'featureId é obrigatório' });
+      const updated = featureAuditService.recordFeatureUsage(db, featureId, userName || 'Operador');
+      res.json({ success: true, item: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/analyze
+  router.post('/feature-audit/analyze', security.requireAdmin, (req, res) => {
+    try {
+      const { featureIds } = req.body || {};
+      if (!Array.isArray(featureIds)) {
+        return res.status(400).json({ error: 'featureIds deve ser um array' });
+      }
+      const analysis = featureAuditService.analyzeFeatureDependencies(db, featureIds);
+      res.json({ success: true, analysis });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/uninstall
+  router.post('/feature-audit/uninstall', security.requireAdmin, (req, res) => {
+    try {
+      const { selectedFeatureIds = [], keptFeatureIds = [], userName = 'Administrador', forceHideOnly = false } = req.body || {};
+      const result = featureAuditService.executeSafeUninstall(db, {
+        selectedFeatureIds,
+        keptFeatureIds,
+        userName,
+        forceHideOnly
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/restore
+  router.post('/feature-audit/restore', security.requireAdmin, (req, res) => {
+    try {
+      const { featureId } = req.body || {};
+      if (!featureId) return res.status(400).json({ error: 'featureId é obrigatório' });
+      const report = featureAuditService.restoreFeature(db, featureId);
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/simulate-period
+  router.post('/feature-audit/simulate-period', security.requireAdmin, (req, res) => {
+    try {
+      const { daysAgo = 15 } = req.body || {};
+      const report = featureAuditService.simulateFastForward15Days(db, Number(daysAgo));
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };
+
