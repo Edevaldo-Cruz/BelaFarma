@@ -52,6 +52,8 @@ interface FaltaItem7d {
   dias_estoque_restante: number;
   status_ruptura: string;
   custo_unitario: number;
+  preco_ult_compra?: number;
+  variacao_ult_compra_pct?: number;
   preco_venda_vigente: number;
   margem_lucro_percentual: number;
   fornecedor_ult_compra: string;
@@ -86,6 +88,8 @@ interface MesOrcamento {
   nomeMes: string;
   limite: number;
   totalComprometido: number;
+  totalPago?: number;
+  totalPendente?: number;
   saldoLivre: number;
   percentualComprometido: number;
   statusOrcamento: 'LIBERADO' | 'ALERTA' | 'ESTOURADO';
@@ -123,6 +127,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [itensAvulsos, setItensAvulsos] = useState<any[]>([]);
   const [filtroCurva, setFiltroCurva] = useState<'TODAS' | 'A' | 'B'>('TODAS');
   const [filtroCategoria, setFiltroCategoria] = useState<'TODAS' | 'MEDICAMENTO' | 'PERFUMARIA'>('TODAS');
+  const [filtroDistribuidora, setFiltroDistribuidora] = useState<string>('TODAS');
+  const [agruparPorDistribuidora, setAgruparPorDistribuidora] = useState<boolean>(false);
   const [buscaFalta, setBuscaFalta] = useState('');
   const [itensSelecionados, setItensSelecionados] = useState<Record<number, boolean>>({});
 
@@ -215,12 +221,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         setFaltas(dataFaltas.items || []);
         setItensAvulsos(dataFaltas.itens_avulsos || []);
         
-        // Inicialmente seleciona todos os itens para cotação
-        const selMap: Record<number, boolean> = {};
-        (dataFaltas.items || []).forEach((item: FaltaItem7d) => {
-          selMap[item.produto_id] = true;
+        // Preserva seleção anterior se já existir, ou seleciona todos inicialmente
+        setItensSelecionados(prev => {
+          if (Object.keys(prev).length > 0) return prev;
+          const selMap: Record<number, boolean> = {};
+          (dataFaltas.items || []).forEach((item: FaltaItem7d) => {
+            selMap[item.produto_id] = true;
+          });
+          return selMap;
         });
-        setItensSelecionados(selMap);
       }
 
       if (resPortais.ok) {
@@ -265,8 +274,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     carregarDados();
   }, []);
 
-  // Filtra itens de falta
-  const faltasFiltradas = useMemo(() => {
+  // Filtra itens base (por curva, categoria e busca) para calcular o resumo das distribuidoras
+  const faltasBaseFiltradas = useMemo(() => {
     return faltas.filter(f => {
       if (filtroCurva !== 'TODAS' && f.curva_abc !== filtroCurva) return false;
       if (filtroCategoria !== 'TODAS' && f.tipo_categoria !== filtroCategoria) return false;
@@ -280,6 +289,111 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     });
   }, [faltas, filtroCurva, filtroCategoria, buscaFalta]);
 
+  // Calcula os totais consolidados por empresa/distribuidora (1º Colocado)
+  const totaisPorDistribuidora = useMemo(() => {
+    const minimosPadrao: Record<string, number> = {
+      'DISTRIMED': 350,
+      'PROFARMA': 400,
+      'SOTON FARMA': 300,
+      'DPC DISTRIBUIDORA': 300
+    };
+    portais.forEach(p => {
+      if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
+    });
+
+    const grupos: Record<string, {
+      distribuidora: string;
+      isEmpresaReal: boolean;
+      qtdProdutos: number;
+      qtdUnidades: number;
+      valorTotal: number;
+      qtdSelecionados: number;
+      valorSelecionado: number;
+      pedidoMinimo: number;
+      atingiuMinimo: boolean;
+      faltaParaMinimo: number;
+      itens: FaltaItem7d[];
+    }> = {};
+
+    // Garante que as 4 distribuidoras oficiais sempre apareçam nos cards de resumo
+    ['DISTRIMED', 'PROFARMA', 'SOTON FARMA', 'DPC DISTRIBUIDORA'].forEach(nome => {
+      grupos[nome] = {
+        distribuidora: nome,
+        isEmpresaReal: true,
+        qtdProdutos: 0,
+        qtdUnidades: 0,
+        valorTotal: 0,
+        qtdSelecionados: 0,
+        valorSelecionado: 0,
+        pedidoMinimo: minimosPadrao[nome] || 300,
+        atingiuMinimo: false,
+        faltaParaMinimo: minimosPadrao[nome] || 300,
+        itens: []
+      };
+    });
+
+    faltasBaseFiltradas.forEach(item => {
+      const f1 = item.fornecedor_1 || 'Não Cotado';
+      const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
+      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
+
+      if (!grupos[chave]) {
+        const min = minimosPadrao[chave] || 0;
+        grupos[chave] = {
+          distribuidora: chave,
+          isEmpresaReal: isReal,
+          qtdProdutos: 0,
+          qtdUnidades: 0,
+          valorTotal: 0,
+          qtdSelecionados: 0,
+          valorSelecionado: 0,
+          pedidoMinimo: min,
+          atingiuMinimo: false,
+          faltaParaMinimo: min,
+          itens: []
+        };
+      }
+
+      const g = grupos[chave];
+      g.qtdProdutos += 1;
+      g.qtdUnidades += item.qtd_sugerida_7d;
+      g.valorTotal = Number((g.valorTotal + item.subtotal_7d).toFixed(2));
+      if (itensSelecionados[item.produto_id]) {
+        g.qtdSelecionados += 1;
+        g.valorSelecionado = Number((g.valorSelecionado + item.subtotal_7d).toFixed(2));
+      }
+      g.itens.push(item);
+    });
+
+    Object.values(grupos).forEach(g => {
+      if (g.pedidoMinimo > 0) {
+        g.atingiuMinimo = g.valorTotal >= g.pedidoMinimo;
+        g.faltaParaMinimo = g.atingiuMinimo ? 0 : Number((g.pedidoMinimo - g.valorTotal).toFixed(2));
+      } else {
+        g.atingiuMinimo = true;
+        g.faltaParaMinimo = 0;
+      }
+    });
+
+    // Ordena: primeiro as 4 distribuidoras reais por maior valorTotal, depois Sem Estoque / Aguardando
+    return Object.values(grupos).sort((a, b) => {
+      if (a.isEmpresaReal && !b.isEmpresaReal) return -1;
+      if (!a.isEmpresaReal && b.isEmpresaReal) return 1;
+      return b.valorTotal - a.valorTotal;
+    });
+  }, [faltasBaseFiltradas, portais, itensSelecionados]);
+
+  // Filtra itens de falta (aplicando também o filtro de distribuidora clicada)
+  const faltasFiltradas = useMemo(() => {
+    if (filtroDistribuidora === 'TODAS') return faltasBaseFiltradas;
+    return faltasBaseFiltradas.filter(item => {
+      const f1 = item.fornecedor_1 || 'Não Cotado';
+      const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
+      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
+      return chave === filtroDistribuidora;
+    });
+  }, [faltasBaseFiltradas, filtroDistribuidora]);
+
   // Paginação da Tabela de Faltas
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
@@ -287,7 +401,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Reseta para a primeira página ao alterar filtros ou busca
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroCurva, filtroCategoria, buscaFalta, itensPorPagina]);
+  }, [filtroCurva, filtroCategoria, filtroDistribuidora, buscaFalta, itensPorPagina]);
 
   const totalPaginas = Math.max(1, Math.ceil(faltasFiltradas.length / itensPorPagina));
 
@@ -723,7 +837,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               ? 'bg-amber-950/40 border-amber-800/80 text-amber-200'
               : 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
           }`}>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
                 <div className="p-2.5 rounded-xl bg-[#0b1222] border border-slate-800 shadow-md shrink-0 mt-0.5">
                   {orcamentoInfo.regraMaster.bloquearVencimentosMesAtual ? (
@@ -733,11 +847,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   )}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#0b1222] border border-slate-800 text-cyan-400">
                       REGRA MASTER • CONTROLE DE FLUXO
                     </span>
-                    <span className="text-xs font-bold text-white">
+                    <span className="text-xs font-bold text-white capitalize">
                       Mês Atual ({orcamentoInfo.mesAtual?.nomeMes}): {orcamentoInfo.mesAtual?.statusOrcamento}
                     </span>
                   </div>
@@ -747,23 +861,62 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               </div>
 
-              {/* Indicadores de Saldo Atual vs Próximo Mês */}
-              <div className="flex items-center gap-4 bg-[#0b1222] px-4 py-2 rounded-xl shadow-md border border-slate-800 shrink-0">
+              {/* Indicadores Reais de Saldo dos 3 Meses (Sincronizados com Painel de Orçamentos) */}
+              <div className="flex flex-wrap items-center gap-4 bg-[#0b1222] px-4 py-2.5 rounded-xl shadow-md border border-slate-800 shrink-0">
+                {/* Mês Atual */}
                 <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Saldo Mês Atual</span>
-                  <span className={`text-sm font-black ${
-                    (orcamentoInfo.mesAtual?.saldoLivre || 0) <= 0 ? 'text-rose-400' : 'text-emerald-400'
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                    {(orcamentoInfo.mesAtual?.saldoLivre || 0) < 0 ? `Excedente ${orcamentoInfo.mesAtual?.nomeMes}` : `Saldo ${orcamentoInfo.mesAtual?.nomeMes}`}
+                  </span>
+                  <span className={`text-sm font-black block ${
+                    (orcamentoInfo.mesAtual?.saldoLivre || 0) < 0 ? 'text-rose-400' : 'text-emerald-400'
                   }`}>
-                    R$ {orcamentoInfo.mesAtual?.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    {(orcamentoInfo.mesAtual?.saldoLivre || 0) < 0 ? '-R$ ' : 'R$ '}
+                    {Math.abs(orcamentoInfo.mesAtual?.saldoLivre || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium block">
+                    R$ {(orcamentoInfo.mesAtual?.totalComprometido || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} / R$ {(orcamentoInfo.mesAtual?.limite || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                   </span>
                 </div>
-                <div className="w-px h-8 bg-slate-800"></div>
+
+                <div className="w-px h-9 bg-slate-800"></div>
+
+                {/* Próximo Mês */}
                 <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Saldo {orcamentoInfo.proximoMes?.nomeMes}</span>
-                  <span className="text-sm font-black text-cyan-400">
-                    R$ {orcamentoInfo.proximoMes?.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                    {(orcamentoInfo.proximoMes?.saldoLivre || 0) < 0 ? `Excedente ${orcamentoInfo.proximoMes?.nomeMes}` : `Saldo ${orcamentoInfo.proximoMes?.nomeMes}`}
+                  </span>
+                  <span className={`text-sm font-black block ${
+                    (orcamentoInfo.proximoMes?.saldoLivre || 0) < 0 ? 'text-rose-400' : 'text-cyan-400'
+                  }`}>
+                    {(orcamentoInfo.proximoMes?.saldoLivre || 0) < 0 ? '-R$ ' : 'R$ '}
+                    {Math.abs(orcamentoInfo.proximoMes?.saldoLivre || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium block">
+                    R$ {(orcamentoInfo.proximoMes?.totalComprometido || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} / R$ {(orcamentoInfo.proximoMes?.limite || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                   </span>
                 </div>
+
+                {orcamentoInfo.mesSeguinte && (
+                  <>
+                    <div className="w-px h-9 bg-slate-800"></div>
+                    {/* Mês Seguinte */}
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        {(orcamentoInfo.mesSeguinte.saldoLivre || 0) < 0 ? `Excedente ${orcamentoInfo.mesSeguinte.nomeMes}` : `Saldo ${orcamentoInfo.mesSeguinte.nomeMes}`}
+                      </span>
+                      <span className={`text-sm font-black block ${
+                        (orcamentoInfo.mesSeguinte.saldoLivre || 0) < 0 ? 'text-rose-400' : 'text-emerald-400'
+                      }`}>
+                        {(orcamentoInfo.mesSeguinte.saldoLivre || 0) < 0 ? '-R$ ' : 'R$ '}
+                        {Math.abs(orcamentoInfo.mesSeguinte.saldoLivre || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium block">
+                        R$ {(orcamentoInfo.mesSeguinte.totalComprometido || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} / R$ {(orcamentoInfo.mesSeguinte.limite || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -832,6 +985,119 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         {activeTab === 'faltas' && (
           <div className="space-y-4">
             
+            {/* ─── PAINEL EXECUTIVO: TOTAIS POR DISTRIBUIDORA & AGRUPAMENTO ────────── */}
+            <div className="bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-white">
+                    Resumo e Total por Distribuidora (1º Colocado)
+                  </span>
+                  <span className="text-[11px] text-slate-400 hidden md:inline">
+                    • Clique em uma empresa para filtrar ou ative o agrupamento na tabela
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {filtroDistribuidora !== 'TODAS' && (
+                    <button
+                      onClick={() => setFiltroDistribuidora('TODAS')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Limpar Filtro ({filtroDistribuidora})
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setAgruparPorDistribuidora(prev => !prev)}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                      agruparPorDistribuidora
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white border-cyan-400 shadow-lg shadow-cyan-950/50'
+                        : 'bg-[#080d18] text-cyan-300 hover:text-white border-cyan-800/70 hover:border-cyan-500'
+                    }`}
+                    title="Agrupar as linhas da tabela por empresa vencedora com subtotal de cada distribuidora"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>{agruparPorDistribuidora ? '✓ Agrupado por Distribuidora' : 'Agrupar por Distribuidora'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Cards de Cada Empresa */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                {/* Card Todas */}
+                <button
+                  onClick={() => setFiltroDistribuidora('TODAS')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    filtroDistribuidora === 'TODAS'
+                      ? 'bg-cyan-950/50 border-cyan-500 ring-1 ring-cyan-500/40 shadow-md'
+                      : 'bg-[#09101f] border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black uppercase text-cyan-300 truncate">TODAS EMPRESAS</span>
+                    <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-200 text-[10px] font-black">
+                      {faltasBaseFiltradas.length} it.
+                    </span>
+                  </div>
+                  <div className="mt-1.5">
+                    <span className="text-base font-black text-white block">
+                      R$ {faltasBaseFiltradas.reduce((acc, f) => acc + f.subtotal_7d, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium block mt-0.5">
+                      Selecionado: <b className="text-emerald-400">R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                    </span>
+                  </div>
+                </button>
+
+                {/* Cards individuais por Distribuidora */}
+                {totaisPorDistribuidora.map((grp) => {
+                  const ativo = filtroDistribuidora === grp.distribuidora;
+                  return (
+                    <button
+                      key={grp.distribuidora}
+                      onClick={() => setFiltroDistribuidora(ativo ? 'TODAS' : grp.distribuidora)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        ativo
+                          ? 'bg-emerald-950/50 border-emerald-500 ring-1 ring-emerald-500/40 shadow-md'
+                          : grp.isEmpresaReal
+                          ? 'bg-[#09101f] border-slate-800 hover:border-emerald-700/60'
+                          : 'bg-[#09101f]/60 border-slate-800/70 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className={`text-[11px] font-black uppercase truncate ${
+                          grp.isEmpresaReal ? 'text-emerald-300' : 'text-amber-300/90'
+                        }`} title={grp.distribuidora}>
+                          {grp.distribuidora}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 text-[10px] font-black shrink-0">
+                          {grp.qtdProdutos} it.
+                        </span>
+                      </div>
+                      <div className="mt-1.5">
+                        <span className="text-base font-black text-white block">
+                          R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        {grp.isEmpresaReal && grp.pedidoMinimo > 0 ? (
+                          <span className={`text-[10px] font-bold block mt-0.5 ${
+                            grp.atingiuMinimo ? 'text-emerald-400' : 'text-amber-400'
+                          }`}>
+                            {grp.atingiuMinimo
+                              ? `✓ Mín. R$ ${grp.pedidoMinimo} OK`
+                              : `Faltam R$ ${grp.faltaParaMinimo.toFixed(0)} p/ mín.`}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium block mt-0.5">
+                            {grp.qtdUnidades} unidades
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Controles de Filtros e Disparo de Cotação */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md">
               <div className="flex flex-wrap items-center gap-2">
@@ -1138,54 +1404,284 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       <th className="py-2.5 px-3 w-8 text-center whitespace-nowrap">
                         <input
                           type="checkbox"
-                          checked={itensPaginados.length > 0 && itensPaginados.every(f => itensSelecionados[f.produto_id])}
+                          checked={(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length > 0 && (agruparPorDistribuidora ? faltasFiltradas : itensPaginados).every(f => itensSelecionados[f.produto_id])}
                           onChange={() => {
-                            const todosPaginaMarcados = itensPaginados.length > 0 && itensPaginados.every(f => itensSelecionados[f.produto_id]);
+                            const listaAlvo = agruparPorDistribuidora ? faltasFiltradas : itensPaginados;
+                            const todosMarcados = listaAlvo.length > 0 && listaAlvo.every(f => itensSelecionados[f.produto_id]);
                             const novoMap = { ...itensSelecionados };
-                            itensPaginados.forEach(f => {
-                              novoMap[f.produto_id] = !todosPaginaMarcados;
+                            listaAlvo.forEach(f => {
+                              novoMap[f.produto_id] = !todosMarcados;
                             });
                             setItensSelecionados(novoMap);
                           }}
                           className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                          title="Selecionar todos os itens da página atual"
+                          title="Selecionar todos os itens visíveis"
                         />
                       </th>
-                      <th className="py-3 px-3.5 whitespace-nowrap min-w-[240px] text-xs font-black uppercase tracking-wider text-slate-300">Produto / Metadados</th>
-                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-20 text-xs font-black uppercase tracking-wider text-slate-300">Curva</th>
-                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-24 text-xs font-black uppercase tracking-wider text-slate-300">Saldo</th>
-                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-24 text-xs font-black uppercase tracking-wider text-slate-300">Cobertura</th>
-                      <th className="py-3 px-3.5 text-center whitespace-nowrap w-28 bg-cyan-950/40 text-cyan-300 text-xs font-black uppercase tracking-wider">
-                        Pedir 7 Dias
+                      <th className="py-3 px-3.5 whitespace-nowrap min-w-[230px] text-xs font-black uppercase tracking-wider text-slate-300">Produto / Metadados</th>
+                      <th className="py-3 px-2.5 text-center whitespace-nowrap w-16 text-xs font-black uppercase tracking-wider text-slate-300">Curva</th>
+                      <th className="py-3 px-2.5 text-center whitespace-nowrap w-20 text-xs font-black uppercase tracking-wider text-slate-300">Saldo</th>
+                      <th className="py-3 px-2.5 text-center whitespace-nowrap w-20 text-xs font-black uppercase tracking-wider text-slate-300">Cobertura</th>
+                      <th className="py-3 px-3 text-center whitespace-nowrap w-24 bg-cyan-950/40 text-cyan-300 text-xs font-black uppercase tracking-wider">
+                        Pedir 7d
+                      </th>
+                      <th className="py-3 px-3 text-right whitespace-nowrap w-28 bg-amber-950/20 text-amber-300 text-xs font-black uppercase tracking-wider" title="Último valor unitário de compra registrado no Digifarma">
+                        Últ. Compra
                       </th>
                       
                       {/* 4 COLUNAS DE COTAÇÃO: 1º E 2º COLOCADOS */}
-                      <th className="py-3 px-3.5 whitespace-nowrap w-40 bg-cyan-950/20 text-cyan-400 text-xs font-black uppercase tracking-wider">
-                        1º Colocado (Vendedor)
+                      <th className="py-3 px-3.5 whitespace-nowrap w-36 bg-cyan-950/20 text-cyan-400 text-xs font-black uppercase tracking-wider">
+                        1º Colocado
                       </th>
                       <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-cyan-950/20 text-cyan-300 text-xs font-black uppercase tracking-wider">
                         1º Preço
                       </th>
-                      <th className="py-3 px-3.5 whitespace-nowrap w-40 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
-                        2º Colocado (Vendedor)
+                      <th className="py-3 px-3.5 whitespace-nowrap w-36 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
+                        2º Colocado
                       </th>
-                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-32 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
+                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
                         2º Preço
                       </th>
 
-                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-24 text-emerald-400 text-xs font-black uppercase tracking-wider">Margem</th>
-                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-32 bg-slate-900/60 font-black text-white text-xs uppercase tracking-wider">
+                      <th className="py-3 px-3 text-right whitespace-nowrap w-20 text-emerald-400 text-xs font-black uppercase tracking-wider">Margem</th>
+                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-slate-900/60 font-black text-white text-xs uppercase tracking-wider">
                         Subtotal 7d
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 text-xs">
-                    {itensPaginados.length === 0 ? (
+                    {(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="py-12 text-center text-slate-500 font-medium">
+                        <td colSpan={13} className="py-12 text-center text-slate-500 font-medium">
                           Nenhum produto encontrado com os filtros selecionados.
                         </td>
                       </tr>
+                    ) : agruparPorDistribuidora ? (
+                      totaisPorDistribuidora
+                        .filter(g => g.itens.length > 0 && (filtroDistribuidora === 'TODAS' || g.distribuidora === filtroDistribuidora))
+                        .map((grupo) => {
+                          const todosGrupoMarcados = grupo.itens.length > 0 && grupo.itens.every(it => itensSelecionados[it.produto_id]);
+                          return (
+                            <React.Fragment key={grupo.distribuidora}>
+                              {/* CABEÇALHO DO GRUPO DA DISTRIBUIDORA */}
+                              <tr className="bg-gradient-to-r from-[#0d1b33] via-[#0f223d] to-[#0b1528] border-y-2 border-cyan-800/70">
+                                <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                  <input
+                                    type="checkbox"
+                                    checked={todosGrupoMarcados}
+                                    onChange={() => {
+                                      const novoMap = { ...itensSelecionados };
+                                      grupo.itens.forEach(it => {
+                                        novoMap[it.produto_id] = !todosGrupoMarcados;
+                                      });
+                                      setItensSelecionados(novoMap);
+                                    }}
+                                    className="w-4 h-4 rounded border-cyan-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                                    title={`Selecionar todos os itens da ${grupo.distribuidora}`}
+                                  />
+                                </td>
+                                <td colSpan={10} className="py-3 px-3.5">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2.5">
+                                      <Building2 className={`w-4 h-4 ${grupo.isEmpresaReal ? 'text-emerald-400' : 'text-amber-400'}`} />
+                                      <span className="text-sm font-black uppercase tracking-wider text-white">
+                                        {grupo.distribuidora}
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-cyan-950 text-cyan-300 border border-cyan-800">
+                                        {grupo.qtdProdutos} produtos • {grupo.qtdUnidades} unidades
+                                      </span>
+                                      {grupo.isEmpresaReal && grupo.pedidoMinimo > 0 && (
+                                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-black border ${
+                                          grupo.atingiuMinimo
+                                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700'
+                                            : 'bg-amber-950/80 text-amber-300 border-amber-700'
+                                        }`}>
+                                          {grupo.atingiuMinimo
+                                            ? `✓ Pedido Mínimo Atingido (Mín. R$ ${grupo.pedidoMinimo.toFixed(2)})`
+                                            : `⚠️ Faltam R$ ${grupo.faltaParaMinimo.toFixed(2)} p/ Mínimo de R$ ${grupo.pedidoMinimo.toFixed(2)}`}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-300">
+                                      Selecionados neste grupo: <b className="text-emerald-400">{grupo.qtdSelecionados} it. (R$ {grupo.valorSelecionado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</b>
+                                    </span>
+                                  </div>
+                                </td>
+                                <td colSpan={2} className="py-3 px-3.5 text-right whitespace-nowrap bg-cyan-950/40">
+                                  <span className="text-[10px] uppercase font-bold text-cyan-300 block">Total da Empresa</span>
+                                  <span className="text-base font-black text-emerald-300">
+                                    R$ {grupo.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </span>
+                                </td>
+                              </tr>
+
+                              {/* ITENS DA DISTRIBUIDORA */}
+                              {grupo.itens.map((item) => {
+                                const isSelected = Boolean(itensSelecionados[item.produto_id]);
+                                const isRuptura = item.saldo <= 0;
+                                const semEstoquePortais = item.fornecedor_1 === 'Sem Estoque (Portais)';
+                                const temCotacaoReal = Boolean(item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !semEstoquePortais && item.preco_1 && item.preco_1 > 0);
+                                const fornecedor1 = temCotacaoReal ? item.fornecedor_1! : (semEstoquePortais ? 'Sem Estoque (Portais)' : 'Não Cotado');
+                                const preco1 = temCotacaoReal ? item.preco_1! : null;
+                                const fornecedor2 = (item.fornecedor_2 && item.fornecedor_2 !== '—') ? item.fornecedor_2 : null;
+                                const preco2 = (item.preco_2 && item.preco_2 > 0) ? item.preco_2 : null;
+                                const diffPct = (preco1 && preco2 && preco2 > preco1) ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
+                                const precoUltCompra = Number(item.preco_ult_compra ?? item.custo_unitario ?? 0);
+                                const dataUltFormatada = item.data_ult_compra ? new Date(item.data_ult_compra).toLocaleDateString('pt-BR') : '';
+
+                                return (
+                                  <tr 
+                                    key={item.produto_id}
+                                    className={`hover:bg-slate-800/50 transition-colors ${
+                                      isSelected ? 'bg-cyan-950/20' : ''
+                                    }`}
+                                  >
+                                    <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => setItensSelecionados(prev => ({ ...prev, [item.produto_id]: !prev[item.produto_id] }))}
+                                        className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                                      />
+                                    </td>
+                                    <td className="py-2.5 px-3.5">
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-bold text-white leading-snug">
+                                          {item.descricao}
+                                        </span>
+                                        <div className="inline-flex items-center gap-2 text-xs text-slate-300 mt-1">
+                                          <span className="font-mono text-slate-300">EAN: {item.ean || 'Sem EAN'}</span>
+                                          <span className="text-slate-500">•</span>
+                                          <span className={item.tipo_categoria === 'MEDICAMENTO' ? 'text-emerald-400 font-bold' : 'text-purple-400 font-bold'}>
+                                            {item.tipo_categoria}
+                                          </span>
+                                          {item.fornecedor_ult_compra && item.fornecedor_ult_compra !== 'Não registrado' && (
+                                            <>
+                                              <span className="text-slate-500">•</span>
+                                              <span className="truncate max-w-[180px] text-slate-400" title={`Últ. Fornecedor: ${item.fornecedor_ult_compra}`}>
+                                                Últ: {item.fornecedor_ult_compra}
+                                              </span>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                                      <span className={`px-2.5 py-1 rounded-md text-xs font-black ${
+                                        item.curva_abc === 'A' 
+                                          ? 'bg-rose-950 text-rose-300 border border-rose-800' 
+                                          : item.curva_abc === 'B' 
+                                          ? 'bg-blue-950 text-blue-300 border border-blue-800' 
+                                          : 'bg-slate-900 text-slate-400 border border-slate-800'
+                                      }`}>
+                                        {item.curva_abc}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                                      <span className={`text-sm font-black ${isRuptura ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`}>
+                                        {item.saldo} un
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                                      <span className={`text-xs font-bold ${
+                                        item.dias_estoque_restante <= 0 ? 'text-rose-400' : 'text-amber-300'
+                                      }`}>
+                                        {item.dias_estoque_restante <= 0 ? '0d (Ruptura)' : `${item.dias_estoque_restante}d`}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-center whitespace-nowrap bg-cyan-950/30">
+                                      <span className="font-black text-cyan-300 text-sm">
+                                        {item.qtd_sugerida_7d} un
+                                      </span>
+                                    </td>
+                                    <td
+                                      className="py-2.5 px-3 text-right whitespace-nowrap bg-amber-950/10 font-bold text-amber-200 text-sm"
+                                      title={`Última Compra: R$ ${precoUltCompra.toFixed(2)} • Fornecedor: ${item.fornecedor_ult_compra || 'Não inf.'}${dataUltFormatada ? ` • Data: ${dataUltFormatada}` : ''}`}
+                                    >
+                                      {precoUltCompra > 0 ? `R$ ${precoUltCompra.toFixed(2)}` : '—'}
+                                    </td>
+                                    <td className="py-2.5 px-3.5 whitespace-nowrap bg-cyan-950/10">
+                                      {temCotacaoReal ? (
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                                          <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
+                                            {fornecedor1}
+                                          </span>
+                                        </div>
+                                      ) : semEstoquePortais ? (
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                                          <span className="font-semibold text-amber-400/90 text-xs">
+                                            Sem Estoque (4 Portais)
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 text-xs italic">Aguardando Robô</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black bg-cyan-950/10 text-sm">
+                                      {preco1 !== null ? (
+                                        <div className="inline-flex items-center justify-end gap-1">
+                                          <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
+                                          {precoUltCompra > 0 && preco1 < precoUltCompra && (
+                                            <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 px-1 rounded" title="Mais barato que a última compra">
+                                              ▼
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-500">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-3.5 whitespace-nowrap bg-slate-900/30">
+                                      {fornecedor2 ? (
+                                        <span className="text-slate-300 font-medium text-xs truncate max-w-[130px] block" title={fornecedor2}>
+                                          {fornecedor2}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-500 text-xs">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-3.5 text-right whitespace-nowrap bg-slate-900/30 text-sm">
+                                      {preco2 !== null ? (
+                                        <>
+                                          <span className="text-slate-200 font-bold">R$ {preco2.toFixed(2)}</span>
+                                          {diffPct > 0 && (
+                                            <span className="text-xs text-amber-400/90 ml-1.5 font-bold">
+                                              +{diffPct}%
+                                            </span>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span className="text-slate-500">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                      <span className={`font-black text-sm ${
+                                        item.margem_lucro_percentual >= 30 ? 'text-emerald-400' : 'text-slate-300'
+                                      }`}>
+                                        {item.margem_lucro_percentual}%
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black text-white bg-slate-900/40 text-sm">
+                                      R$ {item.subtotal_7d.toFixed(2)}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+
+                              {/* RODAPÉ COM SUBTOTAL DA DISTRIBUIDORA */}
+                              <tr className="bg-[#091224] border-b-2 border-slate-800">
+                                <td colSpan={11} className="py-2 px-4 text-right font-bold text-slate-300 text-xs uppercase tracking-wider">
+                                  Subtotal {grupo.distribuidora} ({grupo.qtdProdutos} produtos • {grupo.qtdUnidades} un):
+                                </td>
+                                <td colSpan={2} className="py-2 px-3.5 text-right font-black text-emerald-300 text-sm whitespace-nowrap bg-emerald-950/20">
+                                  R$ {grupo.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            </React.Fragment>
+                          );
+                        })
                     ) : (
                       itensPaginados.map((item) => {
                         const isSelected = Boolean(itensSelecionados[item.produto_id]);
@@ -1197,6 +1693,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         const fornecedor2 = (item.fornecedor_2 && item.fornecedor_2 !== '—') ? item.fornecedor_2 : null;
                         const preco2 = (item.preco_2 && item.preco_2 > 0) ? item.preco_2 : null;
                         const diffPct = (preco1 && preco2 && preco2 > preco1) ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
+                        const precoUltCompra = Number(item.preco_ult_compra ?? item.custo_unitario ?? 0);
+                        const dataUltFormatada = item.data_ult_compra ? new Date(item.data_ult_compra).toLocaleDateString('pt-BR') : '';
 
                         return (
                           <tr 
@@ -1227,10 +1725,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   <span className={item.tipo_categoria === 'MEDICAMENTO' ? 'text-emerald-400 font-bold' : 'text-purple-400 font-bold'}>
                                     {item.tipo_categoria}
                                   </span>
-                                  {item.apresentacao && (
+                                  {item.fornecedor_ult_compra && item.fornecedor_ult_compra !== 'Não registrado' && (
                                     <>
                                       <span className="text-slate-500">•</span>
-                                      <span className="truncate max-w-[150px] text-slate-300">{item.apresentacao}</span>
+                                      <span className="truncate max-w-[180px] text-slate-400" title={`Últ. Fornecedor: ${item.fornecedor_ult_compra}`}>
+                                        Últ: {item.fornecedor_ult_compra}
+                                      </span>
                                     </>
                                   )}
                                 </div>
@@ -1238,7 +1738,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Curva ABC Badge */}
-                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                               <span className={`px-2.5 py-1 rounded-md text-xs font-black ${
                                 item.curva_abc === 'A' 
                                   ? 'bg-rose-950 text-rose-300 border border-rose-800' 
@@ -1251,14 +1751,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Saldo Atual */}
-                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                               <span className={`text-sm font-black ${isRuptura ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`}>
                                 {item.saldo} un
                               </span>
                             </td>
 
                             {/* Cobertura */}
-                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                               <span className={`text-xs font-bold ${
                                 item.dias_estoque_restante <= 0 ? 'text-rose-400' : 'text-amber-300'
                               }`}>
@@ -1267,10 +1767,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Pedir 7 Dias */}
-                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap bg-cyan-950/30">
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap bg-cyan-950/30">
                               <span className="font-black text-cyan-300 text-sm">
                                 {item.qtd_sugerida_7d} un
                               </span>
+                            </td>
+
+                            {/* Último Valor de Compra */}
+                            <td
+                              className="py-2.5 px-3 text-right whitespace-nowrap bg-amber-950/10 font-bold text-amber-200 text-sm"
+                              title={`Última Compra: R$ ${precoUltCompra.toFixed(2)} • Fornecedor: ${item.fornecedor_ult_compra || 'Não inf.'}${dataUltFormatada ? ` • Data: ${dataUltFormatada}` : ''}`}
+                            >
+                              {precoUltCompra > 0 ? `R$ ${precoUltCompra.toFixed(2)}` : '—'}
                             </td>
 
                             {/* 1º Colocado (Vendedor) */}
@@ -1278,7 +1786,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               {temCotacaoReal ? (
                                 <div className="flex items-center gap-1.5">
                                   <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                                  <span className="font-bold text-emerald-300 text-xs truncate max-w-[140px]" title={fornecedor1}>
+                                  <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
                                     {fornecedor1}
                                   </span>
                                 </div>
@@ -1297,7 +1805,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             {/* 1º Preço */}
                             <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black bg-cyan-950/10 text-sm">
                               {preco1 !== null ? (
-                                <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
+                                <div className="inline-flex items-center justify-end gap-1">
+                                  <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
+                                  {precoUltCompra > 0 && preco1 < precoUltCompra && (
+                                    <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 px-1 rounded" title="Mais barato que a última compra">
+                                      ▼
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-slate-500">—</span>
                               )}
@@ -1306,7 +1821,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             {/* 2º Colocado (Vendedor) */}
                             <td className="py-2.5 px-3.5 whitespace-nowrap bg-slate-900/30">
                               {fornecedor2 ? (
-                                <span className="text-slate-300 font-medium text-xs truncate max-w-[140px] block" title={fornecedor2}>
+                                <span className="text-slate-300 font-medium text-xs truncate max-w-[130px] block" title={fornecedor2}>
                                   {fornecedor2}
                                 </span>
                               ) : (
@@ -1331,7 +1846,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             </td>
 
                             {/* Margem de Lucro */}
-                            <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
                               <span className={`font-black text-sm ${
                                 item.margem_lucro_percentual >= 30 ? 'text-emerald-400' : 'text-slate-300'
                               }`}>
@@ -1601,127 +2116,83 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         {activeTab === 'orcamento' && orcamentoInfo && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              
-              {/* Mês Atual */}
-              <div className={`p-4 rounded-2xl border bg-[#0e1626] shadow-md space-y-3 ${
-                orcamentoInfo.mesAtual?.statusOrcamento === 'ESTOURADO'
-                  ? 'border-rose-800'
-                  : 'border-slate-800'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-sm uppercase text-white">
-                    Mês Atual ({orcamentoInfo.mesAtual?.nomeMes})
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                    orcamentoInfo.mesAtual?.statusOrcamento === 'ESTOURADO'
-                      ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                      : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                  }`}>
-                    {orcamentoInfo.mesAtual?.statusOrcamento}
-                  </span>
-                </div>
-
-                <div className="space-y-1.5 text-xs text-slate-400">
-                  <div className="flex justify-between">
-                    <span>Teto do Mês:</span>
-                    <b className="text-white">R$ {orcamentoInfo.mesAtual?.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Boletos Comprometidos:</span>
-                    <b className="text-white">R$ {orcamentoInfo.mesAtual?.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-slate-800">
-                    <span className="font-bold text-slate-300">Saldo Disponível:</span>
-                    <b className={`font-black text-sm ${
-                      (orcamentoInfo.mesAtual?.saldoLivre || 0) <= 0 ? 'text-rose-400' : 'text-emerald-400'
-                    }`}>
-                      R$ {orcamentoInfo.mesAtual?.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </b>
-                  </div>
-                </div>
-
-                <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full ${
-                      (orcamentoInfo.mesAtual?.percentualComprometido || 0) >= 100 ? 'bg-rose-500' : 'bg-emerald-500'
+              {[
+                { label: 'Mês Atual', dados: orcamentoInfo.mesAtual },
+                { label: 'Próximo Mês', dados: orcamentoInfo.proximoMes },
+                { label: 'Mês Seguinte', dados: orcamentoInfo.mesSeguinte }
+              ].map((bloco, idx) => {
+                const m = bloco.dados;
+                if (!m) return null;
+                const estourado = m.statusOrcamento === 'ESTOURADO' || m.saldoLivre < 0;
+                return (
+                  <div
+                    key={idx}
+                    className={`p-5 rounded-2xl border bg-[#0e1626] shadow-md space-y-3.5 ${
+                      estourado ? 'border-rose-800/90' : 'border-slate-800'
                     }`}
-                    style={{ width: `${Math.min(100, orcamentoInfo.mesAtual?.percentualComprometido || 0)}%` }}
-                  />
-                </div>
-              </div>
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-sm uppercase text-white">
+                        {bloco.label} ({m.nomeMes}/{m.ano})
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                        estourado
+                          ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                          : m.statusOrcamento === 'ALERTA'
+                          ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                          : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                      }`}>
+                        {m.statusOrcamento} ({m.qtdBoletos} boletos)
+                      </span>
+                    </div>
 
-              {/* Próximo Mês */}
-              <div className="p-4 rounded-2xl border border-slate-800 bg-[#0e1626] shadow-md space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-sm uppercase text-white">
-                    Próximo Mês ({orcamentoInfo.proximoMes?.nomeMes})
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-300 border border-cyan-800">
-                    {orcamentoInfo.proximoMes?.statusOrcamento}
-                  </span>
-                </div>
+                    <div className="space-y-2 text-xs text-slate-300">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Limite Orçado do Mês:</span>
+                        <b className="text-white">R$ {m.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Soma Total de Boletos:</span>
+                        <b className="text-white">R$ {m.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                      </div>
+                      {m.totalPago !== undefined && (
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-emerald-400/90">• Boletos Já Pagos:</span>
+                          <b className="text-emerald-400">R$ {m.totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                        </div>
+                      )}
+                      {m.totalPendente !== undefined && (
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-amber-400/90">• Boletos A Pagar (Pendentes):</span>
+                          <b className="text-amber-300">R$ {m.totalPendente.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                        </div>
+                      )}
+                      <div className="flex justify-between pt-2 border-t border-slate-800">
+                        <span className="font-bold text-slate-200">
+                          {estourado ? 'Excedente (Acima do Limite):' : 'Saldo Disponível:'}
+                        </span>
+                        <b className={`font-black text-base ${estourado ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {estourado ? '-R$ ' : 'R$ '}
+                          {Math.abs(m.saldoLivre).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </b>
+                      </div>
+                    </div>
 
-                <div className="space-y-1.5 text-xs text-slate-400">
-                  <div className="flex justify-between">
-                    <span>Teto do Mês:</span>
-                    <b className="text-white">R$ {orcamentoInfo.proximoMes?.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                    <div className="space-y-1">
+                      <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full ${estourado ? 'bg-rose-500' : m.statusOrcamento === 'ALERTA' ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                          style={{ width: `${Math.min(100, m.percentualComprometido || 0)}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                        <span>{m.percentualComprometido}% utilizado</span>
+                        <span>R$ {m.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / R$ {m.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Boletos Agendados:</span>
-                    <b className="text-white">R$ {orcamentoInfo.proximoMes?.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-slate-800">
-                    <span className="font-bold text-slate-300">Saldo para Novos Boletos:</span>
-                    <b className="font-black text-sm text-cyan-400">
-                      R$ {orcamentoInfo.proximoMes?.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </b>
-                  </div>
-                </div>
-
-                <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-cyan-500"
-                    style={{ width: `${Math.min(100, orcamentoInfo.proximoMes?.percentualComprometido || 0)}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Mês Seguinte */}
-              <div className="p-4 rounded-2xl border border-slate-800 bg-[#0e1626] shadow-md space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-sm uppercase text-white">
-                    Mês Seguinte ({orcamentoInfo.mesSeguinte?.nomeMes})
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-950 text-purple-300 border border-purple-800">
-                    {orcamentoInfo.mesSeguinte?.statusOrcamento}
-                  </span>
-                </div>
-
-                <div className="space-y-1.5 text-xs text-slate-400">
-                  <div className="flex justify-between">
-                    <span>Teto do Mês:</span>
-                    <b className="text-white">R$ {orcamentoInfo.mesSeguinte?.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Boletos Agendados:</span>
-                    <b className="text-white">R$ {orcamentoInfo.mesSeguinte?.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-slate-800">
-                    <span className="font-bold text-slate-300">Saldo Disponível:</span>
-                    <b className="font-black text-sm text-purple-400">
-                      R$ {orcamentoInfo.mesSeguinte?.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </b>
-                  </div>
-                </div>
-
-                <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-purple-500"
-                    style={{ width: `${Math.min(100, orcamentoInfo.mesSeguinte?.percentualComprometido || 0)}%` }}
-                  />
-                </div>
-              </div>
-
+                );
+              })}
             </div>
           </div>
         )}

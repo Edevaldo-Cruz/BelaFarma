@@ -281,6 +281,12 @@ function belapedEndpoints(db) {
           ? Number((((precoVenda - preco1) / precoVenda) * 100).toFixed(1))
           : 0;
 
+        const precoUltCompra = Number(custo.toFixed(2));
+        const temPrecoCotado = Boolean(cotacoesReais && cotacoesReais.length > 0 && preco1 > 0);
+        const variacaoUltCompraPct = (temPrecoCotado && precoUltCompra > 0)
+          ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1))
+          : 0;
+
         // Classificação amigável da categoria (medicamento vs perfumaria)
         const isMedicamento = r.categoria_id !== 5 && r.categoria_id !== 7;
 
@@ -296,6 +302,8 @@ function belapedEndpoints(db) {
           dias_estoque_restante: diasCobertura,
           status_ruptura: saldo <= 0 ? 'RUPTURA' : 'RISCO_SEMANAL',
           custo_unitario: preco1,
+          preco_ult_compra: precoUltCompra,
+          variacao_ult_compra_pct: variacaoUltCompraPct,
           preco_venda_vigente: precoVenda,
           margem_lucro_percentual: margemLucro,
           
@@ -327,6 +335,47 @@ function belapedEndpoints(db) {
         return (b.margem_lucro_percentual * b.vmd_ponderado) - (a.margem_lucro_percentual * a.vmd_ponderado);
       });
 
+      // Resumo consolidado por distribuidora vencedora (1º Colocado)
+      const portaisCadastrados = db.prepare(`SELECT nome, pedido_minimo, prazo_dias_padrao FROM belaped_portais WHERE is_ativo = 1`).all();
+      const mapaMinimos = {};
+      for (const p of portaisCadastrados) {
+        mapaMinimos[String(p.nome).toUpperCase()] = {
+          pedido_minimo: Number(p.pedido_minimo) || 300,
+          prazo_dias: Number(p.prazo_dias_padrao) || 28
+        };
+      }
+
+      const gruposMap = {};
+      for (const it of items) {
+        const chave = it.fornecedor_1 || 'Não Cotado';
+        if (!gruposMap[chave]) {
+          const cfg = mapaMinimos[chave.toUpperCase()] || { pedido_minimo: 0, prazo_dias: 28 };
+          gruposMap[chave] = {
+            distribuidora: chave,
+            qtd_produtos: 0,
+            qtd_unidades: 0,
+            valor_total: 0,
+            pedido_minimo: cfg.pedido_minimo,
+            prazo_dias: cfg.prazo_dias,
+            atingiu_minimo: false,
+            falta_para_minimo: 0
+          };
+        }
+        gruposMap[chave].qtd_produtos += 1;
+        gruposMap[chave].qtd_unidades += Number(it.qtd_sugerida_7d) || 0;
+        gruposMap[chave].valor_total = Number((gruposMap[chave].valor_total + (Number(it.subtotal_7d) || 0)).toFixed(2));
+      }
+
+      const resumoDistribuidoras = Object.values(gruposMap).map(g => {
+        const min = Number(g.pedido_minimo) || 0;
+        const atingiu = min > 0 ? g.valor_total >= min : true;
+        return {
+          ...g,
+          atingiu_minimo: atingiu,
+          falta_para_minimo: min > 0 && !atingiu ? Number((min - g.valor_total).toFixed(2)) : 0
+        };
+      });
+
       res.json({
         success: true,
         meta_cobertura: '7 dias estritos (Compre o que vende e dá lucro; ignora estoque >= 7 dias)',
@@ -334,6 +383,7 @@ function belapedEndpoints(db) {
         total_ruptura: totalItensRuptura,
         total_abaixo_minimo: totalItensAbaixoMinimo,
         total_orcado_7d: Number(totalOrcado7d.toFixed(2)),
+        resumo_distribuidoras: resumoDistribuidoras,
         items,
         itens_avulsos: avulsos
       });
@@ -391,8 +441,8 @@ function belapedEndpoints(db) {
 
   /**
    * GET /api/belaped/orcamento-boletos
-   * REGRA MASTER: Análise do teto orçamentário do mês atual e próximos meses,
-   * somatória dos boletos por vencimento e cálculo de saldo para novas compras.
+   * REGRA MASTER: Análise do teto orçamentário real da tabela monthly_limits do mês atual e próximos meses,
+   * somatória dos boletos reais por vencimento (due_date) e cálculo exato de saldo/excedente.
    */
   router.get('/orcamento-boletos', (req, res) => {
     try {
@@ -400,38 +450,60 @@ function belapedEndpoints(db) {
       const mesAtual = hoje.getMonth() + 1;
       const anoAtual = hoje.getFullYear();
 
-      // Busca teto orçamentário configurado em system_settings ou usa padrão
-      const limitsRows = db.prepare(`SELECT key, value FROM system_settings WHERE key LIKE 'monthly_limit_%'`).all();
+      // 1. Busca tetos orçamentários reais na tabela oficial monthly_limits (month 1..12, year, "limit")
       const limitsMap = {};
-      limitsRows.forEach(r => {
-        limitsMap[r.key] = Number(r.value) || 0;
-      });
+      try {
+        const mlRows = db.prepare(`SELECT month, year, "limit" FROM monthly_limits`).all();
+        mlRows.forEach(r => {
+          limitsMap[`${r.year}_${r.month}`] = Number(r.limit) || 0;
+        });
+      } catch (e) {}
 
-      // Busca boletos do banco local
-      const boletosRows = db.prepare(`SELECT * FROM boletos WHERE status != 'cancelado'`).all();
+      // Fallback secundário em system_settings se algum mês não estiver em monthly_limits
+      try {
+        const sysRows = db.prepare(`SELECT key, value FROM system_settings WHERE key LIKE 'monthly_limit_%'`).all();
+        sysRows.forEach(r => {
+          const k = String(r.key).replace('monthly_limit_', '');
+          if (!limitsMap[k]) limitsMap[k] = Number(r.value) || 0;
+        });
+      } catch (e) {}
 
-      // Função para calcular meses (atual, +1, +2)
+      // 2. Busca boletos reais da tabela oficial boletos (coluna due_date)
+      const boletosRows = db.prepare(`
+        SELECT id, supplierName, due_date, value, status
+        FROM boletos
+        WHERE LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'rejeitado')
+      `).all();
+
+      // Função para calcular meses (atual, +1, +2) com os mesmos valores do Painel de Orçamentos
       const calcularMes = (mesNum, anoNum) => {
-        const key = `monthly_limit_${anoNum}_${mesNum}`;
-        const limiteConfigurado = limitsMap[key] || 45000.0; // Padrão caso não cadastrado
+        const key = `${anoNum}_${mesNum}`;
+        const limiteConfigurado = limitsMap[key] !== undefined ? limitsMap[key] : 12500.0;
 
-        // Filtra boletos que vencem neste mês/ano
+        // Filtra boletos que vencem neste mês/ano usando due_date (YYYY-MM-DD)
         const mesStr = String(mesNum).padStart(2, '0');
         const prefixoData = `${anoNum}-${mesStr}`;
 
         const boletosDoMes = boletosRows.filter(b => {
-          if (!b.dueDate) return false;
-          return b.dueDate.startsWith(prefixoData);
+          const rawDue = String(b.due_date || b.dueDate || '').split('T')[0];
+          return rawDue.startsWith(prefixoData);
         });
 
         const totalBoletos = boletosDoMes.reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+        const totalPago = boletosDoMes
+          .filter(b => String(b.status || '').toLowerCase() === 'pago')
+          .reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+        const totalPendente = boletosDoMes
+          .filter(b => String(b.status || '').toLowerCase() !== 'pago')
+          .reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+
         const saldoLivre = limiteConfigurado - totalBoletos;
         const percentualComprometido = limiteConfigurado > 0 ? Number(((totalBoletos / limiteConfigurado) * 100).toFixed(1)) : 0;
 
         let statusOrcamento = 'LIBERADO';
-        if (saldoLivre <= 0) {
+        if (saldoLivre < 0 || percentualComprometido > 100) {
           statusOrcamento = 'ESTOURADO';
-        } else if (percentualComprometido >= 85) {
+        } else if (percentualComprometido >= 80) {
           statusOrcamento = 'ALERTA';
         }
 
@@ -439,8 +511,10 @@ function belapedEndpoints(db) {
           mes: mesNum,
           ano: anoNum,
           nomeMes: new Date(anoNum, mesNum - 1, 1).toLocaleString('pt-BR', { month: 'long' }),
-          limite: limiteConfigurado,
+          limite: Number(limiteConfigurado.toFixed(2)),
           totalComprometido: Number(totalBoletos.toFixed(2)),
+          totalPago: Number(totalPago.toFixed(2)),
+          totalPendente: Number(totalPendente.toFixed(2)),
           saldoLivre: Number(saldoLivre.toFixed(2)),
           percentualComprometido,
           statusOrcamento,
@@ -462,17 +536,23 @@ function belapedEndpoints(db) {
       const diaHoje = hoje.getDate();
       const diasRestantesMesAtual = ultimoDiaMes - diaHoje;
 
-      // REGRA MASTER: Orientação estratégica
+      // REGRA MASTER: Orientação estratégica fiel aos números reais
       let regraMasterMensagem = '';
       let recomendacaoPrazoMinimo = 0;
 
       if (mes0.statusOrcamento === 'ESTOURADO') {
-        recomendacaoPrazoMinimo = diasRestantesMesAtual + 2;
-        regraMasterMensagem = `⚠️ REGRA MASTER ATIVA: O orçamento de ${mes0.nomeMes} está ESTOURADO em R$ ${Math.abs(mes0.saldoLivre).toFixed(2)}. Novas compras NÃO PODEM ter boleto vencendo neste mês. Exigir prazo mínimo de ${recomendacaoPrazoMinimo} dias (para faturar em ${mes1.nomeMes}, onde há saldo de R$ ${mes1.saldoLivre.toFixed(2)}).`;
+        if (mes1.statusOrcamento === 'ESTOURADO') {
+          const diasMes1 = new Date(proximoAno, proximoMes, 0).getDate();
+          recomendacaoPrazoMinimo = diasRestantesMesAtual + diasMes1 + 2;
+          regraMasterMensagem = `⚠️ REGRA MASTER ATIVA: O orçamento de ${mes0.nomeMes} (Limite R$ ${mes0.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} • Boletos R$ ${mes0.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) está ESTOURADO em R$ ${Math.abs(mes0.saldoLivre).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, e ${mes1.nomeMes} também está acima do teto em R$ ${Math.abs(mes1.saldoLivre).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. Priorize faturar para ${mes2.nomeMes} (Saldo livre: R$ ${mes2.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`;
+        } else {
+          recomendacaoPrazoMinimo = diasRestantesMesAtual + 2;
+          regraMasterMensagem = `⚠️ REGRA MASTER ATIVA: O orçamento de ${mes0.nomeMes} está ESTOURADO em R$ ${Math.abs(mes0.saldoLivre).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (Boletos: R$ ${mes0.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / Teto: R$ ${mes0.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Exigir prazo mínimo de ${recomendacaoPrazoMinimo} dias para faturar em ${mes1.nomeMes} (Saldo disponível: R$ ${mes1.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`;
+        }
       } else if (mes0.statusOrcamento === 'ALERTA') {
-        regraMasterMensagem = `⚠️ ATENÇÃO AO ORÇAMENTO: Restam apenas R$ ${mes0.saldoLivre.toFixed(2)} em ${mes0.nomeMes}. Priorize compras com prazos estendidos (35 a 42 dias) para jogar os pagamentos para ${mes1.nomeMes}.`;
+        regraMasterMensagem = `⚠️ ATENÇÃO AO ORÇAMENTO: Restam R$ ${mes0.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} disponíveis em ${mes0.nomeMes} (${mes0.percentualComprometido}% utilizado). Priorize prazos estendidos (28 a 42 dias).`;
       } else {
-        regraMasterMensagem = `✅ ORÇAMENTO EQUILIBRADO: Saldo disponível de R$ ${mes0.saldoLivre.toFixed(2)} em ${mes0.nomeMes}. Compras liberadas com foco em menor preço e cobertura de 1 semana.`;
+        regraMasterMensagem = `✅ ORÇAMENTO EQUILIBRADO: Saldo disponível de R$ ${mes0.saldoLivre.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ${mes0.nomeMes} (Boletos: R$ ${mes0.totalComprometido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / Limite: R$ ${mes0.limite.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`;
       }
 
       res.json({
