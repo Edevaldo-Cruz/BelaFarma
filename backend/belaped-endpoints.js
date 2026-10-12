@@ -1934,6 +1934,161 @@ function belapedEndpoints(db) {
     }
   });
 
+  /**
+   * GET /api/belaped/simulador-giro
+   * - Se chamado com ?busca=termo (sem produto_id): retorna lista de produtos do estoque para seleção rápida
+   * - Se chamado com ?produto_id=123: retorna análise completa de giro, de quantos em quantos dias vende 1 un,
+   *   duração média do estoque, equivalentes da mesma molécula e histórico real de datas de vendas (se Firebird ativo).
+   */
+  router.get('/simulador-giro', async (req, res) => {
+    try {
+      const { busca, produto_id } = req.query;
+
+      if (!produto_id) {
+        let sql = `
+          SELECT 
+            produto_id, descricao, apresentacao, ean, curva_abc, saldo,
+            est_minimo_calculado, vmd_ponderado, vendas_30d, vendas_31_60d,
+            COALESCE(vendas_61_90d, 0) as vendas_61_90d,
+            COALESCE(vendas_10m, 0) as vendas_10m,
+            custo_unitario, preco_venda_vigente, ultima_compra_fornecedor, ultima_compra_data
+          FROM compras_estoque_cache
+        `;
+        const params = [];
+        if (busca && String(busca).trim().length > 0) {
+          const termo = `%${String(busca).trim()}%`;
+          sql += ` WHERE descricao LIKE ? OR ean LIKE ?`;
+          params.push(termo, termo);
+        } else {
+          sql += ` WHERE vmd_ponderado > 0 OR vendas_30d > 0`;
+        }
+        sql += ` ORDER BY vmd_ponderado DESC, vendas_30d DESC, saldo DESC LIMIT 30`;
+
+        const lista = db.prepare(sql).all(...params).map(p => {
+          const v30 = Number(p.vendas_30d) || 0;
+          const v60 = Number(p.vendas_31_60d) || 0;
+          const v90 = Number(p.vendas_61_90d) || 0;
+          const v10m = Number(p.vendas_10m) || (v30 + v60 + v90);
+          const vmd = Number(p.vmd_ponderado) > 0
+            ? Number(p.vmd_ponderado)
+            : (v30 + v60 + v90 > 0 ? (v30 + v60 + v90) / 90 : (v10m > 0 ? v10m / 300 : 0));
+          const diasPorUnidade = vmd > 0 ? Number((1 / vmd).toFixed(1)) : null;
+          const saldoAtual = Math.max(0, Number(p.saldo) || 0);
+          const diasDuracao = vmd > 0 && saldoAtual > 0 ? Math.round(saldoAtual / vmd) : 0;
+
+          return {
+            ...p,
+            vmd_efetivo: Number(vmd.toFixed(3)),
+            dias_por_unidade: diasPorUnidade,
+            dias_duracao_estoque: diasDuracao
+          };
+        });
+
+        return res.json({ success: true, produtos: lista });
+      }
+
+      // Detalhe completo de 1 produto específico
+      const prod = db.prepare(`
+        SELECT 
+          produto_id, descricao, apresentacao, ean, curva_abc, saldo,
+          est_minimo_calculado, vmd_ponderado, vendas_30d, vendas_31_60d,
+          COALESCE(vendas_61_90d, 0) as vendas_61_90d,
+          COALESCE(vendas_10m, 0) as vendas_10m,
+          custo_unitario, preco_unitario_ult_compra, preco_venda_vigente,
+          categoria_id, ultima_compra_fornecedor, ultima_compra_data
+        FROM compras_estoque_cache
+        WHERE produto_id = ?
+      `).get(Number(produto_id));
+
+      if (!prod) {
+        return res.status(404).json({ success: false, error: 'Produto não encontrado no cache de estoque.' });
+      }
+
+      const v30 = Number(prod.vendas_30d) || 0;
+      const v60 = Number(prod.vendas_31_60d) || 0;
+      const v90 = Number(prod.vendas_61_90d) || 0;
+      const vendas90d = v30 + v60 + v90;
+      const v10m = Math.max(Number(prod.vendas_10m) || 0, vendas90d);
+
+      // VMD efetivo: usa VMD ponderado de 90d, ou se zerado (ex: esquecido 6m), usa média histórica de 10m
+      const vmdEfetivo = Number(prod.vmd_ponderado) > 0
+        ? Number(prod.vmd_ponderado)
+        : (vendas90d > 0 ? vendas90d / 90 : (v10m > 0 ? v10m / 300 : 0));
+
+      const diasPorUnidade = vmdEfetivo > 0 ? Number((1 / vmdEfetivo).toFixed(1)) : null;
+      const saldoFisico = Math.max(0, Number(prod.saldo) || 0);
+      const diasDuracaoEstoque = vmdEfetivo > 0 && saldoFisico > 0 ? Math.round(saldoFisico / vmdEfetivo) : 0;
+
+      // Busca equivalentes da mesma molécula + dosagem + apresentação na loja
+      let equivalentes = [];
+      let chaveEquivalencia = null;
+      try {
+        const isMed = prod.categoria_id !== 5 && prod.categoria_id !== 7;
+        if (isMed && comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
+          const attr = comprasEquivalentesService.extrairAtributosProduto(prod.descricao || '');
+          if (attr && attr.dosagem && attr.principio && attr.principio !== 'OUTROS' && attr.principio.length >= 4) {
+            chaveEquivalencia = attr.chave;
+            const prefixoPrincipio = attr.principio.split(' ')[0];
+            const candidatos = db.prepare(`
+              SELECT produto_id, descricao, ean, saldo, vmd_ponderado, vendas_30d, vendas_31_60d,
+                     COALESCE(vendas_61_90d, 0) as vendas_61_90d, COALESCE(vendas_10m, 0) as vendas_10m
+              FROM compras_estoque_cache
+              WHERE produto_id <> ? AND descricao LIKE ?
+            `).all(Number(prod.produto_id), `%${prefixoPrincipio}%`);
+
+            equivalentes = candidatos.filter(c => {
+              const a2 = comprasEquivalentesService.extrairAtributosProduto(c.descricao || '');
+              return a2 && a2.chave === chaveEquivalencia && (Number(c.saldo) > 0 || Number(c.vmd_ponderado) > 0 || Number(c.vendas_10m) > 0);
+            });
+          }
+        }
+      } catch (e) {}
+
+      // Tenta buscar as últimas datas reais de venda no Firebird (com timeout rápido de 3s para não travar)
+      let historicoVendasDatas = [];
+      try {
+        const { queryDigifarma } = require('./services/digifarma.service');
+        const rowsFb = await queryDigifarma(`
+          SELECT FIRST 35
+            v.VENDA_DATA_HORA,
+            iv.ITEMVEND_QUANT
+          FROM ITEM_VENDAS iv
+          JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+          WHERE iv.PRODUTO_ID = ?
+            AND v.CANCELADO <> 'S'
+          ORDER BY v.VENDA_DATA_HORA DESC
+        `, [Number(prod.produto_id)], 3000);
+
+        if (Array.isArray(rowsFb)) {
+          historicoVendasDatas = rowsFb.map(r => ({
+            data_hora: r.VENDA_DATA_HORA,
+            quantidade: Number(r.ITEMVEND_QUANT) || 1
+          }));
+        }
+      } catch (eFb) {
+        // Se Firebird offline ou lento, segue normalmente com os dados do cache
+      }
+
+      res.json({
+        success: true,
+        produto: {
+          ...prod,
+          vendas_90d: vendas90d,
+          vendas_10m: v10m,
+          vmd_efetivo: Number(vmdEfetivo.toFixed(4)),
+          dias_por_unidade: diasPorUnidade,
+          dias_duracao_estoque: diasDuracaoEstoque,
+          chave_equivalencia: chaveEquivalencia,
+          equivalentes,
+          historico_vendas_datas: historicoVendasDatas
+        }
+      });
+    } catch (err) {
+      console.error('[BelaPed] Erro em simulador-giro:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 }
 

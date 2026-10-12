@@ -35,6 +35,7 @@ import { User } from '../../types';
 import { useToast } from '../ToastContext';
 import PedidosTab from './BelaPedPedidosTab';
 import BelaPedResumoTremor from './BelaPedResumoTremor';
+import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
 
 interface BelaPedPortalProps {
   user: User;
@@ -113,7 +114,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const { addToast } = useToast();
   
   // Abas de Navegação do BelaPed
-  const [activeTab, setActiveTab] = useState<'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos'>('faltas');
+  const [activeTab, setActiveTab] = useState<'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('faltas');
+  const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
 
   // Estados de Dados
   const [loading, setLoading] = useState(true);
@@ -971,7 +973,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             { id: 'cotacao', label: '2. Portais & Carrinho', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
             { id: 'pedidos', label: '3. Meus Pedidos & NF', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
             { id: 'orcamento', label: '4. Radar de Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
-            { id: 'relatorios', label: '5. Relatórios & Preços', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 }
+            { id: 'relatorios', label: '5. Relatórios & Preços', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 },
+            { id: 'simulador', label: '6. Simulador de Giro', icon: <Calendar className="w-4 h-4 text-teal-400" />, badge: 0 }
           ] as const).map(item => (
             <button
               key={item.id}
@@ -1887,6 +1890,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                           <span className="text-sm font-bold text-white leading-snug">
                                             {item.descricao}
                                           </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setProdutoSimuladorId(item.produto_id);
+                                              setActiveTab('simulador');
+                                            }}
+                                            className="px-1.5 py-0.5 rounded text-[10px] font-black bg-teal-950/90 hover:bg-teal-900 text-teal-300 border border-teal-700/70 whitespace-nowrap cursor-pointer transition-colors"
+                                            title="Abrir no Simulador de Giro & Calendário para ver de quantos em quantos dias vende e quanto dura o estoque"
+                                          >
+                                            📅 Giro
+                                          </button>
                                           {(item.equivalentes_agrupados_count || 0) > 0 && (
                                             <span
                                               className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap"
@@ -2085,6 +2099,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   <span className="text-sm font-bold text-white leading-snug">
                                     {item.descricao}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setProdutoSimuladorId(item.produto_id);
+                                      setActiveTab('simulador');
+                                    }}
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-black bg-teal-950/90 hover:bg-teal-900 text-teal-300 border border-teal-700/70 whitespace-nowrap cursor-pointer transition-colors"
+                                    title="Abrir no Simulador de Giro & Calendário para ver de quantos em quantos dias vende e quanto dura o estoque"
+                                  >
+                                    📅 Giro
+                                  </button>
                                   {(item.equivalentes_agrupados_count || 0) > 0 && (
                                     <span
                                       className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap"
@@ -2661,6 +2686,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* ─── ABA 6: SIMULADOR DE GIRO & CALENDÁRIO DE ESTOQUE ────────────── */}
+        {activeTab === 'simulador' && (
+          <BelaPedSimuladorGiro produtoInicialId={produtoSimuladorId} />
         )}
 
       </div>
