@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3306e5e",
-  "commitMessage": "feat(belaped): torna botoes de distribuidora dinamicos exibindo apenas quando houver itens",
-  "buildTime": "12/10/2026, 11:03:52"
+  "commitHash": "c8ae1c2",
+  "commitMessage": "feat(belaped): sincronizacao automatica da lista de produtos e estoque com o ERP de 15 em 15 minutos",
+  "buildTime": "12/10/2026, 11:14:16"
 }

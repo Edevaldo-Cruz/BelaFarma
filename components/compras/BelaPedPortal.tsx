@@ -406,16 +406,49 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       });
   }, [faltasBaseFiltradas, portais, itensSelecionados]);
 
-  // Filtra itens de falta (aplicando também o filtro de distribuidora clicada)
-  const faltasFiltradas = useMemo(() => {
-    if (filtroDistribuidora === 'TODAS') return faltasBaseFiltradas;
-    return faltasBaseFiltradas.filter(item => {
-      const f1 = item.fornecedor_1 || 'Não Cotado';
-      const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
-      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
-      return chave === filtroDistribuidora;
+  // Estado de ordenação por coluna da tabela
+  const [ordenarColuna, setOrdenarColuna] = useState<keyof FaltaItem7d | null>(null);
+  const [ordenarDirecao, setOrdenarDirecao] = useState<'asc' | 'desc'>('asc');
+
+  const handleOrdenarColuna = (coluna: keyof FaltaItem7d) => {
+    if (ordenarColuna === coluna) {
+      setOrdenarDirecao(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOrdenarColuna(coluna);
+      // Para colunas numéricas de valor/quantidade, primeira clicada já ordena do maior para o menor (desc)
+      const isNumericoDesc = ['qtd_sugerida_7d', 'preco_ult_compra', 'preco_1', 'preco_2', 'margem_lucro_percentual', 'subtotal_7d'].includes(coluna as string);
+      setOrdenarDirecao(isNumericoDesc ? 'desc' : 'asc');
+    }
+    setPaginaAtual(1);
+  };
+
+  const ordenarListaFaltas = (lista: FaltaItem7d[]) => {
+    if (!ordenarColuna) return lista;
+    return [...lista].sort((a, b) => {
+      const valA = a[ordenarColuna];
+      const valB = b[ordenarColuna];
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return ordenarDirecao === 'asc' ? valA - valB : valB - valA;
+      }
+      const strA = String(valA ?? '').toUpperCase();
+      const strB = String(valB ?? '').toUpperCase();
+      const cmp = strA.localeCompare(strB, 'pt-BR', { numeric: true });
+      return ordenarDirecao === 'asc' ? cmp : -cmp;
     });
-  }, [faltasBaseFiltradas, filtroDistribuidora]);
+  };
+
+  // Filtra e ordena itens de falta (aplicando também o filtro de distribuidora clicada)
+  const faltasFiltradas = useMemo(() => {
+    const base = filtroDistribuidora === 'TODAS'
+      ? faltasBaseFiltradas
+      : faltasBaseFiltradas.filter(item => {
+          const f1 = item.fornecedor_1 || 'Não Cotado';
+          const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
+          const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
+          return chave === filtroDistribuidora;
+        });
+    return ordenarListaFaltas(base);
+  }, [faltasBaseFiltradas, filtroDistribuidora, ordenarColuna, ordenarDirecao]);
 
   // Paginação da Tabela de Faltas
   const [paginaAtual, setPaginaAtual] = useState(1);
@@ -1539,11 +1572,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               {(refreshing || (statusCotacao && statusCotacao.emAndamento)) && (
                 <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500 animate-pulse"></div>
               )}
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[68vh] custom-scrollbar relative">
                 <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-[#09101f] border-b border-slate-800 text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                      <th className="py-2.5 px-3 w-8 text-center whitespace-nowrap">
+                  <thead className="sticky top-0 z-20 bg-[#09101f] shadow-lg">
+                    <tr className="bg-[#09101f] border-b border-slate-700 text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                      <th className="py-2.5 px-3 w-8 text-center whitespace-nowrap bg-[#09101f]">
                         <input
                           type="checkbox"
                           checked={(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length > 0 && (agruparPorDistribuidora ? faltasFiltradas : itensPaginados).every(f => itensSelecionados[f.produto_id])}
@@ -1560,35 +1593,42 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           title="Selecionar todos os itens visíveis"
                         />
                       </th>
-                      <th className="py-3 px-3.5 whitespace-nowrap min-w-[230px] text-xs font-black uppercase tracking-wider text-slate-300">Produto / Metadados</th>
-                      <th className="py-3 px-2.5 text-center whitespace-nowrap w-16 text-xs font-black uppercase tracking-wider text-slate-300">Curva</th>
-                      <th className="py-3 px-2.5 text-center whitespace-nowrap w-20 text-xs font-black uppercase tracking-wider text-slate-300">Saldo</th>
-                      <th className="py-3 px-2.5 text-center whitespace-nowrap w-20 text-xs font-black uppercase tracking-wider text-slate-300">Cobertura</th>
-                      <th className="py-3 px-3 text-center whitespace-nowrap w-24 bg-cyan-950/40 text-cyan-300 text-xs font-black uppercase tracking-wider">
-                        Pedir 7d
-                      </th>
-                      <th className="py-3 px-3 text-right whitespace-nowrap w-28 bg-amber-950/20 text-amber-300 text-xs font-black uppercase tracking-wider" title="Último valor unitário de compra registrado no Digifarma">
-                        Últ. Compra
-                      </th>
-                      
-                      {/* 4 COLUNAS DE COTAÇÃO: 1º E 2º COLOCADOS */}
-                      <th className="py-3 px-3.5 whitespace-nowrap w-36 bg-cyan-950/20 text-cyan-400 text-xs font-black uppercase tracking-wider">
-                        1º Colocado
-                      </th>
-                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-cyan-950/20 text-cyan-300 text-xs font-black uppercase tracking-wider">
-                        1º Preço
-                      </th>
-                      <th className="py-3 px-3.5 whitespace-nowrap w-36 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
-                        2º Colocado
-                      </th>
-                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-slate-900/60 text-slate-300 text-xs font-black uppercase tracking-wider">
-                        2º Preço
-                      </th>
-
-                      <th className="py-3 px-3 text-right whitespace-nowrap w-20 text-emerald-400 text-xs font-black uppercase tracking-wider">Margem</th>
-                      <th className="py-3 px-3.5 text-right whitespace-nowrap w-28 bg-slate-900/60 font-black text-white text-xs uppercase tracking-wider">
-                        Subtotal 7d
-                      </th>
+                      {([
+                        { key: 'descricao', label: 'Produto / Metadados', align: 'left', thClass: 'py-3 px-3.5 min-w-[230px] bg-[#09101f] text-slate-300' },
+                        { key: 'curva_abc', label: 'Curva', align: 'center', thClass: 'py-3 px-2.5 w-16 bg-[#09101f] text-slate-300' },
+                        { key: 'saldo', label: 'Saldo', align: 'center', thClass: 'py-3 px-2.5 w-20 bg-[#09101f] text-slate-300' },
+                        { key: 'dias_estoque_restante', label: 'Cobertura', align: 'center', thClass: 'py-3 px-2.5 w-20 bg-[#09101f] text-slate-300' },
+                        { key: 'qtd_sugerida_7d', label: 'Pedir 7d', align: 'center', thClass: 'py-3 px-3 w-24 bg-[#0c2135] text-cyan-300' },
+                        { key: 'preco_ult_compra', label: 'Últ. Compra', align: 'right', thClass: 'py-3 px-3 w-28 bg-[#18150d] text-amber-300', title: 'Último valor unitário de compra registrado no Digifarma' },
+                        { key: 'fornecedor_1', label: '1º Colocado', align: 'left', thClass: 'py-3 px-3.5 w-36 bg-[#0b1b2e] text-cyan-400' },
+                        { key: 'preco_1', label: '1º Preço', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1b2e] text-cyan-300' },
+                        { key: 'fornecedor_2', label: '2º Colocado', align: 'left', thClass: 'py-3 px-3.5 w-36 bg-[#0b1324] text-slate-300' },
+                        { key: 'preco_2', label: '2º Preço', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1324] text-slate-300' },
+                        { key: 'margem_lucro_percentual', label: 'Margem', align: 'right', thClass: 'py-3 px-3 w-20 bg-[#09101f] text-emerald-400' },
+                        { key: 'subtotal_7d', label: 'Subtotal 7d', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1324] text-white' }
+                      ] as const).map(col => {
+                        const ativo = ordenarColuna === col.key;
+                        const justify = col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start';
+                        return (
+                          <th
+                            key={col.key}
+                            title={(col as any).title || `Clique para ordenar por ${col.label}`}
+                            onClick={() => handleOrdenarColuna(col.key as keyof FaltaItem7d)}
+                            className={`${col.thClass} whitespace-nowrap text-xs font-black uppercase tracking-wider cursor-pointer select-none hover:brightness-125 transition-all`}
+                          >
+                            <div className={`inline-flex items-center gap-1 w-full ${justify}`}>
+                              <span>{col.label}</span>
+                              <span className={`text-[10px] px-1 py-0.5 rounded ${
+                                ativo
+                                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                  : 'text-slate-500 hover:text-slate-300'
+                              }`}>
+                                {ativo ? (ordenarDirecao === 'asc' ? '▲' : '▼') : '⇅'}
+                              </span>
+                            </div>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -1658,7 +1698,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               </tr>
 
                               {/* ITENS DA DISTRIBUIDORA */}
-                              {grupo.itens.map((item) => {
+                              {ordenarListaFaltas(grupo.itens).map((item) => {
                                 const isSelected = Boolean(itensSelecionados[item.produto_id]);
                                 const isRuptura = item.saldo <= 0;
                                 const semEstoquePortais = item.fornecedor_1 === 'Sem Estoque (Portais)';
