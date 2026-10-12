@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0b349c6",
-  "commitMessage": "feat(belaped): instala Tremor, adiciona menu lateral exclusivo do Ped e botoes de filtro de melhor preco por distribuidora",
-  "buildTime": "12/10/2026, 10:50:45"
+  "commitHash": "3306e5e",
+  "commitMessage": "feat(belaped): torna botoes de distribuidora dinamicos exibindo apenas quando houver itens",
+  "buildTime": "12/10/2026, 11:03:52"
 }

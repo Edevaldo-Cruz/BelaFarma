@@ -281,17 +281,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Sincronização manual com feedback visual garantido
+  // Sincronização manual com ERP Digifarma + recarga da lista de produtos
   const handleSincronizarManual = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    addToast('Sincronizando dados com o servidor...', 'info');
+    addToast('Sincronizando saldos, correções e compras com o Digifarma...', 'info');
     const t0 = Date.now();
     try {
+      await fetch('/api/belaped/sincronizar-estoque', { method: 'POST' }).catch(() => {});
       await carregarDados();
       const restante = Math.max(0, 600 - (Date.now() - t0));
       if (restante > 0) await new Promise(r => setTimeout(r, restante));
-      addToast('Dados da tabela e estoque sincronizados com sucesso!', 'success');
+      addToast('Lista de produtos e saldos atualizados com sucesso!', 'success');
     } catch (err: any) {
       addToast('Erro ao sincronizar dados: ' + err.message, 'error');
     } finally {
@@ -299,8 +300,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
+  // Atualização automática da lista de produtos de 15 em 15 minutos (900.000 ms)
   useEffect(() => {
     carregarDados();
+    const timer15m = setInterval(async () => {
+      try {
+        await fetch('/api/belaped/sincronizar-estoque', { method: 'POST' }).catch(() => {});
+        await carregarDados();
+      } catch (e) {}
+    }, 15 * 60 * 1000);
+    return () => clearInterval(timer15m);
   }, []);
 
   // Filtra itens base (por curva, categoria e busca) para calcular o resumo das distribuidoras
@@ -827,14 +836,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             <span>{user.name}</span>
           </div>
 
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-950/50 border border-cyan-800/60 text-[11px] font-bold text-cyan-300" title="A lista de produtos e saldos do ERP é atualizada automaticamente a cada 15 minutos">
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Auto-Sync: 15 min</span>
+            {ultimaAtualizacao && <span className="text-slate-400">• Últ: {ultimaAtualizacao}</span>}
+          </div>
+
           <button
-            onClick={carregarDados}
+            onClick={handleSincronizarManual}
             disabled={refreshing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black transition-all shadow-md cursor-pointer disabled:opacity-50"
-            title="Atualizar dados de estoque e cotações"
+            title="Forçar sincronização imediata de estoque, correções e compras com o ERP Digifarma"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Sincronizar</span>
+            <span className="hidden sm:inline">{refreshing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
         </div>
       </header>

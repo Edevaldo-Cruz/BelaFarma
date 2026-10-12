@@ -13,6 +13,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
+const comprasEstoqueService = require('./services/compras-estoque.service');
 const fs = require('fs');
 const path = require('path');
 const { ProfarmaRobot } = require('./belaped-robot-profarma');
@@ -35,6 +36,47 @@ function belapedEndpoints(db) {
     finalizadoEm: null,
     log: []
   };
+
+  // Controle de sincronização automática da lista de produtos (15 em 15 min c/ ERP Digifarma)
+  let syncEstoqueEmAndamento = false;
+  let ultimaSyncErpTimestamp = null;
+
+  const sincronizarListaProdutosERP = async (origem = 'auto-15m') => {
+    if (syncEstoqueEmAndamento) {
+      return { success: true, emAndamento: true, ultimaSync: ultimaSyncErpTimestamp };
+    }
+    syncEstoqueEmAndamento = true;
+    try {
+      console.log(`[BelaPed] 🔄 (${origem}) Atualizando lista de produtos, saldos e compras com o ERP Digifarma...`);
+      const resSync = await comprasEstoqueService.recalcularTodosEstoqueMinimo(15);
+      ultimaSyncErpTimestamp = new Date().toISOString();
+      console.log(`[BelaPed] ✅ (${origem}) Lista de produtos atualizada com sucesso em ${ultimaSyncErpTimestamp}`);
+      return { success: true, ultimaSync: ultimaSyncErpTimestamp, detalhes: resSync };
+    } catch (err) {
+      console.error(`[BelaPed] ⚠️ (${origem}) Erro ao atualizar lista de produtos com ERP:`, err.message);
+      return { success: false, error: err.message, ultimaSync: ultimaSyncErpTimestamp };
+    } finally {
+      syncEstoqueEmAndamento = false;
+    }
+  };
+
+  // Disparo automático a cada 15 minutos (900.000 ms) para refletir correções de saldo, vendas e compras grandes
+  const INTERVALO_SYNC_PRODUTOS_MS = 15 * 60 * 1000;
+  setInterval(() => {
+    sincronizarListaProdutosERP('auto-15m').catch(() => {});
+  }, INTERVALO_SYNC_PRODUTOS_MS);
+
+  // Na subida do serviço, verifica se o cache tem mais de 15 min e sincroniza em background
+  setTimeout(() => {
+    try {
+      const row = db.prepare('SELECT MAX(atualizado_em) as ult FROM compras_estoque_cache').get();
+      ultimaSyncErpTimestamp = row?.ult || null;
+      const idadeMs = row?.ult ? (Date.now() - new Date(row.ult).getTime()) : Infinity;
+      if (idadeMs >= INTERVALO_SYNC_PRODUTOS_MS) {
+        sincronizarListaProdutosERP('startup-check').catch(() => {});
+      }
+    } catch (e) {}
+  }, 15000);
 
   // Inicializa tabelas auxiliares do BelaPed no SQLite se não existirem
   const initTables = () => {
@@ -125,6 +167,19 @@ function belapedEndpoints(db) {
   } catch (e) {
     console.error('[BelaPed] Erro ao inicializar tabelas:', e.message);
   }
+
+  /**
+   * POST /api/belaped/sincronizar-estoque
+   * Força a atualização imediata da lista de produtos/saldos/compras com o ERP Digifarma
+   */
+  router.post('/sincronizar-estoque', async (req, res) => {
+    try {
+      const resultado = await sincronizarListaProdutosERP('manual-ui');
+      res.json(resultado);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   /**
    * GET /api/belaped/faltas-7d
