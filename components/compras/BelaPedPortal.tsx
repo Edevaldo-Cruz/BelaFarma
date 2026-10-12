@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
+import PedidosTab from './BelaPedPedidosTab';
 
 interface BelaPedPortalProps {
   user: User;
@@ -104,7 +105,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const { addToast } = useToast();
   
   // Abas de Navegação do BelaPed
-  const [activeTab, setActiveTab] = useState<'faltas' | 'cotacao' | 'orcamento' | 'relatorios'>('faltas');
+  const [activeTab, setActiveTab] = useState<'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos'>('faltas');
 
   // Estados de Dados
   const [loading, setLoading] = useState(true);
@@ -249,6 +250,33 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  // Registra no histórico o carrinho da distribuidora filtrada (NÃO finaliza compra em portal algum)
+  const registrarPedidoDaDistribuidora = async () => {
+    if (filtroDistribuidora === 'TODAS') {
+      addToast('Selecione o card de uma distribuidora para registrar o pedido.', 'info');
+      return;
+    }
+    const itens = faltas
+      .filter(f => f.fornecedor_1 === filtroDistribuidora && itensSelecionados[f.produto_id])
+      .map(f => ({ ean: f.ean, descricao: f.descricao, quantidade: f.qtd_sugerida_7d, preco: f.preco_1 }));
+    if (itens.length === 0) {
+      addToast('Nenhum item selecionado para essa distribuidora.', 'info');
+      return;
+    }
+    try {
+      const r = await fetch('/api/belaped/pedidos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ distribuidora: filtroDistribuidora, itens })
+      });
+      if (!r.ok) throw new Error('Falha ao registrar');
+      addToast(`Pedido da ${filtroDistribuidora} registrado como "Carrinho gerado". Finalize manualmente no portal.`, 'success');
+      setActiveTab('pedidos');
+    } catch (e: any) {
+      addToast('Erro ao registrar pedido: ' + e.message, 'error');
     }
   };
 
@@ -979,7 +1007,21 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             <BarChart3 className="w-4 h-4 text-purple-400" />
             <span>4. Relatórios & Preços</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('pedidos')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'pedidos'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 scale-105'
+                : 'bg-[#0e1626] text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <Layers className="w-4 h-4 text-amber-400" />
+            <span>5. Pedidos</span>
+          </button>
         </div>
+
+        {activeTab === 'pedidos' && <PedidosTab />}
 
         {/* ─── ABA 1: FALTAS & REPOSIÇÃO 1 SEMANA ─────────────────────────────── */}
         {activeTab === 'faltas' && (
@@ -1005,6 +1047,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer transition-colors"
                     >
                       Limpar Filtro ({filtroDistribuidora})
+                    </button>
+                  )}
+                  {filtroDistribuidora !== 'TODAS' && (
+                    <button
+                      onClick={registrarPedidoDaDistribuidora}
+                      className="px-3 py-1.5 rounded-xl bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-black uppercase tracking-wider cursor-pointer transition-colors"
+                      title="Registra o carrinho no histórico. Não finaliza a compra: você finaliza no portal."
+                    >
+                      Registrar pedido ({filtroDistribuidora})
                     </button>
                   )}
                   <button

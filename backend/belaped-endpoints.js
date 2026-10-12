@@ -1439,6 +1439,165 @@ function belapedEndpoints(db) {
     });
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PEDIDOS (histórico/acompanhamento)
+  // REGRA DE SEGURANÇA: os robôs NUNCA finalizam compras. Eles só montam o carrinho.
+  // A finalização é feita pelo usuário no portal; aqui só registramos/atualizamos status manualmente.
+  // ═══════════════════════════════════════════════════════════════════════════
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS belaped_pedidos (
+        id TEXT PRIMARY KEY,
+        distribuidora TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'CARRINHO_GERADO',
+        total REAL DEFAULT 0,
+        qtd_itens INTEGER DEFAULT 0,
+        qtd_unidades INTEGER DEFAULT 0,
+        prazo_previsto TEXT,
+        nf TEXT,
+        observacoes TEXT,
+        criado_por TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS belaped_pedidos_itens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pedido_id TEXT NOT NULL,
+        ean TEXT,
+        descricao TEXT,
+        qtd_pedida REAL DEFAULT 0,
+        preco_cotado REAL DEFAULT 0,
+        qtd_faturada REAL,
+        FOREIGN KEY (pedido_id) REFERENCES belaped_pedidos(id) ON DELETE CASCADE
+      );
+    `);
+  } catch (e) {
+    console.error('[BelaPed] Erro ao criar tabelas de pedidos:', e.message);
+  }
+
+  const STATUS_PEDIDO = ['RASCUNHO', 'CARRINHO_GERADO', 'FINALIZADO_PELO_USUARIO', 'FATURADO', 'RECEBIDO', 'CANCELADO'];
+
+  /**
+   * POST /api/belaped/pedidos
+   * Registra um carrinho gerado. Body: { distribuidora, itens: [{ean, descricao, quantidade, preco}], observacoes }
+   */
+  router.post('/pedidos', (req, res) => {
+    try {
+      const { distribuidora, itens, observacoes } = req.body || {};
+      if (!distribuidora || !Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ success: false, error: 'Informe distribuidora e ao menos um item.' });
+      }
+      const portal = db.prepare('SELECT prazo_dias_padrao FROM belaped_portais WHERE upper(nome) = upper(?) OR id = lower(?)').get(distribuidora, distribuidora);
+      const prazo = portal ? new Date(Date.now() + (portal.prazo_dias_padrao || 28) * 86400000).toISOString().slice(0, 10) : null;
+      const id = crypto.randomUUID();
+      const linhas = itens.map(i => ({
+        ean: i.ean || null,
+        descricao: i.descricao || '',
+        qtd: Number(i.quantidade ?? i.qtd) || 0,
+        preco: Number(i.preco ?? i.preco_cotado) || 0
+      }));
+      const total = linhas.reduce((s, l) => s + l.qtd * l.preco, 0);
+      const unidades = linhas.reduce((s, l) => s + l.qtd, 0);
+
+      const tx = db.transaction(() => {
+        db.prepare(`INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, prazo_previsto, observacoes, criado_por)
+                    VALUES (?, ?, 'CARRINHO_GERADO', ?, ?, ?, ?, ?, ?)`)
+          .run(id, distribuidora, Number(total.toFixed(2)), linhas.length, unidades, prazo, observacoes || null, (req.user && (req.user.name || req.user.id)) || null);
+        const ins = db.prepare('INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado) VALUES (?, ?, ?, ?, ?)');
+        for (const l of linhas) ins.run(id, l.ean, l.descricao, l.qtd, l.preco);
+      });
+      tx();
+      res.json({ success: true, id });
+    } catch (err) {
+      console.error('[BelaPed] Erro ao registrar pedido:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/pedidos?status=&distribuidora=
+   * Lista pedidos com totais por distribuidora.
+   */
+  router.get('/pedidos', (req, res) => {
+    try {
+      const { status, distribuidora } = req.query;
+      let sql = 'SELECT * FROM belaped_pedidos WHERE 1=1';
+      const params = [];
+      if (status) { sql += ' AND status = ?'; params.push(status); }
+      if (distribuidora) { sql += ' AND distribuidora = ?'; params.push(distribuidora); }
+      sql += ' ORDER BY created_at DESC LIMIT 300';
+      const pedidos = db.prepare(sql).all(...params);
+      const totais = {};
+      for (const p of pedidos) {
+        if (p.status === 'CANCELADO') continue;
+        totais[p.distribuidora] = Number(((totais[p.distribuidora] || 0) + (p.total || 0)).toFixed(2));
+      }
+      res.json({ success: true, pedidos, totais_por_distribuidora: totais });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/pedidos/:id — detalhe com itens
+   */
+  router.get('/pedidos/:id', (req, res) => {
+    try {
+      const pedido = db.prepare('SELECT * FROM belaped_pedidos WHERE id = ?').get(req.params.id);
+      if (!pedido) return res.status(404).json({ success: false, error: 'Pedido não encontrado.' });
+      const itens = db.prepare('SELECT * FROM belaped_pedidos_itens WHERE pedido_id = ?').all(req.params.id);
+      res.json({ success: true, pedido, itens });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/belaped/pedidos/:id/status — atualização MANUAL de status. Body: { status, nf?, observacoes? }
+   */
+  router.put('/pedidos/:id/status', (req, res) => {
+    try {
+      const { status, nf, observacoes } = req.body || {};
+      if (!STATUS_PEDIDO.includes(status)) {
+        return res.status(400).json({ success: false, error: 'Status inválido.' });
+      }
+      const r = db.prepare(`UPDATE belaped_pedidos SET status = ?, nf = COALESCE(?, nf), observacoes = COALESCE(?, observacoes), updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(status, nf || null, observacoes || null, req.params.id);
+      if (!r.changes) return res.status(404).json({ success: false, error: 'Pedido não encontrado.' });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/alertas — alertas de pedidos (aparecem somente dentro do Belinha)
+   */
+  router.get('/alertas', (req, res) => {
+    try {
+      const alertas = [];
+      const parados = db.prepare(`SELECT id, distribuidora, total FROM belaped_pedidos
+        WHERE status = 'CARRINHO_GERADO' AND datetime(created_at) <= datetime('now', '-1 day')`).all();
+      for (const p of parados) {
+        alertas.push({
+          tipo: 'CARRINHO_PENDENTE', nivel: 'warning', pedido_id: p.id,
+          mensagem: `Carrinho da ${p.distribuidora} (R$ ${Number(p.total).toFixed(2)}) está há mais de 24h aguardando você finalizar no portal.`
+        });
+      }
+      const atrasados = db.prepare(`SELECT id, distribuidora, prazo_previsto FROM belaped_pedidos
+        WHERE status IN ('FINALIZADO_PELO_USUARIO','FATURADO') AND prazo_previsto IS NOT NULL AND date(prazo_previsto) < date('now')`).all();
+      for (const p of atrasados) {
+        alertas.push({
+          tipo: 'PEDIDO_ATRASADO', nivel: 'danger', pedido_id: p.id,
+          mensagem: `Pedido da ${p.distribuidora} passou do prazo previsto (${p.prazo_previsto}) e ainda não foi recebido.`
+        });
+      }
+      res.json({ success: true, alertas });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 }
 

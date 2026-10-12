@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "30ec5a6",
-  "commitMessage": "fix(belaped): corrigir robos de cotacao em servico Windows, execucao paralela e precos reais nos 4 portais",
-  "buildTime": "11/10/2026, 21:15:26"
+  "commitHash": "ff90964",
+  "commitMessage": "feat(belaped): exibe valor da ultima compra, agrupamento e total por distribuidora e corrige saldo do orcamento",
+  "buildTime": "12/10/2026, 09:05:26"
 }
