@@ -1304,15 +1304,21 @@ function belapedEndpoints(db) {
       return false;
     }
 
-    // Mapa de descrições por EAN do cache de estoque
+    // Mapa de descrições e último custo de compra por EAN do cache de estoque
     const mapaDescricoes = {};
+    const mapaUltimoCusto = {};
     const todosCache = db.prepare(`
       SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, status_ruptura, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario, vendas_30d, est_minimo_calculado
       FROM compras_estoque_cache
       WHERE ean IS NOT NULL AND length(ean) >= 7
     `).all();
     for (const c of todosCache) {
-      if (c.ean) mapaDescricoes[String(c.ean).trim()] = c.descricao || '';
+      if (c.ean) {
+        const eanFormatado = String(c.ean).trim();
+        mapaDescricoes[eanFormatado] = c.descricao || '';
+        const custoRef = Number(c.preco_unitario_ult_compra) || Number(c.custo_unitario) || 0;
+        if (custoRef > 0) mapaUltimoCusto[eanFormatado] = custoRef;
+      }
     }
 
     // EANs que já possuem preço válido cotado nas últimas 24 horas (Validade Diária Dinâmica)
@@ -1474,7 +1480,30 @@ function belapedEndpoints(db) {
             cotacaoStatus.workers[nomeFornecedor].itemAtual = `Pesquisando: ${descAtual || eanAtual} (${i + 1}/${listaEans.length})`;
             cotacaoStatus.ultimoItem = `${nomeFornecedor}: ${descAtual || eanAtual}`;
 
-            const resultado = await robot.cotarEAN(eanAtual, descAtual);
+            let resultado = await robot.cotarEAN(eanAtual, descAtual);
+
+            // Double-Check Automático: se houver diferença muito grande entre o último custo de compra e o preço cotado
+            const ultCustoRef = mapaUltimoCusto[eanAtual] || 0;
+            if (resultado.disponivel && resultado.preco > 0 && ultCustoRef > 0) {
+              const diffPct = ((resultado.preco - ultCustoRef) / ultCustoRef) * 100;
+              // Queda >= 40% (suspeita de fracionamento ou erro de leitura) ou aumento >= 60%
+              if (diffPct <= -40 || diffPct >= 60) {
+                console.warn(`[BelaPed Double-Check] ⚠️ Divergência alta de ${diffPct.toFixed(1)}% detectada em ${nomeFornecedor} para "${descAtual || eanAtual}" (Últ. Compra R$ ${ultCustoRef.toFixed(2)} vs Cotado R$ ${resultado.preco.toFixed(2)}). Rodando robô novamente no produto para confirmação...`);
+                cotacaoStatus.workers[nomeFornecedor].itemAtual = `🔄 Double-check (${diffPct > 0 ? '+' : ''}${diffPct.toFixed(0)}% vs últ. compra): ${descAtual || eanAtual}`;
+                cotacaoStatus.ultimoItem = `🔄 Double-check ${nomeFornecedor}: ${descAtual || eanAtual}`;
+
+                await new Promise(r => setTimeout(r, 1800));
+                const segTentativa = await robot.cotarEAN(eanAtual, descAtual);
+                if (segTentativa.disponivel && segTentativa.preco > 0) {
+                  console.log(`[BelaPed Double-Check] ✅ Produto re-cotado com sucesso: R$ ${segTentativa.preco.toFixed(2)} (1ª: R$ ${resultado.preco.toFixed(2)})`);
+                  resultado = segTentativa;
+                } else {
+                  console.warn(`[BelaPed Double-Check] ❌ Produto não confirmado na 2ª tentativa do robô. Descartando valor suspeito.`);
+                  resultado = { disponivel: false, preco: null, mensagem: 'Divergência não confirmada no reteste do robô' };
+                }
+              }
+            }
+
             passosConcluidos++;
             cotacaoStatus.workers[nomeFornecedor].avaliados++;
             cotacaoStatus.atual = Math.min(listaEans.length, Math.max(1, Math.ceil(passosConcluidos / numWorkers)));
@@ -1726,6 +1755,108 @@ function belapedEndpoints(db) {
       await martins.fechar();
       res.json({ success: true, message: 'Código 2FA do Martins validado com sucesso e sessão permanente salva!' });
     } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/recotar-produto
+   * Re-executa o robô sob demanda para um único produto (EAN)
+   * Útil para revalidar produtos com grande divergência de preço vs última compra
+   */
+  router.post('/recotar-produto', async (req, res) => {
+    try {
+      const { ean, fornecedor, descricao } = req.body;
+      const eanLimpo = String(ean || '').trim();
+      if (!eanLimpo) {
+        return res.status(400).json({ success: false, error: 'EAN é obrigatório para re-cotação.' });
+      }
+
+      const MAPA_CLASSES = {
+        'PROFARMA': ProfarmaRobot,
+        'DPC DISTRIBUIDORA': DpcRobot,
+        'DPC': DpcRobot,
+        'SOTON FARMA': SotonRobot,
+        'SOTON': SotonRobot,
+        'DISTRIMED': DistrimedRobot,
+        'DIVIMED': DivimedRobot,
+        'MARTINS ATACADO': MartinsRobot,
+        'MARTINS': MartinsRobot
+      };
+
+      // Determina qual distribuidora rodar
+      let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : null;
+      if (!fornecedorAlvo || fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo]) {
+        const melhorAtual = db.prepare(`
+          SELECT fornecedor FROM belaped_cotacoes_reais
+          WHERE ean = ? AND disponivel = 1 AND preco > 0
+          ORDER BY preco ASC LIMIT 1
+        `).get(eanLimpo);
+        if (melhorAtual && MAPA_CLASSES[melhorAtual.fornecedor.toUpperCase()]) {
+          fornecedorAlvo = melhorAtual.fornecedor.toUpperCase();
+        } else {
+          fornecedorAlvo = 'DISTRIMED';
+        }
+      }
+
+      const RobotClass = MAPA_CLASSES[fornecedorAlvo];
+      if (!RobotClass) {
+        return res.status(400).json({ success: false, error: `Robô para a distribuidora "${fornecedorAlvo}" não encontrado.` });
+      }
+
+      console.log(`[BelaPed Re-cotação] Rodando robô ${fornecedorAlvo} sob demanda para o EAN ${eanLimpo} (${descricao || ''})...`);
+      const robot = new RobotClass({ headless: true });
+      await robot.iniciar();
+
+      try {
+        const resultado = await robot.cotarEAN(eanLimpo, descricao || '');
+
+        const stmtSalvar = db.prepare(`
+          INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(ean, fornecedor) DO UPDATE SET
+            preco = excluded.preco,
+            disponivel = excluded.disponivel,
+            descricao = excluded.descricao,
+            desc_pct = excluded.desc_pct,
+            url_produto = COALESCE(excluded.url_produto, belaped_cotacoes_reais.url_produto),
+            updated_at = excluded.updated_at
+        `);
+
+        if (resultado.disponivel && resultado.preco > 0) {
+          stmtSalvar.run(
+            eanLimpo,
+            fornecedorAlvo,
+            resultado.preco,
+            1,
+            resultado.descricao || descricao || '',
+            resultado.descPct || 0,
+            resultado.url || resultado.urlProduto || resultado.link || null
+          );
+        } else {
+          stmtSalvar.run(
+            eanLimpo,
+            fornecedorAlvo,
+            null,
+            0,
+            resultado.mensagem || 'Indisponível no reteste do robô',
+            0,
+            null
+          );
+        }
+
+        res.json({
+          success: true,
+          fornecedor: fornecedorAlvo,
+          ean: eanLimpo,
+          resultado
+        });
+      } finally {
+        await robot.fechar().catch(() => {});
+      }
+
+    } catch (err) {
+      console.error('[BelaPed Re-cotação] Erro:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });

@@ -47,7 +47,8 @@ import {
   FileText,
   Pill,
   FolderDown,
-  FileDown
+  FileDown,
+  RotateCcw
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -467,6 +468,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       return 5000;
     }
   });
+
+  // Re-cotação imediata com o robô quando houver divergência de preço vs última compra
+  const [recotandoEan, setRecotandoEan] = useState<string | null>(null);
+
+  const handleRecotarProduto = async (item: FaltaItem7d) => {
+    if (!item.ean) return;
+    setRecotandoEan(item.ean);
+    try {
+      const fornecedorAlvo = item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !item.fornecedor_1.includes('Sem Estoque')
+        ? item.fornecedor_1
+        : 'TODOS';
+      const res = await fetch('/api/belaped/recotar-produto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ean: item.ean,
+          fornecedor: fornecedorAlvo,
+          descricao: item.descricao
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Robô re-executado com sucesso para ${item.descricao}!`, 'success');
+        carregarDados();
+      } else {
+        addToast(data.error || 'Erro ao recotar produto.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Falha na comunicação com o robô: ' + err.message, 'error');
+    } finally {
+      setRecotandoEan(null);
+    }
+  };
 
   // Modo de Reposição Inteligente:
   // 'HOJE_URGENTES': Exibe apenas o que deve ser comprado HOJE (produtos no Melhor Dia + produtos Zerados Emergenciais)
@@ -1023,6 +1057,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return faltasFiltradas.slice(inicio, inicio + itensPorPagina);
   }, [faltasFiltradas, paginaAtual, itensPorPagina]);
 
+  // Itens com grande divergência de preço vs última compra (>= 40% mais barato ou >= 60% mais caro)
+  const itensDivergentes = useMemo(() => {
+    return faltasFiltradas.filter(item => {
+      const p1 = Number(item.preco_1) || 0;
+      const pUlt = Number(item.preco_ult_compra ?? item.custo_unitario ?? 0);
+      if (p1 > 0 && pUlt > 0) {
+        const diff = ((p1 - pUlt) / pUlt) * 100;
+        return diff <= -40 || diff >= 60;
+      }
+      return false;
+    });
+  }, [faltasFiltradas]);
+
   // Totais dos itens selecionados
   const totaisSelecionados = useMemo(() => {
     let qtdItens = 0;
@@ -1327,42 +1374,48 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleIniciarCotacaoAoVivo = async (
     fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
-    prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS'
+    prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS',
+    eansEspecificos?: string[]
   ) => {
     try {
       setCotandoAoVivo(true);
 
       const limiteReal = Math.max(10, Math.min(200, tamanhoLote || 40));
 
-      // Ordenação estrita por Matriz de Gravidade Operacional (P1 Ruptura -> P2 Risco -> P3 Orçamento -> P4 Regular)
-      const pesoPrio: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
-      const itensOrdenadosPorPrio = [...faltasFiltradas]
-        .filter(s => s.ean && s.ean.length >= 7)
-        .filter(s => {
-          if (prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS') {
-            return s.prioridade === prioridadeFiltro;
-          }
-          return true;
-        })
-        .sort((a, b) => {
-          const pa = pesoPrio[a.prioridade || 'P4'] || 4;
-          const pb = pesoPrio[b.prioridade || 'P4'] || 4;
-          if (pa !== pb) return pa - pb;
-          const aNaoCotado = (!a.fornecedor_1 || a.fornecedor_1 === 'Não Cotado') ? 0 : 1;
-          const bNaoCotado = (!b.fornecedor_1 || b.fornecedor_1 === 'Não Cotado') ? 0 : 1;
-          return aNaoCotado - bNaoCotado;
-        });
+      let eansParaCotar: string[] = [];
+      if (Array.isArray(eansEspecificos) && eansEspecificos.length > 0) {
+        eansParaCotar = eansEspecificos;
+      } else {
+        // Ordenação estrita por Matriz de Gravidade Operacional (P1 Ruptura -> P2 Risco -> P3 Orçamento -> P4 Regular)
+        const pesoPrio: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
+        const itensOrdenadosPorPrio = [...faltasFiltradas]
+          .filter(s => s.ean && s.ean.length >= 7)
+          .filter(s => {
+            if (prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS') {
+              return s.prioridade === prioridadeFiltro;
+            }
+            return true;
+          })
+          .sort((a, b) => {
+            const pa = pesoPrio[a.prioridade || 'P4'] || 4;
+            const pb = pesoPrio[b.prioridade || 'P4'] || 4;
+            if (pa !== pb) return pa - pb;
+            const aNaoCotado = (!a.fornecedor_1 || a.fornecedor_1 === 'Não Cotado') ? 0 : 1;
+            const bNaoCotado = (!b.fornecedor_1 || b.fornecedor_1 === 'Não Cotado') ? 0 : 1;
+            return aNaoCotado - bNaoCotado;
+          });
 
-      // Prioriza os itens pendentes de cotação dentro da ordem de gravidade
-      const naoCotados = itensOrdenadosPorPrio
-        .filter(s => !s.fornecedor_1 || s.fornecedor_1 === 'Não Cotado')
-        .map(s => s.ean);
+        // Prioriza os itens pendentes de cotação dentro da ordem de gravidade
+        const naoCotados = itensOrdenadosPorPrio
+          .filter(s => !s.fornecedor_1 || s.fornecedor_1 === 'Não Cotado')
+          .map(s => s.ean);
 
-      const demaisEans = itensOrdenadosPorPrio
-        .map(s => s.ean)
-        .filter(e => !naoCotados.includes(e));
+        const demaisEans = itensOrdenadosPorPrio
+          .map(s => s.ean)
+          .filter(e => !naoCotados.includes(e));
 
-      const eansParaCotar = [...naoCotados, ...demaisEans].slice(0, limiteReal);
+        eansParaCotar = [...naoCotados, ...demaisEans].slice(0, limiteReal);
+      }
 
       const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? `[${prioridadeFiltro}] ` : '';
       const nomeExibicao = fornecedor === 'TODOS' ? '5 Portais (Profarma, DPC, Soton, Distrimed e Divimed)' : fornecedor;
@@ -2842,6 +2895,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   )}
                 </button>
 
+                {/* BOTÃO: RE-COTAR DIVERGENTES (>40% OU >60% VS ÚLTIMA COMPRA) */}
+                {itensDivergentes.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const eansDivergentes = Array.from(new Set(itensDivergentes.map(i => i.ean).filter(Boolean)));
+                      handleIniciarCotacaoAoVivo('TODOS', eansDivergentes.length, undefined, eansDivergentes);
+                    }}
+                    disabled={cotandoAoVivo}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-lg shadow-rose-950/50 transition-all cursor-pointer animate-pulse active:scale-95"
+                    title={`${itensDivergentes.length} itens têm cotação do 1º colocado muito distante da última compra (>= 40% mais barato ou >= 60% mais caro). Clique para rodar o robô novamente em todos eles.`}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-300" />
+                    <span>Re-cotar Divergentes ({itensDivergentes.length})</span>
+                  </button>
+                )}
+
                 {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 5 PORTAIS) */}
                 <button
                   onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
@@ -3396,6 +3465,29 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                         ) : (
                                           <span className="text-slate-500">—</span>
                                         )}
+                                        {(() => {
+                                          const diffUltCompra = (preco1 && precoUltCompra > 0)
+                                            ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1))
+                                            : 0;
+                                          const isDivergente = preco1 && precoUltCompra > 0 && (diffUltCompra <= -40 || diffUltCompra >= 60);
+                                          if (!isDivergente) return null;
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRecotarProduto(item)}
+                                              disabled={recotandoEan === item.ean}
+                                              className={`p-1 rounded text-[10px] font-black inline-flex items-center gap-0.5 border transition-all cursor-pointer ${
+                                                diffUltCompra <= -40
+                                                  ? 'bg-rose-950/90 text-rose-300 border-rose-600 hover:bg-rose-900 animate-pulse'
+                                                  : 'bg-amber-950/90 text-amber-300 border-amber-600 hover:bg-amber-900'
+                                              }`}
+                                              title={`⚠️ Grande divergência (${diffUltCompra > 0 ? '+' : ''}${diffUltCompra}% vs últ. compra R$ ${precoUltCompra.toFixed(2)}). Clique para rodar o robô novamente neste produto.`}
+                                            >
+                                              <RotateCcw className={`w-3 h-3 ${recotandoEan === item.ean ? 'animate-spin text-cyan-400' : ''}`} />
+                                              <span>{diffUltCompra > 0 ? '+' : ''}{diffUltCompra.toFixed(0)}%</span>
+                                            </button>
+                                          );
+                                        })()}
                                         <button
                                           type="button"
                                           onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
@@ -3677,6 +3769,29 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                 ) : (
                                   <span className="text-slate-500">—</span>
                                 )}
+                                {(() => {
+                                  const diffUltCompra = (preco1 && precoUltCompra > 0)
+                                    ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1))
+                                    : 0;
+                                  const isDivergente = preco1 && precoUltCompra > 0 && (diffUltCompra <= -40 || diffUltCompra >= 60);
+                                  if (!isDivergente) return null;
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecotarProduto(item)}
+                                      disabled={recotandoEan === item.ean}
+                                      className={`p-1 rounded text-[10px] font-black inline-flex items-center gap-0.5 border transition-all cursor-pointer ${
+                                        diffUltCompra <= -40
+                                          ? 'bg-rose-950/90 text-rose-300 border-rose-600 hover:bg-rose-900 animate-pulse'
+                                          : 'bg-amber-950/90 text-amber-300 border-amber-600 hover:bg-amber-900'
+                                      }`}
+                                      title={`⚠️ Grande divergência (${diffUltCompra > 0 ? '+' : ''}${diffUltCompra}% vs últ. compra R$ ${precoUltCompra.toFixed(2)}). Clique para rodar o robô novamente neste produto.`}
+                                    >
+                                      <RotateCcw className={`w-3 h-3 ${recotandoEan === item.ean ? 'animate-spin text-cyan-400' : ''}`} />
+                                      <span>{diffUltCompra > 0 ? '+' : ''}{diffUltCompra.toFixed(0)}%</span>
+                                    </button>
+                                  );
+                                })()}
                                 <button
                                   type="button"
                                   onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}

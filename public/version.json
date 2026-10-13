@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "42a84a3",
-  "commitMessage": "fix(belaped): correcao rotas faltas-7d e orcamento-boletos e ativacao de background worker continuo autonomo",
-  "buildTime": "13/10/2026, 16:13:49"
+  "commitHash": "9080cf6",
+  "commitMessage": "fix(belaped): blindagem estrita de validacao de EAN e correspondencia semantica no robo Distrimed",
+  "buildTime": "13/10/2026, 18:55:53"
 }

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3d98f04",
-  "commitMessage": "feat(belaped): integracao distribuidora DIVIMED com robo puppeteer, cotacao real e carrinho produto por produto",
-  "buildTime": "13/10/2026, 15:47:28"
+  "commitHash": "9080cf6",
+  "commitMessage": "fix(belaped): blindagem estrita de validacao de EAN e correspondencia semantica no robo Distrimed",
+  "buildTime": "13/10/2026, 18:55:53"
 }
