@@ -21,6 +21,7 @@ const { ProfarmaRobot } = require('./belaped-robot-profarma');
 const { DpcRobot } = require('./belaped-robot-dpc');
 const { SotonRobot } = require('./belaped-robot-soton');
 const { DistrimedRobot } = require('./belaped-robot-distrimed');
+const { DivimedRobot } = require('./belaped-robot-divimed');
 
 function belapedEndpoints(db) {
   const router = express.Router();
@@ -154,7 +155,8 @@ function belapedEndpoints(db) {
       { id: 'profarma', nome: 'PROFARMA', url: 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', usuario: '47378578000140', min: 400.0, prazo: 35, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
       { id: 'dpc', nome: 'DPC DISTRIBUIDORA', url: 'https://cliente.dpcnet.com.br/?redirect=https%3A%2F%2Fdpcnet.com.br%2F', usuario: '47378578000140', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
       { id: 'soton', nome: 'SOTON FARMA', url: 'https://sotonfarma.meuspedidos.com.br/entrar', usuario: 'belafarmasul@gmail.com', min: 300.0, prazo: 21, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica de carrinho produto a produto' },
-      { id: 'distrimed', nome: 'DISTRIMED', url: 'https://inovacao.distrimed.com.br/login?referencia=/solicitacaoSac', usuario: 'bela farma sul', min: 350.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação automática via modal' }
+      { id: 'distrimed', nome: 'DISTRIMED', url: 'https://inovacao.distrimed.com.br/login?referencia=/solicitacaoSac', usuario: 'bela farma sul', min: 350.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação automática via modal' },
+      { id: 'divimed', nome: 'DIVIMED', url: 'https://divimed.artpedidoweb.com.br/#/', usuario: 'belafarmasul@gmail.com', min: 400.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica produto por produto por nome' }
     ];
 
     const stmtUpsert = db.prepare(`
@@ -173,8 +175,8 @@ function belapedEndpoints(db) {
       stmtUpsert.run(p.id, p.nome, p.url, p.usuario, p.min, p.prazo, p.uf, p.is_mg, p.obs);
     }
 
-    // Remove qualquer distribuidora não configurada (garante apenas as 4 reais)
-    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed')`).run();
+    // Remove qualquer distribuidora não configurada (garante apenas as 5 oficiais)
+    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed')`).run();
 
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
@@ -1397,7 +1399,7 @@ function belapedEndpoints(db) {
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length > 0) rotuloFoco = '💼 P3: Orçamento Semanal';
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length === 0) rotuloFoco = '📦 P4: Regular';
 
-    const numWorkers = fornecedor === 'TODOS' ? 4 : 1;
+    const numWorkers = fornecedor === 'TODOS' ? 5 : 1;
     let passosConcluidos = 0;
 
     // Inicializa status com telemetria de prioridade
@@ -1437,7 +1439,8 @@ function belapedEndpoints(db) {
         'PROFARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
         'DPC DISTRIBUIDORA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
         'SOTON FARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
-        'DISTRIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
+        'DISTRIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
+        'DIVIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
       };
 
       const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass) => {
@@ -1570,12 +1573,15 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('SOTON FARMA', SotonRobot);
         } else if (fornecedor === 'DISTRIMED') {
           await executarRoboParaFornecedor('DISTRIMED', DistrimedRobot);
+        } else if (fornecedor === 'DIVIMED') {
+          await executarRoboParaFornecedor('DIVIMED', DivimedRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
             executarRoboParaFornecedor('PROFARMA', ProfarmaRobot),
             executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot),
             executarRoboParaFornecedor('SOTON FARMA', SotonRobot),
-            executarRoboParaFornecedor('DISTRIMED', DistrimedRobot)
+            executarRoboParaFornecedor('DISTRIMED', DistrimedRobot),
+            executarRoboParaFornecedor('DIVIMED', DivimedRobot)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -2101,6 +2107,141 @@ function belapedEndpoints(db) {
     res.json({
       success: true,
       status: sotonCarrinhoStatus
+    });
+  });
+
+  // Estado de montagem do carrinho na Divimed
+  const divimedCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: []
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-divimed
+   * Inicia o robô Puppeteer para adicionar produto a produto no carrinho da Divimed
+   */
+  router.post('/montar-carrinho-divimed', async (req, res) => {
+    try {
+      if (divimedCarrinhoStatus.emAndamento) {
+        return res.status(400).json({
+          success: false,
+          message: 'Uma montagem de carrinho na Divimed já está em andamento. Aguarde a conclusão.'
+        });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+
+      // Se não passou lista explícita, seleciona os itens de ruptura onde Divimed é a vencedora
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT 
+            c.ean,
+            c.descricao,
+            c.saldo,
+            c.vmd_ponderado,
+            cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'DIVIMED' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 50
+        `).all();
+
+        itensParaAdicionar = produtosGanhadores.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nenhum produto vencedor na Divimed para adicionar ao carrinho no momento.'
+        });
+      }
+
+      divimedCarrinhoStatus.emAndamento = true;
+      divimedCarrinhoStatus.total = itensParaAdicionar.length;
+      divimedCarrinhoStatus.atual = 0;
+      divimedCarrinhoStatus.sucessos = 0;
+      divimedCarrinhoStatus.erros = 0;
+      divimedCarrinhoStatus.ultimoItem = '';
+      divimedCarrinhoStatus.itens = [];
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Divimed com ${itensParaAdicionar.length} produtos.`,
+        status: divimedCarrinhoStatus
+      });
+
+      // Executa adição produto por produto em background
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Divimed para montagem de carrinho...');
+          robot = new DivimedRobot({ headless: true });
+          await robot.iniciar();
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            divimedCarrinhoStatus.atual = i + 1;
+            divimedCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            console.log(`[BelaPed Carrinho Divimed] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+
+            if (resItem.sucesso) {
+              divimedCarrinhoStatus.sucessos++;
+              divimedCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                status: 'ADICIONADO'
+              });
+            } else {
+              divimedCarrinhoStatus.erros++;
+              divimedCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                status: 'FALHOU',
+                motivo: resItem.motivo
+              });
+            }
+          }
+          console.log(`[BelaPed Carrinho Divimed] Concluído: ${divimedCarrinhoStatus.sucessos} adicionados, ${divimedCarrinhoStatus.erros} falhas.`);
+        } catch (botErr) {
+          console.error('[BelaPed Carrinho Divimed] Erro crítico no robô:', botErr.message);
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          divimedCarrinhoStatus.emAndamento = false;
+        }
+      })();
+
+    } catch (err) {
+      divimedCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-divimed:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/status-carrinho-divimed
+   */
+  router.get('/status-carrinho-divimed', (req, res) => {
+    res.json({
+      success: true,
+      status: divimedCarrinhoStatus
     });
   });
 

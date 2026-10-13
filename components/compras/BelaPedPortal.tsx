@@ -44,7 +44,10 @@ import {
   X,
   Printer,
   Table,
-  FileText
+  FileText,
+  Pill,
+  FolderDown,
+  FileDown
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -207,13 +210,32 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     } catch {}
   };
 
-  // Gerar e Baixar Relatório em Arquivo TXT Organizado por Fornecedores
-  const handleGerarRelatorioTxt = () => {
+  // Modal de Exportação TXT com opções de Agrupamento por Categoria e Fornecedor
+  const [modalExportarTxtOpen, setModalExportarTxtOpen] = useState(false);
+
+  // Gerar e Baixar Relatório em Arquivo TXT Organizado por Fornecedores e Categorias
+  const handleGerarRelatorioTxt = (
+    modo: 'FORNECEDOR_E_CATEGORIA' | 'SO_MEDICAMENTOS' | 'SO_PERFUMARIA' | 'ARQUIVOS_SEPARADOS' = 'FORNECEDOR_E_CATEGORIA'
+  ) => {
     // 1. Filtra itens marcados/selecionados
-    const itensSel = faltas.filter(f => itensSelecionados[f.produto_id]);
+    let itensSel = faltas.filter(f => itensSelecionados[f.produto_id]);
     if (itensSel.length === 0) {
       addToast('Nenhum produto selecionado para gerar o arquivo TXT.', 'warning');
       return;
+    }
+
+    if (modo === 'SO_MEDICAMENTOS') {
+      itensSel = itensSel.filter(f => f.tipo_categoria === 'MEDICAMENTO');
+      if (itensSel.length === 0) {
+        addToast('Nenhum medicamento selecionado para exportação.', 'warning');
+        return;
+      }
+    } else if (modo === 'SO_PERFUMARIA') {
+      itensSel = itensSel.filter(f => f.tipo_categoria !== 'MEDICAMENTO');
+      if (itensSel.length === 0) {
+        addToast('Nenhum item de perfumaria selecionado para exportação.', 'warning');
+        return;
+      }
     }
 
     // 2. Agrupa os itens por fornecedor vencedor (ou "NÃO COTADO")
@@ -242,16 +264,135 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       grupos[fornecedor].totalUnidades += (Number(item.qtd_sugerida_7d) || 0);
     });
 
-    // 3. Monta o texto formatado limpo para leitura e bloco de notas
     const dataHora = new Date().toLocaleString('pt-BR');
+    const dataIso = new Date().toISOString().split('T')[0];
     const divisorForte = '='.repeat(84);
     const divisorSuave = '-'.repeat(84);
 
+    // Função auxiliar para montar o texto de uma distribuidora específica dividida por categoria
+    const formatarSecaoDistribuidora = (grp: typeof grupos[string]) => {
+      const secLinhas: string[] = [];
+      secLinhas.push(`=== FORNECEDOR: ${grp.distribuidora} ===`);
+      secLinhas.push(`Total Fornecedor: ${grp.itens.length} itens | Volume: ${grp.totalUnidades} un | Total Pedido: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+      secLinhas.push(divisorSuave);
+
+      const itensMed = grp.itens.filter(it => it.tipo_categoria === 'MEDICAMENTO');
+      const itensPerf = grp.itens.filter(it => it.tipo_categoria !== 'MEDICAMENTO');
+
+      // Seção 1: Medicamentos
+      if (itensMed.length > 0 && modo !== 'SO_PERFUMARIA') {
+        const valMed = itensMed.reduce((acc, it) => acc + (Number(it.subtotal_7d) || 0), 0);
+        const unMed = itensMed.reduce((acc, it) => acc + (Number(it.qtd_sugerida_7d) || 0), 0);
+        secLinhas.push(`--- [ CATEGORIA: 💊 MEDICAMENTOS (${itensMed.length} itens • ${unMed} un • Subtotal: R$ ${valMed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) ] ---`);
+        secLinhas.push(
+          'QTD'.padEnd(7) +
+          ' | ' + 'EAN'.padEnd(14) +
+          ' | ' + 'PRODUTO / APRESENTAÇÃO'.padEnd(42) +
+          ' | ' + 'PREÇO UN.'.padStart(10) +
+          ' | ' + 'SUBTOTAL'.padStart(12)
+        );
+        secLinhas.push(divisorSuave);
+
+        itensMed.sort((a, b) => a.descricao.localeCompare(b.descricao)).forEach((it) => {
+          const qtdStr = `${it.qtd_sugerida_7d} un`.padEnd(7);
+          const eanStr = (it.ean || 'SEM EAN').padEnd(14);
+          const descTrunc = it.descricao.length > 41 ? it.descricao.substring(0, 38) + '...' : it.descricao.padEnd(42);
+          const precoUn = (Number(it.preco_1 || it.custo_unitario || 0)).toFixed(2);
+          const precoStr = `R$ ${precoUn}`.padStart(10);
+          const subStr = `R$ ${(Number(it.subtotal_7d) || 0).toFixed(2)}`.padStart(12);
+          secLinhas.push(`${qtdStr} | ${eanStr} | ${descTrunc} | ${precoStr} | ${subStr}`);
+        });
+
+        secLinhas.push(divisorSuave);
+        secLinhas.push(`Subtotal Medicamentos (${grp.distribuidora}): R$ ${valMed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${unMed} unidades)`);
+        secLinhas.push('');
+      }
+
+      // Seção 2: Perfumaria & Higiene
+      if (itensPerf.length > 0 && modo !== 'SO_MEDICAMENTOS') {
+        const valPerf = itensPerf.reduce((acc, it) => acc + (Number(it.subtotal_7d) || 0), 0);
+        const unPerf = itensPerf.reduce((acc, it) => acc + (Number(it.qtd_sugerida_7d) || 0), 0);
+        secLinhas.push(`--- [ CATEGORIA: 🧴 PERFUMARIA & NÃO-MEDICAMENTOS (${itensPerf.length} itens • ${unPerf} un • Subtotal: R$ ${valPerf.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) ] ---`);
+        secLinhas.push(
+          'QTD'.padEnd(7) +
+          ' | ' + 'EAN'.padEnd(14) +
+          ' | ' + 'PRODUTO / APRESENTAÇÃO'.padEnd(42) +
+          ' | ' + 'PREÇO UN.'.padStart(10) +
+          ' | ' + 'SUBTOTAL'.padStart(12)
+        );
+        secLinhas.push(divisorSuave);
+
+        itensPerf.sort((a, b) => a.descricao.localeCompare(b.descricao)).forEach((it) => {
+          const qtdStr = `${it.qtd_sugerida_7d} un`.padEnd(7);
+          const eanStr = (it.ean || 'SEM EAN').padEnd(14);
+          const descTrunc = it.descricao.length > 41 ? it.descricao.substring(0, 38) + '...' : it.descricao.padEnd(42);
+          const precoUn = (Number(it.preco_1 || it.custo_unitario || 0)).toFixed(2);
+          const precoStr = `R$ ${precoUn}`.padStart(10);
+          const subStr = `R$ ${(Number(it.subtotal_7d) || 0).toFixed(2)}`.padStart(12);
+          secLinhas.push(`${qtdStr} | ${eanStr} | ${descTrunc} | ${precoStr} | ${subStr}`);
+        });
+
+        secLinhas.push(divisorSuave);
+        secLinhas.push(`Subtotal Perfumaria (${grp.distribuidora}): R$ ${valPerf.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${unPerf} unidades)`);
+        secLinhas.push('');
+      }
+
+      secLinhas.push(`TOTAL GERAL ${grp.distribuidora}: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${grp.totalUnidades} unidades)`);
+      secLinhas.push('');
+      secLinhas.push('');
+      return secLinhas;
+    };
+
+    const dispararDownloadTxt = (nomeArquivo: string, conteudoTexto: string) => {
+      const blob = new Blob([conteudoTexto], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = nomeArquivo;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    // MODO: ARQUIVOS SEPARADOS POR DISTRIBUIDORA
+    if (modo === 'ARQUIVOS_SEPARADOS') {
+      let geradosCount = 0;
+      Object.keys(grupos).forEach(dist => {
+        const grp = grupos[dist];
+        if (grp.itens.length === 0) return;
+
+        const linhasInd: string[] = [];
+        linhasInd.push(divisorForte);
+        linhasInd.push(`DROGARIA BELA FARMA - PEDIDO: ${grp.distribuidora}`);
+        linhasInd.push(`Emissão: ${dataHora} | Responsável: ${user?.name || 'Administrador'}`);
+        linhasInd.push(`Itens no Pedido: ${grp.itens.length} | Volume Total: ${grp.totalUnidades} un | Valor Total: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+        linhasInd.push(divisorForte);
+        linhasInd.push('');
+        linhasInd.push(...formatarSecaoDistribuidora(grp));
+
+        const nomeSanitizado = grp.distribuidora.replace(/[^a-zA-Z0-9_-]/g, '_');
+        dispararDownloadTxt(`pedido_${nomeSanitizado}_belafarma_${dataIso}.txt`, linhasInd.join('\r\n'));
+        geradosCount++;
+      });
+
+      addToast(`${geradosCount} arquivos TXT individuais gerados com sucesso!`, 'success');
+      setModalExportarTxtOpen(false);
+      return;
+    }
+
+    // MODO: ARQUIVO CONSOLIDADO COM SEPARAÇÃO POR CATEGORIAS & FORNECEDOR
     const linhas: string[] = [];
+    const rotuloModo = modo === 'SO_MEDICAMENTOS' 
+      ? 'SOMENTE MEDICAMENTOS' 
+      : modo === 'SO_PERFUMARIA' 
+      ? 'SOMENTE PERFUMARIA & NÃO-MEDICAMENTOS' 
+      : 'SEPARADO POR FORNECEDOR & CATEGORIAS';
+
     linhas.push(divisorForte);
-    linhas.push('DROGARIA BELA FARMA - RELATÓRIO DE COMPRAS POR FORNECEDOR (BELAPED)');
+    linhas.push(`DROGARIA BELA FARMA - RELATÓRIO DE COMPRAS (${rotuloModo})`);
     linhas.push(`Emissão: ${dataHora} | Responsável: ${user?.name || 'Administrador'}`);
-    linhas.push(`Total de Itens Selecionados: ${itensSel.length} | Valor Total Estimado: R$ ${totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    linhas.push(`Total de Itens: ${itensSel.length} | Valor Total Estimado: R$ ${itensSel.reduce((a, b) => a + (Number(b.subtotal_7d) || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
     linhas.push(divisorForte);
     linhas.push('');
 
@@ -264,40 +405,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
     let totalGeralReais = 0;
     let totalGeralUnidades = 0;
+    let totalMedGeral = 0;
+    let totalPerfGeral = 0;
 
     chavesOrdenadas.forEach(dist => {
       const grp = grupos[dist];
       totalGeralReais += grp.totalValor;
       totalGeralUnidades += grp.totalUnidades;
+      totalMedGeral += grp.itens.filter(i => i.tipo_categoria === 'MEDICAMENTO').reduce((a, b) => a + (Number(b.subtotal_7d) || 0), 0);
+      totalPerfGeral += grp.itens.filter(i => i.tipo_categoria !== 'MEDICAMENTO').reduce((a, b) => a + (Number(b.subtotal_7d) || 0), 0);
 
-      linhas.push(`=== FORNECEDOR: ${grp.distribuidora} ===`);
-      linhas.push(`Itens: ${grp.itens.length} | Volume: ${grp.totalUnidades} un | Total Pedido: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-      linhas.push(divisorSuave);
-      linhas.push(
-        'QTD'.padEnd(7) +
-        ' | ' + 'EAN'.padEnd(14) +
-        ' | ' + 'PRODUTO / APRESENTAÇÃO'.padEnd(42) +
-        ' | ' + 'PREÇO UN.'.padStart(10) +
-        ' | ' + 'SUBTOTAL'.padStart(12)
-      );
-      linhas.push(divisorSuave);
-
-      // Ordena itens da distribuidora por descrição
-      grp.itens.sort((a, b) => a.descricao.localeCompare(b.descricao)).forEach((it) => {
-        const qtdStr = `${it.qtd_sugerida_7d} un`.padEnd(7);
-        const eanStr = (it.ean || 'SEM EAN').padEnd(14);
-        const descTrunc = it.descricao.length > 41 ? it.descricao.substring(0, 38) + '...' : it.descricao.padEnd(42);
-        const precoUn = (Number(it.preco_1 || it.custo_unitario || 0)).toFixed(2);
-        const precoStr = `R$ ${precoUn}`.padStart(10);
-        const subStr = `R$ ${(Number(it.subtotal_7d) || 0).toFixed(2)}`.padStart(12);
-
-        linhas.push(`${qtdStr} | ${eanStr} | ${descTrunc} | ${precoStr} | ${subStr}`);
-      });
-
-      linhas.push(divisorSuave);
-      linhas.push(`SUBTOTAL ${grp.distribuidora}: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${grp.totalUnidades} unidades)`);
-      linhas.push('');
-      linhas.push('');
+      linhas.push(...formatarSecaoDistribuidora(grp));
     });
 
     linhas.push(divisorForte);
@@ -305,27 +423,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     linhas.push(`* Distribuidoras no Pedido: ${chavesOrdenadas.length}`);
     linhas.push(`* Total de Produtos Selecionados: ${itensSel.length}`);
     linhas.push(`* Total de Unidades Físicas: ${totalGeralUnidades} unidades`);
-    linhas.push(`* VALOR TOTAL CONSOLIDADO: R$ ${totalGeralReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    linhas.push(`* Subtotal Geral Medicamentos: R$ ${totalMedGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    linhas.push(`* Subtotal Geral Perfumaria/Outros: R$ ${totalPerfGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    linhas.push(`* VALOR TOTAL ESTIMADO DA COMPRA: R$ ${totalGeralReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
     linhas.push(divisorForte);
 
-    const conteudoTxt = linhas.join('\r\n');
+    const sufixoNome = modo === 'SO_MEDICAMENTOS' ? 'MEDICAMENTOS' : modo === 'SO_PERFUMARIA' ? 'PERFUMARIA' : 'CATEGORIAS_E_FORNECEDORES';
+    dispararDownloadTxt(`compras_belafarma_${sufixoNome}_${dataIso}.txt`, linhas.join('\r\n'));
 
-    // 4. Dispara o download automático do arquivo no navegador
-    const blob = new Blob([conteudoTxt], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const dataIso = new Date().toISOString().split('T')[0];
-    link.href = url;
-    link.download = `compras_belafarma_por_fornecedor_${dataIso}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    addToast(`Arquivo TXT gerado com sucesso! (${itensSel.length} produtos em ${chavesOrdenadas.length} fornecedores)`, 'success');
+    addToast(`Arquivo TXT (${rotuloModo}) gerado com sucesso!`, 'success');
+    setModalExportarTxtOpen(false);
   };
 
-  const handleImprimirTabela = handleGerarRelatorioTxt;
+  const handleImprimirTabela = () => setModalExportarTxtOpen(true);
 
   // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
@@ -382,6 +492,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     if (f1.includes('DISTRIMED')) {
       return `https://inovacao.distrimed.com.br/produtos?pesquisa=${termo}`;
     }
+    if (f1.includes('DIVIMED')) {
+      return `https://divimed.artpedidoweb.com.br/#/comprar`;
+    }
     if (f1.includes('PROFARMA')) {
       return `https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido`;
     }
@@ -414,7 +527,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         melhorDiaIdx = 2; // Terça
       } else if (f1Upper.includes('SOTON')) {
         melhorDiaIdx = 3; // Quarta
-      } else if (f1Upper.includes('DISTRIMED')) {
+      } else if (f1Upper.includes('DISTRIMED') || f1Upper.includes('DIVIMED')) {
         melhorDiaIdx = 4; // Quinta
       } else {
         melhorDiaIdx = (item.produto_id % 4) + 2; // Varia suavemente entre Terça (2) e Sexta (5)
@@ -576,6 +689,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     emAndamento: boolean;
     mensagem: string;
     sucesso: boolean;
+  } | null>(null);
+
+  // Montagem Robótica de Carrinho na Divimed
+  const [montandoCarrinhoDivimed, setMontandoCarrinhoDivimed] = useState(false);
+  const [statusCarrinhoDivimed, setStatusCarrinhoDivimed] = useState<{
+    emAndamento: boolean;
+    total: number;
+    atual: number;
+    sucessos: number;
+    erros: number;
+    ultimoItem?: string;
   } | null>(null);
 
   // Registro de horário da última sincronização para feedback visual
@@ -764,7 +888,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'DISTRIMED': 350,
       'PROFARMA': 400,
       'SOTON FARMA': 300,
-      'DPC DISTRIBUIDORA': 300
+      'DPC DISTRIBUIDORA': 300,
+      'DIVIMED': 400
     };
     portais.forEach(p => {
       if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
@@ -1198,9 +1323,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Todas)
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Divimed / Todas)
   const handleIniciarCotacaoAoVivo = async (
-    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS' = 'TODOS',
+    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
     prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS'
   ) => {
@@ -1240,7 +1365,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       const eansParaCotar = [...naoCotados, ...demaisEans].slice(0, limiteReal);
 
       const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? `[${prioridadeFiltro}] ` : '';
-      const nomeExibicao = fornecedor === 'TODOS' ? '4 Portais (Profarma, DPC, Soton e Distrimed)' : fornecedor;
+      const nomeExibicao = fornecedor === 'TODOS' ? '5 Portais (Profarma, DPC, Soton, Distrimed e Divimed)' : fornecedor;
 
       // Resposta visual IMEDIATA (0ms): Mostra o banner e status instantaneamente
       setStatusCotacao({
@@ -1433,6 +1558,61 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
+  // Montar Carrinho Roboticamente na Divimed (Produto a Produto pelo Nome)
+  const handleMontarCarrinhoDivimed = async () => {
+    try {
+      setMontandoCarrinhoDivimed(true);
+
+      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
+      const itensDivimed = selecionados
+        .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('DIVIMED') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          descricao: f.descricao,
+          quantidade: f.qtd_sugerida_7d || 1
+        }));
+
+      addToast(`Iniciando robô para adicionar ${itensDivimed.length > 0 ? itensDivimed.length : 'os itens vencedores'} no carrinho da Divimed...`, 'info');
+
+      const res = await fetch('/api/belaped/montar-carrinho-divimed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itens: itensDivimed.length > 0 ? itensDivimed : undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Erro ao iniciar robô da Divimed');
+      }
+
+      setStatusCarrinhoDivimed(data.status);
+
+      const timerDiv = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-divimed');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCarrinhoDivimed(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerDiv);
+              setMontandoCarrinhoDivimed(false);
+              addToast(`Carrinho montado na Divimed! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+            }
+          }
+        } catch (e) {
+          clearInterval(timerDiv);
+          setMontandoCarrinhoDivimed(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao acionar robô Divimed: ' + err.message, 'error');
+      setMontandoCarrinhoDivimed(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       
@@ -1508,12 +1688,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
           {/* Botão de Exportar TXT no Header */}
           <button
-            onClick={handleGerarRelatorioTxt}
+            onClick={() => setModalExportarTxtOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition-all shadow-md cursor-pointer"
-            title="Baixar arquivo TXT com os produtos separados por fornecedor"
+            title="Exportar produtos em arquivo TXT separado por categorias e fornecedor"
           >
             <FileText className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden md:inline">Baixar TXT</span>
+            <span className="hidden md:inline">Exportar TXT</span>
           </button>
 
           <button
@@ -1768,14 +1948,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <span>{modoApenasTabela ? '← Exibir Painel Completo' : '📊 Exibir Apenas a Tabela'}</span>
                 </button>
 
-                {/* Botão de Exportar TXT por Fornecedor */}
+                {/* Botão de Exportar TXT por Fornecedor & Categorias */}
                 <button
-                  onClick={handleGerarRelatorioTxt}
+                  onClick={() => setModalExportarTxtOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-black transition-all cursor-pointer shadow-md"
-                  title="Gerar arquivo TXT limpo com produtos separados por fornecedor"
+                  title="Gerar e baixar arquivo TXT organizado por categorias e fornecedor"
                 >
                   <FileText className="w-4 h-4 text-cyan-400" />
-                  <span>📄 Baixar TXT Fornecedores</span>
+                  <span>📄 Exportar TXT</span>
                 </button>
 
                 {/* Botão da Guia de Faltas do Balcão (Livro de Faltas do Belinha) */}
@@ -2642,17 +2822,37 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   )}
                 </button>
 
-                {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 4 PORTAIS) */}
+                {/* Robô Montador de Carrinho na Divimed (Item por Item pelo Nome) */}
+                <button
+                  onClick={handleMontarCarrinhoDivimed}
+                  disabled={montandoCarrinhoDivimed}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  title="O robô fará login na Divimed e adicionará produto a produto no carrinho buscando pelo nome (Mínimo R$ 400)"
+                >
+                  {montandoCarrinhoDivimed ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                      <span>Montando Divimed ({statusCarrinhoDivimed?.atual || 0}/{statusCarrinhoDivimed?.total || 0})...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Montar Divimed (Robô)</span>
+                    </>
+                  )}
+                </button>
+
+                {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 5 PORTAIS) */}
                 <button
                   onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                   disabled={cotandoAoVivo}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 hover:shadow-cyan-900/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
-                  title="Disparar os robôs agora para consultar preços ao vivo na Profarma, DPC, Soton Farma e Distrimed"
+                  title="Disparar os robôs agora para consultar preços ao vivo na Profarma, DPC, Soton Farma, Distrimed e Divimed"
                 >
                   {cotandoAoVivo ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>Cotando nos 4 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
+                      <span>Cotando nos 5 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
                     </>
                   ) : (
                     <>
@@ -4255,6 +4455,143 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         mesAtualNumero={orcamentoInfo?.mesAtual?.mes || (new Date().getMonth() + 1)}
         ano={orcamentoInfo?.ano || new Date().getFullYear()}
       />
+
+      {/* ─── MODAL: EXPORTAR PEDIDOS EM ARQUIVO TXT POR CATEGORIA & FORNECEDOR ─── */}
+      {modalExportarTxtOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-[#0e1626] rounded-3xl max-w-xl w-full border border-cyan-500/50 shadow-2xl overflow-hidden flex flex-col text-slate-100">
+            {/* Cabeçalho */}
+            <div className="p-4 px-6 bg-gradient-to-r from-[#0d1e38] via-[#102747] to-[#0e1626] border-b border-cyan-800/60 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-inner">
+                  <FileText className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase text-white flex items-center gap-2">
+                    Exportar Arquivo TXT de Compras
+                  </h3>
+                  <span className="text-xs text-cyan-300/90 font-medium">
+                    {totaisSelecionados.qtdItens} produtos selecionados • R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalExportarTxtOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 cursor-pointer transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Conteúdo com Opções */}
+            <div className="p-6 space-y-3.5">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Escolha o formato desejado para gerar e baixar os arquivos no seu computador:
+              </p>
+
+              {/* Opção 1: Consolidado com divisão interna de Categoria e Fornecedor */}
+              <button
+                type="button"
+                onClick={() => handleGerarRelatorioTxt('FORNECEDOR_E_CATEGORIA')}
+                className="w-full text-left p-4 rounded-2xl border border-cyan-600/60 bg-gradient-to-r from-cyan-950/60 to-[#0c1a30] hover:border-cyan-400 hover:from-cyan-950 hover:to-[#0e203b] transition-all cursor-pointer shadow-md group"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 group-hover:scale-105 transition-transform shrink-0 mt-0.5">
+                    <FileDown className="w-5 h-5 text-cyan-300" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-black text-white group-hover:text-cyan-200">
+                        📄 Arquivo Completo (Fornecedor + Categorias)
+                      </span>
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                        Recomendado
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-medium mt-1">
+                      Gera um arquivo TXT único com todos os fornecedores. Dentro de cada distribuidora, os produtos são divididos em seções de <b>Medicamentos</b> e <b>Perfumaria</b> com seus respectivos subtotais.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Opção 2: Somente Medicamentos */}
+              <button
+                type="button"
+                onClick={() => handleGerarRelatorioTxt('SO_MEDICAMENTOS')}
+                className="w-full text-left p-3.5 rounded-2xl border border-emerald-800/60 bg-emerald-950/30 hover:border-emerald-500 hover:bg-emerald-950/50 transition-all cursor-pointer shadow-sm group"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 group-hover:scale-105 transition-transform shrink-0 mt-0.5">
+                    <Pill className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-sm font-black text-white group-hover:text-emerald-200 block">
+                      💊 Somente Medicamentos por Fornecedor
+                    </span>
+                    <p className="text-xs text-slate-300 font-medium mt-0.5">
+                      Filtra e exporta estritamente os medicamentos agrupados pelas distribuidoras cotadas.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Opção 3: Somente Perfumaria */}
+              <button
+                type="button"
+                onClick={() => handleGerarRelatorioTxt('SO_PERFUMARIA')}
+                className="w-full text-left p-3.5 rounded-2xl border border-purple-800/60 bg-purple-950/30 hover:border-purple-500 hover:bg-purple-950/50 transition-all cursor-pointer shadow-sm group"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-purple-600/20 text-purple-300 border border-purple-500/40 group-hover:scale-105 transition-transform shrink-0 mt-0.5">
+                    <Sparkles className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-sm font-black text-white group-hover:text-purple-200 block">
+                      🧴 Somente Perfumaria & Higiene por Fornecedor
+                    </span>
+                    <p className="text-xs text-slate-300 font-medium mt-0.5">
+                      Filtra e exporta itens de perfumaria, higiene e não-medicamentos por distribuidora.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Opção 4: Arquivos TXT Separados por Distribuidora */}
+              <button
+                type="button"
+                onClick={() => handleGerarRelatorioTxt('ARQUIVOS_SEPARADOS')}
+                className="w-full text-left p-3.5 rounded-2xl border border-amber-800/60 bg-amber-950/30 hover:border-amber-500 hover:bg-amber-950/50 transition-all cursor-pointer shadow-sm group"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-amber-600/20 text-amber-300 border border-amber-500/40 group-hover:scale-105 transition-transform shrink-0 mt-0.5">
+                    <FolderDown className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-sm font-black text-white group-hover:text-amber-200 block">
+                      📁 Baixar Arquivo Individual para Cada Fornecedor
+                    </span>
+                    <p className="text-xs text-slate-300 font-medium mt-0.5">
+                      Gera um arquivo TXT separado para cada distribuidora (ex: <i>pedido_PROFARMA.txt</i>, <i>pedido_DISTRIMED.txt</i>) com as categorias divididas internamente.
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Rodapé */}
+            <div className="p-4 px-6 bg-[#080d18] border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setModalExportarTxtOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
       {(() => {
