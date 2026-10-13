@@ -238,17 +238,33 @@ class DistrimedRobot {
       // 1. Busca exata por EAN
       let itens = await this._buscarNoCatalogo(eanLimpo);
 
-      // 2. Fallback por nome/dosagem se não achar o EAN exato
-      if (itens.length === 0 && descricaoProduto) {
+      // Filtro ESTRITO por EAN: só aceita o produto se o EAN retornado coincidir com o pesquisado
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      let itensCorrespondentes = itens.filter(it => {
+        if (!it.ean) return false;
+        const eanCardDigitos = String(it.ean).replace(/\D/g, '');
+        return eanCardDigitos === eanDigitos ||
+               (eanCardDigitos.length >= 8 && eanDigitos.length >= 8 && (eanCardDigitos.includes(eanDigitos) || eanDigitos.includes(eanCardDigitos)));
+      });
+
+      // 2. Fallback por nome/dosagem APENAS se não achar o EAN exato E houver descrição válida
+      if (itensCorrespondentes.length === 0 && descricaoProduto) {
         const termoNome = extrairTermoLimpo(descricaoProduto);
         if (termoNome && termoNome.length >= 4) {
-          const primeiraPalavra = termoNome.split(' ')[0];
+          const palavrasChave = termoNome.split(/\s+/).filter(p => p.length >= 3 && !['COM', 'SEM', 'PARA', 'PCT', 'UND', 'UNID'].includes(p));
           const todosNome = await this._buscarNoCatalogo(termoNome);
-          itens = todosNome.filter(it => (it.descricao || '').toUpperCase().includes(primeiraPalavra));
+          
+          // Validação semântica: OBRIGATORIAMENTE deve conter a palavra principal do produto pesquisado
+          itensCorrespondentes = todosNome.filter(it => {
+            const descCard = (it.descricao || '').toUpperCase();
+            if (palavrasChave.length === 0) return false;
+            // A primeira palavra chave (ex: FRALDA ou DORFLEX) DEVE estar no card encontrado
+            return palavrasChave[0] && descCard.includes(palavrasChave[0]);
+          });
         }
       }
 
-      if (!itens || itens.length === 0) {
+      if (!itensCorrespondentes || itensCorrespondentes.length === 0) {
         return {
           fornecedor: 'DISTRIMED',
           ean: eanLimpo,
@@ -259,8 +275,9 @@ class DistrimedRobot {
         };
       }
 
-      itens.sort((a, b) => a.preco - b.preco);
-      const melhor = itens[0];
+      // Entre os itens validados e correspondentes, escolhe o de menor preço
+      itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+      const melhor = itensCorrespondentes[0];
 
       return {
         fornecedor: 'DISTRIMED',
