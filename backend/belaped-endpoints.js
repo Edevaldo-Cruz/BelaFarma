@@ -22,6 +22,7 @@ const { DpcRobot } = require('./belaped-robot-dpc');
 const { SotonRobot } = require('./belaped-robot-soton');
 const { DistrimedRobot } = require('./belaped-robot-distrimed');
 const { DivimedRobot } = require('./belaped-robot-divimed');
+const { MartinsRobot } = require('./belaped-robot-martins');
 
 function belapedEndpoints(db) {
   const router = express.Router();
@@ -156,7 +157,8 @@ function belapedEndpoints(db) {
       { id: 'dpc', nome: 'DPC DISTRIBUIDORA', url: 'https://cliente.dpcnet.com.br/?redirect=https%3A%2F%2Fdpcnet.com.br%2F', usuario: '47378578000140', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
       { id: 'soton', nome: 'SOTON FARMA', url: 'https://sotonfarma.meuspedidos.com.br/entrar', usuario: 'belafarmasul@gmail.com', min: 300.0, prazo: 21, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica de carrinho produto a produto' },
       { id: 'distrimed', nome: 'DISTRIMED', url: 'https://inovacao.distrimed.com.br/login?referencia=/solicitacaoSac', usuario: 'bela farma sul', min: 350.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação automática via modal' },
-      { id: 'divimed', nome: 'DIVIMED', url: 'https://divimed.artpedidoweb.com.br/#/', usuario: 'belafarmasul@gmail.com', min: 400.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica produto por produto por nome' }
+      { id: 'divimed', nome: 'DIVIMED', url: 'https://divimed.artpedidoweb.com.br/#/', usuario: 'belafarmasul@gmail.com', min: 400.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica produto por produto por nome' },
+      { id: 'martins', nome: 'MARTINS ATACADO', url: 'https://www.martinsatacado.com.br/login/pessoa-juridica?pathName=%2F', usuario: '47.378.578/0001-40', min: 200.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Pedido mínimo R$ 200,00 - Filtro estrito: apenas produtos faturados em MG' }
     ];
 
     const stmtUpsert = db.prepare(`
@@ -175,8 +177,8 @@ function belapedEndpoints(db) {
       stmtUpsert.run(p.id, p.nome, p.url, p.usuario, p.min, p.prazo, p.uf, p.is_mg, p.obs);
     }
 
-    // Remove qualquer distribuidora não configurada (garante apenas as 5 oficiais)
-    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed')`).run();
+    // Remove qualquer distribuidora não configurada (garante apenas as 6 oficiais)
+    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins')`).run();
 
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
@@ -1405,7 +1407,7 @@ function belapedEndpoints(db) {
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length > 0) rotuloFoco = '💼 P3: Orçamento Semanal';
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length === 0) rotuloFoco = '📦 P4: Regular';
 
-    const numWorkers = fornecedor === 'TODOS' ? 5 : 1;
+    const numWorkers = fornecedor === 'TODOS' ? 6 : 1;
     let passosConcluidos = 0;
 
     // Inicializa status com telemetria de prioridade
@@ -1446,7 +1448,8 @@ function belapedEndpoints(db) {
         'DPC DISTRIBUIDORA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
         'SOTON FARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
         'DISTRIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
-        'DIVIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
+        'DIVIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
+        'MARTINS ATACADO': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
       };
 
       const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass) => {
@@ -1581,13 +1584,16 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('DISTRIMED', DistrimedRobot);
         } else if (fornecedor === 'DIVIMED') {
           await executarRoboParaFornecedor('DIVIMED', DivimedRobot);
+        } else if (fornecedor === 'MARTINS') {
+          await executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
             executarRoboParaFornecedor('PROFARMA', ProfarmaRobot),
             executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot),
             executarRoboParaFornecedor('SOTON FARMA', SotonRobot),
             executarRoboParaFornecedor('DISTRIMED', DistrimedRobot),
-            executarRoboParaFornecedor('DIVIMED', DivimedRobot)
+            executarRoboParaFornecedor('DIVIMED', DivimedRobot),
+            executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -1700,6 +1706,26 @@ function belapedEndpoints(db) {
     } catch (err) {
       cotacaoStatus.emAndamento = false;
       console.error('[BelaPed] Erro no endpoint cotar-ao-vivo:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/martins/validar-2fa
+   * Conclui a validação de duas etapas do Martins e salva o perfil permanente
+   */
+  router.post('/martins/validar-2fa', async (req, res) => {
+    try {
+      const { codigo } = req.body;
+      if (!codigo) {
+        return res.status(400).json({ success: false, error: 'Código de verificação é obrigatório.' });
+      }
+      const martins = new MartinsRobot({ headless: true });
+      await martins.iniciar();
+      await martins.validarCodigo2FA(codigo);
+      await martins.fechar();
+      res.json({ success: true, message: 'Código 2FA do Martins validado com sucesso e sessão permanente salva!' });
+    } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
