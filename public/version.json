@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ff533b8",
-  "commitMessage": "feat(belaped): implementa matriz de gravidade operacional P1-P4 e corte inteligente no robo",
-  "buildTime": "13/10/2026, 10:31:49"
+  "commitHash": "ad0b695",
+  "commitMessage": "feat(belaped): botao maximizar tabela destacado em 3 locais e link direto ao produto cotado na distribuidora",
+  "buildTime": "13/10/2026, 11:18:46"
 }

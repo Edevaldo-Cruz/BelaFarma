@@ -41,7 +41,9 @@ import {
   Maximize2,
   Minimize2,
   ClipboardList,
-  X
+  X,
+  Printer,
+  Table
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -182,14 +184,32 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [gavetaBalcaoAberta, setGavetaBalcaoAberta] = useState<boolean>(false);
   const [filtroApenasBalcao, setFiltroApenasBalcao] = useState<boolean>(false);
 
-  // Modo Tabela Expandida (Otimização de Espaço de Tela da Tabela)
-  const [modoTabelaExpandida, setModoTabelaExpandida] = useState<boolean>(() => {
+  // Modo Exibir Apenas a Tabela (Oculta menu lateral e cards executivos para foco 100% na tabela)
+  const [modoApenasTabela, setModoApenasTabela] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('belaped_tabela_expandida') === 'true';
+      return localStorage.getItem('belaped_apenas_tabela') === 'true' || localStorage.getItem('belaped_tabela_expandida') === 'true';
     } catch {
       return false;
     }
   });
+
+  // Aliases para retrocompatibilidade
+  const modoTabelaExpandida = modoApenasTabela;
+  const setModoTabelaExpandida = setModoApenasTabela;
+
+  const alternarModoApenasTabela = () => {
+    const novo = !modoApenasTabela;
+    setModoApenasTabela(novo);
+    try {
+      localStorage.setItem('belaped_apenas_tabela', String(novo));
+      localStorage.setItem('belaped_tabela_expandida', String(novo));
+    } catch {}
+  };
+
+  // Imprimir a tabela formatada para folha A4 limpa
+  const handleImprimirTabela = () => {
+    window.print();
+  };
 
   // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
@@ -1257,6 +1277,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             {ultimaAtualizacao && <span className="text-slate-400">• Últ: {ultimaAtualizacao}</span>}
           </div>
 
+          {/* Botão de Exibir Apenas a Tabela no Header */}
+          <button
+            onClick={alternarModoApenasTabela}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-md cursor-pointer border ${
+              modoApenasTabela
+                ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400'
+                : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-800/60'
+            }`}
+            title={modoApenasTabela ? 'Exibir o menu lateral e painéis completos' : 'Ocultar menus e focar 100% na tabela de produtos'}
+          >
+            <Table className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">{modoApenasTabela ? '← Painel Completo' : 'Apenas Tabela'}</span>
+          </button>
+
+          {/* Botão de Imprimir Tabela no Header */}
+          <button
+            onClick={handleImprimirTabela}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition-all shadow-md cursor-pointer"
+            title="Imprimir relatório da tabela em folha A4"
+          >
+            <Printer className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden md:inline">Imprimir</span>
+          </button>
+
           <button
             onClick={handleSincronizarManual}
             disabled={refreshing}
@@ -1272,6 +1316,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       {/* ─── CORPO PRINCIPAL COM SCROLL INTERNO ──────────────────────────────── */}
       {/* ─── MENU LATERAL EXCLUSIVO DO BELAPED + CORPO ───────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
+      {!modoApenasTabela && (
       <aside className="w-64 shrink-0 bg-[#0b1222] border-r border-slate-800/80 flex flex-col overflow-y-auto custom-scrollbar">
         <nav className="p-3 space-y-1.5">
           <span className="px-2 text-[10px] font-black uppercase tracking-widest text-cyan-400/80 block mb-1">
@@ -1387,12 +1432,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </button>
         </div>
       </aside>
-
+      )}
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-5 bg-gradient-to-b from-[#070b14] via-[#09101f] to-[#070b14]">
         
         {/* ─── BARRA DA REGRA MASTER: ORÇAMENTO & VENCIMENTO DE BOLETOS ─────────── */}
-        {orcamentoInfo && (
+        {orcamentoInfo && !modoApenasTabela && (
           <div className={`p-4 rounded-2xl border shadow-lg backdrop-blur-md transition-all ${
             orcamentoInfo.regraMaster.bloquearVencimentosMesAtual
               ? 'bg-rose-950/40 border-rose-800/80 text-rose-200'
@@ -1494,22 +1539,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             {/* ─── BARRA SUPERIOR DE VISÃO & FERRAMENTAS DO BELAPED ─────────────── */}
             <div className="flex flex-wrap items-center justify-between gap-2.5 bg-[#0a1426] p-2.5 px-3.5 rounded-2xl border border-cyan-800/60 shadow-md">
               <div className="flex flex-wrap items-center gap-2">
-                {/* Botão de Alternância de Tabela Expandida (Maximiza Área de Produtos) */}
+                {/* Botão de Exibir Apenas a Tabela / Restaurar Painéis */}
                 <button
-                  onClick={() => {
-                    const novo = !modoTabelaExpandida;
-                    setModoTabelaExpandida(novo);
-                    try { localStorage.setItem('belaped_tabela_expandida', String(novo)); } catch {}
-                  }}
+                  onClick={alternarModoApenasTabela}
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border shadow-lg ${
-                    modoTabelaExpandida
+                    modoApenasTabela
                       ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white border-amber-400 shadow-amber-950/60 ring-2 ring-amber-400/40'
                       : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border-cyan-300 shadow-cyan-950/60 ring-2 ring-cyan-400/50'
                   }`}
-                  title={modoTabelaExpandida ? 'Restaurar painéis executivos do topo' : 'Maximizar tabela para ocupar a tela inteira (oculta cards do topo)'}
+                  title={modoApenasTabela ? 'Exibir o menu lateral e painéis completos do topo' : 'Exibir apenas a tabela (oculta menus e painéis para 100% de visão)'}
                 >
-                  {modoTabelaExpandida ? <Minimize2 className="w-4 h-4 text-white" /> : <Maximize2 className="w-4 h-4 text-white" />}
-                  <span>{modoTabelaExpandida ? '⛶ Reduzir p/ Modo Normal' : '⛶ Maximizar Tabela de Faltas'}</span>
+                  <Table className="w-4 h-4 text-white" />
+                  <span>{modoApenasTabela ? '← Exibir Painel Completo' : '📊 Exibir Apenas a Tabela'}</span>
+                </button>
+
+                {/* Botão de Imprimir Tabela */}
+                <button
+                  onClick={handleImprimirTabela}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-black transition-all cursor-pointer shadow-md"
+                  title="Imprimir relatório da tabela em folha A4 limpa"
+                >
+                  <Printer className="w-4 h-4 text-cyan-400" />
+                  <span>🖨️ Imprimir Tabela</span>
                 </button>
 
                 {/* Botão da Guia de Faltas do Balcão (Livro de Faltas do Belinha) */}
@@ -2328,22 +2379,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </span>
                 )}
 
-                {/* BOTÃO ULTRA PROEMINENTE: MAXIMIZAR TABELA */}
+                {/* BOTÃO ULTRA PROEMINENTE: EXIBIR APENAS A TABELA */}
                 <button
-                  onClick={() => {
-                    const novo = !modoTabelaExpandida;
-                    setModoTabelaExpandida(novo);
-                    try { localStorage.setItem('belaped_tabela_expandida', String(novo)); } catch {}
-                  }}
+                  onClick={alternarModoApenasTabela}
                   className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border shadow-md active:scale-95 ${
-                    modoTabelaExpandida
+                    modoApenasTabela
                       ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400 shadow-amber-950/50'
                       : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:brightness-110 text-white border-cyan-300 shadow-cyan-950/50 ring-2 ring-cyan-400/40'
                   }`}
-                  title={modoTabelaExpandida ? 'Restaurar modo normal com os cards do topo' : 'Maximizar área útil da tabela (oculta cards informativos do topo)'}
+                  title={modoApenasTabela ? 'Exibir o menu lateral e painéis completos do topo' : 'Exibir apenas a tabela (oculta menus e painéis para 100% de visão)'}
                 >
-                  {modoTabelaExpandida ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                  <span>{modoTabelaExpandida ? '⛶ Reduzir Tabela' : '⛶ Maximizar Tabela'}</span>
+                  <Table className="w-3.5 h-3.5" />
+                  <span>{modoApenasTabela ? '← Exibir Painel Completo' : '📊 Exibir Apenas a Tabela'}</span>
+                </button>
+
+                {/* BOTÃO DE IMPRESSÃO DA TABELA */}
+                <button
+                  onClick={handleImprimirTabela}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-black transition-all cursor-pointer shadow-md active:scale-95"
+                  title="Imprimir a tabela de reposição em folha A4 (limpa e sem menus)"
+                >
+                  <Printer className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>🖨️ Imprimir Tabela</span>
                 </button>
 
                 <button
@@ -2468,18 +2525,38 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
             )}
 
+            {/* CABEÇALHO EXECUTIVO FORMAL PARA IMPRESSÃO A4 (Oculto na tela, visível na impressão) */}
+            <div className="hidden print:block mb-4 p-4 border border-black bg-white text-black font-sans">
+              <div className="flex justify-between items-start border-b border-black pb-2 mb-2">
+                <div>
+                  <h1 className="text-xl font-black tracking-wide uppercase">DROGARIA BELA FARMA</h1>
+                  <h2 className="text-sm font-bold uppercase text-gray-800">Relatório Executivo de Reposição & Cotação (BelaPed)</h2>
+                </div>
+                <div className="text-right text-xs">
+                  <p><b>Data/Hora:</b> {new Date().toLocaleString('pt-BR')}</p>
+                  <p><b>Responsável:</b> {user?.name || 'Administrador'}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-2 text-xs">
+                <div><b>Total de Itens:</b> {faltasFiltradas.length}</div>
+                <div><b>Itens Selecionados:</b> {totaisSelecionados.qtdItens}</div>
+                <div><b>Valor Estimado Selecionado:</b> R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                <div><b>Filtro Aplicado:</b> {filtroDistribuidora === 'TODAS' ? 'Todas Distribuidoras' : filtroDistribuidora}</div>
+              </div>
+            </div>
+
             {/* TABELA DE ALTA DENSIDADE (DIRETRIZES AGENTS.MD: 1 LINHA COMPACTA) */}
-            <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
+            <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative belaped-print-container">
               
               {/* Barra animada de status durante carregamento ou cotação */}
               {(refreshing || (statusCotacao && statusCotacao.emAndamento)) && (
-                <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500 animate-pulse"></div>
+                <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500 animate-pulse belaped-no-print"></div>
               )}
               <div className={`overflow-auto ${modoTabelaExpandida ? 'max-h-[82vh]' : 'max-h-[68vh]'} custom-scrollbar relative`}>
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-collapse belaped-print-table">
                   <thead className="sticky top-0 z-20 bg-[#09101f] shadow-lg">
                     <tr className="bg-[#09101f] border-b border-slate-700 text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                      <th className="py-2 px-2.5 w-16 text-center whitespace-nowrap bg-[#09101f]">
+                      <th className="py-2 px-2.5 w-16 text-center whitespace-nowrap bg-[#09101f] belaped-no-print print:hidden">
                         <div className="flex items-center justify-center gap-1.5">
                           <input
                             type="checkbox"
@@ -2564,7 +2641,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             <React.Fragment key={grupo.distribuidora}>
                               {/* CABEÇALHO DO GRUPO DA DISTRIBUIDORA */}
                               <tr className="bg-gradient-to-r from-[#0d1b33] via-[#0f223d] to-[#0b1528] border-y-2 border-cyan-800/70">
-                                <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                <td className="py-3 px-3.5 text-center whitespace-nowrap belaped-no-print print:hidden">
                                   <input
                                     type="checkbox"
                                     checked={todosGrupoMarcados}
@@ -2635,7 +2712,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       isSelected ? 'bg-cyan-950/20' : ''
                                     }`}
                                   >
-                                    <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                                    <td className="py-2.5 px-3.5 text-center whitespace-nowrap belaped-no-print print:hidden">
                                       <input
                                         type="checkbox"
                                         checked={isSelected}
@@ -2919,7 +2996,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             }`}
                           >
                             {/* Checkbox */}
-                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            <td className="py-2.5 px-3.5 text-center whitespace-nowrap belaped-no-print print:hidden">
                               <input
                                 type="checkbox"
                                 checked={isSelected}

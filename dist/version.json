@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "6e5c80e",
-  "commitMessage": "feat(belaped): otimizacao espaco tabela expandida, integracao livro de faltas balcao belinha, fonte plus jakarta sans e trava anti-auto-cotacao",
-  "buildTime": "13/10/2026, 10:58:09"
+  "commitHash": "ad0b695",
+  "commitMessage": "feat(belaped): botao maximizar tabela destacado em 3 locais e link direto ao produto cotado na distribuidora",
+  "buildTime": "13/10/2026, 11:18:46"
 }

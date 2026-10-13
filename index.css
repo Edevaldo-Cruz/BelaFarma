@@ -686,4 +686,89 @@ body {
   animation: festive-glow 2s ease-in-out infinite;
 }
 
+/* =====================================================
+   IMPRESSÃO LIMPA DA TABELA DO BELAPED (A4 / PDF)
+   ===================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 8pt !important;
+  }
+
+  /* Oculta menus, sidebars, cabeçalhos do app, botões e monitor do robô */
+  aside,
+  header,
+  nav,
+  button,
+  .belaped-no-print,
+  input[type="checkbox"],
+  .belaped-robot-monitor {
+    display: none !important;
+  }
+
+  /* Área imprimível ocupa 100% sem scroll */
+  .belaped-print-container {
+    position: static !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .belaped-print-container table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .belaped-print-container thead {
+    display: table-header-group !important;
+    background: #f1f5f9 !important;
+  }
+
+  .belaped-print-container th {
+    background: #f1f5f9 !important;
+    color: #000000 !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 3px 5px !important;
+    font-size: 8pt !important;
+    font-weight: 800 !important;
+  }
+
+  .belaped-print-container td {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 3px 5px !important;
+    font-size: 8pt !important;
+  }
+
+  .belaped-print-container tr {
+    page-break-inside: avoid !important;
+  }
+
+  .belaped-print-container span,
+  .belaped-print-container div,
+  .belaped-print-container b {
+    color: #000000 !important;
+  }
+
+  .belaped-print-container a {
+    color: #000000 !important;
+    text-decoration: none !important;
+  }
+}
+
 
