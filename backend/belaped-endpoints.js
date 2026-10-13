@@ -560,7 +560,25 @@ function belapedEndpoints(db) {
           ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1))
           : 0;
 
-        const isMedicamento = r.categoria_id !== 5 && r.categoria_id !== 7;
+        const isCurvaAlta = r.curva_abc === 'A' || r.curva_abc === 'B';
+        let prioridade = 'P4';
+        let prioridadeRotulo = 'Regular';
+        if (saldo <= 0 && isCurvaAlta) {
+          prioridade = 'P1';
+          prioridadeRotulo = 'Ruptura Crítica';
+        } else if (saldo <= 0 && !isCurvaAlta) {
+          prioridade = (vendas30d > 0 || isEsquecido6m) ? 'P2' : 'P4';
+          prioridadeRotulo = prioridade === 'P2' ? 'Risco Iminente' : 'Regular';
+        } else if (isCurvaAlta && (diasCobertura <= 3 || saldo <= Math.max(1, vmd * 3))) {
+          prioridade = 'P2';
+          prioridadeRotulo = 'Risco Iminente';
+        } else if (vendas30d > 0 || isCurvaAlta) {
+          prioridade = 'P3';
+          prioridadeRotulo = 'Orçamento Semanal';
+        } else {
+          prioridade = 'P4';
+          prioridadeRotulo = 'Regular';
+        }
 
         return {
           produto_id: r.produto_id,
@@ -568,6 +586,8 @@ function belapedEndpoints(db) {
           apresentacao: r.apresentacao || '',
           ean: r.ean || '',
           curva_abc: r.curva_abc || 'C',
+          prioridade: prioridade,
+          prioridade_rotulo: prioridadeRotulo,
           saldo: saldo,
           vmd_ponderado: Number(vmd.toFixed(2)),
           vendas_30d: vendas30d,
@@ -602,11 +622,16 @@ function belapedEndpoints(db) {
         };
       }).filter(Boolean);
 
-      // Ordenação estratégica:
-      // 1. Ruptura real (saldo <= 0) no topo absoluto
-      // 2. Ordem de Curva A -> B -> C
-      // 3. Maior giro / retorno para a loja
+      // Ordenação estratégica pela Matriz de Gravidade Operacional:
+      // 1. Prioridade P1 (Ruptura Crítica) -> P2 (Risco Iminente) -> P3 (Orçamento) -> P4 (Regular)
+      // 2. Ruptura real (saldo <= 0) no topo absoluto de cada grupo
+      // 3. Ordem de Curva A -> B -> C
+      // 4. Maior giro / retorno para a loja
+      const pesoPrioridade = { P1: 1, P2: 2, P3: 3, P4: 4 };
       items.sort((a, b) => {
+        const pa = pesoPrioridade[a.prioridade] || 4;
+        const pb = pesoPrioridade[b.prioridade] || 4;
+        if (pa !== pb) return pa - pb;
         if (a.saldo <= 0 && b.saldo > 0) return -1;
         if (b.saldo <= 0 && a.saldo > 0) return 1;
         const ordemCurva = { A: 1, B: 2, C: 3 };
@@ -1207,7 +1232,7 @@ function belapedEndpoints(db) {
   /**
    * Função interna para execução de cotações ao vivo (acionada via API ou Agendador Automático)
    */
-  const executarCotacaoAoVivoInternal = async (fornecedor = 'TODOS', limite = 40, eans = null) => {
+  const executarCotacaoAoVivoInternal = async (fornecedor = 'TODOS', limite = 40, eans = null, prioridadeFiltro = null) => {
     if (cotacaoStatus.emAndamento) {
       console.log('[BelaPed Cotação] Ignorando novo disparo: cotação já em andamento.');
       return false;
@@ -1216,7 +1241,7 @@ function belapedEndpoints(db) {
     // Mapa de descrições por EAN do cache de estoque
     const mapaDescricoes = {};
     const todosCache = db.prepare(`
-      SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, status_ruptura, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario
+      SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, status_ruptura, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario, vendas_30d, est_minimo_calculado
       FROM compras_estoque_cache
       WHERE ean IS NOT NULL AND length(ean) >= 7
     `).all();
@@ -1224,60 +1249,112 @@ function belapedEndpoints(db) {
       if (c.ean) mapaDescricoes[String(c.ean).trim()] = c.descricao || '';
     }
 
-    // EANs que já possuem preço válido cotado
-    const eansComPreco = new Set(
-      db.prepare(`SELECT DISTINCT ean FROM belaped_cotacoes_reais WHERE disponivel = 1 AND preco > 0`).all().map(r => r.ean)
+    // EANs que já possuem preço válido cotado nas últimas 24 horas (Validade Diária Dinâmica)
+    const eansComPrecoHoje = new Set(
+      db.prepare(`
+        SELECT DISTINCT ean FROM belaped_cotacoes_reais 
+        WHERE disponivel = 1 AND preco > 0 
+          AND updated_at >= datetime('now', '-24 hours')
+      `).all().map(r => r.ean)
     );
 
     let listaEans = [];
     const limiteEfetivo = Math.max(1, Number(limite) || 40);
+
+    // Classificação por Prioridade Operacional (P1, P2, P3, P4)
+    const p1List = [];
+    const p2List = [];
+    const p3List = [];
+    const p4List = [];
+
+    const mapaPrioridadeEan = {};
+    for (const p of todosCache) {
+      const ean = String(p.ean).trim();
+      const saldo = Number(p.saldo) || 0;
+      const vmd = Number(p.vmd_ponderado) || 0;
+      const curva = p.curva_abc || 'C';
+      const isCurvaAlta = curva === 'A' || curva === 'B';
+      const diasCob = vmd > 0 ? (saldo / vmd) : 999;
+      const vendas30 = Number(p.vendas_30d) || 0;
+      const estMin = Number(p.est_minimo_calculado) || 0;
+
+      let prio = 'P4';
+      if (saldo <= 0 && isCurvaAlta) {
+        prio = 'P1';
+      } else if (saldo <= 0 && !isCurvaAlta) {
+        prio = vendas30 > 0 ? 'P2' : 'P4';
+      } else if (isCurvaAlta && (diasCob <= 3 || saldo <= Math.max(1, vmd * 3))) {
+        prio = 'P2';
+      } else if (saldo < estMin && (isCurvaAlta || vendas30 > 0)) {
+        prio = 'P3';
+      } else {
+        prio = 'P4';
+      }
+      mapaPrioridadeEan[ean] = prio;
+
+      // Só entra na fila pendente se estiver em falta/ruptura E NÃO tiver sido cotado nas últimas 24h
+      if ((saldo <= 0 || saldo < estMin) && !eansComPrecoHoje.has(ean)) {
+        if (prio === 'P1') p1List.push(ean);
+        else if (prio === 'P2') p2List.push(ean);
+        else if (prio === 'P3') p3List.push(ean);
+        else p4List.push(ean);
+      }
+    }
+
     if (Array.isArray(eans) && eans.length > 0) {
       const filtrados = eans.map(e => String(e || '').trim()).filter(e => e.length >= 7);
-      // Prioriza os que ainda não têm preço cotado, mantendo a ordem da página
-      const semPreco = filtrados.filter(e => !eansComPreco.has(e));
-      const comPreco = filtrados.filter(e => eansComPreco.has(e));
-      listaEans = [...semPreco, ...comPreco].slice(0, limiteEfetivo);
+      // Prioriza os que ainda não têm preço cotado hoje, mantendo a ordem estrita da página
+      const semPrecoHoje = filtrados.filter(e => !eansComPrecoHoje.has(e));
+      const comPrecoHoje = filtrados.filter(e => eansComPrecoHoje.has(e));
+
+      // Ordena os sem preço pela Matriz de Gravidade Operacional
+      const pesoPrio = { P1: 1, P2: 2, P3: 3, P4: 4 };
+      semPrecoHoje.sort((a, b) => (pesoPrio[mapaPrioridadeEan[a] || 'P4'] - pesoPrio[mapaPrioridadeEan[b] || 'P4']));
+
+      listaEans = [...semPrecoHoje, ...comPrecoHoje].slice(0, limiteEfetivo);
     } else {
-      const produtosFalta = db.prepare(`
-        SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario
-        FROM compras_estoque_cache
-        WHERE ean IS NOT NULL AND length(ean) >= 7
-          AND (saldo <= 0 OR saldo < est_minimo_calculado)
-          AND (curva_abc IN ('A', 'B') OR saldo <= 0)
-      `).all();
-
-      // Ordena exatamente igual à tela principal do BelaPed (Ruptura -> Curva A -> Giro * Margem)
-      produtosFalta.sort((a, b) => {
-        if (a.saldo <= 0 && b.saldo > 0) return -1;
-        if (b.saldo <= 0 && a.saldo > 0) return 1;
-        if (a.curva_abc === 'A' && b.curva_abc !== 'A') return -1;
-        if (b.curva_abc === 'A' && a.curva_abc !== 'A') return 1;
-        const custoA = Number(a.preco_unitario_ult_compra) || Number(a.custo_unitario) || 0;
-        const vendaA = Number(a.preco_venda_vigente) || 0;
-        const margemA = vendaA > custoA && vendaA > 0 ? ((vendaA - custoA) / vendaA) * 100 : 0;
-        const custoB = Number(b.preco_unitario_ult_compra) || Number(b.custo_unitario) || 0;
-        const vendaB = Number(b.preco_venda_vigente) || 0;
-        const margemB = vendaB > custoB && vendaB > 0 ? ((vendaB - custoB) / vendaB) * 100 : 0;
-        return (margemB * (Number(b.vmd_ponderado) || 0)) - (margemA * (Number(a.vmd_ponderado) || 0));
-      });
-
-      const todosEansOrdenados = produtosFalta.map(p => String(p.ean).trim());
-      const semPreco = todosEansOrdenados.filter(e => !eansComPreco.has(e));
-      const comPreco = todosEansOrdenados.filter(e => eansComPreco.has(e));
-      listaEans = [...semPreco, ...comPreco].slice(0, limiteEfetivo);
+      // Corte Inteligente: Se houver produtos em P1, P2 ou P3, não gasta esforço do robô com P4!
+      let filaPrioritaria = [];
+      if (prioridadeFiltro === 'P1') {
+        filaPrioritaria = p1List;
+      } else if (prioridadeFiltro === 'P2') {
+        filaPrioritaria = p2List;
+      } else if (prioridadeFiltro === 'P3') {
+        filaPrioritaria = p3List;
+      } else {
+        filaPrioritaria = [...p1List, ...p2List, ...p3List];
+        if (filaPrioritaria.length === 0) {
+          filaPrioritaria = p4List; // P4 só é cotado quando a prioridade crítica estiver 100% zerada!
+        }
+      }
+      listaEans = filaPrioritaria.slice(0, limiteEfetivo);
     }
 
     if (listaEans.length === 0) {
-      console.log('[BelaPed Cotação] Nenhum EAN em falta/ruptura para cotar no momento.');
+      console.log('[BelaPed Cotação] Todos os produtos prioritários já possuem cotação válida das últimas 24h.');
       return false;
     }
+
+    // Identifica qual o foco de prioridade do lote atual
+    let rotuloFoco = '🚨 P1: Ruptura Crítica';
+    if (p1List.length === 0 && p2List.length > 0) rotuloFoco = '⚠️ P2: Risco Iminente';
+    else if (p1List.length === 0 && p2List.length === 0 && p3List.length > 0) rotuloFoco = '💼 P3: Orçamento Semanal';
+    else if (p1List.length === 0 && p2List.length === 0 && p3List.length === 0) rotuloFoco = '📦 P4: Regular';
 
     const numWorkers = fornecedor === 'TODOS' ? 4 : 1;
     let passosConcluidos = 0;
 
-    // Inicializa status
+    // Inicializa status com telemetria de prioridade
     cotacaoStatus.emAndamento = true;
     cotacaoStatus.fornecedor = fornecedor;
+    cotacaoStatus.prioridadeAtiva = rotuloFoco;
+    cotacaoStatus.metricasPrioridades = {
+      p1: p1List.length,
+      p2: p2List.length,
+      p3: p3List.length,
+      p4: p4List.length,
+      totalPendentes: p1List.length + p2List.length + p3List.length + p4List.length
+    };
     cotacaoStatus.total = listaEans.length;
     cotacaoStatus.atual = 0;
     cotacaoStatus.encontrados = 0;
@@ -1494,13 +1571,13 @@ function belapedEndpoints(db) {
         });
       }
 
-      const { fornecedor = 'TODOS', limite = 40, eans } = req.body;
-      const iniciado = await executarCotacaoAoVivoInternal(fornecedor, limite, eans);
+      const { fornecedor = 'TODOS', limite = 40, eans, prioridade } = req.body;
+      const iniciado = await executarCotacaoAoVivoInternal(fornecedor, limite, eans, prioridade);
 
       if (!iniciado) {
         return res.status(400).json({
           success: false,
-          error: 'Nenhum EAN válido para cotar ou cotação já em andamento.'
+          error: 'Nenhum EAN prioritário pendente para cotar ou cotação já em andamento.'
         });
       }
 
@@ -1519,32 +1596,84 @@ function belapedEndpoints(db) {
 
   /**
    * GET /api/belaped/status-cotacao
-   * Retorna o progresso em tempo real da cotação ao vivo + métricas da fila de itens sem cotação
+   * Retorna o progresso em tempo real da cotação ao vivo + métricas segmentadas da fila (P1, P2, P3, P4)
    */
   router.get('/status-cotacao', (req, res) => {
-    let filaMetricas = { totalFaltasComEan: 0, jaCotados: 0, aguardandoRobo: 0 };
+    let filaMetricas = {
+      totalFaltasComEan: 0,
+      jaCotados: 0,
+      aguardandoRobo: 0,
+      p1Aguardando: 0,
+      p2Aguardando: 0,
+      p3Aguardando: 0,
+      p4Aguardando: 0,
+      prioridadeSugerida: 'P1'
+    };
     try {
-      const totalFaltasRow = db.prepare(`
-        SELECT COUNT(DISTINCT ean) as total
+      // EANs com cotação válida nas últimas 24 horas (Validade Diária Dinâmica)
+      const eansCotadosHojeSet = new Set(
+        db.prepare(`
+          SELECT DISTINCT ean FROM belaped_cotacoes_reais
+          WHERE disponivel = 1 AND preco > 0
+            AND updated_at >= datetime('now', '-24 hours')
+        `).all().map(r => r.ean)
+      );
+
+      const todasFaltas = db.prepare(`
+        SELECT ean, saldo, vmd_ponderado, curva_abc, vendas_30d, est_minimo_calculado
         FROM compras_estoque_cache
         WHERE ean IS NOT NULL AND length(ean) >= 7
           AND (saldo <= 0 OR saldo < est_minimo_calculado)
-          AND (curva_abc IN ('A', 'B') OR saldo <= 0)
-      `).get();
-      const cotadosRow = db.prepare(`
-        SELECT COUNT(DISTINCT c.ean) as cotados
-        FROM compras_estoque_cache c
-        JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean
-        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
-          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
-          AND (c.curva_abc IN ('A', 'B') OR c.saldo <= 0)
-      `).get();
-      const total = totalFaltasRow?.total || 0;
-      const cotados = cotadosRow?.cotados || 0;
+      `).all();
+
+      let p1 = 0;
+      let p2 = 0;
+      let p3 = 0;
+      let p4 = 0;
+      let total = todasFaltas.length;
+      let cotados = 0;
+
+      for (const p of todasFaltas) {
+        const ean = String(p.ean).trim();
+        const jaCotado = eansCotadosHojeSet.has(ean);
+        if (jaCotado) {
+          cotados++;
+          continue; // Já cotado nas últimas 24h, não está aguardando na fila ativa
+        }
+
+        const saldo = Number(p.saldo) || 0;
+        const vmd = Number(p.vmd_ponderado) || 0;
+        const curva = p.curva_abc || 'C';
+        const isCurvaAlta = curva === 'A' || curva === 'B';
+        const diasCob = vmd > 0 ? (saldo / vmd) : 999;
+        const vendas30 = Number(p.vendas_30d) || 0;
+        const estMin = Number(p.est_minimo_calculado) || 0;
+
+        if (saldo <= 0 && isCurvaAlta) {
+          p1++;
+        } else if (saldo <= 0 && !isCurvaAlta) {
+          if (vendas30 > 0) p2++;
+          else p4++;
+        } else if (isCurvaAlta && (diasCob <= 3 || saldo <= Math.max(1, vmd * 3))) {
+          p2++;
+        } else if (saldo < estMin && (isCurvaAlta || vendas30 > 0)) {
+          p3++;
+        } else {
+          p4++;
+        }
+      }
+
+      const prioridadeSugerida = p1 > 0 ? 'P1' : (p2 > 0 ? 'P2' : (p3 > 0 ? 'P3' : 'P4'));
+
       filaMetricas = {
         totalFaltasComEan: total,
         jaCotados: cotados,
-        aguardandoRobo: Math.max(0, total - cotados)
+        aguardandoRobo: Math.max(0, total - cotados),
+        p1Aguardando: p1,
+        p2Aguardando: p2,
+        p3Aguardando: p3,
+        p4Aguardando: p4,
+        prioridadeSugerida
       };
     } catch (e) {}
 
@@ -1552,6 +1681,9 @@ function belapedEndpoints(db) {
       success: true,
       status: {
         ...cotacaoStatus,
+        prioridadeAtiva: cotacaoStatus.emAndamento
+          ? (cotacaoStatus.prioridadeAtiva || '🚨 P1: Ruptura Crítica')
+          : (filaMetricas.p1Aguardando > 0 ? '🚨 P1: Ruptura Crítica' : (filaMetricas.p2Aguardando > 0 ? '⚠️ P2: Risco Iminente' : (filaMetricas.p3Aguardando > 0 ? '💼 P3: Orçamento Semanal' : '📦 P4: Regular'))),
         fila: filaMetricas
       }
     });

@@ -92,6 +92,8 @@ interface FaltaItem7d {
   melhor_dia_semana_index?: number;
   status_dia?: 'MELHOR_DIA' | 'EMERGENCIAL_RUPTURA' | 'RETIDO_OUTRO_DIA';
   qtd_emergencial?: number;
+  prioridade?: 'P1' | 'P2' | 'P3' | 'P4';
+  prioridade_rotulo?: string;
 }
 
 interface PortalDistribuidora {
@@ -165,6 +167,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
   const [itensAvulsos, setItensAvulsos] = useState<any[]>([]);
   const [filtroCurva, setFiltroCurva] = useState<'TODAS' | 'A' | 'B' | 'C' | 'ESQUECIDOS_6M'>('TODAS');
+  const [filtroPrioridade, setFiltroPrioridade] = useState<'TODAS' | 'P1' | 'P2' | 'P3' | 'P4'>('TODAS');
   const [filtroCategoria, setFiltroCategoria] = useState<'TODAS' | 'MEDICAMENTO' | 'PERFUMARIA'>('TODAS');
   const [filtroDistribuidora, setFiltroDistribuidora] = useState<string>('TODAS');
   const [agruparPorDistribuidora, setAgruparPorDistribuidora] = useState<boolean>(false);
@@ -513,6 +516,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       } else if (filtroCurva !== 'TODAS' && f.curva_abc !== filtroCurva) {
         return false;
       }
+      if (filtroPrioridade !== 'TODAS' && f.prioridade !== filtroPrioridade) {
+        return false;
+      }
       if (filtroCategoria !== 'TODAS' && f.tipo_categoria !== filtroCategoria) return false;
       if (buscaFalta) {
         const termo = buscaFalta.toLowerCase();
@@ -522,7 +528,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
       return true;
     });
-  }, [faltas, modoListaManual, filtroModoReposicao, filtroCurva, filtroCategoria, buscaFalta]);
+  }, [faltas, modoListaManual, filtroModoReposicao, filtroCurva, filtroPrioridade, filtroCategoria, buscaFalta]);
 
   // Calcula os totais consolidados por empresa/distribuidora (1º Colocado)
   const totaisPorDistribuidora = useMemo(() => {
@@ -654,7 +660,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Reseta para a primeira página ao alterar filtros ou busca
   useEffect(() => {
     setPaginaAtual(1);
-  }, [filtroCurva, filtroCategoria, filtroDistribuidora, buscaFalta, itensPorPagina]);
+  }, [filtroCurva, filtroPrioridade, filtroCategoria, filtroDistribuidora, buscaFalta, itensPorPagina]);
 
   const totalPaginas = Math.max(1, Math.ceil(faltasFiltradas.length / itensPorPagina));
 
@@ -878,31 +884,45 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Todas)
   const handleIniciarCotacaoAoVivo = async (
     fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS' = 'TODOS',
-    tamanhoLote: number = 40
+    tamanhoLote: number = 40,
+    prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS'
   ) => {
     try {
       setCotandoAoVivo(true);
 
       const limiteReal = Math.max(10, Math.min(200, tamanhoLote || 40));
 
-      // Prioriza os itens "Aguardando Robô" (Não Cotado) da página atual e depois do restante da lista
-      const naoCotadosPagina = itensPaginados
+      // Ordenação estrita por Matriz de Gravidade Operacional (P1 Ruptura -> P2 Risco -> P3 Orçamento -> P4 Regular)
+      const pesoPrio: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
+      const itensOrdenadosPorPrio = [...faltasFiltradas]
+        .filter(s => s.ean && s.ean.length >= 7)
+        .filter(s => {
+          if (prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS') {
+            return s.prioridade === prioridadeFiltro;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          const pa = pesoPrio[a.prioridade || 'P4'] || 4;
+          const pb = pesoPrio[b.prioridade || 'P4'] || 4;
+          if (pa !== pb) return pa - pb;
+          const aNaoCotado = (!a.fornecedor_1 || a.fornecedor_1 === 'Não Cotado') ? 0 : 1;
+          const bNaoCotado = (!b.fornecedor_1 || b.fornecedor_1 === 'Não Cotado') ? 0 : 1;
+          return aNaoCotado - bNaoCotado;
+        });
+
+      // Prioriza os itens pendentes de cotação dentro da ordem de gravidade
+      const naoCotados = itensOrdenadosPorPrio
         .filter(s => !s.fornecedor_1 || s.fornecedor_1 === 'Não Cotado')
+        .map(s => s.ean);
+
+      const demaisEans = itensOrdenadosPorPrio
         .map(s => s.ean)
-        .filter(e => e && e.length >= 7);
+        .filter(e => !naoCotados.includes(e));
 
-      const todosNaoCotados = faltasFiltradas
-        .filter(s => (!s.fornecedor_1 || s.fornecedor_1 === 'Não Cotado') && s.ean && s.ean.length >= 7)
-        .map(s => s.ean)
-        .filter(e => !naoCotadosPagina.includes(e));
+      const eansParaCotar = [...naoCotados, ...demaisEans].slice(0, limiteReal);
 
-      const selecionadosRestantes = faltasFiltradas
-        .filter(f => itensSelecionados[f.produto_id] && f.ean && f.ean.length >= 7)
-        .map(s => s.ean)
-        .filter(e => !naoCotadosPagina.includes(e) && !todosNaoCotados.includes(e));
-
-      const eansParaCotar = [...naoCotadosPagina, ...todosNaoCotados, ...selecionadosRestantes].slice(0, limiteReal);
-
+      const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? `[${prioridadeFiltro}] ` : '';
       const nomeExibicao = fornecedor === 'TODOS' ? '4 Portais (Profarma, DPC, Soton e Distrimed)' : fornecedor;
 
       // Resposta visual IMEDIATA (0ms): Mostra o banner e status instantaneamente
@@ -912,10 +932,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         total: eansParaCotar.length || limiteReal,
         atual: 0,
         encontrados: 0,
-        ultimoItem: 'Conectando aos navegadores e portais...'
+        ultimoItem: `Conectando aos portais para cotar ${rotuloPrioridade}produtos prioritários...`
       });
 
-      addToast(`Robô de cotação iniciado para ${nomeExibicao} (${eansParaCotar.length || limiteReal} itens)!`, 'info');
+      addToast(`Robô de cotação iniciado para ${nomeExibicao} (${rotuloPrioridade}${eansParaCotar.length || limiteReal} itens)!`, 'info');
 
       const res = await fetch('/api/belaped/cotar-ao-vivo', {
         method: 'POST',
@@ -923,7 +943,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         body: JSON.stringify({
           fornecedor,
           limite: limiteReal,
-          eans: eansParaCotar.length > 0 ? eansParaCotar : undefined
+          eans: eansParaCotar.length > 0 ? eansParaCotar : undefined,
+          prioridade: prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? prioridadeFiltro : undefined
         })
       });
 
@@ -2001,6 +2022,48 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     Perfumaria
                   </button>
                 </div>
+
+                {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
+                <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                  <button
+                    onClick={() => setFiltroPrioridade('TODAS')}
+                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Todas Prio
+                  </button>
+                  <button
+                    onClick={() => setFiltroPrioridade('P1')}
+                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
+                    title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
+                  >
+                    <span>🚨 P1</span>
+                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
+                  </button>
+                  <button
+                    onClick={() => setFiltroPrioridade('P2')}
+                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
+                    title="⚠️ P2: Risco Iminente (&lt; 3 dias de giro + Curva A/B)"
+                  >
+                    <span>⚠️ P2</span>
+                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
+                  </button>
+                  <button
+                    onClick={() => setFiltroPrioridade('P3')}
+                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
+                    title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
+                  >
+                    <span>💼 P3</span>
+                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
+                  </button>
+                  <button
+                    onClick={() => setFiltroPrioridade('P4')}
+                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
+                    title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
+                  >
+                    <span>📦 P4</span>
+                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
+                  </button>
+                </div>
               </div>
 
               {/* Ações: Planilhas de Pedido, Robôs de Cotação ao Vivo e Otimização */}
@@ -2398,6 +2461,25 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     <td className="py-2.5 px-3.5">
                                       <div className="flex flex-col">
                                         <div className="flex flex-wrap items-center gap-1.5">
+                                          {item.prioridade && (
+                                            <span
+                                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider whitespace-nowrap border ${
+                                                item.prioridade === 'P1'
+                                                  ? 'bg-rose-950 text-rose-300 border-rose-600 shadow-sm shadow-rose-950/60 animate-pulse'
+                                                  : item.prioridade === 'P2'
+                                                  ? 'bg-amber-950 text-amber-300 border-amber-600'
+                                                  : item.prioridade === 'P3'
+                                                  ? 'bg-blue-950 text-blue-300 border-blue-600'
+                                                  : 'bg-slate-900 text-slate-400 border-slate-700'
+                                              }`}
+                                              title={`${item.prioridade}: ${item.prioridade_rotulo || 'Prioridade de Cotação'}`}
+                                            >
+                                              {item.prioridade === 'P1' && '🚨 P1 Crítico'}
+                                              {item.prioridade === 'P2' && '⚠️ P2 Risco'}
+                                              {item.prioridade === 'P3' && '💼 P3 Orçam.'}
+                                              {item.prioridade === 'P4' && '📦 P4'}
+                                            </span>
+                                          )}
                                           <span className="text-sm font-bold text-white leading-snug">
                                             {item.descricao}
                                           </span>
@@ -3498,7 +3580,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             aguardandoRoboValor={aguardandoValor}
             cotandoAoVivo={cotandoAoVivo}
             statusCotacao={statusCotacao}
-            onDispararRobo={(fornecedor = 'TODOS', lote = 40) => handleIniciarCotacaoAoVivo(fornecedor, lote)}
+            onDispararRobo={(fornecedor = 'TODOS', lote = 40, prio = 'TODAS_PRIORITARIAS') => handleIniciarCotacaoAoVivo(fornecedor, lote, prio)}
             onDadosAtualizados={() => carregarDados()}
           />
         );

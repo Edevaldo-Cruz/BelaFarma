@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "31072bf",
-  "commitMessage": "feat(belaped): calculo do limite semanal de gastos do orcamento para todos os meses e transicao automatica para lista de compras regulares",
-  "buildTime": "13/10/2026, 09:24:44"
+  "commitHash": "42cf788",
+  "commitMessage": "feat(belaped): otimiza desempenho do robo com modo turbo e auto-fila continua",
+  "buildTime": "13/10/2026, 10:00:36"
 }

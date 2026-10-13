@@ -13,7 +13,10 @@ import {
   Gauge,
   FastForward,
   Pause,
-  Layers
+  Layers,
+  Flame,
+  ShieldAlert,
+  Briefcase
 } from 'lucide-react';
 
 interface WorkerStatus {
@@ -40,7 +43,11 @@ interface RobotLiveMonitorProps {
   aguardandoRoboValor: number;
   cotandoAoVivo: boolean;
   statusCotacao: any;
-  onDispararRobo: (fornecedor?: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS', tamanhoLote?: number) => void;
+  onDispararRobo: (
+    fornecedor?: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS',
+    tamanhoLote?: number,
+    prioridade?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS'
+  ) => void;
   onDadosAtualizados?: () => void;
 }
 
@@ -74,6 +81,9 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
       return 80;
     }
   });
+
+  // Filtro de prioridade da cotação ('TODAS_PRIORITARIAS', 'P1', 'P2', 'P3')
+  const [filtroPrioridade, setFiltroPrioridade] = useState<'TODAS_PRIORITARIAS' | 'P1' | 'P2' | 'P3'>('TODAS_PRIORITARIAS');
 
   // Contador regressivo para o próximo lote
   const [countdownProximoLote, setCountdownProximoLote] = useState<number | null>(null);
@@ -156,12 +166,12 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     if (countdownProximoLote === 0 && !disparandoRef.current) {
       disparandoRef.current = true;
       setCountdownProximoLote(null);
-      onDispararRobo('TODOS', tamanhoLote);
+      onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
       setTimeout(() => {
         disparandoRef.current = false;
       }, 5000);
     }
-  }, [countdownProximoLote, onDispararRobo, tamanhoLote]);
+  }, [countdownProximoLote, onDispararRobo, tamanhoLote, filtroPrioridade]);
 
   const emAndamento = Boolean(liveStatus?.emAndamento || cotandoAoVivo);
   const totalLote = Number(liveStatus?.total) || 0;
@@ -169,7 +179,21 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const encontradosLote = Number(liveStatus?.encontrados) || 0;
   const pct = totalLote > 0 ? Math.min(100, Math.round((atualLote / totalLote) * 100)) : 0;
 
-  const lotesEstimadosRestantes = Math.ceil(aguardandoRoboCount / Math.max(1, tamanhoLote));
+  const fila = liveStatus?.fila || {};
+  const p1Aguardando = Number(fila.p1Aguardando || 0);
+  const p2Aguardando = Number(fila.p2Aguardando || 0);
+  const p3Aguardando = Number(fila.p3Aguardando || 0);
+  const p4Aguardando = Number(fila.p4Aguardando || 0);
+  const totalUrgentes = p1Aguardando + p2Aguardando + p3Aguardando;
+
+  const prioridadeAtiva = liveStatus?.prioridadeAtiva || (
+    p1Aguardando > 0 ? '🚨 P1: Ruptura Crítica' :
+    p2Aguardando > 0 ? '⚠️ P2: Risco Iminente' :
+    p3Aguardando > 0 ? '💼 P3: Orçamento Semanal' :
+    '📦 P4: Regular'
+  );
+
+  const lotesEstimadosRestantes = Math.ceil((totalUrgentes > 0 ? totalUrgentes : aguardandoRoboCount) / Math.max(1, tamanhoLote));
 
   const workers: Record<string, WorkerStatus> = liveStatus?.workers || {
     'PROFARMA': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
@@ -183,7 +207,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     : [];
 
   return (
-    <div className="fixed bottom-4 right-4 z-[80] w-[370px] sm:w-[425px] rounded-2xl bg-[#09101e]/95 backdrop-blur-md border-2 border-cyan-500/50 shadow-2xl shadow-cyan-950/80 text-slate-100 overflow-hidden transition-all duration-300">
+    <div className="fixed bottom-4 right-4 z-[80] w-[375px] sm:w-[435px] rounded-2xl bg-[#09101e]/95 backdrop-blur-md border-2 border-cyan-500/50 shadow-2xl shadow-cyan-950/80 text-slate-100 overflow-hidden transition-all duration-300">
       {/* Barra de Título do Mini-Monitor */}
       <div
         onClick={() => setMinimizado(!minimizado)}
@@ -232,7 +256,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                 : countdownProximoLote !== null
                   ? `Lote concluído! Disparando próximo lote (${tamanhoLote} itens)...`
                   : aguardandoRoboCount > 0
-                    ? `Fila: ${aguardandoRoboCount} itens (R$ ${aguardandoRoboValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`
+                    ? `Fila: ${aguardandoRoboCount} itens (Foco: ${prioridadeAtiva})`
                     : 'Todos os produtos em falta já foram cotados'}
             </p>
           </div>
@@ -250,14 +274,71 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
       {/* Corpo Expandido da Tela do Robô */}
       {!minimizado && (
         <div className="p-3.5 space-y-3 text-xs">
+          {/* Matriz de Gravidade Operacional da Fila (Corte Inteligente) */}
+          <div className="p-2.5 rounded-xl bg-[#060b14] border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-rose-500" />
+                Matriz de Gravidade (Corte Inteligente)
+              </span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
+                Foco: {prioridadeAtiva.split(':')[0]}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5 text-center">
+              {/* P1 */}
+              <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-between ${
+                p1Aguardando > 0
+                  ? 'bg-rose-950/40 border-rose-500/60 text-rose-200'
+                  : 'bg-slate-900/40 border-slate-800 text-slate-500'
+              }`}>
+                <div className="text-[9px] font-black uppercase">P1 Crítico</div>
+                <div className="text-xs font-black my-0.5">{p1Aguardando}</div>
+                <div className="text-[8px] opacity-80 leading-tight">Estoque 0</div>
+              </div>
+
+              {/* P2 */}
+              <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-between ${
+                p2Aguardando > 0
+                  ? 'bg-amber-950/40 border-amber-500/60 text-amber-200'
+                  : 'bg-slate-900/40 border-slate-800 text-slate-500'
+              }`}>
+                <div className="text-[9px] font-black uppercase">P2 Risco</div>
+                <div className="text-xs font-black my-0.5">{p2Aguardando}</div>
+                <div className="text-[8px] opacity-80 leading-tight">&lt; 3 dias</div>
+              </div>
+
+              {/* P3 */}
+              <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-between ${
+                p3Aguardando > 0
+                  ? 'bg-blue-950/40 border-blue-500/60 text-blue-200'
+                  : 'bg-slate-900/40 border-slate-800 text-slate-500'
+              }`}>
+                <div className="text-[9px] font-black uppercase">P3 Orçam.</div>
+                <div className="text-xs font-black my-0.5">{p3Aguardando}</div>
+                <div className="text-[8px] opacity-80 leading-tight">Semanal</div>
+              </div>
+
+              {/* P4 */}
+              <div className="p-1.5 rounded-lg border bg-slate-950/60 border-slate-800/80 text-slate-500 flex flex-col items-center justify-between" title="P4 é cortado automaticamente até que P1, P2 e P3 estejam cotados">
+                <div className="text-[9px] font-black uppercase">P4 Regular</div>
+                <div className="text-xs font-black my-0.5">{p4Aguardando}</div>
+                <div className="text-[8px] text-slate-500 leading-tight">
+                  {totalUrgentes > 0 ? 'Pausado' : 'Fila Ativa'}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Seletor de Desempenho e Velocidade (Tamanho do Lote) */}
           <div className="p-2.5 rounded-xl bg-[#060b14] border border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase text-cyan-400 flex items-center gap-1">
-                <Gauge className="w-3.5 h-3.5" />
-                Desempenho & Tamanho do Lote
+              <span className="text-[10px] font-bold uppercase text-slate-300 flex items-center gap-1">
+                <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                Desempenho por Ciclo
               </span>
-              <span className="text-[10px] font-mono text-slate-400">
+              <span className="text-[10px] font-mono text-cyan-400">
                 {aguardandoRoboCount > 0 ? `~${lotesEstimadosRestantes} ciclo(s) restantes` : 'Fila zerada'}
               </span>
             </div>
@@ -289,7 +370,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
           <div className="p-2.5 rounded-xl bg-[#060b14] border border-slate-800 flex items-center justify-between gap-2">
             <div>
               <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                Status da Fila
+                Total da Fila
               </span>
               <div className="flex items-baseline gap-1.5 mt-0.5">
                 <span className="text-sm font-black text-white">
@@ -311,7 +392,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                     ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-900/30 font-black'
                     : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500'
                 }`}
-                title="Quando ativado, o robô emenda automaticamente um lote após o outro sem parar até zerar toda a fila!"
+                title="Quando ativado, o robô emenda automaticamente um lote após o outro sem parar até zerar toda a fila prioritária!"
               >
                 <Zap className={`w-3.5 h-3.5 ${modoContinuo ? 'fill-current' : ''}`} />
                 <span>{modoContinuo ? 'Auto-Fila ON' : 'Auto-Fila OFF'}</span>
@@ -323,7 +404,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                 disabled={emAndamento}
                 onClick={() => {
                   setCountdownProximoLote(null);
-                  onDispararRobo('TODOS', tamanhoLote);
+                  onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
                 }}
                 className={`px-3 py-2 rounded-xl text-white text-[10px] font-black uppercase shadow-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                   emAndamento
@@ -346,7 +427,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                 ) : (
                   <>
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Cotar Lote ({tamanhoLote})</span>
+                    <span>Cotar Prioritários</span>
                   </>
                 )}
               </button>
@@ -359,7 +440,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
               <div className="flex items-center gap-2">
                 <FastForward className="w-4 h-4 text-amber-400 animate-pulse" />
                 <span>
-                  Lote concluído! Iniciando próximo ciclo em <b>{countdownProximoLote}s</b>...
+                  Lote concluído! Disparando próximo ciclo em <b>{countdownProximoLote}s</b>...
                 </span>
               </div>
               <button
@@ -377,7 +458,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[10px] font-bold">
                 <span className="text-slate-300">
-                  Lote atual: <b className="text-white">{atualLote}/{totalLote}</b> EANs
+                  Lote atual ({prioridadeAtiva}): <b className="text-white">{atualLote}/{totalLote}</b> EANs
                 </span>
                 <span className="text-emerald-400 font-black">
                   {encontradosLote} preços encontrados ({pct}%)
@@ -458,7 +539,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                 <div className="h-full flex items-center justify-center text-slate-500 text-center px-2">
                   {emAndamento
                     ? 'Iniciando instâncias Headless Chrome e autenticando nos portais...'
-                    : 'Auto-Fila ativada: o robô executa os lotes em sequência contínua até zerar a lista de produtos.'}
+                    : 'Fila Inteligente: P1 (Ruptura) e P2 (Risco) são cotados com prioridade máxima para a farmácia.'}
                 </div>
               ) : (
                 logsRecentes.map((log, index) => (
