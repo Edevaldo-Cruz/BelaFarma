@@ -535,6 +535,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     if (f1.includes('DPC')) {
       return `https://cliente.dpcnet.com.br/`;
     }
+    if (f1.includes('MARTINS')) {
+      return `https://www.martinsatacado.com.br/busca?q=${termo}`;
+    }
     return null;
   };
 
@@ -557,7 +560,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       // Determinação do Melhor Dia de Compra (seja por distribuidora líder ou distribuição suave semanal)
       const f1Upper = (item.fornecedor_1 || '').toUpperCase();
       let melhorDiaIdx = 2; // Terça-feira (padrão líder de mercado B2B farmacêutico)
-      if (f1Upper.includes('PROFARMA') || f1Upper.includes('DPC')) {
+      if (f1Upper.includes('PROFARMA') || f1Upper.includes('DPC') || f1Upper.includes('MARTINS')) {
         melhorDiaIdx = 2; // Terça
       } else if (f1Upper.includes('SOTON')) {
         melhorDiaIdx = 3; // Quarta
@@ -923,7 +926,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'PROFARMA': 400,
       'SOTON FARMA': 300,
       'DPC DISTRIBUIDORA': 300,
-      'DIVIMED': 400
+      'DIVIMED': 400,
+      'MARTINS ATACADO': 200,
+      'MARTINS': 200
     };
     portais.forEach(p => {
       if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
