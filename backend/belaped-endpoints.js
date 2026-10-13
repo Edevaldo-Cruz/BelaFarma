@@ -175,6 +175,13 @@ function belapedEndpoints(db) {
 
     // Remove qualquer distribuidora não configurada (garante apenas as 4 reais)
     db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed')`).run();
+
+    // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN url_produto TEXT`).run();
+    } catch (migErr) {
+      // Coluna já existe
+    }
   };
 
   try {
@@ -527,6 +534,7 @@ function belapedEndpoints(db) {
         const jaConsultado = r.ean ? eansConsultadosSet.has(r.ean) : false;
         let fornecedor1 = '';
         let preco1 = 0;
+        let urlProduto1 = null;
         let fornecedor2 = '';
         let preco2 = 0;
         let diferencaPct = 0;
@@ -534,6 +542,7 @@ function belapedEndpoints(db) {
         if (cotacoesReais && cotacoesReais.length > 0) {
           fornecedor1 = cotacoesReais[0].fornecedor;
           preco1 = Number(cotacoesReais[0].preco.toFixed(2));
+          urlProduto1 = cotacoesReais[0].url_produto || null;
 
           if (cotacoesReais.length > 1) {
             fornecedor2 = cotacoesReais[1].fornecedor;
@@ -642,6 +651,7 @@ function belapedEndpoints(db) {
           // Cotação Integrada: 1º e 2º Colocados
           fornecedor_1: fornecedor1,
           preco_1: preco1,
+          url_produto_1: urlProduto1,
           fornecedor_2: fornecedor2,
           preco_2: preco2,
           diferenca_percentual: diferencaPct,
@@ -1411,13 +1421,14 @@ function belapedEndpoints(db) {
     // Executa os robôs em segundo plano (em paralelo quando fornecedor === 'TODOS')
     (async () => {
       const stmtSalvar = db.prepare(`
-        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(ean, fornecedor) DO UPDATE SET
           preco = excluded.preco,
           disponivel = excluded.disponivel,
           descricao = excluded.descricao,
           desc_pct = excluded.desc_pct,
+          url_produto = COALESCE(excluded.url_produto, belaped_cotacoes_reais.url_produto),
           updated_at = excluded.updated_at
       `);
 
@@ -1469,7 +1480,8 @@ function belapedEndpoints(db) {
                 resultado.preco,
                 1,
                 resultado.descricao || descAtual,
-                resultado.descPct || 0
+                resultado.descPct || 0,
+                resultado.url || resultado.urlProduto || resultado.link || null
               );
 
               // Grava na série histórica temporal para Inteligência de Mercado (Melhor Dia e Gráfico)
@@ -1518,7 +1530,8 @@ function belapedEndpoints(db) {
                 null,
                 0,
                 resultado.mensagem || 'Indisponível',
-                0
+                0,
+                null
               );
               cotacaoStatus.log.push({
                 hora: horaLog,

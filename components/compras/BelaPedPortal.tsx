@@ -89,6 +89,7 @@ interface FaltaItem7d {
   tipo_categoria: 'MEDICAMENTO' | 'PERFUMARIA';
   fornecedor_1?: string;
   preco_1?: number;
+  url_produto_1?: string | null;
   fornecedor_2?: string;
   preco_2?: number;
   diferenca_percentual?: number;
@@ -221,6 +222,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     isOpen: boolean;
     produto: FaltaItem7d | null;
   }>({ isOpen: false, produto: null });
+
+  // Link inteligente do produto pesquisado na distribuidora vencedora (1º Colocado)
+  const obterLinkDistribuidoraProduto = (item: FaltaItem7d): string | null => {
+    if (item.url_produto_1) return item.url_produto_1;
+    const f1 = (item.fornecedor_1 || '').toUpperCase();
+    if (!f1 || f1 === 'NÃO COTADO' || f1.includes('SEM ESTOQUE') || f1.includes('AGUARDANDO')) return null;
+
+    const termo = item.ean || encodeURIComponent(item.descricao);
+    if (f1.includes('SOTON')) {
+      return `https://sotonfarma.meuspedidos.com.br/produtos?q=${termo}`;
+    }
+    if (f1.includes('DISTRIMED')) {
+      return `https://inovacao.distrimed.com.br/produtos?pesquisa=${termo}`;
+    }
+    if (f1.includes('PROFARMA')) {
+      return `https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido`;
+    }
+    if (f1.includes('DPC')) {
+      return `https://cliente.dpcnet.com.br/`;
+    }
+    return null;
+  };
 
   // Nomes amigáveis dos dias da semana
   const DIAS_SEMANA_NOMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
@@ -1478,15 +1501,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     setModoTabelaExpandida(novo);
                     try { localStorage.setItem('belaped_tabela_expandida', String(novo)); } catch {}
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border shadow-lg ${
                     modoTabelaExpandida
-                      ? 'bg-cyan-600 text-white border-cyan-400 shadow-md shadow-cyan-900/40'
-                      : 'bg-[#080d18] text-slate-300 border-slate-700 hover:border-cyan-500'
+                      ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white border-amber-400 shadow-amber-950/60 ring-2 ring-amber-400/40'
+                      : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border-cyan-300 shadow-cyan-950/60 ring-2 ring-cyan-400/50'
                   }`}
-                  title={modoTabelaExpandida ? 'Restaurar painéis executivos do topo' : 'Maximizar espaço útil da tabela na tela (oculta cards do topo)'}
+                  title={modoTabelaExpandida ? 'Restaurar painéis executivos do topo' : 'Maximizar tabela para ocupar a tela inteira (oculta cards do topo)'}
                 >
-                  {modoTabelaExpandida ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                  <span>{modoTabelaExpandida ? '📐 Modo Normal' : '📐 Tabela Expandida'}</span>
+                  {modoTabelaExpandida ? <Minimize2 className="w-4 h-4 text-white" /> : <Maximize2 className="w-4 h-4 text-white" />}
+                  <span>{modoTabelaExpandida ? '⛶ Reduzir p/ Modo Normal' : '⛶ Maximizar Tabela de Faltas'}</span>
                 </button>
 
                 {/* Botão da Guia de Faltas do Balcão (Livro de Faltas do Belinha) */}
@@ -2305,6 +2328,24 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </span>
                 )}
 
+                {/* BOTÃO ULTRA PROEMINENTE: MAXIMIZAR TABELA */}
+                <button
+                  onClick={() => {
+                    const novo = !modoTabelaExpandida;
+                    setModoTabelaExpandida(novo);
+                    try { localStorage.setItem('belaped_tabela_expandida', String(novo)); } catch {}
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border shadow-md active:scale-95 ${
+                    modoTabelaExpandida
+                      ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400 shadow-amber-950/50'
+                      : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:brightness-110 text-white border-cyan-300 shadow-cyan-950/50 ring-2 ring-cyan-400/40'
+                  }`}
+                  title={modoTabelaExpandida ? 'Restaurar modo normal com os cards do topo' : 'Maximizar área útil da tabela (oculta cards informativos do topo)'}
+                >
+                  {modoTabelaExpandida ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                  <span>{modoTabelaExpandida ? '⛶ Reduzir Tabela' : '⛶ Maximizar Tabela'}</span>
+                </button>
+
                 <button
                   onClick={() => setAvulsoModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
@@ -2438,22 +2479,36 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 <table className="w-full text-left border-collapse">
                   <thead className="sticky top-0 z-20 bg-[#09101f] shadow-lg">
                     <tr className="bg-[#09101f] border-b border-slate-700 text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                      <th className="py-2.5 px-3 w-8 text-center whitespace-nowrap bg-[#09101f]">
-                        <input
-                          type="checkbox"
-                          checked={(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length > 0 && (agruparPorDistribuidora ? faltasFiltradas : itensPaginados).every(f => itensSelecionados[f.produto_id])}
-                          onChange={() => {
-                            const listaAlvo = agruparPorDistribuidora ? faltasFiltradas : itensPaginados;
-                            const todosMarcados = listaAlvo.length > 0 && listaAlvo.every(f => itensSelecionados[f.produto_id]);
-                            const novoMap = { ...itensSelecionados };
-                            listaAlvo.forEach(f => {
-                              novoMap[f.produto_id] = !todosMarcados;
-                            });
-                            setItensSelecionados(novoMap);
-                          }}
-                          className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                          title="Selecionar todos os itens visíveis"
-                        />
+                      <th className="py-2 px-2.5 w-16 text-center whitespace-nowrap bg-[#09101f]">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length > 0 && (agruparPorDistribuidora ? faltasFiltradas : itensPaginados).every(f => itensSelecionados[f.produto_id])}
+                            onChange={() => {
+                              const listaAlvo = agruparPorDistribuidora ? faltasFiltradas : itensPaginados;
+                              const todosMarcados = listaAlvo.length > 0 && listaAlvo.every(f => itensSelecionados[f.produto_id]);
+                              const novoMap = { ...itensSelecionados };
+                              listaAlvo.forEach(f => {
+                                novoMap[f.produto_id] = !todosMarcados;
+                              });
+                              setItensSelecionados(novoMap);
+                            }}
+                            className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                            title="Selecionar todos os itens visíveis"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const novo = !modoTabelaExpandida;
+                              setModoTabelaExpandida(novo);
+                              try { localStorage.setItem('belaped_tabela_expandida', String(novo)); } catch {}
+                            }}
+                            className="p-1 rounded hover:bg-slate-800 text-cyan-400 hover:text-white cursor-pointer transition-colors"
+                            title={modoTabelaExpandida ? 'Reduzir tabela para o modo normal' : 'Maximizar tabela na tela (ocultar cards do topo)'}
+                          >
+                            {modoTabelaExpandida ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       </th>
                       {([
                         { key: 'descricao', label: 'Produto / Metadados', align: 'left', thClass: 'py-3 px-3.5 min-w-[230px] bg-[#09101f] text-slate-300' },
@@ -2738,9 +2793,25 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       {temCotacaoReal ? (
                                         <div className="flex items-center gap-1.5">
                                           <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                                          <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
-                                            {fornecedor1}
-                                          </span>
+                                          {(() => {
+                                            const linkProd = obterLinkDistribuidoraProduto(item);
+                                            return linkProd ? (
+                                              <a
+                                                href={linkProd}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 font-bold text-emerald-300 hover:text-emerald-100 hover:underline text-xs truncate max-w-[135px] group transition-all"
+                                                title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (clique para abrir)`}
+                                              >
+                                                <span className="truncate">{fornecedor1}</span>
+                                                <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-125 transition-transform" />
+                                              </a>
+                                            ) : (
+                                              <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
+                                                {fornecedor1}
+                                              </span>
+                                            );
+                                          })()}
                                         </div>
                                       ) : semEstoquePortais ? (
                                         <div className="flex items-center gap-1.5">
@@ -3001,9 +3072,25 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               {temCotacaoReal ? (
                                 <div className="flex items-center gap-1.5">
                                   <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                                  <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
-                                    {fornecedor1}
-                                  </span>
+                                  {(() => {
+                                    const linkProd = obterLinkDistribuidoraProduto(item);
+                                    return linkProd ? (
+                                      <a
+                                        href={linkProd}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 font-bold text-emerald-300 hover:text-emerald-100 hover:underline text-xs truncate max-w-[135px] group transition-all"
+                                        title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (clique para abrir)`}
+                                      >
+                                        <span className="truncate">{fornecedor1}</span>
+                                        <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-125 transition-transform" />
+                                      </a>
+                                    ) : (
+                                      <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
+                                        {fornecedor1}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               ) : semEstoquePortais ? (
                                 <div className="flex items-center gap-1.5">
