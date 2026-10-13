@@ -462,6 +462,27 @@ function belapedEndpoints(db) {
         });
       }
 
+      // Busca todas as faltas ativas da Guia de Faltas do Belinha (balcão/WhatsApp)
+      let todasFaltasBelinha = [];
+      const faltasBelinhaMap = new Map();
+      try {
+        todasFaltasBelinha = db.prepare(`
+          SELECT id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered
+          FROM shortages
+          WHERE purchased = 0
+          ORDER BY createdAt DESC
+        `).all();
+
+        for (const fb of todasFaltasBelinha) {
+          if (fb.productName) {
+            const cleanName = fb.productName.toUpperCase().trim();
+            faltasBelinhaMap.set(cleanName, fb);
+          }
+        }
+      } catch (errShort) {
+        console.warn('[BelaPed] Tabela shortages não disponível:', errShort.message);
+      }
+
       let totalOrcado7d = 0;
       let totalItensRuptura = 0;
       let totalItensAbaixoMinimo = 0;
@@ -472,6 +493,20 @@ function belapedEndpoints(db) {
       const items = candidatosFinais.map(cand => {
         const { raw: r, vmd, saldo, vendas30d, vendasHistorico6m, isEsquecido6m, diasCobertura, chaveEq, equivalentesAgrupados } = cand;
         const custo = Number(r.preco_unitario_ult_compra) || Number(r.custo_unitario) || 0;
+
+        // Cruzamento com a Guia de Faltas do Belinha
+        let faltaBelinhaMatch = null;
+        const descUpper = (r.descricao || '').toUpperCase().trim();
+        if (faltasBelinhaMap.has(descUpper)) {
+          faltaBelinhaMatch = faltasBelinhaMap.get(descUpper);
+        } else {
+          for (const [nomeBalcao, fb] of faltasBelinhaMap.entries()) {
+            if (nomeBalcao.length >= 5 && (descUpper.includes(nomeBalcao) || nomeBalcao.includes(descUpper))) {
+              faltaBelinhaMatch = fb;
+              break;
+            }
+          }
+        }
 
         // Meta bruta de 1 semana (7 dias) com 15% de margem de segurança (sem somar saldo negativo virtual)
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
@@ -618,7 +653,16 @@ function belapedEndpoints(db) {
           qtd_equalizada_7d: qtdEqualizada7d,
           qtd_sugerida_7d: qtdSugerida7d,
           subtotal_7d: subtotal7d,
-          tipo_categoria: isMedicamento ? 'MEDICAMENTO' : 'PERFUMARIA'
+          tipo_categoria: isMedicamento ? 'MEDICAMENTO' : 'PERFUMARIA',
+          falta_balcao_belinha: faltaBelinhaMatch ? {
+            id: faltaBelinhaMatch.id,
+            productName: faltaBelinhaMatch.productName,
+            clientInquiry: Boolean(faltaBelinhaMatch.clientInquiry),
+            notes: faltaBelinhaMatch.notes || '',
+            userName: faltaBelinhaMatch.userName || 'Balcão',
+            createdAt: faltaBelinhaMatch.createdAt,
+            source: faltaBelinhaMatch.source || 'Balcão'
+          } : null
         };
       }).filter(Boolean);
 
@@ -698,7 +742,9 @@ function belapedEndpoints(db) {
         total_orcado_7d: Number(totalOrcado7d.toFixed(2)),
         resumo_distribuidoras: resumoDistribuidoras,
         items,
-        itens_avulsos: avulsos
+        itens_avulsos: avulsos,
+        total_faltas_balcao_belinha: todasFaltasBelinha.length,
+        faltas_balcao_belinha_lista: todasFaltasBelinha
       });
     } catch (err) {
       console.error('[BelaPed] Erro em faltas-7d:', err.message);

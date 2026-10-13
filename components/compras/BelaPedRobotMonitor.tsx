@@ -62,21 +62,15 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const [minimizado, setMinimizado] = useState(false);
   const [liveStatus, setLiveStatus] = useState<any>(statusCotacao);
 
-  // Modo contínuo ativado por padrão com persistência local
-  const [modoContinuo, setModoContinuo] = useState<boolean>(() => {
-    try {
-      const salvo = localStorage.getItem('belaped_modo_continuo');
-      return salvo !== null ? salvo === 'true' : true; // Padrão: Ativado (Auto-Fila ligada)
-    } catch {
-      return true;
-    }
-  });
+  // Modo contínuo desativado por padrão ao abrir a tela (respeita validade de 24h e não dispara sozinho)
+  const [modoContinuo, setModoContinuo] = useState<boolean>(false);
+  const [sessaoUsuarioAtiva, setSessaoUsuarioAtiva] = useState<boolean>(false);
 
   // Tamanho do lote (40, 80 Turbo ou 120 Ultra)
   const [tamanhoLote, setTamanhoLote] = useState<number>(() => {
     try {
       const salvo = localStorage.getItem('belaped_tamanho_lote');
-      return salvo ? Number(salvo) : 80; // Padrão: 80 itens (Modo Turbo para acelerar cotações grandes)
+      return salvo ? Number(salvo) : 80; // Padrão: 80 itens
     } catch {
       return 80;
     }
@@ -89,15 +83,19 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const [countdownProximoLote, setCountdownProximoLote] = useState<number | null>(null);
   const disparandoRef = useRef(false);
 
-  // Salva preferências no localStorage
+  // Controle de Auto-Fila voluntária
   const handleToggleModoContinuo = () => {
     const novoValor = !modoContinuo;
     setModoContinuo(novoValor);
-    try {
-      localStorage.setItem('belaped_modo_continuo', String(novoValor));
-    } catch {}
     if (!novoValor) {
       setCountdownProximoLote(null);
+      setSessaoUsuarioAtiva(false);
+    } else {
+      // Se ativou e não está rodando, inicia a sessão
+      if (!emAndamento && aguardandoRoboCount > 0) {
+        setSessaoUsuarioAtiva(true);
+        onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
+      }
     }
   };
 
@@ -112,10 +110,13 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   useEffect(() => {
     if (statusCotacao) {
       setLiveStatus(statusCotacao);
+      if (statusCotacao.emAndamento) {
+        setSessaoUsuarioAtiva(true);
+      }
     }
   }, [statusCotacao]);
 
-  // Polling dedicado para manter o mini-monitor sempre atualizado
+  // Polling dedicado para manter o mini-monitor sempre atualizado (SEM auto-disparo ao abrir a página)
   useEffect(() => {
     let ultimoEncontrados = 0;
 
@@ -135,12 +136,19 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
           const emAndamentoBackend = Boolean(data.status.emAndamento);
           const totalNaFila = Number(data.status.fila?.aguardandoRobo ?? aguardandoRoboCount);
 
-          // Se o modo contínuo estiver ativo, o robô terminou o lote e ainda restam itens na fila
-          if (modoContinuo && !emAndamentoBackend && !disparandoRef.current && totalNaFila > 0) {
+          // A Auto-Fila SÓ emenda próximo lote se o usuário tiver iniciado uma sessão voluntária!
+          // Nunca dispara sozinho ao simplesmente abrir a página para consultar!
+          if (
+            sessaoUsuarioAtiva &&
+            modoContinuo &&
+            !emAndamentoBackend &&
+            !disparandoRef.current &&
+            totalNaFila > 0
+          ) {
             if (countdownProximoLote === null) {
-              setCountdownProximoLote(3); // Inicia contagem regressiva de 3s para o próximo lote
+              setCountdownProximoLote(3); // Aguarda 3s para respirar antes do próximo lote
             }
-          } else if (emAndamentoBackend || totalNaFila === 0) {
+          } else if (emAndamentoBackend || totalNaFila === 0 || !sessaoUsuarioAtiva) {
             setCountdownProximoLote(null);
           }
         }
@@ -150,7 +158,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     fetchStatus();
     const interval = setInterval(fetchStatus, 2500);
     return () => clearInterval(interval);
-  }, [modoContinuo, aguardandoRoboCount, countdownProximoLote]);
+  }, [modoContinuo, aguardandoRoboCount, countdownProximoLote, sessaoUsuarioAtiva]);
 
   // Efeito do contador regressivo para disparo contínuo automático
   useEffect(() => {
@@ -404,6 +412,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                 disabled={emAndamento}
                 onClick={() => {
                   setCountdownProximoLote(null);
+                  setSessaoUsuarioAtiva(true);
                   onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
                 }}
                 className={`px-3 py-2 rounded-xl text-white text-[10px] font-black uppercase shadow-lg transition-all cursor-pointer flex items-center gap-1.5 ${
@@ -445,7 +454,11 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setCountdownProximoLote(null)}
+                onClick={() => {
+                  setCountdownProximoLote(null);
+                  setSessaoUsuarioAtiva(false);
+                  setModoContinuo(false);
+                }}
                 className="text-[10px] uppercase font-bold text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-black/40"
               >
                 Pausar

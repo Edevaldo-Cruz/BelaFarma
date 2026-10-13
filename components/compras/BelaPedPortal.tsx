@@ -37,7 +37,11 @@ import {
   PiggyBank,
   HelpCircle,
   Info,
-  CalendarCheck
+  CalendarCheck,
+  Maximize2,
+  Minimize2,
+  ClipboardList,
+  X
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -94,6 +98,15 @@ interface FaltaItem7d {
   qtd_emergencial?: number;
   prioridade?: 'P1' | 'P2' | 'P3' | 'P4';
   prioridade_rotulo?: string;
+  falta_balcao_belinha?: {
+    id: string;
+    productName: string;
+    clientInquiry: boolean;
+    notes?: string;
+    userName: string;
+    createdAt: string;
+    source?: string;
+  } | null;
 }
 
 interface PortalDistribuidora {
@@ -162,6 +175,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Controle de Transição Dinâmica: Lista de Urgência -> Lista de Compras Regulares
   const [modoListaManual, setModoListaManual] = useState<'AUTO' | 'URGENCIA' | 'COMPRAS_REGULARES'>('AUTO');
+
+  // Integração com a Guia de Faltas do Belinha (Livro de Faltas do Balcão)
+  const [faltasBalcaoBelinha, setFaltasBalcaoBelinha] = useState<any[]>([]);
+  const [gavetaBalcaoAberta, setGavetaBalcaoAberta] = useState<boolean>(false);
+  const [filtroApenasBalcao, setFiltroApenasBalcao] = useState<boolean>(false);
+
+  // Modo Tabela Expandida (Otimização de Espaço de Tela da Tabela)
+  const [modoTabelaExpandida, setModoTabelaExpandida] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('belaped_tabela_expandida') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
@@ -379,6 +406,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         const dataFaltas = await resFaltas.json();
         setFaltasRaw(dataFaltas.items || []);
         setItensAvulsos(dataFaltas.itens_avulsos || []);
+        setFaltasBalcaoBelinha(dataFaltas.faltas_balcao_belinha_lista || []);
         setStatsAntiRuptura({
           ocultadosEquiv: Number(dataFaltas.ocultados_equivalente_com_estoque) || 0,
           agrupadosEquiv: Number(dataFaltas.agrupados_equivalencia) || 0,
@@ -511,6 +539,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       if (filtroModoReposicao === 'HOJE_URGENTES' && f.status_dia === 'RETIDO_OUTRO_DIA') {
         return false;
       }
+      // Filtro de Faltas do Balcão do Belinha (Livro de Faltas)
+      if (filtroApenasBalcao && !f.falta_balcao_belinha) {
+        return false;
+      }
       if (filtroCurva === 'ESQUECIDOS_6M') {
         if (!f.is_esquecido_6m) return false;
       } else if (filtroCurva !== 'TODAS' && f.curva_abc !== filtroCurva) {
@@ -528,7 +560,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
       return true;
     });
-  }, [faltas, modoListaManual, filtroModoReposicao, filtroCurva, filtroPrioridade, filtroCategoria, buscaFalta]);
+  }, [faltas, modoListaManual, filtroModoReposicao, filtroApenasBalcao, filtroCurva, filtroPrioridade, filtroCategoria, buscaFalta]);
 
   // Calcula os totais consolidados por empresa/distribuidora (1º Colocado)
   const totaisPorDistribuidora = useMemo(() => {
@@ -814,6 +846,33 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       carregarDados();
     } catch (e: any) {
       addToast(e.message, 'error');
+    }
+  };
+
+  // Adicionar item da Guia de Faltas do Balcão (Livro de Faltas) na Cotação do BelaPed
+  const handleAdicionarFaltaBalcaoACotacao = async (faltaBalcao: any) => {
+    try {
+      const res = await fetch('/api/belaped/itens-avulsos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descricao: faltaBalcao.productName,
+          ean: '',
+          quantidade: 5,
+          preco_referencia: 10.0,
+          motivo: `Falta do Balcão (${faltaBalcao.userName || 'Balconista'}${faltaBalcao.clientInquiry ? ' • Cliente procurou' : ''}${faltaBalcao.notes ? ` • Obs: ${faltaBalcao.notes}` : ''})`,
+          usuario: user.name || 'BelaPed'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`"${faltaBalcao.productName}" incluído na cotação do BelaPed!`, 'success');
+        carregarDados();
+      } else {
+        addToast(data.error || 'Erro ao incluir falta do balcão', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message, 'error');
     }
   };
 
@@ -1409,11 +1468,80 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         {/* ─── ABA 1: FALTAS & REPOSIÇÃO 1 SEMANA ─────────────────────────────── */}
         {activeTab === 'faltas' && (
           <div className="space-y-4">
-            {/* ─── PAINEL TREMOR DE INDICADORES EXECUTIVOS ─────────────────────── */}
-            <BelaPedResumoTremor faltas={faltas} totais={totaisPorDistribuidora} />
+            {/* ─── BARRA SUPERIOR DE VISÃO & FERRAMENTAS DO BELAPED ─────────────── */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 bg-[#0a1426] p-2.5 px-3.5 rounded-2xl border border-cyan-800/60 shadow-md">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Botão de Alternância de Tabela Expandida (Maximiza Área de Produtos) */}
+                <button
+                  onClick={() => {
+                    const novo = !modoTabelaExpandida;
+                    setModoTabelaExpandida(novo);
+                    try { localStorage.setItem('belaped_tabela_expandida', String(novo)); } catch {}
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                    modoTabelaExpandida
+                      ? 'bg-cyan-600 text-white border-cyan-400 shadow-md shadow-cyan-900/40'
+                      : 'bg-[#080d18] text-slate-300 border-slate-700 hover:border-cyan-500'
+                  }`}
+                  title={modoTabelaExpandida ? 'Restaurar painéis executivos do topo' : 'Maximizar espaço útil da tabela na tela (oculta cards do topo)'}
+                >
+                  {modoTabelaExpandida ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                  <span>{modoTabelaExpandida ? '📐 Modo Normal' : '📐 Tabela Expandida'}</span>
+                </button>
 
-            {/* ─── PAINEL ESTRATÉGICO: TRAVA ORÇAMENTÁRIA & META DE SOBRA NO CAIXA ─── */}
-            <div className="bg-gradient-to-r from-[#0a1426] via-[#0d1c35] to-[#091222] p-4 rounded-2xl border border-cyan-800/80 shadow-xl space-y-3.5">
+                {/* Botão da Guia de Faltas do Balcão (Livro de Faltas do Belinha) */}
+                <button
+                  onClick={() => setGavetaBalcaoAberta(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-fuchsia-950/80 hover:bg-fuchsia-900/80 text-fuchsia-300 border border-fuchsia-700/70 text-xs font-black transition-all cursor-pointer shadow-sm"
+                  title="Abrir a gaveta com todos os produtos anotados no Livro de Faltas do balcão pelos balconistas"
+                >
+                  <ClipboardList className="w-3.5 h-3.5 text-fuchsia-400" />
+                  <span>Faltas do Balcão ({faltasBalcaoBelinha.length})</span>
+                </button>
+
+                {/* Toggle para filtrar apenas produtos do balcão */}
+                <button
+                  onClick={() => setFiltroApenasBalcao(prev => !prev)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    filtroApenasBalcao
+                      ? 'bg-fuchsia-600 text-white border-fuchsia-400 font-black shadow-md'
+                      : 'bg-[#080d18] text-fuchsia-400 border-fuchsia-900/60 hover:border-fuchsia-600'
+                  }`}
+                  title="Filtrar tabela para mostrar somente itens anotados no balcão da farmácia"
+                >
+                  <span>{filtroApenasBalcao ? '✓ Só Faltas Balcão' : 'Filtrar Balcão'}</span>
+                  <span className="px-1.5 py-0.2 rounded text-[10px] bg-black/40 font-black">
+                    {faltas.filter(f => f.falta_balcao_belinha).length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Indicadores Compactos quando no Modo Expandido */}
+              {modoTabelaExpandida && (
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <span className="text-slate-300">
+                    Produtos: <b className="text-white">{faltasFiltradas.length}</b>
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-slate-300">
+                    Selecionados: <b className="text-emerald-400">R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-slate-300">
+                    Teto Disp.: <b className="text-cyan-300">R$ {analiseOrcamentoSobra.tetoComprasDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</b>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Painéis Executivos do Topo (ocultos quando em modoTabelaExpandida para maximizar área da tabela) */}
+            {!modoTabelaExpandida && (
+              <>
+                {/* ─── PAINEL TREMOR DE INDICADORES EXECUTIVOS ─────────────────────── */}
+                <BelaPedResumoTremor faltas={faltas} totais={totaisPorDistribuidora} />
+
+                {/* ─── PAINEL ESTRATÉGICO: TRAVA ORÇAMENTÁRIA & META DE SOBRA NO CAIXA ─── */}
+                <div className="bg-gradient-to-r from-[#0a1426] via-[#0d1c35] to-[#091222] p-4 rounded-2xl border border-cyan-800/80 shadow-xl space-y-3.5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-cyan-950/90 border border-cyan-600/50 text-cyan-400">
@@ -1716,6 +1844,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               </div>
             </div>
+            </>
+          )}
 
             {/* ─── BARRA DE BOTÕES RÁPIDOS: MELHOR PREÇO DA DISTRIBUIDORA ──────── */}
             <div className="bg-[#0e1626] px-4 py-3 rounded-2xl border border-slate-800 flex flex-wrap items-center gap-2">
@@ -2304,7 +2434,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               {(refreshing || (statusCotacao && statusCotacao.emAndamento)) && (
                 <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500 animate-pulse"></div>
               )}
-              <div className="overflow-auto max-h-[68vh] custom-scrollbar relative">
+              <div className={`overflow-auto ${modoTabelaExpandida ? 'max-h-[82vh]' : 'max-h-[68vh]'} custom-scrollbar relative`}>
                 <table className="w-full text-left border-collapse">
                   <thead className="sticky top-0 z-20 bg-[#09101f] shadow-lg">
                     <tr className="bg-[#09101f] border-b border-slate-700 text-[11px] font-black text-slate-400 uppercase tracking-wider">
@@ -2532,6 +2662,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                               title={`Resgate 6 Meses: Vendeu ${item.vendas_historico_6m || 0} un. no histórico recente, zerou o estoque e parou de vender nos últimos 30 dias`}
                                             >
                                               ⏳ Esquecido 6m ({item.vendas_historico_6m || 1}vd)
+                                            </span>
+                                          )}
+                                          {item.falta_balcao_belinha && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-700/80 shadow-xs whitespace-nowrap"
+                                              title={`📋 Livro de Faltas do Balcão: Anotado por ${item.falta_balcao_belinha.userName || 'Balconista'}${item.falta_balcao_belinha.clientInquiry ? ' (Cliente procurou)' : ''}${item.falta_balcao_belinha.notes ? ` - Obs: ${item.falta_balcao_belinha.notes}` : ''}`}
+                                            >
+                                              📋 Balcão {item.falta_balcao_belinha.userName ? `(${item.falta_balcao_belinha.userName})` : ''}
                                             </span>
                                           )}
                                         </div>
@@ -2775,6 +2913,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       title={`Resgate 6 Meses: Vendeu ${item.vendas_historico_6m || 0} un. no histórico recente, zerou o estoque e parou de vender nos últimos 30 dias`}
                                     >
                                       ⏳ Esquecido 6m ({item.vendas_historico_6m || 1}vd)
+                                    </span>
+                                  )}
+                                  {item.falta_balcao_belinha && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-700/80 shadow-xs whitespace-nowrap"
+                                      title={`📋 Livro de Faltas do Balcão: Anotado por ${item.falta_balcao_belinha.userName || 'Balconista'}${item.falta_balcao_belinha.clientInquiry ? ' (Cliente procurou)' : ''}${item.falta_balcao_belinha.notes ? ` - Obs: ${item.falta_balcao_belinha.notes}` : ''}`}
+                                    >
+                                      📋 Balcão {item.falta_balcao_belinha.userName ? `(${item.falta_balcao_belinha.userName})` : ''}
                                     </span>
                                   )}
                                 </div>
@@ -3545,6 +3691,102 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL/GAVETA: LIVRO DE FALTAS DO BALCÃO (BELINHA) ───────────────── */}
+      {gavetaBalcaoAberta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-[#0e1626] rounded-3xl max-w-2xl w-full border border-fuchsia-800/60 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Cabeçalho */}
+            <div className="p-4 px-6 bg-gradient-to-r from-fuchsia-950/80 via-[#180a24] to-[#0e1626] border-b border-fuchsia-800/40 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">
+                  <ClipboardList className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase text-white flex items-center gap-2">
+                    Livro de Faltas do Balcão (Belinha)
+                  </h3>
+                  <span className="text-xs text-fuchsia-300/80 font-medium">
+                    {faltasBalcaoBelinha.length} produto(s) anotado(s) pelos balconistas aguardando compra
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setGavetaBalcaoAberta(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 cursor-pointer transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Lista de Faltas */}
+            <div className="p-4 overflow-y-auto custom-scrollbar space-y-2.5 flex-1">
+              {faltasBalcaoBelinha.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs font-medium space-y-1">
+                  <p>🎉 Nenhuma falta pendente registrada no Livro de Faltas do Belinha.</p>
+                  <p className="text-[11px] text-slate-600">Novas faltas registradas pelos balconistas aparecerão aqui automaticamente.</p>
+                </div>
+              ) : (
+                faltasBalcaoBelinha.map((fb, idx) => (
+                  <div
+                    key={fb.id || idx}
+                    className="p-3 rounded-2xl bg-[#09101f] border border-slate-800 hover:border-fuchsia-800/60 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-black text-white truncate">
+                          {fb.productName}
+                        </span>
+                        {fb.clientInquiry && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-950 text-rose-300 border border-rose-700/80">
+                            Cliente Procurou
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 flex-wrap">
+                        <span>Anotado por: <b className="text-slate-300">{fb.userName || 'Balconista'}</b></span>
+                        {fb.createdAt && (
+                          <>
+                            <span>•</span>
+                            <span>{new Date(fb.createdAt).toLocaleDateString('pt-BR')} às {new Date(fb.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </>
+                        )}
+                      </div>
+                      {fb.notes && (
+                        <p className="text-[11px] text-amber-300/90 italic bg-amber-950/20 px-2 py-1 rounded-lg border border-amber-900/30">
+                          Obs: {fb.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => handleAdicionarFaltaBalcaoACotacao(fb)}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500 text-white text-xs font-black shadow-md transition-all cursor-pointer shrink-0 active:scale-95"
+                      title="Adicionar este produto à cotação do BelaPed como item avulso prioritário"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Cotar no BelaPed</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Rodapé */}
+            <div className="p-3 px-6 bg-[#09101f] border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+              <span className="text-[11px]">
+                💡 Ao cotar, o produto é adicionado com prioridade máxima na lista de cotação.
+              </span>
+              <button
+                onClick={() => setGavetaBalcaoAberta(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
