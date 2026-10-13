@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "336946a",
-  "commitMessage": "feat(belaped): adicionar reposicao urgente com trava orcamentaria, meta de sobra no caixa, serie temporal de precos e inteligencia de melhor dia",
-  "buildTime": "13/10/2026, 09:04:29"
+  "commitHash": "31072bf",
+  "commitMessage": "feat(belaped): calculo do limite semanal de gastos do orcamento para todos os meses e transicao automatica para lista de compras regulares",
+  "buildTime": "13/10/2026, 09:24:44"
 }

@@ -1207,7 +1207,7 @@ function belapedEndpoints(db) {
   /**
    * Função interna para execução de cotações ao vivo (acionada via API ou Agendador Automático)
    */
-  const executarCotacaoAoVivoInternal = async (fornecedor = 'TODOS', limite = 25, eans = null) => {
+  const executarCotacaoAoVivoInternal = async (fornecedor = 'TODOS', limite = 40, eans = null) => {
     if (cotacaoStatus.emAndamento) {
       console.log('[BelaPed Cotação] Ignorando novo disparo: cotação já em andamento.');
       return false;
@@ -1230,12 +1230,13 @@ function belapedEndpoints(db) {
     );
 
     let listaEans = [];
+    const limiteEfetivo = Math.max(1, Number(limite) || 40);
     if (Array.isArray(eans) && eans.length > 0) {
       const filtrados = eans.map(e => String(e || '').trim()).filter(e => e.length >= 7);
       // Prioriza os que ainda não têm preço cotado, mantendo a ordem da página
       const semPreco = filtrados.filter(e => !eansComPreco.has(e));
       const comPreco = filtrados.filter(e => eansComPreco.has(e));
-      listaEans = [...semPreco, ...comPreco].slice(0, limite || 25);
+      listaEans = [...semPreco, ...comPreco].slice(0, limiteEfetivo);
     } else {
       const produtosFalta = db.prepare(`
         SELECT ean, descricao, saldo, vmd_ponderado, curva_abc, preco_venda_vigente, preco_unitario_ult_compra, custo_unitario
@@ -1263,7 +1264,7 @@ function belapedEndpoints(db) {
       const todosEansOrdenados = produtosFalta.map(p => String(p.ean).trim());
       const semPreco = todosEansOrdenados.filter(e => !eansComPreco.has(e));
       const comPreco = todosEansOrdenados.filter(e => eansComPreco.has(e));
-      listaEans = [...semPreco, ...comPreco].slice(0, limite || 25);
+      listaEans = [...semPreco, ...comPreco].slice(0, limiteEfetivo);
     }
 
     if (listaEans.length === 0) {

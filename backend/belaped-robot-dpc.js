@@ -89,7 +89,7 @@ class DpcRobot {
 
       const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(eanLimpo)}&visualizacao=bloco-1&ordenacao=ordem-0`;
       await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
-      await new Promise(r => setTimeout(r, 900));
+      await new Promise(r => setTimeout(r, 500));
 
       const dados = await this.page.evaluate(() => {
         const bodyText = document.body.innerText || '';

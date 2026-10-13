@@ -876,9 +876,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   };
 
   // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Todas)
-  const handleIniciarCotacaoAoVivo = async (fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS' = 'TODOS') => {
+  const handleIniciarCotacaoAoVivo = async (
+    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'TODOS' = 'TODOS',
+    tamanhoLote: number = 40
+  ) => {
     try {
       setCotandoAoVivo(true);
+
+      const limiteReal = Math.max(10, Math.min(200, tamanhoLote || 40));
 
       // Prioriza os itens "Aguardando Robô" (Não Cotado) da página atual e depois do restante da lista
       const naoCotadosPagina = itensPaginados
@@ -896,7 +901,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         .map(s => s.ean)
         .filter(e => !naoCotadosPagina.includes(e) && !todosNaoCotados.includes(e));
 
-      const eansParaCotar = [...naoCotadosPagina, ...todosNaoCotados, ...selecionadosRestantes].slice(0, 40);
+      const eansParaCotar = [...naoCotadosPagina, ...todosNaoCotados, ...selecionadosRestantes].slice(0, limiteReal);
 
       const nomeExibicao = fornecedor === 'TODOS' ? '4 Portais (Profarma, DPC, Soton e Distrimed)' : fornecedor;
 
@@ -904,20 +909,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       setStatusCotacao({
         emAndamento: true,
         fornecedor: nomeExibicao,
-        total: eansParaCotar.length || 40,
+        total: eansParaCotar.length || limiteReal,
         atual: 0,
         encontrados: 0,
         ultimoItem: 'Conectando aos navegadores e portais...'
       });
 
-      addToast(`Robô de cotação iniciado para ${nomeExibicao}!`, 'info');
+      addToast(`Robô de cotação iniciado para ${nomeExibicao} (${eansParaCotar.length || limiteReal} itens)!`, 'info');
 
       const res = await fetch('/api/belaped/cotar-ao-vivo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fornecedor,
-          limite: 40,
+          limite: limiteReal,
           eans: eansParaCotar.length > 0 ? eansParaCotar : undefined
         })
       });
@@ -3493,7 +3498,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             aguardandoRoboValor={aguardandoValor}
             cotandoAoVivo={cotandoAoVivo}
             statusCotacao={statusCotacao}
-            onDispararRobo={(fornecedor = 'TODOS') => handleIniciarCotacaoAoVivo(fornecedor)}
+            onDispararRobo={(fornecedor = 'TODOS', lote = 40) => handleIniciarCotacaoAoVivo(fornecedor, lote)}
             onDadosAtualizados={() => carregarDados()}
           />
         );

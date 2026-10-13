@@ -70,6 +70,17 @@ class DistrimedRobot {
     this.page = await this.browser.newPage();
     await this.page.setViewport({ width: 1440, height: 900 });
 
+    // Otimização de Performance: Bloqueia imagens, mídias e fontes para cotações ultra-rápidas
+    await this.page.setRequestInterception(true);
+    this.page.on('request', (req) => {
+      const type = req.resourceType();
+      if (type === 'image' || type === 'media' || type === 'font') {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
     console.log('[DistrimedRobot] Acessando autenticação da Distrimed...');
     await this.page.goto('https://inovacao.distrimed.com.br/login?referencia=/produtos', {
       waitUntil: 'networkidle2',
@@ -78,8 +89,10 @@ class DistrimedRobot {
 
     console.log('[DistrimedRobot] Efetuando login...');
     await this.page.waitForSelector('input[name="usuario"]', { timeout: 15000 });
-    await this.page.type('input[name="usuario"]', this.usuario, { delay: 10 });
-    await this.page.type('input[name="senha"]', this.senha, { delay: 10 });
+    await this.page.type('input[name="usuario"]', this.usuario, { delay: 5 });
+    await this.page.type('input[senha="senha"]', this.senha, { delay: 5 }).catch(async () => {
+      await this.page.type('input[name="senha"]', this.senha, { delay: 5 });
+    });
 
     await this.page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('Entrar'));
@@ -157,10 +170,11 @@ class DistrimedRobot {
     await this.page.keyboard.up('Control');
     await this.page.keyboard.press('Backspace');
 
-    await this.page.type(searchSel, termo, { delay: 12 });
+    await this.page.type(searchSel, termo, { delay: 3 });
     await this.page.keyboard.press('Enter');
 
-    await new Promise(r => setTimeout(r, 2500));
+    // Espera otimizada (sem imagens a resposta é quase imediata)
+    await new Promise(r => setTimeout(r, 1200));
 
     return await this.page.evaluate(() => {
       const bodyText = document.body.innerText || '';

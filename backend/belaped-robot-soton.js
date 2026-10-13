@@ -102,7 +102,7 @@ class SotonRobot {
   async _buscarTermoNaSoton(termo) {
     const urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(termo)}`;
     await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 800));
 
     return await this.page.evaluate(() => {
       const bodyText = document.body.innerText || '';
