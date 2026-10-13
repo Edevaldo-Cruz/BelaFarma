@@ -626,6 +626,10 @@ function belapedEndpoints(db) {
           prioridadeRotulo = 'Regular';
         }
 
+        const catUpper = String(r.categoria || r.categoria_id || '').toUpperCase();
+        const isMedicamento = catUpper.includes('MED') || catUpper.includes('ETICO') || catUpper.includes('GEN') || catUpper.includes('SIM') ||
+          /\b(\d+\s*(MG|ML|MCG|G)|CPR|COMP|CAPS|GOTAS|POMADA|CREME|XPE|SUSP)\b/i.test(descUpper);
+
         return {
           produto_id: r.produto_id,
           descricao: r.descricao,
@@ -820,6 +824,7 @@ function belapedEndpoints(db) {
       const hoje = new Date();
       const mesAtual = hoje.getMonth() + 1;
       const anoAtual = hoje.getFullYear();
+      const diaHoje = hoje.getDate();
 
       // 1. Busca tetos orçamentários reais na tabela oficial monthly_limits (month 1..12, year, "limit")
       const limitsMap = {};
@@ -978,7 +983,6 @@ function belapedEndpoints(db) {
 
       // Dias restantes no mês atual
       const ultimoDiaMes = new Date(anoAtual, mesAtual, 0).getDate();
-      const diaHoje = hoje.getDate();
       const diasRestantesMesAtual = ultimoDiaMes - diaHoje;
 
       // REGRA MASTER: Orientação estratégica fiel aos números reais
@@ -1597,14 +1601,46 @@ function belapedEndpoints(db) {
     return true;
   };
 
-  // AGENDADOR AUTOMÁTICO DE COTAÇÕES 4 VEZES AO DIA (07:50, 10:30, 14:30 e 18:00)
+  // =========================================================================
+  // WORKER CONTÍNUO EM SEGUNDO PLANO (AUTÔNOMO & PROATIVO)
+  // O sistema cota e atualiza os preços 24/7 sem depender de ninguém abrir a tela.
+  // =========================================================================
   const HORARIOS_AGENDADOS = ['07:50', '10:30', '14:30', '18:00'];
   let ultimoMinutoAgendado = '';
 
+  const verificarERodarCotacaoSegundoPlano = async (origem = 'BACKGROUND_WORKER') => {
+    try {
+      if (cotacaoStatus.emAndamento) {
+        console.log(`[BelaPed Background Worker] Cotação já em andamento. Aguardando próximo ciclo.`);
+        return;
+      }
+
+      console.log(`[BelaPed Background Worker] [${origem}] Verificando produtos prioritários com cotação > 24h ou sem cotação...`);
+      const iniciado = await executarCotacaoAoVivoInternal('TODOS', 40);
+      if (iniciado) {
+        console.log(`[BelaPed Background Worker] Ciclo autônomo de cotação iniciado em segundo plano com sucesso!`);
+      } else {
+        console.log(`[BelaPed Background Worker] Todos os itens prioritários já possuem cotação recente (< 24h). Nenhuma ação necessária.`);
+      }
+    } catch (err) {
+      console.error(`[BelaPed Background Worker] Erro no ciclo de segundo plano:`, err.message);
+    }
+  };
+
+  // 1. Inicialização inicial proativa: roda 45s após o servidor ligar
+  setTimeout(() => {
+    verificarERodarCotacaoSegundoPlano('STARTUP_PROATIVO');
+  }, 45000);
+
+  // 2. Loop contínuo: verifica a cada 30 minutos se há itens vencidos (> 24h) ou novas rupturas
+  setInterval(() => {
+    verificarERodarCotacaoSegundoPlano('INTERVALO_30MIN');
+  }, 30 * 60 * 1000);
+
+  // 3. Checagem nos horários estratégicos de pico comercial B2B
   setInterval(() => {
     try {
       const agora = new Date();
-      // Formata no fuso horário oficial de Brasília
       const horaMinutoAtual = agora.toLocaleTimeString('pt-BR', {
         timeZone: 'America/Sao_Paulo',
         hour: '2-digit',
@@ -1614,13 +1650,13 @@ function belapedEndpoints(db) {
 
       if (HORARIOS_AGENDADOS.includes(horaMinutoAtual) && ultimoMinutoAgendado !== horaMinutoAtual) {
         ultimoMinutoAgendado = horaMinutoAtual;
-        console.log(`[BelaPed Agendador] >>> HORÁRIO PROGRAMADO (${horaMinutoAtual}): Disparando cotação automática em 4 portais! <<<`);
-        executarCotacaoAoVivoInternal('TODOS', 40);
+        console.log(`[BelaPed Agendador] >>> HORÁRIO DE PICO (${horaMinutoAtual}): Disparando cotação nos 5 portais! <<<`);
+        verificarERodarCotacaoSegundoPlano(`HORARIO_PICO_${horaMinutoAtual}`);
       }
     } catch (schedErr) {
       console.error('[BelaPed Agendador] Erro no timer de cotação:', schedErr.message);
     }
-  }, 25000); // Checa a cada 25 segundos
+  }, 25000);
 
   /**
    * POST /api/belaped/cotar-ao-vivo
