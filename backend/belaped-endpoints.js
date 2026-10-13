@@ -216,6 +216,7 @@ function belapedEndpoints(db) {
    * - Equalizador Inteligente de Volumes: corta gordura dos grandes volumes e garante 1 a 2 un. ("estoque semente") para esquecidos
    */
   router.get('/faltas-7d', (req, res) => {
+  console.log('[BelaPed] Iniciando handler /faltas-7d');
     try {
       const { busca, curva, categoria, equalizar, teto_max } = req.query;
       const equalizarAtivo = equalizar === undefined ? true : (equalizar !== '0' && equalizar !== 'false');
@@ -820,7 +821,8 @@ function belapedEndpoints(db) {
    * somatória dos boletos reais por vencimento (due_date) e cálculo exato de saldo/excedente.
    */
   router.get('/orcamento-boletos', (req, res) => {
-    try {
+  console.log('[BelaPed] Iniciando handler /orcamento-boletos');
+  try {
       const hoje = new Date();
       const mesAtual = hoje.getMonth() + 1;
       const anoAtual = hoje.getFullYear();
