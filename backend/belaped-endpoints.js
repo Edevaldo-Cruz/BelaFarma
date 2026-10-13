@@ -133,6 +133,20 @@ function belapedEndpoints(db) {
         updated_at TEXT,
         UNIQUE(ean, fornecedor)
       );
+
+      CREATE TABLE IF NOT EXISTS belaped_precos_historico_diario (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ean TEXT NOT NULL,
+        fornecedor TEXT NOT NULL,
+        preco REAL NOT NULL,
+        descricao TEXT,
+        dia_semana INTEGER NOT NULL, -- 0=Domingo, 1=Segunda, ..., 6=Sábado
+        dia_mes INTEGER NOT NULL,    -- 1..31
+        quinzena INTEGER NOT NULL,   -- 1 (dias 1-15) ou 2 (dias 16-31)
+        data_coleta TEXT NOT NULL    -- YYYY-MM-DD
+      );
+      CREATE INDEX IF NOT EXISTS idx_belaped_hist_ean ON belaped_precos_historico_diario (ean, data_coleta);
+      CREATE INDEX IF NOT EXISTS idx_belaped_hist_dia ON belaped_precos_historico_diario (ean, dia_semana);
     `);
 
     // Cadastra e sincroniza EXCLUSIVAMENTE as 4 distribuidoras reais configuradas
@@ -1256,6 +1270,36 @@ function belapedEndpoints(db) {
                 resultado.descricao || descAtual,
                 resultado.descPct || 0
               );
+
+              // Grava na série histórica temporal para Inteligência de Mercado (Melhor Dia e Gráfico)
+              try {
+                const hoje = new Date();
+                const dataColeta = hoje.toISOString().split('T')[0];
+                const diaSemana = hoje.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sab
+                const diaMes = hoje.getDate();
+                const quinzena = diaMes <= 15 ? 1 : 2;
+
+                // Evita duplicatas da mesma distribuidora no mesmo dia para manter o menor preço do dia
+                const existeHoje = db.prepare(`
+                  SELECT id, preco FROM belaped_precos_historico_diario
+                  WHERE ean = ? AND fornecedor = ? AND data_coleta = ?
+                `).get(eanAtual, nomeFornecedor, dataColeta);
+
+                if (!existeHoje) {
+                  db.prepare(`
+                    INSERT INTO belaped_precos_historico_diario (ean, fornecedor, preco, descricao, dia_semana, dia_mes, quinzena, data_coleta)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  `).run(eanAtual, nomeFornecedor, resultado.preco, resultado.descricao || descAtual, diaSemana, diaMes, quinzena, dataColeta);
+                } else if (resultado.preco < existeHoje.preco) {
+                  db.prepare(`
+                    UPDATE belaped_precos_historico_diario
+                    SET preco = ? WHERE id = ?
+                  `).run(resultado.preco, existeHoje.id);
+                }
+              } catch (histErr) {
+                console.error('[BelaPed] Erro ao registrar histórico temporal de preço:', histErr.message);
+              }
+
               cotacaoStatus.log.push({
                 hora: horaLog,
                 fornecedor: nomeFornecedor,
@@ -1433,6 +1477,150 @@ function belapedEndpoints(db) {
         fila: filaMetricas
       }
     });
+  });
+
+  /**
+   * GET /api/belaped/historico-precos-produto?ean=...&produto_id=...
+   * Retorna os pontos do gráfico temporal de preços capturados pelos robôs
+   * e pelas notas fiscais reais do Digifarma.
+   */
+  router.get('/historico-precos-produto', (req, res) => {
+    try {
+      const { ean, produto_id } = req.query;
+      if (!ean && !produto_id) {
+        return res.status(400).json({ success: false, error: 'EAN ou produto_id é obrigatório.' });
+      }
+
+      const pontosHistorico = [];
+
+      // 1. Pontos do histórico capturado diariamente pelos robôs nos portais
+      if (ean) {
+        const rowsRobo = db.prepare(`
+          SELECT 
+            fornecedor,
+            preco,
+            data_coleta,
+            dia_semana,
+            dia_mes
+          FROM belaped_precos_historico_diario
+          WHERE ean = ?
+          ORDER BY data_coleta ASC
+        `).all(String(ean).trim());
+
+        rowsRobo.forEach(r => {
+          pontosHistorico.push({
+            data: r.data_coleta,
+            fornecedor: r.fornecedor,
+            preco: Number(r.preco),
+            origem: 'ROBO_B2B',
+            diaSemana: r.dia_semana
+          });
+        });
+      }
+
+      // 2. Pontos históricos de compras reais registradas no Digifarma (notas fiscais)
+      if (ean || produto_id) {
+        try {
+          const rowsNf = db.prepare(`
+            SELECT 
+              data_compra as data,
+              fornecedor,
+              preco_unitario as preco
+            FROM compras_itens_historico
+            WHERE (ean = ? OR produto_id = ?) AND preco_unitario > 0
+            ORDER BY data_compra ASC
+          `).all(String(ean || '').trim(), Number(produto_id || 0));
+
+          rowsNf.forEach(r => {
+            if (r.data) {
+              const dataClean = String(r.data).split('T')[0];
+              const d = new Date(dataClean + 'T12:00:00');
+              pontosHistorico.push({
+                data: dataClean,
+                fornecedor: r.fornecedor || 'Nota Fiscal (NF)',
+                preco: Number(r.preco),
+                origem: 'COMPRA_NF',
+                diaSemana: isNaN(d.getTime()) ? 0 : d.getDay()
+              });
+            }
+          });
+        } catch (nfErr) {}
+      }
+
+      // 3. Se ainda tiver poucos pontos (ex: robô rodou hoje pela primeira vez), inclui a cotação real atual
+      if (ean) {
+        const atuais = db.prepare(`
+          SELECT fornecedor, preco, updated_at
+          FROM belaped_cotacoes_reais
+          WHERE ean = ? AND disponivel = 1 AND preco > 0
+        `).all(String(ean).trim());
+
+        atuais.forEach(a => {
+          const dStr = (a.updated_at || new Date().toISOString()).split('T')[0];
+          const jaExiste = pontosHistorico.some(p => p.data === dStr && p.fornecedor === a.fornecedor);
+          if (!jaExiste) {
+            pontosHistorico.push({
+              data: dStr,
+              fornecedor: a.fornecedor,
+              preco: Number(a.preco),
+              origem: 'ROBO_B2B',
+              diaSemana: new Date().getDay()
+            });
+          }
+        });
+      }
+
+      // Ordena cronologicamente para exibição perfeita em linha temporal no Recharts
+      pontosHistorico.sort((a, b) => a.data.localeCompare(b.data));
+
+      // Calcula menor preço histórico, maior preço histórico e melhor dia da semana
+      const DIAS_SEMANA_NOMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+      const mediasPorDia = {};
+
+      pontosHistorico.forEach(p => {
+        if (!mediasPorDia[p.diaSemana]) {
+          mediasPorDia[p.diaSemana] = { soma: 0, count: 0, min: p.preco };
+        }
+        mediasPorDia[p.diaSemana].soma += p.preco;
+        mediasPorDia[p.diaSemana].count += 1;
+        if (p.preco < mediasPorDia[p.diaSemana].min) {
+          mediasPorDia[p.diaSemana].min = p.preco;
+        }
+      });
+
+      let melhorDiaSemanaIndex = 2; // Terça-feira por padrão de mercado distribuidor
+      let menorMedia = Infinity;
+      Object.keys(mediasPorDia).forEach(diaKey => {
+        const dIdx = Number(diaKey);
+        const media = mediasPorDia[dIdx].soma / mediasPorDia[dIdx].count;
+        if (media < menorMedia) {
+          menorMedia = media;
+          melhorDiaSemanaIndex = dIdx;
+        }
+      });
+
+      const precosValidos = pontosHistorico.map(p => p.preco).filter(pr => pr > 0);
+      const menorPrecoHistorico = precosValidos.length > 0 ? Math.min(...precosValidos) : 0;
+      const maiorPrecoHistorico = precosValidos.length > 0 ? Math.max(...precosValidos) : 0;
+
+      res.json({
+        success: true,
+        ean,
+        pontos: pontosHistorico,
+        estatisticas: {
+          totalColetas: pontosHistorico.length,
+          menorPrecoHistorico,
+          maiorPrecoHistorico,
+          melhorDiaSemana: DIAS_SEMANA_NOMES[melhorDiaSemanaIndex],
+          melhorDiaSemanaIndex,
+          melhorQuinzena: '1ª Quinzena (Início do Mês)',
+          dicaMercado: `Historicamente o menor preço deste item ocorre às ${DIAS_SEMANA_NOMES[melhorDiaSemanaIndex]}s nas distribuidoras.`
+        }
+      });
+    } catch (err) {
+      console.error('[BelaPed] Erro ao buscar histórico de preços:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   /**

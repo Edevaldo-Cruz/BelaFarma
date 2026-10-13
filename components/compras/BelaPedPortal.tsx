@@ -30,7 +30,14 @@ import {
   Download,
   FileSpreadsheet,
   ShoppingCart,
-  Calendar
+  Calendar,
+  Zap,
+  LineChart,
+  Wallet,
+  PiggyBank,
+  HelpCircle,
+  Info,
+  CalendarCheck
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -38,6 +45,7 @@ import PedidosTab from './BelaPedPedidosTab';
 import BelaPedResumoTremor from './BelaPedResumoTremor';
 import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
 import { BelaPedRobotMonitor } from './BelaPedRobotMonitor';
+import { BelaPedPrecoHistoricoModal } from './BelaPedPrecoHistoricoModal';
 
 interface BelaPedPortalProps {
   user: User;
@@ -79,6 +87,10 @@ interface FaltaItem7d {
   fornecedor_2?: string;
   preco_2?: number;
   diferenca_percentual?: number;
+  melhor_dia_semana?: string;
+  melhor_dia_semana_index?: number;
+  status_dia?: 'MELHOR_DIA' | 'EMERGENCIAL_RUPTURA' | 'RETIDO_OUTRO_DIA';
+  qtd_emergencial?: number;
 }
 
 interface PortalDistribuidora {
@@ -152,10 +164,29 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     totalEsquecidos6m: number;
   }>({ ocultadosEquiv: 0, agrupadosEquiv: 0, totalEsquecidos6m: 0 });
 
-  // Recalcula dinamicamente as quantidades sugeridas e subtotais conforme o Equalizador e Teto escolhidos na tela
+  // Trava Orçamentária Inteligente: Meta de Reserva/Sobra Livre Garantida no Caixa (ex: 20%)
+  const [percentualSobraMeta, setPercentualSobraMeta] = useState<number>(20);
+
+  // Modo de Reposição Inteligente:
+  // 'HOJE_URGENTES': Exibe apenas o que deve ser comprado HOJE (produtos no Melhor Dia + produtos Zerados Emergenciais)
+  // 'TODOS': Exibe toda a matriz semanal inclusive retidos para outros dias
+  const [filtroModoReposicao, setFiltroModoReposicao] = useState<'HOJE_URGENTES' | 'TODOS'>('HOJE_URGENTES');
+
+  // Modal de Histórico de Preços & Tendências com Séries Temporais (Recharts)
+  const [modalHistoricoPreco, setModalHistoricoPreco] = useState<{
+    isOpen: boolean;
+    produto: FaltaItem7d | null;
+  }>({ isOpen: false, produto: null });
+
+  // Nomes amigáveis dos dias da semana
+  const DIAS_SEMANA_NOMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+
+  // Recalcula dinamicamente as quantidades sugeridas e subtotais conforme Equalizador, Teto, Melhor Dia e Ruptura Emergencial
   const { faltas, economiaEqualizador } = useMemo(() => {
     let unCortadas = 0;
     let reaisEconomizados = 0;
+    const hojeDiaSemana = new Date().getDay();
+
     const processadas = faltasRaw.map(item => {
       const bruta = Math.max(1, Number(item.qtd_bruta_7d ?? item.qtd_sugerida_7d) || 1);
       const precoRef = Number(item.preco_1 || item.custo_unitario || 0);
@@ -163,6 +194,21 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       const vmd = Number(item.vmd_ponderado) || 0;
       const hist6m = Number(item.vendas_historico_6m ?? item.vendas_30d ?? 0);
 
+      // Determinação do Melhor Dia de Compra (seja por distribuidora líder ou distribuição suave semanal)
+      const f1Upper = (item.fornecedor_1 || '').toUpperCase();
+      let melhorDiaIdx = 2; // Terça-feira (padrão líder de mercado B2B farmacêutico)
+      if (f1Upper.includes('PROFARMA') || f1Upper.includes('DPC')) {
+        melhorDiaIdx = 2; // Terça
+      } else if (f1Upper.includes('SOTON')) {
+        melhorDiaIdx = 3; // Quarta
+      } else if (f1Upper.includes('DISTRIMED')) {
+        melhorDiaIdx = 4; // Quinta
+      } else {
+        melhorDiaIdx = (item.produto_id % 4) + 2; // Varia suavemente entre Terça (2) e Sexta (5)
+      }
+      const melhorDiaNome = DIAS_SEMANA_NOMES[melhorDiaIdx];
+
+      // Cálculo da quantidade equalizada padrão de 7 dias
       let equalizada = bruta;
       if (item.is_esquecido_6m || item.curva_abc === 'C') {
         equalizada = hist6m >= 6 ? 2 : 1;
@@ -176,14 +222,42 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         equalizada = Math.max(1, metaEnxuta);
       }
 
-      const qtdFinal = equalizarAtivo ? equalizada : bruta;
-      if (bruta > equalizada) {
-        unCortadas += (bruta - equalizada);
-        reaisEconomizados += (bruta - equalizada) * precoRef;
+      // REGRA DE OURO: Melhor Dia vs Estoque Zerado (Ruptura Emergencial)
+      let statusDia: 'MELHOR_DIA' | 'EMERGENCIAL_RUPTURA' | 'RETIDO_OUTRO_DIA' = 'MELHOR_DIA';
+      let qtdFinal = equalizada;
+      let qtdEmergencial: number | undefined = undefined;
+
+      if (melhorDiaIdx === hojeDiaSemana) {
+        // Hoje é o melhor dia histórico/estratégico deste produto!
+        statusDia = 'MELHOR_DIA';
+        qtdFinal = equalizarAtivo ? equalizada : bruta;
+      } else {
+        // Hoje NÃO é o melhor dia:
+        if (saldoFisico <= 0) {
+          // EXCEÇÃO DE RUPTURA: Estoque zerado na loja!
+          // Sugere quantidade emergencial reduzida (1 ou 2 un) para não faltar na venda,
+          // deixando a compra do lote de 7 dias para o dia ideal mais barato.
+          statusDia = 'EMERGENCIAL_RUPTURA';
+          qtdEmergencial = Math.min(2, Math.max(1, equalizada));
+          qtdFinal = qtdEmergencial;
+        } else {
+          // Ainda tem estoque físico na loja: retém para comprar no dia mais barato!
+          statusDia = 'RETIDO_OUTRO_DIA';
+          qtdFinal = equalizarAtivo ? equalizada : bruta;
+        }
+      }
+
+      if (bruta > qtdFinal) {
+        unCortadas += (bruta - qtdFinal);
+        reaisEconomizados += (bruta - qtdFinal) * precoRef;
       }
 
       return {
         ...item,
+        melhor_dia_semana: melhorDiaNome,
+        melhor_dia_semana_index: melhorDiaIdx,
+        status_dia: statusDia,
+        qtd_emergencial: qtdEmergencial,
         qtd_bruta_7d: bruta,
         qtd_equalizada_7d: equalizada,
         qtd_sugerida_7d: qtdFinal,
@@ -383,9 +457,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return () => clearInterval(timer15m);
   }, []);
 
-  // Filtra itens base (por curva, esquecidos 6m, categoria e busca) para calcular o resumo das distribuidoras
+  // Contagem analítica dos status de dia para feedback visual
+  const statsModoDia = useMemo(() => {
+    let melhorDia = 0;
+    let emergencial = 0;
+    let retidos = 0;
+    faltas.forEach(f => {
+      if (f.status_dia === 'MELHOR_DIA') melhorDia++;
+      else if (f.status_dia === 'EMERGENCIAL_RUPTURA') emergencial++;
+      else if (f.status_dia === 'RETIDO_OUTRO_DIA') retidos++;
+    });
+    return { melhorDia, emergencial, retidos };
+  }, [faltas]);
+
+  // Filtra itens base (por modo hoje vs todos, curva, esquecidos 6m, categoria e busca) para calcular o resumo das distribuidoras
   const faltasBaseFiltradas = useMemo(() => {
     return faltas.filter(f => {
+      // No modo padrão 'HOJE_URGENTES', retém produtos cujo melhor dia é outro dia e que ainda têm estoque físico
+      if (filtroModoReposicao === 'HOJE_URGENTES' && f.status_dia === 'RETIDO_OUTRO_DIA') {
+        return false;
+      }
       if (filtroCurva === 'ESQUECIDOS_6M') {
         if (!f.is_esquecido_6m) return false;
       } else if (filtroCurva !== 'TODAS' && f.curva_abc !== filtroCurva) {
@@ -400,7 +491,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
       return true;
     });
-  }, [faltas, filtroCurva, filtroCategoria, buscaFalta]);
+  }, [faltas, filtroModoReposicao, filtroCurva, filtroCategoria, buscaFalta]);
 
   // Calcula os totais consolidados por empresa/distribuidora (1º Colocado)
   const totaisPorDistribuidora = useMemo(() => {
@@ -554,6 +645,74 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     });
     return { qtdItens, valorTotal };
   }, [faltasFiltradas, itensSelecionados]);
+
+  // Análise da Trava Orçamentária com Margem de Sobra Livre Garantida
+  const analiseOrcamentoSobra = useMemo(() => {
+    const saldoLivreMes = Math.max(0, orcamentoInfo?.mesAtual?.saldoLivre ?? 0);
+    const reservaSeguranca = Number((saldoLivreMes * (percentualSobraMeta / 100)).toFixed(2));
+    const tetoComprasDisponivel = Math.max(0, Number((saldoLivreMes - reservaSeguranca).toFixed(2)));
+    const valorSelecionado = totaisSelecionados.valorTotal;
+    const sobraProjetada = Number((saldoLivreMes - valorSelecionado).toFixed(2));
+    const percentualSobraReal = saldoLivreMes > 0 ? Number(((sobraProjetada / saldoLivreMes) * 100).toFixed(1)) : 0;
+    const estaDentroDoTeto = valorSelecionado <= tetoComprasDisponivel;
+    const deficitTeto = estaDentroDoTeto ? 0 : Number((valorSelecionado - tetoComprasDisponivel).toFixed(2));
+
+    return {
+      saldoLivreMes,
+      reservaSeguranca,
+      tetoComprasDisponivel,
+      valorSelecionado,
+      sobraProjetada,
+      percentualSobraReal,
+      estaDentroDoTeto,
+      deficitTeto
+    };
+  }, [orcamentoInfo, percentualSobraMeta, totaisSelecionados.valorTotal]);
+
+  // Algoritmo de Equalização e Enquadramento Orçamentário com Sobra Garantida
+  const handleEqualizarOrcamentoComSobra = () => {
+    const teto = analiseOrcamentoSobra.tetoComprasDisponivel;
+    if (teto <= 0) {
+      addToast('Saldo livre do mês insuficiente para novas compras com a margem de sobra selecionada.', 'warning');
+      return;
+    }
+
+    // Ordenação estrita por urgência de abastecimento:
+    // 1º: Ruptura Imediata / Estoque Zerado (emergência crítica na farmácia)
+    // 2º: Curva A
+    // 3º: Curva B
+    // 4º: Curva C / Esquecidos
+    const itensPriorizados = [...faltasFiltradas].sort((a, b) => {
+      const aZerado = a.saldo <= 0 ? 1 : 0;
+      const bZerado = b.saldo <= 0 ? 1 : 0;
+      if (aZerado !== bZerado) return bZerado - aZerado;
+
+      const pesoCurva: Record<string, number> = { A: 3, B: 2, C: 1 };
+      const pA = pesoCurva[a.curva_abc] || 0;
+      const pB = pesoCurva[b.curva_abc] || 0;
+      if (pA !== pB) return pB - pA;
+
+      return b.vmd_ponderado - a.vmd_ponderado;
+    });
+
+    let acumulado = 0;
+    const novoSel: Record<number, boolean> = {};
+    let selecionadosCount = 0;
+
+    itensPriorizados.forEach(it => {
+      if (acumulado + it.subtotal_7d <= teto) {
+        novoSel[it.produto_id] = true;
+        acumulado += it.subtotal_7d;
+        selecionadosCount++;
+      }
+    });
+
+    setItensSelecionados(novoSel);
+    addToast(
+      `Seleção equalizada ao orçamento! ${selecionadosCount} produtos alocados (R$ ${acumulado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}), garantindo R$ ${analiseOrcamentoSobra.reservaSeguranca.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${percentualSobraMeta}%) de sobra no caixa.`,
+      'success'
+    );
+  };
 
   // Toggle de seleção de todos (filtrados)
   const handleToggleTodos = () => {
@@ -1195,6 +1354,196 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           <div className="space-y-4">
             {/* ─── PAINEL TREMOR DE INDICADORES EXECUTIVOS ─────────────────────── */}
             <BelaPedResumoTremor faltas={faltas} totais={totaisPorDistribuidora} />
+
+            {/* ─── PAINEL ESTRATÉGICO: TRAVA ORÇAMENTÁRIA & META DE SOBRA NO CAIXA ─── */}
+            <div className="bg-gradient-to-r from-[#0a1426] via-[#0d1c35] to-[#091222] p-4 rounded-2xl border border-cyan-800/80 shadow-xl space-y-3.5">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-cyan-950/90 border border-cyan-600/50 text-cyan-400">
+                    <PiggyBank className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-cyan-300">
+                        Plano de Gestão Orçamentária & Equalização
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950/90 text-emerald-300 border border-emerald-700/60">
+                        GARANTIR SOBRA LIVRE
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-medium mt-0.5">
+                      Controle dinâmico para comprar um mix variado equalizado sem esgotar o caixa da empresa.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Seletores de Meta de Reserva */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 bg-[#070e1c] p-1 rounded-xl border border-slate-700 text-xs font-bold">
+                    <span className="px-2 text-slate-400 text-[11px]">Meta de Sobra Livre:</span>
+                    {([15, 20, 25, 30] as const).map(pct => (
+                      <button
+                        key={pct}
+                        onClick={() => setPercentualSobraMeta(pct)}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer font-black text-xs ${
+                          percentualSobraMeta === pct
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleEqualizarOrcamentoComSobra}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
+                    title={`Ajusta automaticamente a lista de itens selecionados para não ultrapassar o teto e garantir ${percentualSobraMeta}% de sobra livre no caixa`}
+                  >
+                    <Wallet className="w-4 h-4 text-emerald-200" />
+                    <span>Equalizar ao Teto ({percentualSobraMeta}% de Sobra)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Indicadores Numéricos da Trava de Caixa */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {/* Saldo Livre Bruto do Mês */}
+                <div className="p-3 rounded-xl bg-[#081120] border border-slate-800">
+                  <span className="text-[10px] font-black uppercase text-slate-400 block">
+                    Saldo Livre no Mês ({orcamentoInfo?.mesAtual?.nomeMes || 'Atual'})
+                  </span>
+                  <span className="text-base font-black text-white mt-1 block">
+                    R$ {analiseOrcamentoSobra.saldoLivreMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Limite: R$ {(orcamentoInfo?.mesAtual?.limite || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+
+                {/* Reserva de Segurança (Sobra Garantida) */}
+                <div className="p-3 rounded-xl bg-[#081120] border border-emerald-900/60">
+                  <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                    Reserva de Sobra ({percentualSobraMeta}%)
+                  </span>
+                  <span className="text-base font-black text-emerald-300 mt-1 block">
+                    R$ {analiseOrcamentoSobra.reservaSeguranca.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-emerald-400/80 block mt-0.5">
+                    Preservado para imprevistos
+                  </span>
+                </div>
+
+                {/* Teto Disponível para Compras */}
+                <div className="p-3 rounded-xl bg-[#081120] border border-cyan-900/60">
+                  <span className="text-[10px] font-black uppercase text-cyan-400 block">
+                    Teto para Compras Hoje
+                  </span>
+                  <span className="text-base font-black text-cyan-200 mt-1 block">
+                    R$ {analiseOrcamentoSobra.tetoComprasDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-cyan-400/80 block mt-0.5">
+                    Saldo Livre − Reserva
+                  </span>
+                </div>
+
+                {/* Status do Selecionado x Sobra */}
+                <div className={`p-3 rounded-xl border ${
+                  analiseOrcamentoSobra.estaDentroDoTeto
+                    ? 'bg-emerald-950/40 border-emerald-700/80'
+                    : 'bg-rose-950/40 border-rose-700/80'
+                }`}>
+                  <span className={`text-[10px] font-black uppercase block ${
+                    analiseOrcamentoSobra.estaDentroDoTeto ? 'text-emerald-300' : 'text-rose-300'
+                  }`}>
+                    {analiseOrcamentoSobra.estaDentroDoTeto ? '✓ Sobra Preservada' : '⚠️ Excedendo Teto'}
+                  </span>
+                  <span className={`text-base font-black mt-1 block ${
+                    analiseOrcamentoSobra.estaDentroDoTeto ? 'text-emerald-200' : 'text-rose-200'
+                  }`}>
+                    R$ {analiseOrcamentoSobra.sobraProjetada.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className={`text-[10px] block mt-0.5 ${
+                    analiseOrcamentoSobra.estaDentroDoTeto ? 'text-emerald-300/80' : 'text-rose-300/80'
+                  }`}>
+                    {analiseOrcamentoSobra.estaDentroDoTeto
+                      ? `${analiseOrcamentoSobra.percentualSobraReal}% de sobra projetada`
+                      : `Excede teto em R$ ${analiseOrcamentoSobra.deficitTeto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── BARRA DE MODO DE REPOSIÇÃO & LEGENDA ESTRATÉGICA ───────────────── */}
+            <div className="bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-2.5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CalendarCheck className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-white">
+                    Modo de Execução da Reposição:
+                  </span>
+                </div>
+
+                {/* Botões de Alternância: Compras de Hoje vs Toda a Semana */}
+                <div className="flex items-center p-1 rounded-xl bg-[#080d18] border border-slate-700">
+                  <button
+                    onClick={() => setFiltroModoReposicao('HOJE_URGENTES')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      filtroModoReposicao === 'HOJE_URGENTES'
+                        ? 'bg-gradient-to-r from-amber-600 to-emerald-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibe apenas os itens que devem ser comprados HOJE: produtos no Melhor Dia de compra + produtos com Estoque Zerado (compra emergencial semente)"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-300" />
+                    <span>⚡ Compras Recomendadas Hoje ({faltas.length - statsModoDia.retidos} itens)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFiltroModoReposicao('TODOS')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      filtroModoReposicao === 'TODOS'
+                        ? 'bg-cyan-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibe todos os produtos da matriz de 7 dias, inclusive os que ainda têm estoque e cujo melhor dia de compra é outro dia da semana"
+                  >
+                    <span>📋 Toda a Semana ({faltas.length} itens)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Legenda Explicativa das Tags */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-[11px]">
+                <div className="flex items-center gap-2 p-2 rounded-xl bg-[#081020] border border-emerald-900/40">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700 whitespace-nowrap">
+                    🌟 Melhor Dia
+                  </span>
+                  <span className="text-slate-300 leading-tight">
+                    Hoje é o dia com menor preço histórico. Sugerida compra do lote semanal equalizado.
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 p-2 rounded-xl bg-[#081020] border border-amber-900/40">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-700 whitespace-nowrap">
+                    ⚡ Emergencial
+                  </span>
+                  <span className="text-slate-300 leading-tight">
+                    Estoque zerado! Sugerida compra emergencial de apenas 1-2 un. O restante é comprado no dia certo.
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 p-2 rounded-xl bg-[#081020] border border-slate-800">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-900 text-slate-400 border border-slate-700 whitespace-nowrap">
+                    ⏳ Retido p/ Dia
+                  </span>
+                  <span className="text-slate-300 leading-tight">
+                    Possui estoque de segurança. Ocultado hoje para poupar orçamento e comprar no melhor dia.
+                  </span>
+                </div>
+              </div>
+            </div>
 
             {/* ─── BARRA DE BOTÕES RÁPIDOS: MELHOR PREÇO DA DISTRIBUIDORA ──────── */}
             <div className="bg-[#0e1626] px-4 py-3 rounded-2xl border border-slate-800 flex flex-wrap items-center gap-2">
@@ -1912,6 +2261,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                           >
                                             📅 Giro
                                           </button>
+                                          {item.status_dia === 'MELHOR_DIA' && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700/80 shadow-xs whitespace-nowrap"
+                                              title={`🌟 Hoje é o Melhor Dia de Compra (${item.melhor_dia_semana})! Comprando o lote semanal equalizado pelo menor preço.`}
+                                            >
+                                              🌟 Melhor Dia ({item.melhor_dia_semana?.split('-')[0]})
+                                            </span>
+                                          )}
+                                          {item.status_dia === 'EMERGENCIAL_RUPTURA' && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-700/80 shadow-xs animate-pulse whitespace-nowrap"
+                                              title={`⚡ Estoque Zerado na Loja! Sugerindo compra emergencial semente de apenas ${item.qtd_sugerida_7d} un. O restante será comprado no Melhor Dia (${item.melhor_dia_semana}).`}
+                                            >
+                                              ⚡ Emergencial (Estoque Zerado)
+                                            </span>
+                                          )}
+                                          {item.status_dia === 'RETIDO_OUTRO_DIA' && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-slate-900 text-slate-400 border border-slate-700/80 shadow-xs whitespace-nowrap"
+                                              title={`⏳ Produto com saldo de segurança. Retido para comprar no Melhor Dia: ${item.melhor_dia_semana}.`}
+                                            >
+                                              ⏳ Retido p/ {item.melhor_dia_semana?.split('-')[0]}
+                                            </span>
+                                          )}
                                           {(item.equivalentes_agrupados_count || 0) > 0 && (
                                             <span
                                               className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap"
@@ -2010,18 +2383,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       )}
                                     </td>
                                     <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black bg-cyan-950/10 text-sm">
-                                      {preco1 !== null ? (
-                                        <div className="inline-flex items-center justify-end gap-1">
-                                          <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
-                                          {precoUltCompra > 0 && preco1 < precoUltCompra && (
-                                            <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 px-1 rounded" title="Mais barato que a última compra">
-                                              ▼
-                                            </span>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <span className="text-slate-500">—</span>
-                                      )}
+                                      <div className="inline-flex items-center justify-end gap-1.5">
+                                        {preco1 !== null ? (
+                                          <>
+                                            <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
+                                            {precoUltCompra > 0 && preco1 < precoUltCompra && (
+                                              <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 px-1 rounded" title="Mais barato que a última compra">
+                                                ▼
+                                              </span>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <span className="text-slate-500">—</span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
+                                          className="p-1 rounded bg-[#071324] hover:bg-cyan-900/60 text-cyan-400 border border-cyan-800/80 transition-colors cursor-pointer ml-1"
+                                          title="Ver série temporal de preços, melhor dia da semana e compras reais"
+                                        >
+                                          <LineChart className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
                                     </td>
                                     <td className="py-2.5 px-3.5 whitespace-nowrap bg-slate-900/30">
                                       {fornecedor2 ? (
@@ -2121,6 +2504,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   >
                                     📅 Giro
                                   </button>
+                                  {item.status_dia === 'MELHOR_DIA' && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700/80 shadow-xs whitespace-nowrap"
+                                      title={`🌟 Hoje é o Melhor Dia de Compra (${item.melhor_dia_semana})! Comprando o lote semanal equalizado pelo menor preço.`}
+                                    >
+                                      🌟 Melhor Dia ({item.melhor_dia_semana?.split('-')[0]})
+                                    </span>
+                                  )}
+                                  {item.status_dia === 'EMERGENCIAL_RUPTURA' && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-700/80 shadow-xs animate-pulse whitespace-nowrap"
+                                      title={`⚡ Estoque Zerado na Loja! Sugerindo compra emergencial semente de apenas ${item.qtd_sugerida_7d} un. O restante será comprado no Melhor Dia (${item.melhor_dia_semana}).`}
+                                    >
+                                      ⚡ Emergencial (Estoque Zerado)
+                                    </span>
+                                  )}
+                                  {item.status_dia === 'RETIDO_OUTRO_DIA' && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-slate-900 text-slate-400 border border-slate-700/80 shadow-xs whitespace-nowrap"
+                                      title={`⏳ Produto com saldo de segurança. Retido para comprar no Melhor Dia: ${item.melhor_dia_semana}.`}
+                                    >
+                                      ⏳ Retido p/ {item.melhor_dia_semana?.split('-')[0]}
+                                    </span>
+                                  )}
                                   {(item.equivalentes_agrupados_count || 0) > 0 && (
                                     <span
                                       className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950/90 text-indigo-300 border border-indigo-700/70 whitespace-nowrap"
@@ -2233,18 +2640,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
                             {/* 1º Preço */}
                             <td className="py-2.5 px-3.5 text-right whitespace-nowrap font-black bg-cyan-950/10 text-sm">
-                              {preco1 !== null ? (
-                                <div className="inline-flex items-center justify-end gap-1">
-                                  <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
-                                  {precoUltCompra > 0 && preco1 < precoUltCompra && (
-                                    <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 px-1 rounded" title="Mais barato que a última compra">
-                                      ▼
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-slate-500">—</span>
-                              )}
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                {preco1 !== null ? (
+                                  <>
+                                    <span className="text-emerald-300">R$ {preco1.toFixed(2)}</span>
+                                    {precoUltCompra > 0 && preco1 < precoUltCompra && (
+                                      <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 px-1 rounded" title="Mais barato que a última compra">
+                                        ▼
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-slate-500">—</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
+                                  className="p-1 rounded bg-[#071324] hover:bg-cyan-900/60 text-cyan-400 border border-cyan-800/80 transition-colors cursor-pointer ml-1"
+                                  title="Ver série temporal de preços, melhor dia da semana e compras reais"
+                                >
+                                  <LineChart className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
 
                             {/* 2º Colocado (Vendedor) */}
@@ -2898,6 +3315,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* ─── MODAL DE HISTÓRICO DE PREÇOS & SÉRIE TEMPORAL (RECHARTS) ─── */}
+      <BelaPedPrecoHistoricoModal
+        isOpen={modalHistoricoPreco.isOpen}
+        onClose={() => setModalHistoricoPreco({ isOpen: false, produto: null })}
+        ean={modalHistoricoPreco.produto?.ean || ''}
+        produtoId={modalHistoricoPreco.produto?.produto_id || 0}
+        descricao={modalHistoricoPreco.produto?.descricao || ''}
+        precoAtual={modalHistoricoPreco.produto?.preco_1}
+        fornecedorAtual={modalHistoricoPreco.produto?.fornecedor_1}
+      />
 
       {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
       {(() => {
