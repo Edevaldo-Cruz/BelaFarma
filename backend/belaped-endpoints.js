@@ -795,18 +795,86 @@ function belapedEndpoints(db) {
           statusOrcamento = 'ALERTA';
         }
 
+        // 3. Divisão do mês em semanas do calendário e cálculo do limite semanal de gasto
+        const totalDiasNoMes = new Date(anoNum, mesNum, 0).getDate();
+        const definicoesSemanas = [
+          { numero: 1, inicio: 1, fim: 7 },
+          { numero: 2, inicio: 8, fim: 14 },
+          { numero: 3, inicio: 15, fim: 21 },
+          { numero: 4, inicio: 22, fim: 28 }
+        ];
+        if (totalDiasNoMes > 28) {
+          definicoesSemanas.push({ numero: 5, inicio: 29, fim: totalDiasNoMes });
+        }
+
+        const qtdSemanas = definicoesSemanas.length;
+        const limiteSemanalPadrao = Number((limiteConfigurado / qtdSemanas).toFixed(2));
+
+        const semanas = definicoesSemanas.map(def => {
+          const boletosSemana = boletosDoMes.filter(b => {
+            const rawDue = String(b.due_date || b.dueDate || '').split('T')[0];
+            const parts = rawDue.split('-');
+            const diaVenc = Number(parts[2]) || 0;
+            return diaVenc >= def.inicio && diaVenc <= def.fim;
+          });
+
+          const compSemana = boletosSemana.reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+          const pagoSemana = boletosSemana
+            .filter(b => String(b.status || '').toLowerCase() === 'pago')
+            .reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+          const pendSemana = boletosSemana
+            .filter(b => String(b.status || '').toLowerCase() !== 'pago')
+            .reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+          const saldoSemana = limiteSemanalPadrao - compSemana;
+          const pctSemana = limiteSemanalPadrao > 0 ? Number(((compSemana / limiteSemanalPadrao) * 100).toFixed(1)) : 0;
+
+          let statusSemana = 'LIBERADO';
+          if (saldoSemana < 0 || pctSemana > 100) {
+            statusSemana = 'ESTOURADO';
+          } else if (pctSemana >= 80) {
+            statusSemana = 'ALERTA';
+          }
+
+          const isSemanaAtual = (anoNum === anoAtual && mesNum === mesAtual && diaHoje >= def.inicio && diaHoje <= def.fim);
+          const dataIniStr = `${String(def.inicio).padStart(2, '0')}/${mesStr}`;
+          const dataFimStr = `${String(def.fim).padStart(2, '0')}/${mesStr}`;
+
+          return {
+            numero: def.numero,
+            nome: `Semana ${def.numero}`,
+            periodo: `${dataIniStr} a ${dataFimStr}`,
+            diaInicio: def.inicio,
+            diaFim: def.fim,
+            limiteSemanal: limiteSemanalPadrao,
+            totalComprometido: Number(compSemana.toFixed(2)),
+            totalPago: Number(pagoSemana.toFixed(2)),
+            totalPendente: Number(pendSemana.toFixed(2)),
+            saldoLivreSemana: Number(saldoSemana.toFixed(2)),
+            percentualComprometido: pctSemana,
+            statusSemana,
+            isSemanaAtual,
+            qtdBoletos: boletosSemana.length
+          };
+        });
+
+        const semanaAtualVigente = semanas.find(s => s.isSemanaAtual) || semanas[0];
+
         return {
           mes: mesNum,
           ano: anoNum,
           nomeMes: new Date(anoNum, mesNum - 1, 1).toLocaleString('pt-BR', { month: 'long' }),
           limite: Number(limiteConfigurado.toFixed(2)),
+          limiteSemanalPadrao,
+          qtdSemanas,
           totalComprometido: Number(totalBoletos.toFixed(2)),
           totalPago: Number(totalPago.toFixed(2)),
           totalPendente: Number(totalPendente.toFixed(2)),
           saldoLivre: Number(saldoLivre.toFixed(2)),
           percentualComprometido,
           statusOrcamento,
-          qtdBoletos: boletosDoMes.length
+          qtdBoletos: boletosDoMes.length,
+          semanas,
+          semanaAtual: semanaAtualVigente
         };
       };
 
@@ -818,6 +886,12 @@ function belapedEndpoints(db) {
       const mesSeguinte = proximoMes === 12 ? 1 : proximoMes + 1;
       const mesSeguinteAno = proximoMes === 12 ? proximoAno + 1 : proximoAno;
       const mes2 = calcularMes(mesSeguinte, mesSeguinteAno);
+
+      // Calcula o cronograma semanal de todos os 12 meses do ano para consulta completa
+      const todosMesesAno = [];
+      for (let m = 1; m <= 12; m++) {
+        todosMesesAno.push(calcularMes(m, anoAtual));
+      }
 
       // Dias restantes no mês atual
       const ultimoDiaMes = new Date(anoAtual, mesAtual, 0).getDate();
@@ -845,6 +919,7 @@ function belapedEndpoints(db) {
 
       res.json({
         success: true,
+        ano: anoAtual,
         regraMaster: {
           bloquearVencimentosMesAtual: mes0.statusOrcamento === 'ESTOURADO',
           prazoMinimoRecomendadoDias: recomendacaoPrazoMinimo,
@@ -852,7 +927,9 @@ function belapedEndpoints(db) {
         },
         mesAtual: mes0,
         proximoMes: mes1,
-        mesSeguinte: mes2
+        mesSeguinte: mes2,
+        semanaAtual: mes0.semanaAtual,
+        todosMesesAno
       });
     } catch (err) {
       console.error('[BelaPed] Erro em orcamento-boletos:', err.message);

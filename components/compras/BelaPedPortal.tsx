@@ -46,6 +46,7 @@ import BelaPedResumoTremor from './BelaPedResumoTremor';
 import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
 import { BelaPedRobotMonitor } from './BelaPedRobotMonitor';
 import { BelaPedPrecoHistoricoModal } from './BelaPedPrecoHistoricoModal';
+import { BelaPedOrcamentoSemanalModal } from './BelaPedOrcamentoSemanalModal';
 
 interface BelaPedPortalProps {
   user: User;
@@ -111,6 +112,8 @@ interface MesOrcamento {
   ano: number;
   nomeMes: string;
   limite: number;
+  limiteSemanalPadrao?: number;
+  qtdSemanas?: number;
   totalComprometido: number;
   totalPago?: number;
   totalPendente?: number;
@@ -118,6 +121,8 @@ interface MesOrcamento {
   percentualComprometido: number;
   statusOrcamento: 'LIBERADO' | 'ALERTA' | 'ESTOURADO';
   qtdBoletos: number;
+  semanas?: any[];
+  semanaAtual?: any;
 }
 
 export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
@@ -145,7 +150,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     mesAtual: MesOrcamento | null;
     proximoMes: MesOrcamento | null;
     mesSeguinte: MesOrcamento | null;
+    semanaAtual?: any;
+    todosMesesAno?: MesOrcamento[];
+    ano?: number;
   } | null>(null);
+
+  // Modal de Consulta do Limite Semanal de Gastos
+  const [orcamentoSemanalModalOpen, setOrcamentoSemanalModalOpen] = useState(false);
+
+  // Controle de Transição Dinâmica: Lista de Urgência -> Lista de Compras Regulares
+  const [modoListaManual, setModoListaManual] = useState<'AUTO' | 'URGENCIA' | 'COMPRAS_REGULARES'>('AUTO');
 
   // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
@@ -457,6 +471,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return () => clearInterval(timer15m);
   }, []);
 
+  // Contagem analítica de urgências críticas (estoque físico zerado ou cobertura zerada)
+  const totalUrgenciasCriticas = useMemo(() => {
+    return faltas.filter(f => f.saldo <= 0 || f.dias_estoque_restante <= 0).length;
+  }, [faltas]);
+
+  // Transição Inteligente: Quando não houver mais urgências críticas (0 itens zerados), a lista vira Lista de Compras Regulares
+  const isModoComprasRegulares = useMemo(() => {
+    if (modoListaManual === 'COMPRAS_REGULARES') return true;
+    if (modoListaManual === 'URGENCIA') return false;
+    return totalUrgenciasCriticas === 0;
+  }, [modoListaManual, totalUrgenciasCriticas]);
+
   // Contagem analítica dos status de dia para feedback visual
   const statsModoDia = useMemo(() => {
     let melhorDia = 0;
@@ -470,9 +496,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return { melhorDia, emergencial, retidos };
   }, [faltas]);
 
-  // Filtra itens base (por modo hoje vs todos, curva, esquecidos 6m, categoria e busca) para calcular o resumo das distribuidoras
+  // Filtra itens base (por modo urgência vs compras regulares, modo hoje vs todos, curva, esquecidos 6m, categoria e busca)
   const faltasBaseFiltradas = useMemo(() => {
     return faltas.filter(f => {
+      // Se estiver forçado no modo de urgência estrita, exibe apenas os produtos que têm urgência real (saldo <= 0 ou dias <= 0)
+      if (modoListaManual === 'URGENCIA' && f.saldo > 0 && f.dias_estoque_restante > 0) {
+        return false;
+      }
+
       // No modo padrão 'HOJE_URGENTES', retém produtos cujo melhor dia é outro dia e que ainda têm estoque físico
       if (filtroModoReposicao === 'HOJE_URGENTES' && f.status_dia === 'RETIDO_OUTRO_DIA') {
         return false;
@@ -491,7 +522,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
       return true;
     });
-  }, [faltas, filtroModoReposicao, filtroCurva, filtroCategoria, buscaFalta]);
+  }, [faltas, modoListaManual, filtroModoReposicao, filtroCurva, filtroCategoria, buscaFalta]);
 
   // Calcula os totais consolidados por empresa/distribuidora (1º Colocado)
   const totaisPorDistribuidora = useMemo(() => {
@@ -1404,11 +1435,21 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <Wallet className="w-4 h-4 text-emerald-200" />
                     <span>Equalizar ao Teto ({percentualSobraMeta}% de Sobra)</span>
                   </button>
+
+                  {/* BOTÃO PARA CONSULTA DO LIMITE SEMANAL DE TODOS OS MESES */}
+                  <button
+                    onClick={() => setOrcamentoSemanalModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-700 to-blue-700 hover:from-cyan-600 hover:to-blue-600 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
+                    title="Consultar divisão do orçamento por semanas em todos os meses do ano"
+                  >
+                    <CalendarCheck className="w-4 h-4 text-cyan-200" />
+                    <span>Consultar Limites Semanais (12 Meses)</span>
+                  </button>
                 </div>
               </div>
 
-              {/* Indicadores Numéricos da Trava de Caixa */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              {/* Indicadores Numéricos da Trava de Caixa + Limite Semanal da Semana Vigente */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                 {/* Saldo Livre Bruto do Mês */}
                 <div className="p-3 rounded-xl bg-[#081120] border border-slate-800">
                   <span className="text-[10px] font-black uppercase text-slate-400 block">
@@ -1419,6 +1460,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">
                     Limite: R$ {(orcamentoInfo?.mesAtual?.limite || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+
+                {/* Limite Semanal Vigente (Semana Atual) */}
+                <div className="p-3 rounded-xl bg-[#081120] border border-cyan-800/80 shadow-inner">
+                  <span className="text-[10px] font-black uppercase text-cyan-400 block flex items-center justify-between">
+                    <span>Semana Vigente</span>
+                    <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 text-[9px] font-black">
+                      {orcamentoInfo?.semanaAtual?.nome || 'Semana 1'}
+                    </span>
+                  </span>
+                  <span className="text-base font-black text-cyan-200 mt-1 block">
+                    R$ {(orcamentoInfo?.semanaAtual?.limiteSemanal || analiseOrcamentoSobra.saldoLivreMes / 4).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate" title={`Período: ${orcamentoInfo?.semanaAtual?.periodo || 'Atual'} • Gasto: R$ ${(orcamentoInfo?.semanaAtual?.totalComprometido || 0).toFixed(0)}`}>
+                    Gasto: R$ {(orcamentoInfo?.semanaAtual?.totalComprometido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })} • Saldo: R$ {(orcamentoInfo?.semanaAtual?.saldoLivreSemana || 0).toFixed(0)}
                   </span>
                 </div>
 
@@ -1471,6 +1528,95 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       ? `${analiseOrcamentoSobra.percentualSobraReal}% de sobra projetada`
                       : `Excede teto em R$ ${analiseOrcamentoSobra.deficitTeto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
                   </span>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── BANNER DINÂMICO: LISTA DE URGÊNCIA ➔ LISTA DE COMPRAS REGULARES ─── */}
+            <div className={`p-4 rounded-2xl border transition-all ${
+              isModoComprasRegulares
+                ? 'bg-gradient-to-r from-emerald-950/70 via-[#0a221b] to-[#071713] border-emerald-600/80 shadow-lg ring-1 ring-emerald-500/20'
+                : 'bg-gradient-to-r from-amber-950/70 via-[#26150a] to-[#1a0e07] border-amber-600/80 shadow-lg ring-1 ring-amber-500/20'
+            }`}>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className={`p-2.5 rounded-xl border mt-0.5 shrink-0 ${
+                    isModoComprasRegulares
+                      ? 'bg-emerald-900/60 border-emerald-500 text-emerald-300'
+                      : 'bg-amber-900/60 border-amber-500 text-amber-300 animate-pulse'
+                  }`}>
+                    {isModoComprasRegulares ? (
+                      <CheckCircle2 className="w-5 h-5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                        isModoComprasRegulares
+                          ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                          : 'bg-amber-950 text-amber-300 border-amber-700'
+                      }`}>
+                        {isModoComprasRegulares
+                          ? '✓ MODO ATIVO: LISTA DE COMPRAS REGULARES'
+                          : '🚨 MODO ATIVO: LISTA DE REPOSIÇÃO URGENTE'}
+                      </span>
+                      <span className="text-[11px] text-slate-300">
+                        {isModoComprasRegulares
+                          ? 'Zero Rupturas Críticas Pendentes na Loja'
+                          : `${totalUrgenciasCriticas} produto(s) com estoque zerado no balcão`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-200 font-medium mt-1 leading-relaxed">
+                      {isModoComprasRegulares ? (
+                        <>
+                          <b>Excelente!</b> Todas as faltas emergenciais foram supridas. A lista converteu-se automaticamente em <b>Lista de Compras Regulares</b> com sugestões preventivas de 7 a 10 dias para abastecer o mix pelo menor preço nos portais.
+                        </>
+                      ) : (
+                        <>
+                          <b>Atenção:</b> Itens com estoque zerado no balcão demandam reposição de emergência imediata. Assim que os itens urgentes forem comprados ou repostos, esta tela transiciona automaticamente para a Lista de Compras Regulares.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Seletores Manuais de Modo de Lista (Auto / Urgência / Compras Regulares) */}
+                <div className="flex items-center p-1 rounded-xl bg-[#060d18] border border-slate-700 shrink-0">
+                  <button
+                    onClick={() => setModoListaManual('AUTO')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      modoListaManual === 'AUTO'
+                        ? 'bg-cyan-600 text-white font-black shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Alterna automaticamente para Lista de Compras Regulares quando não houver produtos zerados"
+                  >
+                    Automático
+                  </button>
+                  <button
+                    onClick={() => setModoListaManual('URGENCIA')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      modoListaManual === 'URGENCIA'
+                        ? 'bg-amber-600 text-white font-black shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Filtrar estritamente produtos com estoque zerado de ruptura"
+                  >
+                    🚨 Urgência ({totalUrgenciasCriticas})
+                  </button>
+                  <button
+                    onClick={() => setModoListaManual('COMPRAS_REGULARES')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      modoListaManual === 'COMPRAS_REGULARES'
+                        ? 'bg-emerald-600 text-white font-black shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibir toda a lista de compras regulares preventivas"
+                  >
+                    🛒 Compras ({faltas.length})
+                  </button>
                 </div>
               </div>
             </div>
@@ -3325,6 +3471,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         descricao={modalHistoricoPreco.produto?.descricao || ''}
         precoAtual={modalHistoricoPreco.produto?.preco_1}
         fornecedorAtual={modalHistoricoPreco.produto?.fornecedor_1}
+      />
+
+      {/* ─── MODAL DE CONSULTA DE LIMITES SEMANAIS DO ORÇAMENTO (TODOS OS MESES) ─── */}
+      <BelaPedOrcamentoSemanalModal
+        isOpen={orcamentoSemanalModalOpen}
+        onClose={() => setOrcamentoSemanalModalOpen(false)}
+        todosMesesAno={orcamentoInfo?.todosMesesAno || []}
+        mesAtualNumero={orcamentoInfo?.mesAtual?.mes || (new Date().getMonth() + 1)}
+        ano={orcamentoInfo?.ano || new Date().getFullYear()}
       />
 
       {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
