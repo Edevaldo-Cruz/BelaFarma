@@ -232,6 +232,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Trava Orçamentária Inteligente: Meta de Reserva/Sobra Livre Garantida no Caixa (ex: 20%)
   const [percentualSobraMeta, setPercentualSobraMeta] = useState<number>(20);
 
+  // Orçamento Semanal Personalizado (ajuste dinâmico da seleção de compras da semana)
+  const [valorOrcamentoSemanal, setValorOrcamentoSemanal] = useState<number>(() => {
+    try {
+      const salvo = localStorage.getItem('belaped_orcamento_semanal_limite');
+      return salvo ? Number(salvo) : 5000;
+    } catch {
+      return 5000;
+    }
+  });
+
   // Modo de Reposição Inteligente:
   // 'HOJE_URGENTES': Exibe apenas o que deve ser comprado HOJE (produtos no Melhor Dia + produtos Zerados Emergenciais)
   // 'TODOS': Exibe toda a matriz semanal inclusive retidos para outros dias
@@ -339,8 +349,35 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         reaisEconomizados += (bruta - qtdFinal) * precoRef;
       }
 
+      // Cálculo resiliente da Prioridade (garante que P1, P2, P3 e P4 nunca sejam 0 ou undefined)
+      const isCurvaAlta = item.curva_abc === 'A' || item.curva_abc === 'B';
+      const diasCobertura = vmd > 0 && saldoFisico > 0 ? (saldoFisico / vmd) : 0;
+      let prioridadeFinal: 'P1' | 'P2' | 'P3' | 'P4' = (item.prioridade as any) || 'P4';
+      let prioridadeRotuloFinal: string = item.prioridade_rotulo || 'Regular';
+
+      if (!item.prioridade || item.prioridade === 'P4') {
+        if (saldoFisico <= 0 && isCurvaAlta) {
+          prioridadeFinal = 'P1';
+          prioridadeRotuloFinal = 'Ruptura Crítica';
+        } else if (saldoFisico <= 0 && !isCurvaAlta) {
+          prioridadeFinal = (hist6m > 0 || item.is_esquecido_6m) ? 'P2' : 'P4';
+          prioridadeRotuloFinal = prioridadeFinal === 'P2' ? 'Risco Iminente' : 'Regular';
+        } else if (isCurvaAlta && (diasCobertura <= 3 || saldoFisico <= Math.max(1, vmd * 3))) {
+          prioridadeFinal = 'P2';
+          prioridadeRotuloFinal = 'Risco Iminente';
+        } else if (hist6m > 0 || isCurvaAlta) {
+          prioridadeFinal = 'P3';
+          prioridadeRotuloFinal = 'Orçamento Semanal';
+        } else {
+          prioridadeFinal = 'P4';
+          prioridadeRotuloFinal = 'Regular';
+        }
+      }
+
       return {
         ...item,
+        prioridade: prioridadeFinal,
+        prioridade_rotulo: prioridadeRotuloFinal,
         melhor_dia_semana: melhorDiaNome,
         melhor_dia_semana_index: melhorDiaIdx,
         status_dia: statusDia,
@@ -822,6 +859,68 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     setItensSelecionados(novoSel);
     addToast(
       `Seleção equalizada ao orçamento! ${selecionadosCount} produtos alocados (R$ ${acumulado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}), garantindo R$ ${analiseOrcamentoSobra.reservaSeguranca.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${percentualSobraMeta}%) de sobra no caixa.`,
+      'success'
+    );
+  };
+
+  // Adapta a lista selecionando estritamente os produtos mais prioritários (P1 > P2 > Curva A) até o teto semanal
+  const handleAdaptarListaAoOrcamento = (limiteCustom?: number) => {
+    const teto = Number(limiteCustom ?? valorOrcamentoSemanal) || 0;
+    if (teto <= 0) {
+      addToast('Digite um valor de orçamento semanal válido (maior que R$ 0,00)', 'warning');
+      return;
+    }
+
+    // Hierarquia de Urgência:
+    // 1º P1 (Zerados Críticos de Curva A e B)
+    // 2º P2 (Risco Iminente de 1 a 3 dias)
+    // 3º P3 (Orçamento / Curva C com giro)
+    // 4º P4 (Demais itens regulares)
+    const pesoPrio: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
+    const itensOrdenados = [...faltas].sort((a, b) => {
+      const pa = pesoPrio[a.prioridade] || 4;
+      const pb = pesoPrio[b.prioridade] || 4;
+      if (pa !== pb) return pa - pb;
+
+      if (a.saldo <= 0 && b.saldo > 0) return -1;
+      if (b.saldo <= 0 && a.saldo > 0) return 1;
+
+      const pesoCurva: Record<string, number> = { A: 3, B: 2, C: 1 };
+      const pA = pesoCurva[a.curva_abc] || 0;
+      const pB = pesoCurva[b.curva_abc] || 0;
+      if (pA !== pB) return pB - pA;
+
+      return (b.vmd_ponderado || 0) - (a.vmd_ponderado || 0);
+    });
+
+    let acumulado = 0;
+    const novoSel: Record<number, boolean> = {};
+    let selecionadosCount = 0;
+    let p1Count = 0;
+    let p2Count = 0;
+
+    itensOrdenados.forEach(it => {
+      const subtotal = Number(it.subtotal_7d) || 0;
+      if (subtotal <= 0) return;
+
+      if (acumulado + subtotal <= teto || selecionadosCount === 0) {
+        novoSel[it.produto_id] = true;
+        acumulado += subtotal;
+        selecionadosCount++;
+        if (it.prioridade === 'P1') p1Count++;
+        else if (it.prioridade === 'P2') p2Count++;
+      } else {
+        novoSel[it.produto_id] = false;
+      }
+    });
+
+    setItensSelecionados(novoSel);
+    try {
+      localStorage.setItem('belaped_orcamento_semanal_limite', String(teto));
+    } catch {}
+
+    addToast(
+      `Lista adaptada ao orçamento! R$ ${acumulado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} selecionados em ${selecionadosCount} produtos prioritários (${p1Count} P1 Críticos, ${p2Count} P2 Risco).`,
       'success'
     );
   };
@@ -2150,6 +2249,92 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     💰 <b>R$ {economiaEqualizador.valorEconomizado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> liberados (-{economiaEqualizador.unidadesCortadas} un. de excesso)
                   </span>
                 )}
+              </div>
+            </div>
+
+            {/* ─── PAINEL DE ADAPTAÇÃO AO ORÇAMENTO SEMANAL DISPONÍVEL ─────────── */}
+            <div className="bg-gradient-to-r from-[#0c1c36] via-[#0e2242] to-[#0a162b] p-3.5 rounded-2xl border-2 border-cyan-500/60 shadow-xl flex flex-col xl:flex-row xl:items-center justify-between gap-3.5">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 shadow-md shrink-0">
+                  <Wallet className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-cyan-300">
+                      Quanto você quer gastar nesta semana?
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-700">
+                      ADAPTAÇÃO AUTOMÁTICA
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 font-medium mt-0.5">
+                    O BelaPed seleciona os produtos mais críticos (<b>P1</b> e <b>P2</b>) até atingir exatamente o seu teto, mantendo a lista equalizada.
+                  </p>
+                </div>
+              </div>
+
+              {/* Controles do Campo de Valor e Botão de Ação */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Input de Valor em Moeda */}
+                <div className="flex items-center bg-[#071120] border-2 border-cyan-500/80 rounded-xl px-3 py-1.5 shadow-inner">
+                  <span className="text-xs font-black text-cyan-400 mr-1.5">R$</span>
+                  <input
+                    type="number"
+                    step="100"
+                    min="100"
+                    value={valorOrcamentoSemanal}
+                    onChange={(e) => setValorOrcamentoSemanal(Math.max(0, Number(e.target.value) || 0))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAdaptarListaAoOrcamento();
+                    }}
+                    className="w-28 bg-transparent text-sm font-black text-white focus:outline-none"
+                    placeholder="5000"
+                    title="Digite o valor em Reais que você deseja gastar nesta semana"
+                  />
+                </div>
+
+                {/* Botões Rápidos de Orçamento */}
+                <div className="flex items-center bg-[#071120] p-1 rounded-xl border border-slate-700 text-xs font-bold gap-1">
+                  {[3000, 5000, 7500, 10000].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => {
+                        setValorOrcamentoSemanal(v);
+                        handleAdaptarListaAoOrcamento(v);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                        valorOrcamentoSemanal === v
+                          ? 'bg-cyan-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      R$ {(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k
+                    </button>
+                  ))}
+                </div>
+
+                {/* Botão de Disparo da Adaptação */}
+                <button
+                  type="button"
+                  onClick={() => handleAdaptarListaAoOrcamento()}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 text-white text-xs font-black shadow-lg shadow-emerald-950/60 transition-all cursor-pointer active:scale-95 border border-emerald-400/50"
+                  title="Seleciona automaticamente os produtos com maior criticidade de falta até atingir o limite digitado"
+                >
+                  <Sparkles className="w-4 h-4 text-emerald-200" />
+                  <span>🎯 Adaptar Lista ao Orçamento</span>
+                </button>
+
+                {/* Indicador de Uso do Orçamento */}
+                <div className="px-3 py-1.5 rounded-xl bg-[#071120] border border-slate-700 text-right text-xs shrink-0">
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Alocado na Seleção</span>
+                  <span className="text-xs font-black text-emerald-400">
+                    R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    <span className="text-slate-400 font-normal ml-1">
+                      ({valorOrcamentoSemanal > 0 ? Math.round((totaisSelecionados.valorTotal / valorOrcamentoSemanal) * 100) : 0}%)
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
 

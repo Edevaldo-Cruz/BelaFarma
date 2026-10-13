@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ad0b695",
-  "commitMessage": "feat(belaped): botao maximizar tabela destacado em 3 locais e link direto ao produto cotado na distribuidora",
-  "buildTime": "13/10/2026, 11:18:46"
+  "commitHash": "95ff765",
+  "commitMessage": "feat(belaped): adicionar botao Exibir Apenas a Tabela e impressao A4 limpa; corrigir rotas estaticas 404",
+  "buildTime": "13/10/2026, 12:07:06"
 }
