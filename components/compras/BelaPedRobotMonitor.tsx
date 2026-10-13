@@ -62,9 +62,16 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const [minimizado, setMinimizado] = useState(false);
   const [liveStatus, setLiveStatus] = useState<any>(statusCotacao);
 
-  // Modo contínuo desativado por padrão ao abrir a tela (respeita validade de 24h e não dispara sozinho)
-  const [modoContinuo, setModoContinuo] = useState<boolean>(false);
-  const [sessaoUsuarioAtiva, setSessaoUsuarioAtiva] = useState<boolean>(false);
+  // Modo contínuo ativado por padrão ou conforme salvo (emenda automaticamente os ciclos da fila)
+  const [modoContinuo, setModoContinuo] = useState<boolean>(() => {
+    try {
+      const salvo = localStorage.getItem('belaped_modo_continuo');
+      return salvo !== null ? salvo === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [sessaoUsuarioAtiva, setSessaoUsuarioAtiva] = useState<boolean>(true);
 
   // Tamanho do lote (40, 80 Turbo ou 120 Ultra)
   const [tamanhoLote, setTamanhoLote] = useState<number>(() => {
@@ -87,6 +94,9 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const handleToggleModoContinuo = () => {
     const novoValor = !modoContinuo;
     setModoContinuo(novoValor);
+    try {
+      localStorage.setItem('belaped_modo_continuo', String(novoValor));
+    } catch {}
     if (!novoValor) {
       setCountdownProximoLote(null);
       setSessaoUsuarioAtiva(false);
@@ -486,14 +496,14 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
             </div>
           )}
 
-          {/* Grid Ao Vivo dos 4 Navegadores / Robôs */}
+          {/* Grid Ao Vivo dos 5 Navegadores / Robôs */}
           <div className="space-y-1.5">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
               <Globe className="w-3 h-3 text-cyan-400" />
-              Atividade em Tempo Real nos 4 Portais
+              Atividade em Tempo Real nos 5 Portais
             </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED'] as const).map((portal) => {
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+              {(['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED'] as const).map((portal) => {
                 const w = workers[portal] || { status: 'PRONTO', itemAtual: '-', avaliados: 0, encontrados: 0, semEstoque: 0 };
                 const isWorking = w.status === 'COTANDO' || w.status === 'AUTENTICANDO' || w.status === 'INICIANDO';
                 const isErr = w.status === 'ERRO';

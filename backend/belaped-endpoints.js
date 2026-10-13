@@ -1597,6 +1597,13 @@ function belapedEndpoints(db) {
         cotacaoStatus.emAndamento = false;
         cotacaoStatus.finalizadoEm = new Date().toISOString();
         console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} preços reais capturados.`);
+
+        // Encadeamento inteligente em background: se ainda houver itens críticos pendentes (P1/P2/P3), dispara o próximo lote após 5s
+        setTimeout(() => {
+          try {
+            verificarERodarCotacaoSegundoPlano('CONTINUACAO_FILA_PENDENTE');
+          } catch (eCont) {}
+        }, 5000);
       }
     })();
 
@@ -1610,7 +1617,7 @@ function belapedEndpoints(db) {
   const HORARIOS_AGENDADOS = ['07:50', '10:30', '14:30', '18:00'];
   let ultimoMinutoAgendado = '';
 
-  const verificarERodarCotacaoSegundoPlano = async (origem = 'BACKGROUND_WORKER') => {
+  async function verificarERodarCotacaoSegundoPlano(origem = 'BACKGROUND_WORKER') {
     try {
       if (cotacaoStatus.emAndamento) {
         console.log(`[BelaPed Background Worker] Cotação já em andamento. Aguardando próximo ciclo.`);
@@ -1627,7 +1634,7 @@ function belapedEndpoints(db) {
     } catch (err) {
       console.error(`[BelaPed Background Worker] Erro no ciclo de segundo plano:`, err.message);
     }
-  };
+  }
 
   // 1. Inicialização inicial proativa: roda 45s após o servidor ligar
   setTimeout(() => {

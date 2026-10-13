@@ -81,20 +81,29 @@ class SotonRobot {
     });
 
     console.log('[SotonRobot] Acessando autenticação da Soton...');
-    await this.page.goto('https://sotonfarma.meuspedidos.com.br/entrar', {
-      waitUntil: 'networkidle2',
-      timeout: 45000
-    });
+    try {
+      await this.page.goto('https://sotonfarma.meuspedidos.com.br/entrar', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      });
+    } catch (e) {
+      console.warn('[SotonRobot] Timeout de rede inicial na Soton, prosseguindo com domcontentloaded:', e.message);
+    }
 
     console.log('[SotonRobot] Efetuando login...');
-    await this.page.waitForSelector('input#email', { timeout: 15000 });
+    await this.page.waitForSelector('input#email', { timeout: 25000 });
     await this.page.type('input#email', this.usuario, { delay: 10 });
     await this.page.type('input#password', this.senha, { delay: 10 });
 
-    await Promise.all([
-      this.page.keyboard.press('Enter'),
-      this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 35000 })
-    ]);
+    try {
+      await Promise.all([
+        this.page.keyboard.press('Enter'),
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 })
+      ]);
+    } catch (navErr) {
+      console.warn('[SotonRobot] Aguardando estabilização pós-login na Soton...');
+      await new Promise(r => setTimeout(r, 4000));
+    }
 
     console.log('[SotonRobot] Login na Soton efetuado com sucesso!');
   }

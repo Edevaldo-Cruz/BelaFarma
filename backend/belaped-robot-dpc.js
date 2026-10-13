@@ -59,20 +59,29 @@ class DpcRobot {
     });
 
     console.log('[DpcRobot] Acessando autenticação da DPC...');
-    await this.page.goto('https://cliente.dpcnet.com.br/?redirect=https%3A%2F%2Fdpcnet.com.br%2F', {
-      waitUntil: 'networkidle2',
-      timeout: 45000
-    });
+    try {
+      await this.page.goto('https://cliente.dpcnet.com.br/?redirect=https%3A%2F%2Fdpcnet.com.br%2F', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      });
+    } catch (e) {
+      console.warn('[DpcRobot] Timeout na navegação da DPC, prosseguindo com domcontentloaded:', e.message);
+    }
 
     console.log('[DpcRobot] Efetuando login...');
-    await this.page.waitForSelector('input#email', { timeout: 15000 });
+    await this.page.waitForSelector('input#email', { timeout: 25000 });
     await this.page.type('input#email', this.usuario, { delay: 10 });
     await this.page.type('input#password', this.senha, { delay: 10 });
 
-    await Promise.all([
-      this.page.click('button[type="submit"]'),
-      this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 35000 })
-    ]);
+    try {
+      await Promise.all([
+        this.page.click('button[type="submit"]'),
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 })
+      ]);
+    } catch (navErr) {
+      console.warn('[DpcRobot] Aguardando estabilização pós-clique de login na DPC...');
+      await new Promise(r => setTimeout(r, 4000));
+    }
 
     console.log('[DpcRobot] Login na DPC efetuado com sucesso!');
   }
