@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "95ff765",
-  "commitMessage": "feat(belaped): adicionar botao Exibir Apenas a Tabela e impressao A4 limpa; corrigir rotas estaticas 404",
-  "buildTime": "13/10/2026, 12:07:06"
+  "commitHash": "19c3149",
+  "commitMessage": "fix(belaped): corrigir contadores de prioridade P1-P4 e adicionar painel de orcamento semanal adaptativo",
+  "buildTime": "13/10/2026, 12:34:14"
 }

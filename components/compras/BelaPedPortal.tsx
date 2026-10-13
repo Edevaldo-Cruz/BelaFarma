@@ -43,7 +43,8 @@ import {
   ClipboardList,
   X,
   Printer,
-  Table
+  Table,
+  FileText
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -206,10 +207,125 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     } catch {}
   };
 
-  // Imprimir a tabela formatada para folha A4 limpa
-  const handleImprimirTabela = () => {
-    window.print();
+  // Gerar e Baixar Relatório em Arquivo TXT Organizado por Fornecedores
+  const handleGerarRelatorioTxt = () => {
+    // 1. Filtra itens marcados/selecionados
+    const itensSel = faltas.filter(f => itensSelecionados[f.produto_id]);
+    if (itensSel.length === 0) {
+      addToast('Nenhum produto selecionado para gerar o arquivo TXT.', 'warning');
+      return;
+    }
+
+    // 2. Agrupa os itens por fornecedor vencedor (ou "NÃO COTADO")
+    const grupos: Record<string, {
+      distribuidora: string;
+      itens: typeof itensSel;
+      totalValor: number;
+      totalUnidades: number;
+    }> = {};
+
+    itensSel.forEach(item => {
+      const fornecedor = (item.fornecedor_1 && item.fornecedor_1 !== '—' && !item.fornecedor_1.includes('Sem Estoque'))
+        ? item.fornecedor_1.trim().toUpperCase()
+        : 'OUTROS / NÃO COTADO';
+
+      if (!grupos[fornecedor]) {
+        grupos[fornecedor] = {
+          distribuidora: fornecedor,
+          itens: [],
+          totalValor: 0,
+          totalUnidades: 0
+        };
+      }
+      grupos[fornecedor].itens.push(item);
+      grupos[fornecedor].totalValor += (Number(item.subtotal_7d) || 0);
+      grupos[fornecedor].totalUnidades += (Number(item.qtd_sugerida_7d) || 0);
+    });
+
+    // 3. Monta o texto formatado limpo para leitura e bloco de notas
+    const dataHora = new Date().toLocaleString('pt-BR');
+    const divisorForte = '='.repeat(84);
+    const divisorSuave = '-'.repeat(84);
+
+    const linhas: string[] = [];
+    linhas.push(divisorForte);
+    linhas.push('DROGARIA BELA FARMA - RELATÓRIO DE COMPRAS POR FORNECEDOR (BELAPED)');
+    linhas.push(`Emissão: ${dataHora} | Responsável: ${user?.name || 'Administrador'}`);
+    linhas.push(`Total de Itens Selecionados: ${itensSel.length} | Valor Total Estimado: R$ ${totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    linhas.push(divisorForte);
+    linhas.push('');
+
+    // Ordena as distribuidoras: empresas com maior valor primeiro, e "NÃO COTADO" por último
+    const chavesOrdenadas = Object.keys(grupos).sort((a, b) => {
+      if (a.includes('NÃO COTADO')) return 1;
+      if (b.includes('NÃO COTADO')) return -1;
+      return grupos[b].totalValor - grupos[a].totalValor;
+    });
+
+    let totalGeralReais = 0;
+    let totalGeralUnidades = 0;
+
+    chavesOrdenadas.forEach(dist => {
+      const grp = grupos[dist];
+      totalGeralReais += grp.totalValor;
+      totalGeralUnidades += grp.totalUnidades;
+
+      linhas.push(`=== FORNECEDOR: ${grp.distribuidora} ===`);
+      linhas.push(`Itens: ${grp.itens.length} | Volume: ${grp.totalUnidades} un | Total Pedido: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+      linhas.push(divisorSuave);
+      linhas.push(
+        'QTD'.padEnd(7) +
+        ' | ' + 'EAN'.padEnd(14) +
+        ' | ' + 'PRODUTO / APRESENTAÇÃO'.padEnd(42) +
+        ' | ' + 'PREÇO UN.'.padStart(10) +
+        ' | ' + 'SUBTOTAL'.padStart(12)
+      );
+      linhas.push(divisorSuave);
+
+      // Ordena itens da distribuidora por descrição
+      grp.itens.sort((a, b) => a.descricao.localeCompare(b.descricao)).forEach((it) => {
+        const qtdStr = `${it.qtd_sugerida_7d} un`.padEnd(7);
+        const eanStr = (it.ean || 'SEM EAN').padEnd(14);
+        const descTrunc = it.descricao.length > 41 ? it.descricao.substring(0, 38) + '...' : it.descricao.padEnd(42);
+        const precoUn = (Number(it.preco_1 || it.custo_unitario || 0)).toFixed(2);
+        const precoStr = `R$ ${precoUn}`.padStart(10);
+        const subStr = `R$ ${(Number(it.subtotal_7d) || 0).toFixed(2)}`.padStart(12);
+
+        linhas.push(`${qtdStr} | ${eanStr} | ${descTrunc} | ${precoStr} | ${subStr}`);
+      });
+
+      linhas.push(divisorSuave);
+      linhas.push(`SUBTOTAL ${grp.distribuidora}: R$ ${grp.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${grp.totalUnidades} unidades)`);
+      linhas.push('');
+      linhas.push('');
+    });
+
+    linhas.push(divisorForte);
+    linhas.push('RESUMO CONSOLIDADO GERAL DE COMPRAS:');
+    linhas.push(`* Distribuidoras no Pedido: ${chavesOrdenadas.length}`);
+    linhas.push(`* Total de Produtos Selecionados: ${itensSel.length}`);
+    linhas.push(`* Total de Unidades Físicas: ${totalGeralUnidades} unidades`);
+    linhas.push(`* VALOR TOTAL CONSOLIDADO: R$ ${totalGeralReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    linhas.push(divisorForte);
+
+    const conteudoTxt = linhas.join('\r\n');
+
+    // 4. Dispara o download automático do arquivo no navegador
+    const blob = new Blob([conteudoTxt], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dataIso = new Date().toISOString().split('T')[0];
+    link.href = url;
+    link.download = `compras_belafarma_por_fornecedor_${dataIso}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    addToast(`Arquivo TXT gerado com sucesso! (${itensSel.length} produtos em ${chavesOrdenadas.length} fornecedores)`, 'success');
   };
+
+  const handleImprimirTabela = handleGerarRelatorioTxt;
 
   // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
@@ -1390,14 +1506,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             <span className="hidden md:inline">{modoApenasTabela ? '← Painel Completo' : 'Apenas Tabela'}</span>
           </button>
 
-          {/* Botão de Imprimir Tabela no Header */}
+          {/* Botão de Exportar TXT no Header */}
           <button
-            onClick={handleImprimirTabela}
+            onClick={handleGerarRelatorioTxt}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition-all shadow-md cursor-pointer"
-            title="Imprimir relatório da tabela em folha A4"
+            title="Baixar arquivo TXT com os produtos separados por fornecedor"
           >
-            <Printer className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden md:inline">Imprimir</span>
+            <FileText className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden md:inline">Baixar TXT</span>
           </button>
 
           <button
@@ -1652,14 +1768,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <span>{modoApenasTabela ? '← Exibir Painel Completo' : '📊 Exibir Apenas a Tabela'}</span>
                 </button>
 
-                {/* Botão de Imprimir Tabela */}
+                {/* Botão de Exportar TXT por Fornecedor */}
                 <button
-                  onClick={handleImprimirTabela}
+                  onClick={handleGerarRelatorioTxt}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-black transition-all cursor-pointer shadow-md"
-                  title="Imprimir relatório da tabela em folha A4 limpa"
+                  title="Gerar arquivo TXT limpo com produtos separados por fornecedor"
                 >
-                  <Printer className="w-4 h-4 text-cyan-400" />
-                  <span>🖨️ Imprimir Tabela</span>
+                  <FileText className="w-4 h-4 text-cyan-400" />
+                  <span>📄 Baixar TXT Fornecedores</span>
                 </button>
 
                 {/* Botão da Guia de Faltas do Balcão (Livro de Faltas do Belinha) */}
@@ -2578,14 +2694,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <span>{modoApenasTabela ? '← Exibir Painel Completo' : '📊 Exibir Apenas a Tabela'}</span>
                 </button>
 
-                {/* BOTÃO DE IMPRESSÃO DA TABELA */}
+                {/* BOTÃO DE EXPORTAÇÃO TXT POR FORNECEDOR */}
                 <button
-                  onClick={handleImprimirTabela}
+                  onClick={handleGerarRelatorioTxt}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-black transition-all cursor-pointer shadow-md active:scale-95"
-                  title="Imprimir a tabela de reposição em folha A4 (limpa e sem menus)"
+                  title="Gerar e baixar arquivo TXT organizado com produtos separados por fornecedor"
                 >
-                  <Printer className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>🖨️ Imprimir Tabela</span>
+                  <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>📄 Baixar TXT Fornecedores</span>
                 </button>
 
                 <button
@@ -2710,28 +2826,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
             )}
 
-            {/* CABEÇALHO EXECUTIVO FORMAL PARA IMPRESSÃO A4 (Oculto na tela, visível na impressão) */}
-            <div className="hidden print:block mb-4 p-4 border border-black bg-white text-black font-sans">
-              <div className="flex justify-between items-start border-b border-black pb-2 mb-2">
-                <div>
-                  <h1 className="text-xl font-black tracking-wide uppercase">DROGARIA BELA FARMA</h1>
-                  <h2 className="text-sm font-bold uppercase text-gray-800">Relatório Executivo de Reposição & Cotação (BelaPed)</h2>
-                </div>
-                <div className="text-right text-xs">
-                  <p><b>Data/Hora:</b> {new Date().toLocaleString('pt-BR')}</p>
-                  <p><b>Responsável:</b> {user?.name || 'Administrador'}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-4 gap-2 text-xs">
-                <div><b>Total de Itens:</b> {faltasFiltradas.length}</div>
-                <div><b>Itens Selecionados:</b> {totaisSelecionados.qtdItens}</div>
-                <div><b>Valor Estimado Selecionado:</b> R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                <div><b>Filtro Aplicado:</b> {filtroDistribuidora === 'TODAS' ? 'Todas Distribuidoras' : filtroDistribuidora}</div>
-              </div>
-            </div>
-
             {/* TABELA DE ALTA DENSIDADE (DIRETRIZES AGENTS.MD: 1 LINHA COMPACTA) */}
-            <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative belaped-print-container">
+            <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
               
               {/* Barra animada de status durante carregamento ou cotação */}
               {(refreshing || (statusCotacao && statusCotacao.emAndamento)) && (
