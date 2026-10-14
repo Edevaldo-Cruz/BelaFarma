@@ -327,20 +327,13 @@ class DistrimedRobot {
     try {
       console.log('[DistrimedRobot] Abrindo modal de importação...');
       await this.page.evaluate(() => {
-        const btn = Array.from(document.querySelectorAll('button, a')).find(b => (b.innerText || '').includes('Importar'));
+        const btns = Array.from(document.querySelectorAll('button'));
+        const btn = btns.find(b => (b.innerText || '').includes('Importar'));
         if (btn) btn.click();
       });
       await new Promise(r => setTimeout(r, 2000));
 
-      // Etapa 1: Confirmação da condição comercial
-      console.log('[DistrimedRobot] Confirmando condição de preço na modal...');
-      await this.page.evaluate(() => {
-        const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('Confirmar'));
-        if (btn) btn.click();
-      });
-      await new Promise(r => setTimeout(r, 2500));
-
-      // Etapa 2: Upload do arquivo na modal
+      // Etapa 1: Upload do arquivo na modal
       console.log(`[DistrimedRobot] Anexando arquivo ${caminhoArquivo}...`);
       const inputFile = await this.page.$('input[type="file"]');
       if (!inputFile) {
@@ -348,17 +341,62 @@ class DistrimedRobot {
       }
 
       await inputFile.uploadFile(caminhoArquivo);
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 2500));
 
-      // Clica em Confirmar da etapa 2 para finalizar a importação
-      console.log('[DistrimedRobot] Submetendo importação na modal...');
+      // Etapa 2: Mapeamento automático das colunas (Select 1: EAN/Código, Select 2: Quantidade)
+      console.log('[DistrimedRobot] Mapeando colunas EAN e Quantidade nos selects da modal...');
       await this.page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button')).filter(b => (b.innerText || '').includes('Confirmar'));
-        const ultimoBtnConfirmar = btns[btns.length - 1];
-        if (ultimoBtnConfirmar) ultimoBtnConfirmar.click();
+        const modal = document.querySelector('.modal, [role="dialog"], [class*="modal"]');
+        const selects = modal ? Array.from(modal.querySelectorAll('select')) : Array.from(document.querySelectorAll('select'));
+
+        // Coluna 1 -> EAN/Código
+        if (selects.length >= 1) {
+          const s1 = selects[0];
+          for (let i = 0; i < s1.options.length; i++) {
+            if (/ean|código|codigo/i.test(s1.options[i].text)) {
+              s1.selectedIndex = i;
+              s1.dispatchEvent(new Event('change', { bubbles: true }));
+              break;
+            }
+          }
+        }
+
+        // Coluna 2 -> Quantidade
+        if (selects.length >= 2) {
+          const s2 = selects[1];
+          for (let i = 0; i < s2.options.length; i++) {
+            if (/quantidade|qtd/i.test(s2.options[i].text)) {
+              s2.selectedIndex = i;
+              s2.dispatchEvent(new Event('change', { bubbles: true }));
+              break;
+            }
+          }
+        }
       });
 
-      await new Promise(r => setTimeout(r, 4000));
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Etapa 3: Clica em Confirmar para submeter o pedido
+      console.log('[DistrimedRobot] Submetendo importação na modal...');
+      const confirmou = await this.page.evaluate(() => {
+        const modal = document.querySelector('.modal, [role="dialog"], [class*="modal"]');
+        const btns = modal ? Array.from(modal.querySelectorAll('button')) : Array.from(document.querySelectorAll('button'));
+        const btnConfirmar = btns.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('confirmar') || t.includes('check');
+        });
+        if (btnConfirmar) {
+          btnConfirmar.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (!confirmou) {
+        throw new Error('Botão Confirmar não encontrado na modal da Distrimed.');
+      }
+
+      await new Promise(r => setTimeout(r, 5000));
 
       return {
         sucesso: true,

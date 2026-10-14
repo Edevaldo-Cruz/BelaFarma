@@ -257,25 +257,37 @@ class SotonRobot {
       }
 
       const adicionou = await this.page.evaluate(async (qtd) => {
-        const card = document.querySelector('[class*="Catalog__card"]') || document;
-        const inputQtd = card.querySelector('input[type="number"]');
-        if (!inputQtd) return { sucesso: false, motivo: 'Campo de quantidade não encontrado no item' };
+        const input = document.querySelector('input[type="number"]');
+        if (!input) return { sucesso: false, motivo: 'Campo de quantidade não encontrado no item' };
 
-        inputQtd.focus();
-        inputQtd.value = '';
-        inputQtd.value = qtd.toString();
-        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
-        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+        // 1. Remove classe hidden do container
+        const container = input.closest('div');
+        if (container) {
+          container.className = container.className.replace(/AddToCartButton__addToCartContainerHidden___\w+/g, '');
+        }
 
-        const botaoComprar = card.querySelector('button.catalog-item-b2b-button, button[class*="AddToCartButton"], button[class*="Button__info"]');
-        if (!botaoComprar) return { sucesso: false, motivo: 'Botão COMPRAR não encontrado no item' };
+        // 2. React Native Value Setter para atualizar o state interno do React no Mercos
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(input, qtd.toString());
+        } else {
+          input.value = qtd.toString();
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
 
-        botaoComprar.click();
-        return { sucesso: true };
+        // 3. Clica no botão COMPRAR / adicionar do container
+        const btn = container ? container.querySelector('button') : document.querySelector('button.catalog-item-b2b-button');
+        if (btn) {
+          btn.click();
+          return { sucesso: true };
+        }
+
+        return { sucesso: false, motivo: 'Botão de adicionar não encontrado' };
       }, qtdNum);
 
       if (adicionou.sucesso) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 2500));
       }
 
       return {
@@ -313,7 +325,8 @@ class SotonRobot {
         if (
           bodyText.includes('Seu carrinho está vazio') ||
           bodyText.includes('Nenhum item no carrinho') ||
-          bodyText.includes('Carrinho vazio')
+          bodyText.includes('Carrinho vazio') ||
+          bodyText.includes('0 ITENS')
         ) {
           return 0;
         }
@@ -373,30 +386,30 @@ class SotonRobot {
       });
 
       if (clicouExcluir) {
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1500));
         await this.page.evaluate(() => {
-          const botoesModal = Array.from(document.querySelectorAll('.modal button, [role="dialog"] button, button'));
+          const botoesModal = Array.from(document.querySelectorAll('button'));
           const btnConfirmar = botoesModal.find(b => {
-            const t = (b.innerText || '').trim().toLowerCase();
-            return t === 'excluir' || t === 'sim' || t === 'confirmar' || t === 'ok' || t.includes('excluir');
+            const t = (b.innerText || '').trim().toUpperCase();
+            return t === 'EXCLUIR' || t === 'SIM' || t === 'CONFIRMAR' || t === 'OK';
           });
           if (btnConfirmar) btnConfirmar.click();
         });
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 2500));
       } else {
         const botoesRemover = await this.page.evaluate(() => {
-          const lixeiras = Array.from(document.querySelectorAll('button[class*="remove"], button[class*="delete"], [data-action*="remove"], a[class*="remove"]'));
+          const lixeiras = Array.from(document.querySelectorAll('button[class*="delete"], button[class*="remove"], [data-action*="remove"]'));
           return lixeiras.length;
         });
 
         for (let i = 0; i < botoesRemover; i++) {
           await this.page.evaluate(() => {
-            const btn = document.querySelector('button[class*="remove"], button[class*="delete"], [data-action*="remove"], a[class*="remove"]');
+            const btn = document.querySelector('button[class*="delete"], button[class*="remove"], [data-action*="remove"]');
             if (btn) btn.click();
           });
           await new Promise(r => setTimeout(r, 800));
           await this.page.evaluate(() => {
-            const b = Array.from(document.querySelectorAll('button')).find(btn => ['sim', 'excluir', 'confirmar'].includes(btn.innerText.trim().toLowerCase()));
+            const b = Array.from(document.querySelectorAll('button')).find(btn => ['EXCLUIR', 'SIM', 'CONFIRMAR'].includes(btn.innerText.trim().toUpperCase()));
             if (b) b.click();
           });
           await new Promise(r => setTimeout(r, 800));
