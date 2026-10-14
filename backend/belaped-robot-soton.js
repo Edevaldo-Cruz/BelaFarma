@@ -123,7 +123,65 @@ class SotonRobot {
         return [];
       }
 
-      // Na Soton (MeusPedidos), os itens ficam entre "Resultados para" e "contato@sotonfarma"
+      // Palavras indicadoras de FALTA DE ESTOQUE na plataforma Mercos / MeusPedidos
+      const termosSemEstoque = [
+        'vendemos todo o estoque',
+        'já vendemos',
+        'ja vendemos',
+        'sem estoque',
+        'indisponível',
+        'indisponivel',
+        'esgotado',
+        'avise-me',
+        'avise me',
+        'avise quando',
+        'produto indisponível',
+        'fora de estoque',
+        'estoque esgotado'
+      ];
+
+      // 1. Tenta extrair diretamente através dos elementos DOM dos cards de produto
+      const cardElements = Array.from(document.querySelectorAll(
+        '[class*="Catalog__card"], [class*="ProductCard"], [class*="catalog-item"], .product-item, .card, [data-product-id]'
+      ));
+
+      if (cardElements.length > 0) {
+        const encontradosDom = [];
+        for (const card of cardElements) {
+          const cardText = (card.innerText || '').toLowerCase();
+          const semEstoque = termosSemEstoque.some(t => cardText.includes(t));
+          if (semEstoque) {
+            continue; // Sem estoque na Soton!
+          }
+
+          // Checa se tem botão de compra ou input de quantidade
+          const hasInputQtd = !!card.querySelector('input[type="number"], input[name*="qtd"]');
+          const hasBuyBtn = !!card.querySelector('button, [class*="Button"], [class*="AddToCart"], [class*="shopping_cart"]');
+          if (!hasInputQtd && !hasBuyBtn) {
+            continue;
+          }
+
+          const matchPreco = cardText.match(/r\$\s*([\d\.]+,\d{2})/i);
+          if (!matchPreco) continue;
+
+          const num = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
+          if (isNaN(num) || num <= 0) continue;
+
+          const tituloEl = card.querySelector('h2, h3, h4, [class*="title"], [class*="name"], a');
+          const titulo = tituloEl ? tituloEl.innerText.trim() : cardText.split('\n')[0].trim();
+
+          encontradosDom.push({
+            descricao: titulo,
+            preco: num
+          });
+        }
+
+        if (encontradosDom.length > 0) {
+          return encontradosDom;
+        }
+      }
+
+      // 2. Extração via texto estruturado com análise de bloco
       const idxInicio = bodyText.indexOf('Resultados para');
       const idxFim = bodyText.indexOf('contato@sotonfarma');
       const trecho = idxInicio >= 0
@@ -134,28 +192,38 @@ class SotonRobot {
       const encontrados = [];
 
       for (let i = 0; i < linhas.length; i++) {
-        // Exemplo:
-        // linhas[i-1]: "SORO FISIOLOGICO 500ML - FARMAX"
-        // linhas[i]:   "Cód. 188 • UN"
-        // linhas[i+1]: "R$ 4,79" (ou "Ops! Já vendemos todo o estoque.")
-        if (linhas[i].startsWith('Cód.') && i > 0 && i + 1 < linhas.length) {
+        if (linhas[i].startsWith('Cód.') && i > 0) {
           const titulo = linhas[i - 1];
-          const prox1 = linhas[i + 1] || '';
-          const prox2 = linhas[i + 2] || '';
 
-          if (prox1.includes('vendemos todo o estoque') || prox2.includes('vendemos todo o estoque')) {
-            continue;
+          // Analisa até 8 linhas à frente para verificar o preço e o estoque deste card
+          const blocoLinhas = linhas.slice(i, Math.min(i + 8, linhas.length));
+          const blocoTexto = blocoLinhas.join(' ').toLowerCase();
+
+          // 🚨 CHECAGEM COMPLETA DE ESTOQUE: se contiver qualquer termo de falta, descarta!
+          const semEstoque = termosSemEstoque.some(t => blocoTexto.includes(t));
+          if (semEstoque) {
+            continue; // Produto esgotado na Soton Farma
           }
 
-          const linhaPreco = prox1.startsWith('R$') ? prox1 : (prox2.startsWith('R$') ? prox2 : '');
-          if (linhaPreco && !linhaPreco.includes('shopping_cart')) {
-            const num = parseFloat(linhaPreco.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
-            if (!isNaN(num) && num > 0) {
-              encontrados.push({
-                descricao: titulo,
-                preco: num
-              });
+          let precoNum = null;
+          for (let j = 1; j < blocoLinhas.length; j++) {
+            const lj = blocoLinhas[j];
+            if (lj.startsWith('Cód.')) break; // Encontrou o próximo item
+            const matchP = lj.match(/^R\$\s*([\d\.]+,\d{2})/i) || lj.match(/R\$\s*([\d\.]+,\d{2})/i);
+            if (matchP && !lj.includes('shopping_cart')) {
+              const num = parseFloat(matchP[1].replace(/\./g, '').replace(',', '.'));
+              if (!isNaN(num) && num > 0) {
+                precoNum = num;
+                break;
+              }
             }
+          }
+
+          if (precoNum !== null && precoNum > 0) {
+            encontrados.push({
+              descricao: titulo,
+              preco: precoNum
+            });
           }
         }
       }
