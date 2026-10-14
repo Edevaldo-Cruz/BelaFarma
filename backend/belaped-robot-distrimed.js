@@ -162,7 +162,13 @@ class DistrimedRobot {
     const searchSel = 'input[placeholder*="Pesquise por: produtos"]';
     await this.page.waitForSelector(searchSel, { timeout: 15000 });
 
-    // Limpa e digita o termo
+    // Limpa o input de forma garantida
+    await this.page.$eval(searchSel, el => {
+      el.value = '';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }).catch(() => {});
+
     await this.page.click(searchSel, { clickCount: 3 });
     await this.page.keyboard.press('Backspace');
     await this.page.keyboard.down('Control');
@@ -170,18 +176,29 @@ class DistrimedRobot {
     await this.page.keyboard.up('Control');
     await this.page.keyboard.press('Backspace');
 
-    await this.page.type(searchSel, termo, { delay: 3 });
+    await this.page.type(searchSel, termo, { delay: 5 });
     await this.page.keyboard.press('Enter');
 
-    // Espera otimizada (sem imagens a resposta é quase imediata)
-    await new Promise(r => setTimeout(r, 1200));
+    // Clica também no botão de busca da Distrimed (botão "Buscar" com ícone de lupa)
+    await this.page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'));
+      const btnBuscar = btns.find(b => (b.innerText || '').trim().toUpperCase().includes('BUSCAR'));
+      if (btnBuscar) btnBuscar.click();
+    }).catch(() => {});
+
+    // Espera a resposta da busca
+    await new Promise(r => setTimeout(r, 1600));
 
     return await this.page.evaluate(() => {
       const bodyText = document.body.innerText || '';
       const idxImportar = bodyText.indexOf('Importar');
       const areaProdutos = idxImportar >= 0 ? bodyText.slice(idxImportar) : bodyText;
 
-      if (areaProdutos.includes('Produto não encontrado') || areaProdutos.includes('Nenhum produto')) {
+      if (
+        areaProdutos.includes('Produto não encontrado') ||
+        areaProdutos.includes('Nenhum produto') ||
+        areaProdutos.includes('não encontramos nenhum produto')
+      ) {
         return [];
       }
 
@@ -190,6 +207,24 @@ class DistrimedRobot {
       const encontrados = [];
 
       for (const bloco of blocos) {
+        const blocoUpper = bloco.toUpperCase();
+
+        // 🚨 VERIFICAÇÃO CRÍTICA DE ESTOQUE:
+        // Na Distrimed, produtos esgotados exibem o botão "Avise-me quando chegar" ou "Sem estoque"
+        const semEstoque =
+          blocoUpper.includes('AVISE-ME') ||
+          blocoUpper.includes('AVISE ME') ||
+          blocoUpper.includes('SEM ESTOQUE') ||
+          blocoUpper.includes('INDISPONÍVEL') ||
+          blocoUpper.includes('INDISPONIVEL') ||
+          blocoUpper.includes('ESGOTADO') ||
+          blocoUpper.includes('PRODUTO NÃO DISPONÍVEL');
+
+        if (semEstoque) {
+          // PRODUTO SEM ESTOQUE: O preço no card é apenas de catálogo, não pode ser comprado!
+          continue;
+        }
+
         const linhas = bloco.split('\n').map(l => l.trim()).filter(Boolean);
         let eanCard = '';
         let descricaoCard = '';
@@ -226,7 +261,7 @@ class DistrimedRobot {
   }
 
   /**
-   * Consulta um EAN no catálogo da Distrimed (com fallback por nome/dosagem)
+   * Consulta um EAN no catálogo da Distrimed com validação estrita de EAN e Estoque
    */
   async cotarEAN(ean, descricaoProduto = '') {
     if (!this.page) throw new Error('Robô Distrimed não iniciado.');
@@ -238,31 +273,14 @@ class DistrimedRobot {
       // 1. Busca exata por EAN
       let itens = await this._buscarNoCatalogo(eanLimpo);
 
-      // Filtro ESTRITO por EAN: só aceita o produto se o EAN retornado coincidir com o pesquisado
+      // Filtro ESTRITO por EAN: só aceita o produto se o EAN retornado coincidir exatamente com o pesquisado
       const eanDigitos = eanLimpo.replace(/\D/g, '');
       let itensCorrespondentes = itens.filter(it => {
         if (!it.ean) return false;
         const eanCardDigitos = String(it.ean).replace(/\D/g, '');
         return eanCardDigitos === eanDigitos ||
-               (eanCardDigitos.length >= 8 && eanDigitos.length >= 8 && (eanCardDigitos.includes(eanDigitos) || eanDigitos.includes(eanCardDigitos)));
+               (eanCardDigitos.length >= 8 && eanDigitos.length >= 8 && (eanCardDigitos.endsWith(eanDigitos) || eanDigitos.endsWith(eanCardDigitos)));
       });
-
-      // 2. Fallback por nome/dosagem APENAS se não achar o EAN exato E houver descrição válida
-      if (itensCorrespondentes.length === 0 && descricaoProduto) {
-        const termoNome = extrairTermoLimpo(descricaoProduto);
-        if (termoNome && termoNome.length >= 4) {
-          const palavrasChave = termoNome.split(/\s+/).filter(p => p.length >= 3 && !['COM', 'SEM', 'PARA', 'PCT', 'UND', 'UNID'].includes(p));
-          const todosNome = await this._buscarNoCatalogo(termoNome);
-          
-          // Validação semântica: OBRIGATORIAMENTE deve conter a palavra principal do produto pesquisado
-          itensCorrespondentes = todosNome.filter(it => {
-            const descCard = (it.descricao || '').toUpperCase();
-            if (palavrasChave.length === 0) return false;
-            // A primeira palavra chave (ex: FRALDA ou DORFLEX) DEVE estar no card encontrado
-            return palavrasChave[0] && descCard.includes(palavrasChave[0]);
-          });
-        }
-      }
 
       if (!itensCorrespondentes || itensCorrespondentes.length === 0) {
         return {
@@ -271,11 +289,11 @@ class DistrimedRobot {
           disponivel: false,
           preco: null,
           descricao: '',
-          mensagem: 'Indisponível na Distrimed'
+          mensagem: 'Sem estoque ou indisponível na Distrimed'
         };
       }
 
-      // Entre os itens validados e correspondentes, escolhe o de menor preço
+      // Entre os itens validados e com estoque real, escolhe o de menor preço
       itensCorrespondentes.sort((a, b) => a.preco - b.preco);
       const melhor = itensCorrespondentes[0];
 
