@@ -16,7 +16,9 @@ import {
   Layers,
   Flame,
   ShieldAlert,
-  Briefcase
+  Briefcase,
+  Clock,
+  Square
 } from 'lucide-react';
 
 interface WorkerStatus {
@@ -61,17 +63,18 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
 }) => {
   const [minimizado, setMinimizado] = useState(false);
   const [liveStatus, setLiveStatus] = useState<any>(statusCotacao);
+  const [parando, setParando] = useState(false);
 
-  // Modo contínuo ativado por padrão ou conforme salvo (emenda automaticamente os ciclos da fila)
+  // Modo contínuo desativado por padrão (evita loops infinitos ou cotações indesejadas)
   const [modoContinuo, setModoContinuo] = useState<boolean>(() => {
     try {
       const salvo = localStorage.getItem('belaped_modo_continuo');
-      return salvo !== null ? salvo === 'true' : true;
+      return salvo === 'true'; // Padrão seguro: false
     } catch {
-      return true;
+      return false;
     }
   });
-  const [sessaoUsuarioAtiva, setSessaoUsuarioAtiva] = useState<boolean>(true);
+  const [sessaoUsuarioAtiva, setSessaoUsuarioAtiva] = useState<boolean>(false);
 
   // Tamanho do lote (40, 80 Turbo ou 120 Ultra)
   const [tamanhoLote, setTamanhoLote] = useState<number>(() => {
@@ -116,13 +119,22 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     } catch {}
   };
 
+  const handlePararRobo = async () => {
+    try {
+      setParando(true);
+      setCountdownProximoLote(null);
+      setSessaoUsuarioAtiva(false);
+      await fetch('/api/belaped/parar-cotacao', { method: 'POST' });
+      setTimeout(() => setParando(false), 2000);
+    } catch (e) {
+      setParando(false);
+    }
+  };
+
   // Sincroniza prop inicial
   useEffect(() => {
     if (statusCotacao) {
       setLiveStatus(statusCotacao);
-      if (statusCotacao.emAndamento) {
-        setSessaoUsuarioAtiva(true);
-      }
     }
   }, [statusCotacao]);
 
@@ -401,6 +413,20 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
+              {/* Botão de Interrupção Imediata (quando o robô estiver cotando) */}
+              {emAndamento && (
+                <button
+                  type="button"
+                  disabled={parando}
+                  onClick={handlePararRobo}
+                  className="px-2.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black uppercase shadow-md transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 border border-rose-400 animate-pulse"
+                  title="Interromper imediatamente os robôs de cotação"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>{parando ? 'Parando...' : 'Parar Robô'}</span>
+                </button>
+              )}
+
               {/* Toggle Auto-Fila Contínua */}
               <button
                 type="button"
@@ -410,7 +436,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                     ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-900/30 font-black'
                     : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500'
                 }`}
-                title="Quando ativado, o robô emenda automaticamente um lote após o outro sem parar até zerar toda a fila prioritária!"
+                title="Quando ativado, o robô emenda lotes automaticamente até zerar a fila. Por padrão fica desativado para não sobrecarregar o sistema."
               >
                 <Zap className={`w-3.5 h-3.5 ${modoContinuo ? 'fill-current' : ''}`} />
                 <span>{modoContinuo ? 'Auto-Fila ON' : 'Auto-Fila OFF'}</span>
@@ -450,6 +476,26 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                   </>
                 )}
               </button>
+            </div>
+          </div>
+
+          {/* Horários Estratégicos Inteligentes */}
+          <div className="p-2.5 rounded-xl bg-[#060b14] border border-slate-800 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-cyan-400" />
+              <div>
+                <span className="text-[10px] font-black uppercase text-cyan-300 block">
+                  Horários Estratégicos
+                </span>
+                <span className="text-[9px] text-slate-400 font-medium">
+                  Cotações automáticas programadas:
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 font-mono text-[10px] font-black">
+              <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800" title="Matinal: Antes da abertura (equipe chega com tudo cotado)">06:30</span>
+              <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800" title="Meio-dia: Antes do corte de faturamento dos CDs">12:30</span>
+              <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800" title="Fim de tarde: Fechamento noturno">17:45</span>
             </div>
           </div>
 

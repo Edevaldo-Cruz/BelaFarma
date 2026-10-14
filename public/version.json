@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "8e33bb9",
-  "commitMessage": "feat(belaped): recotacao e double-check automatico com robo em produtos com grande divergencia de preco",
-  "buildTime": "13/10/2026, 19:24:19"
+  "commitHash": "b78d504",
+  "commitMessage": "feat(belaped): paridade total entre os 6 robos e regra master de carrinhos 100% limpos com retentativa",
+  "buildTime": "14/10/2026, 09:26:38"
 }

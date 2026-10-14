@@ -1475,6 +1475,13 @@ function belapedEndpoints(db) {
           cotacaoStatus.workers[nomeFornecedor].status = 'COTANDO';
 
           for (let i = 0; i < listaEans.length; i++) {
+            if (cotacaoStatus.solicitouParar) {
+              console.log(`[BelaPed Cotação] ⛔ Interrupção solicitada para ${nomeFornecedor}. Finalizando robô.`);
+              cotacaoStatus.workers[nomeFornecedor].status = 'INTERROMPIDO';
+              cotacaoStatus.workers[nomeFornecedor].itemAtual = 'Interrompido a pedido do usuário';
+              break;
+            }
+
             const eanAtual = listaEans[i];
             const descAtual = mapaDescricoes[eanAtual] || '';
             cotacaoStatus.workers[nomeFornecedor].itemAtual = `Pesquisando: ${descAtual || eanAtual} (${i + 1}/${listaEans.length})`;
@@ -1630,15 +1637,9 @@ function belapedEndpoints(db) {
       } finally {
         cotacaoStatus.atual = listaEans.length;
         cotacaoStatus.emAndamento = false;
+        cotacaoStatus.solicitouParar = false;
         cotacaoStatus.finalizadoEm = new Date().toISOString();
         console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} preços reais capturados.`);
-
-        // Encadeamento inteligente em background: se ainda houver itens críticos pendentes (P1/P2/P3), dispara o próximo lote após 5s
-        setTimeout(() => {
-          try {
-            verificarERodarCotacaoSegundoPlano('CONTINUACAO_FILA_PENDENTE');
-          } catch (eCont) {}
-        }, 5000);
       }
     })();
 
@@ -1646,42 +1647,37 @@ function belapedEndpoints(db) {
   };
 
   // =========================================================================
-  // WORKER CONTÍNUO EM SEGUNDO PLANO (AUTÔNOMO & PROATIVO)
-  // O sistema cota e atualiza os preços 24/7 sem depender de ninguém abrir a tela.
+  // HORÁRIOS ESTRATÉGICOS DE COTAÇÃO AUTOMÁTICA (B2B FARMÁCIA)
+  // O sistema cota nos horários de maior impacto comercial e encerra o lote,
+  // mantendo o sistema 100% livre e rápido durante o atendimento do balcão.
+  // 1. 06:30 - Matinal de Abertura (equipe chega às 08h com tudo cotado e pronto)
+  // 2. 12:30 - Meio-Dia / Almoço (antes do corte de faturamento dos CDs: 14h-16h)
+  // 3. 17:45 - Fim de Tarde / Noturno (fechamento comercial para entregas matinais)
   // =========================================================================
-  const HORARIOS_AGENDADOS = ['07:50', '10:30', '14:30', '18:00'];
+  const HORARIOS_ESTRATEGICOS = ['06:30', '12:30', '17:45'];
   let ultimoMinutoAgendado = '';
 
   async function verificarERodarCotacaoSegundoPlano(origem = 'BACKGROUND_WORKER') {
     try {
       if (cotacaoStatus.emAndamento) {
-        console.log(`[BelaPed Background Worker] Cotação já em andamento. Aguardando próximo ciclo.`);
+        console.log(`[BelaPed Background Worker] Cotação já em andamento. Aguardando.`);
         return;
       }
 
-      console.log(`[BelaPed Background Worker] [${origem}] Verificando produtos prioritários com cotação > 24h ou sem cotação...`);
-      const iniciado = await executarCotacaoAoVivoInternal('TODOS', 40);
+      console.log(`[BelaPed Background Worker] [${origem}] Disparando cotação estratégica para produtos prioritários...`);
+      // Executa estritamente 1 lote direcionado aos produtos mais críticos (P1 e P2 em falta/ruptura)
+      const iniciado = await executarCotacaoAoVivoInternal('TODOS', 40, undefined, 'TODAS_PRIORITARIAS');
       if (iniciado) {
-        console.log(`[BelaPed Background Worker] Ciclo autônomo de cotação iniciado em segundo plano com sucesso!`);
+        console.log(`[BelaPed Background Worker] Ciclo estratégico iniciado com sucesso para ${origem}.`);
       } else {
         console.log(`[BelaPed Background Worker] Todos os itens prioritários já possuem cotação recente (< 24h). Nenhuma ação necessária.`);
       }
     } catch (err) {
-      console.error(`[BelaPed Background Worker] Erro no ciclo de segundo plano:`, err.message);
+      console.error(`[BelaPed Background Worker] Erro no ciclo estratégico:`, err.message);
     }
   }
 
-  // 1. Inicialização inicial proativa: roda 45s após o servidor ligar
-  setTimeout(() => {
-    verificarERodarCotacaoSegundoPlano('STARTUP_PROATIVO');
-  }, 45000);
-
-  // 2. Loop contínuo: verifica a cada 30 minutos se há itens vencidos (> 24h) ou novas rupturas
-  setInterval(() => {
-    verificarERodarCotacaoSegundoPlano('INTERVALO_30MIN');
-  }, 30 * 60 * 1000);
-
-  // 3. Checagem nos horários estratégicos de pico comercial B2B
+  // Checagem a cada 30 segundos se o relógio atingiu algum dos horários estratégicos
   setInterval(() => {
     try {
       const agora = new Date();
@@ -1692,15 +1688,38 @@ function belapedEndpoints(db) {
         hour12: false
       });
 
-      if (HORARIOS_AGENDADOS.includes(horaMinutoAtual) && ultimoMinutoAgendado !== horaMinutoAtual) {
+      if (HORARIOS_ESTRATEGICOS.includes(horaMinutoAtual) && ultimoMinutoAgendado !== horaMinutoAtual) {
         ultimoMinutoAgendado = horaMinutoAtual;
-        console.log(`[BelaPed Agendador] >>> HORÁRIO DE PICO (${horaMinutoAtual}): Disparando cotação nos 5 portais! <<<`);
-        verificarERodarCotacaoSegundoPlano(`HORARIO_PICO_${horaMinutoAtual}`);
+        console.log(`[BelaPed Agendador] >>> HORÁRIO ESTRATÉGICO (${horaMinutoAtual}): Disparando cotação nos 6 portais! <<<`);
+        verificarERodarCotacaoSegundoPlano(`HORARIO_ESTRATEGICO_${horaMinutoAtual}`);
       }
     } catch (schedErr) {
-      console.error('[BelaPed Agendador] Erro no timer de cotação:', schedErr.message);
+      console.error('[BelaPed Agendador] Erro no timer estratégico:', schedErr.message);
     }
-  }, 25000);
+  }, 30000);
+
+  /**
+   * POST /api/belaped/parar-cotacao
+   * Interrompe imediatamente qualquer cotação em andamento nos robôs
+   */
+  router.post('/parar-cotacao', (req, res) => {
+    try {
+      if (!cotacaoStatus.emAndamento) {
+        return res.json({ success: true, message: 'Nenhuma cotação em andamento no momento.' });
+      }
+
+      cotacaoStatus.solicitouParar = true;
+      cotacaoStatus.ultimoItem = '⛔ Cotação interrompida pelo usuário.';
+      console.log('[BelaPed Cotação] ⛔ Interrupção solicitada pelo usuário.');
+
+      res.json({
+        success: true,
+        message: 'Interrupção solicitada aos robôs. O processo será finalizado com segurança.'
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   /**
    * POST /api/belaped/cotar-ao-vivo
