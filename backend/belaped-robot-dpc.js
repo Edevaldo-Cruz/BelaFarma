@@ -111,7 +111,12 @@ class DpcRobot {
         if (
           !areaBusca ||
           areaBusca.includes('Foram encontrados 0 produtos') ||
-          areaBusca.includes('Não localizamos nenhum resultado')
+          areaBusca.includes('Não localizamos nenhum resultado') ||
+          areaBusca.includes('Sem estoque') ||
+          areaBusca.includes('Indisponível') ||
+          areaBusca.includes('indisponível') ||
+          areaBusca.includes('Esgotado') ||
+          areaBusca.includes('Avise-me')
         ) {
           return { encontrado: false };
         }

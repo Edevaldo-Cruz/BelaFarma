@@ -193,32 +193,31 @@ class ProfarmaRobot {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'PROFARMA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
 
-      // 1. Tenta busca exata pelo EAN
+      // 1. Busca pelo EAN no portal
       let itens = await this._executarBuscaNoPortal(eanLimpo);
 
-      // 2. Se não encontrou pelo EAN e temos a descrição do produto, tenta busca pelo nome/dosagem
-      if (itens.length === 0 && descricaoProduto) {
-        const termoNome = extrairTermoLimpo(descricaoProduto);
-        if (termoNome && termoNome.length >= 4) {
-          const primeiraPalavra = termoNome.split(' ')[0];
-          const todosNome = await this._executarBuscaNoPortal(termoNome);
-          itens = todosNome.filter(it => it.descricao.toUpperCase().includes(primeiraPalavra));
-        }
-      }
+      // Filtro ESTRITO por EAN: só aceita se o EAN retornado coincidir exatamente com o pesquisado
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      let itensCorrespondentes = itens.filter(it => {
+        if (!it.ean) return false;
+        const itDigitos = String(it.ean).replace(/\D/g, '');
+        return itDigitos === eanDigitos ||
+               (itDigitos.length >= 8 && eanDigitos.length >= 8 && (itDigitos.endsWith(eanDigitos) || eanDigitos.endsWith(itDigitos)));
+      });
 
-      if (!itens || itens.length === 0) {
+      if (!itensCorrespondentes || itensCorrespondentes.length === 0) {
         return {
           fornecedor: 'PROFARMA',
           ean: eanLimpo,
           disponivel: false,
           preco: null,
-          mensagem: 'Indisponível na Profarma'
+          mensagem: 'Sem estoque ou não encontrado na Profarma'
         };
       }
 
       // Ordena pelo menor preço disponível em estoque
-      itens.sort((a, b) => a.preco - b.preco);
-      const melhor = itens[0];
+      itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+      const melhor = itensCorrespondentes[0];
 
       return {
         fornecedor: 'PROFARMA',

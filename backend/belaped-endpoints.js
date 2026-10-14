@@ -1511,6 +1511,20 @@ function belapedEndpoints(db) {
               }
             }
 
+            // 🛡️ TRAVAS DE SEGURANÇA MÁSTER DO BELAPED:
+            if (resultado.disponivel && resultado.preco > 0) {
+              // Trava 1: Preço irreal de centavos (< R$ 0,35)
+              if (resultado.preco < 0.35) {
+                console.warn(`[BelaPed Segurança] ⛔ Preço irreal (< R$ 0,35): R$ ${resultado.preco.toFixed(2)} descartado para "${descAtual || eanAtual}".`);
+                resultado = { disponivel: false, preco: null, mensagem: 'Descartado: Preço irreal (< R$ 0,35)' };
+              }
+              // Trava 2: Queda absurda (> 70% de desconto) em relação ao custo histórico para itens acima de R$ 3,00
+              else if (ultCustoRef >= 3.0 && (resultado.preco / ultCustoRef) < 0.30) {
+                console.warn(`[BelaPed Segurança] ⛔ Queda absurda (> 70%): R$ ${resultado.preco.toFixed(2)} vs Custo R$ ${ultCustoRef.toFixed(2)} para "${descAtual || eanAtual}". Descartado.`);
+                resultado = { disponivel: false, preco: null, mensagem: 'Descartado: Variação absurda (> 70% de desconto vs custo)' };
+              }
+            }
+
             passosConcluidos++;
             cotacaoStatus.workers[nomeFornecedor].avaliados++;
             cotacaoStatus.atual = Math.min(listaEans.length, Math.max(1, Math.ceil(passosConcluidos / numWorkers)));

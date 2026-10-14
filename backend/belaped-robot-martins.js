@@ -305,8 +305,23 @@ class MartinsRobot {
         let cardAlvo = cards[0];
         let cardText = cardAlvo ? cardAlvo.innerText : bodyText;
 
-        // Extrai o preço (ex: R$ 12,50 ou 12,50)
-        const matchPreco = cardText.match(/R\$\s*([\d\.]+,\d{2})/i) || cardText.match(/([\d\.]+,\d{2})/);
+        // Checagem de estoque no card do Martins
+        const cardMinusculo = cardText.toLowerCase();
+        if (
+          cardMinusculo.includes('esgotado') ||
+          cardMinusculo.includes('indisponível') ||
+          cardMinusculo.includes('indisponivel') ||
+          cardMinusculo.includes('sem estoque') ||
+          cardMinusculo.includes('avise-me') ||
+          cardMinusculo.includes('avise me') ||
+          cardMinusculo.includes('avise quando') ||
+          cardMinusculo.includes('fora de estoque')
+        ) {
+          return { disponivel: false, mensagem: 'Produto sem estoque no Martins' };
+        }
+
+        // Extrai o preço OBRIGATORIAMENTE com o símbolo R$ para evitar capturar dosagens (ex: 0,25mg ou 0,07mg)
+        const matchPreco = cardText.match(/R\$\s*([\d\.]+,\d{2})/i);
         if (!matchPreco) {
           return { disponivel: false, mensagem: 'Preço não disponível ou indisponível' };
         }

@@ -185,25 +185,13 @@ class DivimedRobot {
         };
       }
 
-      // 1. Prioriza correspondência exata por EAN (código de barra retornado na API da Divimed)
-      let item = produtos.find(p => p.codigoBarra && p.codigoBarra.trim() === eanLimpo);
-
-      // 2. Se não achou pelo código de barra exato, filtra por palavras-chave
-      if (!item) {
-        const palavras = termoNome.split(' ').filter(p => p.length >= 2);
-        const compativeis = produtos.filter(p => {
-          const nomeProd = (p.nome || '').toUpperCase();
-          return palavras.every(palavra => nomeProd.includes(palavra));
-        });
-        if (compativeis.length > 0) {
-          compativeis.sort((a, b) => {
-            const prA = a.valorLiquido1 || a.valorLiquido || a.precoProduto || 999999;
-            const prB = b.valorLiquido1 || b.valorLiquido || b.precoProduto || 999999;
-            return prA - prB;
-          });
-          item = compativeis[0];
-        }
-      }
+      // 1. Validação ESTRITA por EAN (código de barra retornado na API da Divimed)
+      let item = produtos.find(p => {
+        if (!p.codigoBarra) return false;
+        const codLimpo = String(p.codigoBarra).trim().replace(/\D/g, '');
+        const eanDigitos = eanLimpo.replace(/\D/g, '');
+        return codLimpo === eanDigitos || (codLimpo.length >= 8 && eanDigitos.length >= 8 && (codLimpo.endsWith(eanDigitos) || eanDigitos.endsWith(codLimpo)));
+      });
 
       if (!item) {
         return {
@@ -211,7 +199,7 @@ class DivimedRobot {
           ean: eanLimpo,
           disponivel: false,
           preco: null,
-          mensagem: 'Item compatível não localizado no catálogo'
+          mensagem: 'EAN exato não localizado no catálogo da Divimed'
         };
       }
 

@@ -513,29 +513,42 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     produto: FaltaItem7d | null;
   }>({ isOpen: false, produto: null });
 
-  // Link inteligente do produto pesquisado na distribuidora vencedora (1º Colocado)
-  const obterLinkDistribuidoraProduto = (item: FaltaItem7d): string | null => {
-    if (item.url_produto_1) return item.url_produto_1;
-    const f1 = (item.fornecedor_1 || '').toUpperCase();
-    if (!f1 || f1 === 'NÃO COTADO' || f1.includes('SEM ESTOQUE') || f1.includes('AGUARDANDO')) return null;
+  // Estado para feedback instantâneo de cópia do EAN ao clicar no link
+  const [toastCopiado, setToastCopiado] = useState<string | null>(null);
+
+  // Manipulador que copia o EAN automaticamente ao clicar para conferir o produto na distribuidora
+  const handleAbrirLinkDistribuidora = (item: FaltaItem7d) => {
+    if (item.ean) {
+      try {
+        navigator.clipboard.writeText(item.ean);
+        setToastCopiado(`EAN ${item.ean} copiado para a área de transferência!`);
+        setTimeout(() => setToastCopiado(null), 3000);
+      } catch {}
+    }
+  };
+
+  // Link inteligente do produto pesquisado na distribuidora vencedora (1º ou 2º Colocado)
+  const obterLinkDistribuidoraProduto = (item: FaltaItem7d, colocacao: 1 | 2 = 1): string | null => {
+    const fornecedor = (colocacao === 1 ? item.fornecedor_1 : (item as any).fornecedor_2 || '').toUpperCase();
+    if (!fornecedor || fornecedor === 'NÃO COTADO' || fornecedor.includes('SEM ESTOQUE') || fornecedor.includes('AGUARDANDO')) return null;
 
     const termo = item.ean || encodeURIComponent(item.descricao);
-    if (f1.includes('SOTON')) {
-      return `https://sotonfarma.meuspedidos.com.br/produtos?q=${termo}`;
+    if (fornecedor.includes('SOTON')) {
+      return `https://sotonfarma.meuspedidos.com.br/?busca=${termo}`;
     }
-    if (f1.includes('DISTRIMED')) {
-      return `https://inovacao.distrimed.com.br/produtos?pesquisa=${termo}`;
+    if (fornecedor.includes('DISTRIMED')) {
+      return `https://inovacao.distrimed.com.br/produtos`;
     }
-    if (f1.includes('DIVIMED')) {
+    if (fornecedor.includes('DIVIMED')) {
       return `https://divimed.artpedidoweb.com.br/#/comprar`;
     }
-    if (f1.includes('PROFARMA')) {
-      return `https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido`;
+    if (fornecedor.includes('PROFARMA')) {
+      return `https://pedido.profarma.com.br/`;
     }
-    if (f1.includes('DPC')) {
-      return `https://cliente.dpcnet.com.br/`;
+    if (fornecedor.includes('DPC')) {
+      return `https://dpcnet.com.br/catalogo?busca=${termo}&visualizacao=bloco-1&ordenacao=ordem-0`;
     }
-    if (f1.includes('MARTINS')) {
+    if (fornecedor.includes('MARTINS')) {
       return `https://www.martinsatacado.com.br/busca?q=${termo}`;
     }
     return null;
@@ -3426,14 +3439,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                         <div className="flex items-center gap-1.5">
                                           <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
                                           {(() => {
-                                            const linkProd = obterLinkDistribuidoraProduto(item);
+                                            const linkProd = obterLinkDistribuidoraProduto(item, 1);
                                             return linkProd ? (
                                               <a
                                                 href={linkProd}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
+                                                onClick={() => handleAbrirLinkDistribuidora(item)}
                                                 className="inline-flex items-center gap-1 font-bold text-emerald-300 hover:text-emerald-100 hover:underline text-xs truncate max-w-[135px] group transition-all"
-                                                title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (clique para abrir)`}
+                                                title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (O EAN será copiado automaticamente)`}
                                               >
                                                 <span className="truncate">{fornecedor1}</span>
                                                 <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-125 transition-transform" />
@@ -3504,13 +3518,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       </div>
                                     </td>
                                     <td className="py-2.5 px-3.5 whitespace-nowrap bg-slate-900/30">
-                                      {fornecedor2 ? (
-                                        <span className="text-slate-300 font-medium text-xs truncate max-w-[130px] block" title={fornecedor2}>
-                                          {fornecedor2}
-                                        </span>
-                                      ) : (
-                                        <span className="text-slate-500 text-xs">—</span>
-                                      )}
+                                      {(() => {
+                                        if (!fornecedor2) return <span className="text-slate-500 text-xs">—</span>;
+                                        const linkProd2 = obterLinkDistribuidoraProduto(item, 2);
+                                        return linkProd2 ? (
+                                          <a
+                                            href={linkProd2}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={() => handleAbrirLinkDistribuidora(item)}
+                                            className="inline-flex items-center gap-1 text-slate-300 hover:text-white hover:underline font-medium text-xs truncate max-w-[130px] group transition-all"
+                                            title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor2} (O EAN será copiado automaticamente)`}
+                                          >
+                                            <span className="truncate">{fornecedor2}</span>
+                                            <ExternalLink className="w-3 h-3 text-slate-400 shrink-0 group-hover:scale-125 transition-transform" />
+                                          </a>
+                                        ) : (
+                                          <span className="text-slate-300 font-medium text-xs truncate max-w-[130px] block" title={fornecedor2}>
+                                            {fornecedor2}
+                                          </span>
+                                        );
+                                      })()}
                                     </td>
                                     <td className="py-2.5 px-3.5 text-right whitespace-nowrap bg-slate-900/30 text-sm">
                                       {preco2 !== null ? (
@@ -3728,14 +3756,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                 <div className="flex items-center gap-1.5">
                                   <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
                                   {(() => {
-                                    const linkProd = obterLinkDistribuidoraProduto(item);
+                                    const linkProd = obterLinkDistribuidoraProduto(item, 1);
                                     return linkProd ? (
                                       <a
                                         href={linkProd}
                                         target="_blank"
                                         rel="noopener noreferrer"
+                                        onClick={() => handleAbrirLinkDistribuidora(item)}
                                         className="inline-flex items-center gap-1 font-bold text-emerald-300 hover:text-emerald-100 hover:underline text-xs truncate max-w-[135px] group transition-all"
-                                        title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (clique para abrir)`}
+                                        title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (O EAN será copiado automaticamente)`}
                                       >
                                         <span className="truncate">{fornecedor1}</span>
                                         <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-125 transition-transform" />
@@ -3810,13 +3839,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
                             {/* 2º Colocado (Vendedor) */}
                             <td className="py-2.5 px-3.5 whitespace-nowrap bg-slate-900/30">
-                              {fornecedor2 ? (
-                                <span className="text-slate-300 font-medium text-xs truncate max-w-[130px] block" title={fornecedor2}>
-                                  {fornecedor2}
-                                </span>
-                              ) : (
-                                <span className="text-slate-500 text-xs">—</span>
-                              )}
+                              {(() => {
+                                if (!fornecedor2) return <span className="text-slate-500 text-xs">—</span>;
+                                const linkProd2 = obterLinkDistribuidoraProduto(item, 2);
+                                return linkProd2 ? (
+                                  <a
+                                    href={linkProd2}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={() => handleAbrirLinkDistribuidora(item)}
+                                    className="inline-flex items-center gap-1 text-slate-300 hover:text-white hover:underline font-medium text-xs truncate max-w-[130px] group transition-all"
+                                    title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor2} (O EAN será copiado automaticamente)`}
+                                  >
+                                    <span className="truncate">{fornecedor2}</span>
+                                    <ExternalLink className="w-3 h-3 text-slate-400 shrink-0 group-hover:scale-125 transition-transform" />
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-300 font-medium text-xs truncate max-w-[130px] block" title={fornecedor2}>
+                                    {fornecedor2}
+                                  </span>
+                                );
+                              })()}
                             </td>
 
                             {/* 2º Preço (+X%) */}
@@ -4729,6 +4772,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           />
         );
       })()}
+
+      {/* ─── TOAST NOTIFICAÇÃO DE CÓPIA DO EAN ─── */}
+      {toastCopiado && (
+        <div className="fixed bottom-6 left-6 z-50 px-4 py-3 rounded-2xl bg-emerald-950/95 text-emerald-200 text-xs font-black shadow-2xl flex items-center gap-2.5 border border-emerald-500/80 backdrop-blur-md animate-in fade-in slide-in-from-bottom-3">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastCopiado}</span>
+        </div>
+      )}
 
     </div>
   );
