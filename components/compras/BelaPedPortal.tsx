@@ -99,6 +99,7 @@ interface FaltaItem7d {
   url_produto_1?: string | null;
   fornecedor_2?: string;
   preco_2?: number;
+  url_produto_2?: string | null;
   diferenca_percentual?: number;
   melhor_dia_semana?: string;
   melhor_dia_semana_index?: number;
@@ -529,27 +530,44 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Link inteligente do produto pesquisado na distribuidora vencedora (1º ou 2º Colocado)
   const obterLinkDistribuidoraProduto = (item: FaltaItem7d, colocacao: 1 | 2 = 1): string | null => {
+    // 1. Prioriza a URL direta salva pelo robô ou gerada pelo backend (se não for URL crua/home)
+    const urlDireta = colocacao === 1 ? item.url_produto_1 : item.url_produto_2;
+    if (urlDireta && typeof urlDireta === 'string' && urlDireta.startsWith('http')) {
+      const urlCrua = [
+        'https://pedido.profarma.com.br/',
+        'https://pedido.profarma.com.br',
+        'https://inovacao.distrimed.com.br/produtos',
+        'https://inovacao.distrimed.com.br/produtos/',
+        'https://divimed.artpedidoweb.com.br/#/comprar',
+        'https://divimed.artpedidoweb.com.br/#/',
+        'https://divimed.artpedidoweb.com.br'
+      ];
+      if (!urlCrua.includes(urlDireta.trim())) {
+        return urlDireta;
+      }
+    }
+
     const fornecedor = (colocacao === 1 ? item.fornecedor_1 : (item as any).fornecedor_2 || '').toUpperCase();
     if (!fornecedor || fornecedor === 'NÃO COTADO' || fornecedor.includes('SEM ESTOQUE') || fornecedor.includes('AGUARDANDO')) return null;
 
     const termo = item.ean || encodeURIComponent(item.descricao);
+    if (fornecedor.includes('PROFARMA')) {
+      return `https://pedido.profarma.com.br/novo-pedido?q=${termo}`;
+    }
     if (fornecedor.includes('SOTON')) {
       return `https://sotonfarma.meuspedidos.com.br/?busca=${termo}`;
-    }
-    if (fornecedor.includes('DISTRIMED')) {
-      return `https://inovacao.distrimed.com.br/produtos`;
-    }
-    if (fornecedor.includes('DIVIMED')) {
-      return `https://divimed.artpedidoweb.com.br/#/comprar`;
-    }
-    if (fornecedor.includes('PROFARMA')) {
-      return `https://pedido.profarma.com.br/`;
     }
     if (fornecedor.includes('DPC')) {
       return `https://dpcnet.com.br/catalogo?busca=${termo}&visualizacao=bloco-1&ordenacao=ordem-0`;
     }
     if (fornecedor.includes('MARTINS')) {
       return `https://www.martinsatacado.com.br/busca?q=${termo}`;
+    }
+    if (fornecedor.includes('DISTRIMED')) {
+      return `https://inovacao.distrimed.com.br/produtos?pesquisa=${termo}`;
+    }
+    if (fornecedor.includes('DIVIMED')) {
+      return `https://divimed.artpedidoweb.com.br/#/comprar?busca=${termo}`;
     }
     return null;
   };

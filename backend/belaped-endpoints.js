@@ -24,6 +24,31 @@ const { DistrimedRobot } = require('./belaped-robot-distrimed');
 const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
 
+function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
+  const f = (fornecedorNome || '').toUpperCase();
+  const termo = String(ean || '').trim() || encodeURIComponent(descricao || '');
+  if (!termo) return null;
+  if (f.includes('PROFARMA')) {
+    return `https://pedido.profarma.com.br/novo-pedido?q=${termo}`;
+  }
+  if (f.includes('SOTON')) {
+    return `https://sotonfarma.meuspedidos.com.br/?busca=${termo}`;
+  }
+  if (f.includes('DPC')) {
+    return `https://dpcnet.com.br/catalogo?busca=${termo}&visualizacao=bloco-1&ordenacao=ordem-0`;
+  }
+  if (f.includes('MARTINS')) {
+    return `https://www.martinsatacado.com.br/busca?q=${termo}`;
+  }
+  if (f.includes('DISTRIMED')) {
+    return `https://inovacao.distrimed.com.br/produtos?pesquisa=${termo}`;
+  }
+  if (f.includes('DIVIMED')) {
+    return `https://divimed.artpedidoweb.com.br/#/comprar?busca=${termo}`;
+  }
+  return null;
+}
+
 function belapedEndpoints(db) {
   const router = express.Router();
 
@@ -542,33 +567,40 @@ function belapedEndpoints(db) {
         let urlProduto1 = null;
         let fornecedor2 = '';
         let preco2 = 0;
+        let urlProduto2 = null;
         let diferencaPct = 0;
 
         if (cotacoesReais && cotacoesReais.length > 0) {
           fornecedor1 = cotacoesReais[0].fornecedor;
           preco1 = Number(cotacoesReais[0].preco.toFixed(2));
-          urlProduto1 = cotacoesReais[0].url_produto || null;
+          urlProduto1 = cotacoesReais[0].url_produto || gerarUrlDistribuidoraProduto(fornecedor1, r.ean, r.descricao);
 
           if (cotacoesReais.length > 1) {
             fornecedor2 = cotacoesReais[1].fornecedor;
             preco2 = Number(cotacoesReais[1].preco.toFixed(2));
+            urlProduto2 = cotacoesReais[1].url_produto || gerarUrlDistribuidoraProduto(fornecedor2, r.ean, r.descricao);
             diferencaPct = preco1 > 0 ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
           } else {
             fornecedor2 = '—';
             preco2 = 0;
+            urlProduto2 = null;
             diferencaPct = 0;
           }
         } else if (jaConsultado) {
           fornecedor1 = 'Sem Estoque (Portais)';
           preco1 = Number(custo.toFixed(2));
+          urlProduto1 = null;
           fornecedor2 = '—';
           preco2 = 0;
+          urlProduto2 = null;
           diferencaPct = 0;
         } else {
           fornecedor1 = 'Não Cotado';
           preco1 = Number(custo.toFixed(2));
+          urlProduto1 = null;
           fornecedor2 = '—';
           preco2 = 0;
+          urlProduto2 = null;
           diferencaPct = 0;
         }
 
@@ -663,6 +695,7 @@ function belapedEndpoints(db) {
           url_produto_1: urlProduto1,
           fornecedor_2: fornecedor2,
           preco_2: preco2,
+          url_produto_2: urlProduto2,
           diferenca_percentual: diferencaPct,
 
           fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
@@ -1444,7 +1477,7 @@ function belapedEndpoints(db) {
           disponivel = excluded.disponivel,
           descricao = excluded.descricao,
           desc_pct = excluded.desc_pct,
-          url_produto = COALESCE(excluded.url_produto, belaped_cotacoes_reais.url_produto),
+          url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
           updated_at = excluded.updated_at
       `);
 
@@ -1543,7 +1576,7 @@ function belapedEndpoints(db) {
                 1,
                 resultado.descricao || descAtual,
                 resultado.descPct || 0,
-                resultado.url || resultado.urlProduto || resultado.link || null
+                resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(nomeFornecedor, eanAtual, descAtual)
               );
 
               // Grava na série histórica temporal para Inteligência de Mercado (Melhor Dia e Gráfico)
@@ -1852,7 +1885,7 @@ function belapedEndpoints(db) {
             disponivel = excluded.disponivel,
             descricao = excluded.descricao,
             desc_pct = excluded.desc_pct,
-            url_produto = COALESCE(excluded.url_produto, belaped_cotacoes_reais.url_produto),
+            url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
             updated_at = excluded.updated_at
         `);
 
@@ -1864,7 +1897,7 @@ function belapedEndpoints(db) {
             1,
             resultado.descricao || descricao || '',
             resultado.descPct || 0,
-            resultado.url || resultado.urlProduto || resultado.link || null
+            resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(fornecedorAlvo, eanLimpo, descricao)
           );
         } else {
           stmtSalvar.run(

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "470e5e1",
-  "commitMessage": "fix(belaped): filtrar produtos sem estoque com Avise-me quando chegar na Distrimed e validar EAN estrito",
-  "buildTime": "14/10/2026, 11:03:23"
+  "commitHash": "97d6654",
+  "commitMessage": "feat(belaped): adicionar auditor automatizado de links com checagem de estoque e precos",
+  "buildTime": "14/10/2026, 16:59:50"
 }
