@@ -123,65 +123,7 @@ class SotonRobot {
         return [];
       }
 
-      // Palavras indicadoras de FALTA DE ESTOQUE na plataforma Mercos / MeusPedidos
-      const termosSemEstoque = [
-        'vendemos todo o estoque',
-        'já vendemos',
-        'ja vendemos',
-        'sem estoque',
-        'indisponível',
-        'indisponivel',
-        'esgotado',
-        'avise-me',
-        'avise me',
-        'avise quando',
-        'produto indisponível',
-        'fora de estoque',
-        'estoque esgotado'
-      ];
-
-      // 1. Tenta extrair diretamente através dos elementos DOM dos cards de produto
-      const cardElements = Array.from(document.querySelectorAll(
-        '[class*="Catalog__card"], [class*="ProductCard"], [class*="catalog-item"], .product-item, .card, [data-product-id]'
-      ));
-
-      if (cardElements.length > 0) {
-        const encontradosDom = [];
-        for (const card of cardElements) {
-          const cardText = (card.innerText || '').toLowerCase();
-          const semEstoque = termosSemEstoque.some(t => cardText.includes(t));
-          if (semEstoque) {
-            continue; // Sem estoque na Soton!
-          }
-
-          // Checa se tem botão de compra ou input de quantidade
-          const hasInputQtd = !!card.querySelector('input[type="number"], input[name*="qtd"]');
-          const hasBuyBtn = !!card.querySelector('button, [class*="Button"], [class*="AddToCart"], [class*="shopping_cart"]');
-          if (!hasInputQtd && !hasBuyBtn) {
-            continue;
-          }
-
-          const matchPreco = cardText.match(/r\$\s*([\d\.]+,\d{2})/i);
-          if (!matchPreco) continue;
-
-          const num = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
-          if (isNaN(num) || num <= 0) continue;
-
-          const tituloEl = card.querySelector('h2, h3, h4, [class*="title"], [class*="name"], a');
-          const titulo = tituloEl ? tituloEl.innerText.trim() : cardText.split('\n')[0].trim();
-
-          encontradosDom.push({
-            descricao: titulo,
-            preco: num
-          });
-        }
-
-        if (encontradosDom.length > 0) {
-          return encontradosDom;
-        }
-      }
-
-      // 2. Extração via texto estruturado com análise de bloco
+      // Na Soton (MeusPedidos), os itens ficam entre "Resultados para" e "contato@sotonfarma"
       const idxInicio = bodyText.indexOf('Resultados para');
       const idxFim = bodyText.indexOf('contato@sotonfarma');
       const trecho = idxInicio >= 0
@@ -192,26 +134,36 @@ class SotonRobot {
       const encontrados = [];
 
       for (let i = 0; i < linhas.length; i++) {
-        if (linhas[i].startsWith('Cód.') && i > 0) {
+        // Exemplo no MeusPedidos:
+        // linhas[i-1]: "APARELHO DE BARBEAR INOX PREMIUM... - VICEROY"
+        // linhas[i]:   "Cód. 8244 • UN"
+        // linhas[i+1]: "Ops! Já vendemos todo o estoque." ou "R$ 4,79"
+        if (linhas[i].startsWith('Cód.') && i > 0 && i + 1 < linhas.length) {
           const titulo = linhas[i - 1];
+          const bloco = linhas.slice(Math.max(0, i - 1), Math.min(linhas.length, i + 8));
+          const blocoTexto = bloco.join(' ').toLowerCase();
 
-          // Analisa até 8 linhas à frente para verificar o preço e o estoque deste card
-          const blocoLinhas = linhas.slice(i, Math.min(i + 8, linhas.length));
-          const blocoTexto = blocoLinhas.join(' ').toLowerCase();
-
-          // 🚨 CHECAGEM COMPLETA DE ESTOQUE: se contiver qualquer termo de falta, descarta!
-          const semEstoque = termosSemEstoque.some(t => blocoTexto.includes(t));
-          if (semEstoque) {
-            continue; // Produto esgotado na Soton Farma
+          // 🚨 CHECAGEM CRÍTICA DE ESTOQUE NA SOTON / MEUSPEDIDOS:
+          if (
+            blocoTexto.includes('vendemos todo o estoque') ||
+            blocoTexto.includes('sem estoque') ||
+            blocoTexto.includes('indisponível') ||
+            blocoTexto.includes('indisponivel') ||
+            blocoTexto.includes('esgotado') ||
+            blocoTexto.includes('avise-me') ||
+            blocoTexto.includes('avise me') ||
+            blocoTexto.includes('já vendemos')
+          ) {
+            continue; // Pula produto sem estoque!
           }
 
+          // Procura o preço no bloco (deve começar com R$)
           let precoNum = null;
-          for (let j = 1; j < blocoLinhas.length; j++) {
-            const lj = blocoLinhas[j];
-            if (lj.startsWith('Cód.')) break; // Encontrou o próximo item
-            const matchP = lj.match(/^R\$\s*([\d\.]+,\d{2})/i) || lj.match(/R\$\s*([\d\.]+,\d{2})/i);
-            if (matchP && !lj.includes('shopping_cart')) {
-              const num = parseFloat(matchP[1].replace(/\./g, '').replace(',', '.'));
+          for (let j = i + 1; j < Math.min(linhas.length, i + 6); j++) {
+            const linha = linhas[j];
+            if (linha.startsWith('Cód.')) break; // Chegou no próximo produto
+            if (linha.startsWith('R$') && !linha.includes('shopping_cart')) {
+              const num = parseFloat(linha.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
               if (!isNaN(num) && num > 0) {
                 precoNum = num;
                 break;
@@ -219,7 +171,7 @@ class SotonRobot {
             }
           }
 
-          if (precoNum !== null && precoNum > 0) {
+          if (precoNum !== null) {
             encontrados.push({
               descricao: titulo,
               preco: precoNum
@@ -233,7 +185,7 @@ class SotonRobot {
   }
 
   /**
-   * Consulta um EAN no catálogo da Soton Farma (com fallback por descrição pois o MeusPedidos nem sempre indexa EAN)
+   * Consulta um EAN no catálogo da Soton Farma com validação estrita de EAN e Estoque
    */
   async cotarEAN(ean, descricaoProduto = '') {
     if (!this.page) throw new Error('Robô Soton não iniciado.');
@@ -242,21 +194,8 @@ class SotonRobot {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'SOTON FARMA', disponivel: false, preco: null };
 
-      // 1. Tenta pelo EAN
+      // 1. Busca estrita pelo EAN no MeusPedidos da Soton
       let itens = await this._buscarTermoNaSoton(eanLimpo);
-
-      // 2. Se não retornou pelo EAN e temos descrição, busca pelo termo limpo
-      if (itens.length === 0 && descricaoProduto) {
-        const termoNome = extrairTermoLimpo(descricaoProduto);
-        if (termoNome && termoNome.length >= 4) {
-          const palavras = termoNome.split(' ').filter(p => p.length >= 2);
-          const todosNome = await this._buscarTermoNaSoton(termoNome);
-          itens = todosNome.filter(it => {
-            const descUp = (it.descricao || '').toUpperCase();
-            return palavras.every(p => descUp.includes(p));
-          });
-        }
-      }
 
       if (!itens || itens.length === 0) {
         return {
@@ -265,7 +204,7 @@ class SotonRobot {
           disponivel: false,
           preco: null,
           descricao: '',
-          mensagem: 'Indisponível na Soton Farma'
+          mensagem: 'Sem estoque ou não encontrado na Soton Farma'
         };
       }
 
