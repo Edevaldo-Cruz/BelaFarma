@@ -38,6 +38,7 @@ models_agent.json
 
 # Database
 *.db
+data/auditoria_links/
 *.db-shm
 *.db-wal
 *.db-journal
