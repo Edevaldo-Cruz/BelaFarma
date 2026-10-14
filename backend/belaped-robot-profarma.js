@@ -243,6 +243,181 @@ class ProfarmaRobot {
     }
   }
 
+  /**
+   * Adiciona um produto ao carrinho da Profarma
+   */
+  async adicionarAoCarrinho(ean, quantidade, descricaoProduto = '') {
+    if (!this.page) throw new Error('Robô Profarma não iniciado.');
+    const qtdNum = Math.max(1, parseInt(quantidade) || 1);
+
+    try {
+      const eanLimpo = String(ean || '').trim();
+      const itens = await this._executarBuscaNoPortal(eanLimpo);
+      if (!itens || itens.length === 0) {
+        return {
+          sucesso: false,
+          ean: eanLimpo,
+          quantidade: qtdNum,
+          motivo: 'Produto indisponível ou não localizado na Profarma'
+        };
+      }
+
+      const adicionou = await this.page.evaluate((qtd) => {
+        const inputs = Array.from(document.querySelectorAll('input[type="number"], input[inputmode="numeric"]'));
+        if (inputs.length === 0) return { sucesso: false, motivo: 'Campo de quantidade não encontrado na tabela' };
+
+        const inputQtd = inputs[0];
+        inputQtd.focus();
+        inputQtd.value = '';
+        inputQtd.value = String(qtd);
+        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
+        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const row = inputQtd.closest('tr, div[class*="row"], div[class*="item"]');
+        const btnAdd = row ? row.querySelector('button, [role="button"]') : null;
+        if (btnAdd) {
+          btnAdd.click();
+          return { sucesso: true };
+        }
+        return { sucesso: true };
+      }, qtdNum);
+
+      await new Promise(r => setTimeout(r, 1500));
+      return {
+        sucesso: adicionou.sucesso,
+        ean: eanLimpo,
+        quantidade: qtdNum,
+        motivo: adicionou.sucesso ? 'Adicionado com sucesso no carrinho da Profarma' : adicionou.motivo
+      };
+    } catch (err) {
+      return {
+        sucesso: false,
+        ean,
+        quantidade: qtdNum,
+        motivo: 'Erro ao adicionar item Profarma: ' + err.message
+      };
+    }
+  }
+
+  /**
+   * Conta quantos itens existem no carrinho da Profarma
+   * @returns {Promise<number>}
+   */
+  async contarItensCarrinho() {
+    if (!this.page) throw new Error('Robô Profarma não iniciado.');
+    try {
+      const qtd = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('header button, [class*="MuiAppBar"] button, button'));
+        for (const b of botoes) {
+          const t = (b.innerText || '').trim();
+          const m = t.match(/^(\d+)\s*\n+\s*R\$/i);
+          if (m) {
+            return parseInt(m[1], 10);
+          }
+          const badge = b.querySelector('[class*="MuiBadge-badge"], [class*="badge"]');
+          if (badge) {
+            const num = parseInt(badge.innerText.trim(), 10);
+            if (!isNaN(num)) return num;
+          }
+        }
+
+        if (document.body.innerText.includes('Carrinho vazio')) return 0;
+        return 0;
+      });
+
+      return qtd;
+    } catch (err) {
+      console.error('[ProfarmaRobot] Erro ao contar itens no carrinho:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Limpa o carrinho da Profarma e confirma 0 itens
+   * @returns {Promise<{ sucesso: boolean, itensRestantes: number }>}
+   */
+  async limparCarrinho() {
+    if (!this.page) throw new Error('Robô Profarma não iniciado.');
+    try {
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[ProfarmaRobot] Carrinho já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[ProfarmaRobot] Limpando carrinho com ${qtdInicial} itens...`);
+
+      await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('header button, [class*="MuiAppBar"] button, button'));
+        const btnCart = botoes.find(b => {
+          const t = (b.innerText || '').trim();
+          return /^(\d+)\s*\n+\s*R\$/i.test(t) || b.querySelector('[data-testid*="ShoppingCart"], [class*="cart"]');
+        });
+        if (btnCart) btnCart.click();
+      });
+
+      await new Promise(r => setTimeout(r, 1500));
+
+      const clicouLimpar = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnLimpar = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('limpar carrinho') || t.includes('esvaziar') || t.includes('excluir todos');
+        });
+        if (btnLimpar) {
+          btnLimpar.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicouLimpar) {
+        await new Promise(r => setTimeout(r, 1000));
+        await this.page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btnConf = btns.find(b => ['sim', 'confirmar', 'esvaziar', 'limpar', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+          if (btnConf) btnConf.click();
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      } else {
+        let tentativas = 0;
+        while (tentativas < 100) {
+          tentativas++;
+          const removeu = await this.page.evaluate(() => {
+            const btn = document.querySelector('[data-testid*="Delete"], button[aria-label*="delete"], button[class*="delete"]');
+            if (btn) {
+              btn.click();
+              return true;
+            }
+            return false;
+          });
+
+          if (!removeu) break;
+          await new Promise(r => setTimeout(r, 600));
+
+          await this.page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const btnConf = btns.find(b => ['sim', 'confirmar', 'excluir', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+            if (btnConf) btnConf.click();
+          });
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
+      const qtdFinal = await this.contarItensCarrinho();
+      if (qtdFinal === 0) {
+        console.log('[ProfarmaRobot] ✅ Carrinho da Profarma esvaziado com sucesso (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      } else {
+        throw new Error(`Carrinho da Profarma ainda possui ${qtdFinal} itens após tentativa de limpeza.`);
+      }
+    } catch (err) {
+      console.error('[ProfarmaRobot] Erro ao limpar carrinho:', err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     if (this.browser) {
       console.log('[ProfarmaRobot] Encerrando navegador...');

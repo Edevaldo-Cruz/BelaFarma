@@ -288,6 +288,127 @@ class SotonRobot {
     }
   }
 
+  /**
+   * Conta quantos itens existem no carrinho da Soton Farma
+   * @returns {Promise<number>}
+   */
+  async contarItensCarrinho() {
+    if (!this.page) throw new Error('Robô Soton não iniciado.');
+    try {
+      await this.page.goto('https://sotonfarma.meuspedidos.com.br/carrinho', {
+        waitUntil: 'networkidle2',
+        timeout: 25000
+      });
+      await new Promise(r => setTimeout(r, 1500));
+
+      const qtd = await this.page.evaluate(() => {
+        const bodyText = document.body.innerText || '';
+        if (
+          bodyText.includes('Seu carrinho está vazio') ||
+          bodyText.includes('Nenhum item no carrinho') ||
+          bodyText.includes('Carrinho vazio')
+        ) {
+          return 0;
+        }
+
+        const matchItens = bodyText.match(/(\d+)\s*ITEN[S]?/i) || bodyText.match(/(\d+)\s*ITEM/i);
+        if (matchItens) {
+          return parseInt(matchItens[1], 10);
+        }
+
+        const linhas = document.querySelectorAll('.b2b-checkout-item, [class*="CheckoutItem"], [class*="CartItem"], .cart-item');
+        if (linhas && linhas.length > 0) {
+          return linhas.length;
+        }
+
+        const badge = document.querySelector('[class*="badge"], [class*="CartButton"] span, [class*="counter"]');
+        if (badge) {
+          const num = parseInt(badge.innerText.trim(), 10);
+          if (!isNaN(num)) return num;
+        }
+
+        return 0;
+      });
+
+      return qtd;
+    } catch (err) {
+      console.error('[SotonRobot] Erro ao contar itens no carrinho:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Esvazia completamente o carrinho da Soton Farma e confirma 0 itens
+   * @returns {Promise<{ sucesso: boolean, itensRestantes: number }>}
+   */
+  async limparCarrinho() {
+    if (!this.page) throw new Error('Robô Soton não iniciado.');
+    try {
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[SotonRobot] Carrinho já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[SotonRobot] Limpando carrinho com ${qtdInicial} itens...`);
+
+      const clicouExcluir = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnExcluir = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('excluir carrinho') || t.includes('limpar carrinho') || t.includes('esvaziar carrinho');
+        });
+        if (btnExcluir) {
+          btnExcluir.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicouExcluir) {
+        await new Promise(r => setTimeout(r, 1200));
+        await this.page.evaluate(() => {
+          const botoesModal = Array.from(document.querySelectorAll('.modal button, [role="dialog"] button, button'));
+          const btnConfirmar = botoesModal.find(b => {
+            const t = (b.innerText || '').trim().toLowerCase();
+            return t === 'excluir' || t === 'sim' || t === 'confirmar' || t === 'ok' || t.includes('excluir');
+          });
+          if (btnConfirmar) btnConfirmar.click();
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      } else {
+        const botoesRemover = await this.page.evaluate(() => {
+          const lixeiras = Array.from(document.querySelectorAll('button[class*="remove"], button[class*="delete"], [data-action*="remove"], a[class*="remove"]'));
+          return lixeiras.length;
+        });
+
+        for (let i = 0; i < botoesRemover; i++) {
+          await this.page.evaluate(() => {
+            const btn = document.querySelector('button[class*="remove"], button[class*="delete"], [data-action*="remove"], a[class*="remove"]');
+            if (btn) btn.click();
+          });
+          await new Promise(r => setTimeout(r, 800));
+          await this.page.evaluate(() => {
+            const b = Array.from(document.querySelectorAll('button')).find(btn => ['sim', 'excluir', 'confirmar'].includes(btn.innerText.trim().toLowerCase()));
+            if (b) b.click();
+          });
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
+
+      const qtdFinal = await this.contarItensCarrinho();
+      if (qtdFinal === 0) {
+        console.log('[SotonRobot] ✅ Carrinho da Soton esvaziado com sucesso (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      } else {
+        throw new Error(`Carrinho da Soton ainda possui ${qtdFinal} itens após tentativa de limpeza.`);
+      }
+    } catch (err) {
+      console.error('[SotonRobot] Erro ao limpar carrinho:', err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     if (this.browser) {
       console.log('[SotonRobot] Fechando navegador...');

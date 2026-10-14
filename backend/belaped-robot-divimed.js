@@ -320,6 +320,139 @@ class DivimedRobot {
     }
   }
 
+  /**
+   * Conta quantos itens existem no carrinho da Divimed
+   * @returns {Promise<number>}
+   */
+  async contarItensCarrinho() {
+    if (!this.page) throw new Error('Robô Divimed não iniciado.');
+    try {
+      const qtdTopo = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a, div'));
+        const btnCarrinho = botoes.find(b => {
+          const t = (b.innerText || '').trim();
+          return t.includes('Carrinho') && /\d+/.test(t);
+        });
+
+        if (btnCarrinho) {
+          const m = btnCarrinho.innerText.match(/(\d+)\s*Carrinho|Carrinho\s*(\d+)|\n(\d+)\nCarrinho/);
+          if (m) {
+            const n = parseInt(m[1] || m[2] || m[3], 10);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      });
+
+      if (qtdTopo !== null) return qtdTopo;
+
+      await this.page.goto('https://divimed.artpedidoweb.com.br/#/carrinho', {
+        waitUntil: 'networkidle2',
+        timeout: 25000
+      });
+      await new Promise(r => setTimeout(r, 1500));
+
+      const qtdTela = await this.page.evaluate(() => {
+        const bodyText = document.body.innerText || '';
+        if (
+          bodyText.includes('Carrinho vazio') ||
+          bodyText.includes('Nenhum item') ||
+          bodyText.includes('Nenhum produto adicionado')
+        ) {
+          return 0;
+        }
+
+        const lixeiras = document.querySelectorAll('button.qty-btn-delete, button[class*="delete"], button[class*="trash"]');
+        return lixeiras ? lixeiras.length : 0;
+      });
+
+      return qtdTela;
+    } catch (err) {
+      console.error('[DivimedRobot] Erro ao contar itens no carrinho:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Esvazia o carrinho da Divimed e confirma 0 itens
+   * @returns {Promise<{ sucesso: boolean, itensRestantes: number }>}
+   */
+  async limparCarrinho() {
+    if (!this.page) throw new Error('Robô Divimed não iniciado.');
+    try {
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[DivimedRobot] Carrinho já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[DivimedRobot] Limpando carrinho com ${qtdInicial} itens...`);
+      await this.page.goto('https://divimed.artpedidoweb.com.br/#/carrinho', {
+        waitUntil: 'networkidle2',
+        timeout: 25000
+      });
+      await new Promise(r => setTimeout(r, 1500));
+
+      const clicouGeral = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnLimpar = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('limpar carrinho') || t.includes('esvaziar') || t.includes('excluir todos');
+        });
+        if (btnLimpar) {
+          btnLimpar.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicouGeral) {
+        await new Promise(r => setTimeout(r, 1000));
+        await this.page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btnConf = btns.find(b => ['sim', 'confirmar', 'excluir', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+          if (btnConf) btnConf.click();
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      } else {
+        let tentativas = 0;
+        while (tentativas < 100) {
+          tentativas++;
+          const temLixeira = await this.page.evaluate(() => {
+            const btn = document.querySelector('button.qty-btn-delete, button[class*="delete"], button[class*="trash"]');
+            if (btn) {
+              btn.click();
+              return true;
+            }
+            return false;
+          });
+
+          if (!temLixeira) break;
+          await new Promise(r => setTimeout(r, 600));
+
+          await this.page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const btnConf = btns.find(b => ['sim', 'confirmar', 'excluir'].includes((b.innerText || '').trim().toLowerCase()));
+            if (btnConf) btnConf.click();
+          });
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
+      const qtdFinal = await this.contarItensCarrinho();
+      if (qtdFinal === 0) {
+        console.log('[DivimedRobot] ✅ Carrinho da Divimed esvaziado com sucesso (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      } else {
+        throw new Error(`Carrinho da Divimed ainda possui ${qtdFinal} itens após tentativa de limpeza.`);
+      }
+    } catch (err) {
+      console.error('[DivimedRobot] Erro ao limpar carrinho:', err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     if (this.browser) {
       console.log('[DivimedRobot] Fechando navegador...');

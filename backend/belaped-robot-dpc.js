@@ -184,6 +184,186 @@ class DpcRobot {
     }
   }
 
+  /**
+   * Adiciona um produto ao carrinho da DPC Distribuidora
+   */
+  async adicionarAoCarrinho(ean, quantidade, descricaoProduto = '') {
+    if (!this.page) throw new Error('Robô DPC não iniciado.');
+    const qtdNum = Math.max(1, parseInt(quantidade) || 1);
+
+    try {
+      const eanLimpo = String(ean || '').trim();
+      const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(eanLimpo)}&visualizacao=bloco-1&ordenacao=ordem-0`;
+      await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
+      await new Promise(r => setTimeout(r, 1000));
+
+      const adicionou = await this.page.evaluate((qtd) => {
+        const card = document.querySelector('.bloco-produto, .card-produto, [class*="produto"], .item') || document;
+        const inputQtd = card.querySelector('input[type="number"], input[name*="qtd"], input[name*="quantidade"]');
+        if (!inputQtd) return { sucesso: false, motivo: 'Campo de quantidade não localizado no produto' };
+
+        inputQtd.focus();
+        inputQtd.value = '';
+        inputQtd.value = String(qtd);
+        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
+        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const btnComprar = card.querySelector('button[type="submit"], button.btn-success, button[class*="comprar"], button[class*="add"]');
+        if (!btnComprar) return { sucesso: false, motivo: 'Botão de comprar não localizado' };
+
+        btnComprar.click();
+        return { sucesso: true };
+      }, qtdNum);
+
+      if (adicionou.sucesso) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      return {
+        sucesso: adicionou.sucesso,
+        ean,
+        quantidade: qtdNum,
+        motivo: adicionou.sucesso ? 'Adicionado com sucesso no carrinho da DPC' : adicionou.motivo
+      };
+    } catch (err) {
+      return {
+        sucesso: false,
+        ean,
+        quantidade: qtdNum,
+        motivo: 'Erro ao adicionar item DPC: ' + err.message
+      };
+    }
+  }
+
+  /**
+   * Conta quantos itens existem no carrinho da DPC
+   * @returns {Promise<number>}
+   */
+  async contarItensCarrinho() {
+    if (!this.page) throw new Error('Robô DPC não iniciado.');
+    try {
+      const qtdBadge = await this.page.evaluate(() => {
+        const btnFloating = document.querySelector('.btn-floating-cart, [class*="floating-cart"], [class*="badge-cart"]');
+        if (btnFloating) {
+          const t = (btnFloating.innerText || '').trim();
+          const m = t.match(/(\d+)/);
+          if (m) return parseInt(m[1], 10);
+        }
+        return null;
+      });
+
+      if (qtdBadge !== null) return qtdBadge;
+
+      await this.page.goto('https://dpcnet.com.br/checkout/review', {
+        waitUntil: 'networkidle2',
+        timeout: 25000
+      });
+      await new Promise(r => setTimeout(r, 1500));
+
+      const qtdTela = await this.page.evaluate(() => {
+        const bodyText = document.body.innerText || '';
+        if (
+          bodyText.includes('Seu carrinho está vazio') ||
+          bodyText.includes('Nenhum produto no carrinho') ||
+          bodyText.includes('0 produtos')
+        ) {
+          return 0;
+        }
+
+        const linhas = document.querySelectorAll('tr.item, .item-carrinho, [class*="cart-item"], [data-item-id]');
+        if (linhas && linhas.length > 0) return linhas.length;
+
+        const botoesRemover = document.querySelectorAll('a[href*="remover"], button[class*="remove"], [class*="delete"]');
+        return botoesRemover ? botoesRemover.length : 0;
+      });
+
+      return qtdTela;
+    } catch (err) {
+      console.error('[DpcRobot] Erro ao contar itens no carrinho:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Limpa o carrinho da DPC e confirma 0 itens
+   * @returns {Promise<{ sucesso: boolean, itensRestantes: number }>}
+   */
+  async limparCarrinho() {
+    if (!this.page) throw new Error('Robô DPC não iniciado.');
+    try {
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[DpcRobot] Carrinho já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[DpcRobot] Limpando carrinho com ${qtdInicial} itens...`);
+      await this.page.goto('https://dpcnet.com.br/checkout/review', {
+        waitUntil: 'networkidle2',
+        timeout: 25000
+      });
+      await new Promise(r => setTimeout(r, 1500));
+
+      const clicouGeral = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnLimpar = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('esvaziar carrinho') || t.includes('limpar carrinho') || t.includes('excluir todos');
+        });
+        if (btnLimpar) {
+          btnLimpar.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicouGeral) {
+        await new Promise(r => setTimeout(r, 1200));
+        await this.page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btnConf = btns.find(b => ['sim', 'confirmar', 'esvaziar', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+          if (btnConf) btnConf.click();
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      } else {
+        let tentativas = 0;
+        while (tentativas < 100) {
+          tentativas++;
+          const removeu = await this.page.evaluate(() => {
+            const btn = document.querySelector('a[href*="remover"], button[class*="remove"], [class*="btn-remove"], [class*="delete"]');
+            if (btn) {
+              btn.click();
+              return true;
+            }
+            return false;
+          });
+
+          if (!removeu) break;
+          await new Promise(r => setTimeout(r, 800));
+
+          await this.page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const btnConf = btns.find(b => ['sim', 'confirmar', 'remover', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+            if (btnConf) btnConf.click();
+          });
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
+      const qtdFinal = await this.contarItensCarrinho();
+      if (qtdFinal === 0) {
+        console.log('[DpcRobot] ✅ Carrinho da DPC esvaziado com sucesso (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      } else {
+        throw new Error(`Carrinho da DPC ainda possui ${qtdFinal} itens após tentativa de limpeza.`);
+      }
+    } catch (err) {
+      console.error('[DpcRobot] Erro ao limpar carrinho:', err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     if (this.browser) {
       console.log('[DpcRobot] Encerrando navegador DPC...');

@@ -337,6 +337,202 @@ class MartinsRobot {
     }
   }
 
+  /**
+   * Adiciona um produto ao carrinho do Martins Atacado
+   * (Valida estritamente se o produto é faturado em MG antes de inserir)
+   */
+  async adicionarAoCarrinho(ean, quantidade, descricaoProduto = '') {
+    if (!this.page) throw new Error('Robô Martins não iniciado.');
+    const qtdNum = Math.max(1, parseInt(quantidade) || 1);
+
+    try {
+      const cotacao = await this.cotarEAN(ean, descricaoProduto);
+      if (!cotacao.disponivel) {
+        return {
+          sucesso: false,
+          ean,
+          quantidade: qtdNum,
+          motivo: cotacao.mensagem || 'Produto indisponível no Martins'
+        };
+      }
+
+      if (cotacao.urlProduto) {
+        await this.page.goto(cotacao.urlProduto, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
+      const adicionou = await this.page.evaluate((qtd) => {
+        const inputQtd = document.querySelector('input[type="number"], input[name*="qtd"], input[name*="quantity"]');
+        if (inputQtd) {
+          inputQtd.focus();
+          inputQtd.value = '';
+          inputQtd.value = String(qtd);
+          inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
+          inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnComprar = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('comprar') || t.includes('adicionar') || t.includes('colocar no carrinho');
+        });
+
+        if (btnComprar) {
+          btnComprar.click();
+          return { sucesso: true };
+        }
+        return { sucesso: false, motivo: 'Botão comprar não encontrado' };
+      }, qtdNum);
+
+      await new Promise(r => setTimeout(r, 2000));
+      return {
+        sucesso: adicionou.sucesso,
+        ean,
+        quantidade: qtdNum,
+        motivo: adicionou.sucesso ? 'Adicionado com sucesso no carrinho do Martins' : adicionou.motivo
+      };
+    } catch (err) {
+      return {
+        sucesso: false,
+        ean,
+        quantidade: qtdNum,
+        motivo: 'Erro ao adicionar item Martins: ' + err.message
+      };
+    }
+  }
+
+  /**
+   * Conta quantos itens existem no carrinho do Martins Atacado
+   * @returns {Promise<number>}
+   */
+  async contarItensCarrinho() {
+    if (!this.page) throw new Error('Robô Martins não iniciado.');
+    try {
+      const qtdBadge = await this.page.evaluate(() => {
+        const badges = document.querySelectorAll('[class*="cart-badge"], [class*="badge"], [data-testid*="cart-count"], [class*="minicart"] span');
+        for (const b of badges) {
+          const m = (b.innerText || '').match(/(\d+)/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      });
+
+      if (qtdBadge !== null) return qtdBadge;
+
+      await this.page.goto('https://www.martinsatacado.com.br/checkout/cart', {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      const qtdTela = await this.page.evaluate(() => {
+        const text = document.body.innerText || '';
+        if (
+          text.includes('Seu carrinho está vazio') ||
+          text.includes('Carrinho vazio') ||
+          text.includes('nenhum produto') ||
+          text.includes('0 produtos')
+        ) {
+          return 0;
+        }
+
+        const linhas = document.querySelectorAll('[data-testid*="item"], tr.item, [class*="product-item"], [class*="cart-item"]');
+        if (linhas && linhas.length > 0) return linhas.length;
+
+        const botoesRemover = document.querySelectorAll('button[class*="remove"], button[class*="delete"], [data-testid*="remove"]');
+        return botoesRemover ? botoesRemover.length : 0;
+      });
+
+      return qtdTela;
+    } catch (err) {
+      console.error('[MartinsRobot] Erro ao contar itens no carrinho:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Limpa o carrinho do Martins Atacado e confirma 0 itens
+   * @returns {Promise<{ sucesso: boolean, itensRestantes: number }>}
+   */
+  async limparCarrinho() {
+    if (!this.page) throw new Error('Robô Martins não iniciado.');
+    try {
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[MartinsRobot] Carrinho já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[MartinsRobot] Limpando carrinho com ${qtdInicial} itens...`);
+      await this.page.goto('https://www.martinsatacado.com.br/checkout/cart', {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      const clicouGeral = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnLimpar = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('limpar carrinho') || t.includes('esvaziar carrinho') || t.includes('remover todos');
+        });
+        if (btnLimpar) {
+          btnLimpar.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicouGeral) {
+        await new Promise(r => setTimeout(r, 1200));
+        await this.page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btnConf = btns.find(b => ['sim', 'confirmar', 'esvaziar', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+          if (btnConf) btnConf.click();
+        });
+        await new Promise(r => setTimeout(r, 2500));
+      } else {
+        let tentativas = 0;
+        while (tentativas < 100) {
+          tentativas++;
+          const removeu = await this.page.evaluate(() => {
+            const btn = document.querySelector('button[class*="remove"], button[class*="delete"], [data-testid*="remove"], a[class*="remove"]');
+            if (btn) {
+              btn.click();
+              return true;
+            }
+            return false;
+          });
+
+          if (!removeu) break;
+          await new Promise(r => setTimeout(r, 800));
+
+          await this.page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const btnConf = btns.find(b => ['sim', 'confirmar', 'remover', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+            if (btnConf) btnConf.click();
+          });
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
+      const qtdFinal = await this.contarItensCarrinho();
+      if (qtdFinal === 0) {
+        console.log('[MartinsRobot] ✅ Carrinho do Martins esvaziado com sucesso (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      } else {
+        throw new Error(`Carrinho do Martins ainda possui ${qtdFinal} itens após tentativa de limpeza.`);
+      }
+    } catch (err) {
+      console.error('[MartinsRobot] Erro ao limpar carrinho:', err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     try {
       if (this.browser) {

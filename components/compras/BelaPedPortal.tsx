@@ -2916,17 +2916,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </button>
                 )}
 
-                {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 5 PORTAIS) */}
+                {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 6 PORTAIS) */}
                 <button
                   onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                   disabled={cotandoAoVivo}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 hover:shadow-cyan-900/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
-                  title="Disparar os robôs agora para consultar preços ao vivo na Profarma, DPC, Soton Farma, Distrimed e Divimed"
+                  title="Disparar os robôs agora para consultar preços ao vivo na Profarma, DPC, Soton Farma, Distrimed, Divimed e Martins Atacado"
                 >
                   {cotandoAoVivo ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>Cotando nos 5 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
+                      <span>Cotando nos 6 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
                     </>
                   ) : (
                     <>

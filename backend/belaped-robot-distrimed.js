@@ -356,6 +356,131 @@ class DistrimedRobot {
     }
   }
 
+  /**
+   * Adiciona um produto ao carrinho da Distrimed (utilizando modal de importação por arquivo com 1 item)
+   */
+  async adicionarAoCarrinho(ean, quantidade, descricaoProduto = '') {
+    if (!this.page) throw new Error('Robô Distrimed não iniciado.');
+    const qtdNum = Math.max(1, parseInt(quantidade) || 1);
+    const tempFile = path.resolve(__dirname, `temp_distrimed_item_${ean}_${Date.now()}.csv`);
+    try {
+      const csvContent = `EAN;Quantidade\r\n${ean};${qtdNum}\r\n`;
+      fs.writeFileSync(tempFile, csvContent, 'utf-8');
+      const res = await this.importarCarrinhoArquivo(tempFile);
+      return {
+        sucesso: res.sucesso,
+        ean,
+        quantidade: qtdNum,
+        motivo: res.sucesso ? 'Adicionado com sucesso no carrinho da Distrimed' : (res.motivo || 'Falha na importação')
+      };
+    } catch (err) {
+      return {
+        sucesso: false,
+        ean,
+        quantidade: qtdNum,
+        motivo: 'Erro ao adicionar item Distrimed: ' + err.message
+      };
+    } finally {
+      try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (e) {}
+    }
+  }
+
+  /**
+   * Conta quantos itens existem no carrinho da Distrimed
+   * @returns {Promise<number>}
+   */
+  async contarItensCarrinho() {
+    if (!this.page) throw new Error('Robô Distrimed não iniciado.');
+    try {
+      const qtd = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a, div, span'));
+        const btnCarrinho = botoes.find(b => {
+          const t = (b.innerText || '').trim();
+          return /Carrinho\s*\d+/i.test(t);
+        });
+
+        if (btnCarrinho) {
+          const m = btnCarrinho.innerText.match(/Carrinho\s*(\d+)/i);
+          if (m) return parseInt(m[1], 10);
+        }
+
+        const iconesCarrinho = document.querySelectorAll('[class*="cart"], [class*="shopping"], [data-icon*="cart"]');
+        for (const icone of iconesCarrinho) {
+          const parent = icone.closest('button, a, div');
+          if (parent) {
+            const m = parent.innerText.match(/(\d+)/);
+            if (m) return parseInt(m[1], 10);
+          }
+        }
+
+        if (document.body.innerText.includes('Carrinho vazio') || document.body.innerText.includes('Carrinho 0')) {
+          return 0;
+        }
+
+        return 0;
+      });
+
+      return qtd;
+    } catch (err) {
+      console.error('[DistrimedRobot] Erro ao contar itens no carrinho:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Limpa o carrinho da Distrimed e confirma 0 itens
+   * @returns {Promise<{ sucesso: boolean, itensRestantes: number }>}
+   */
+  async limparCarrinho() {
+    if (!this.page) throw new Error('Robô Distrimed não iniciado.');
+    try {
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[DistrimedRobot] Carrinho já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[DistrimedRobot] Limpando carrinho com ${qtdInicial} itens...`);
+
+      const clicouLimpar = await this.page.evaluate(() => {
+        const botoes = Array.from(document.querySelectorAll('button, a'));
+        const btnLimpar = botoes.find(b => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('limpar carrinho') || t.includes('esvaziar carrinho') || t.includes('excluir carrinho');
+        });
+        if (btnLimpar) {
+          btnLimpar.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicouLimpar) {
+        await new Promise(r => setTimeout(r, 1200));
+        await this.page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('.modal button, [role="dialog"] button, button'));
+          const btnConf = btns.find(b => {
+            const t = (b.innerText || '').trim().toLowerCase();
+            return t === 'confirmar' || t === 'sim' || t === 'limpar' || t === 'ok' || t.includes('confirmar');
+          });
+          if (btnConf) btnConf.click();
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      const qtdFinal = await this.contarItensCarrinho();
+      if (qtdFinal === 0) {
+        console.log('[DistrimedRobot] ✅ Carrinho da Distrimed esvaziado com sucesso (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      } else {
+        throw new Error(`Carrinho da Distrimed ainda possui ${qtdFinal} itens após tentativa de limpeza.`);
+      }
+    } catch (err) {
+      console.error('[DistrimedRobot] Erro ao limpar carrinho:', err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     if (this.browser) {
       console.log('[DistrimedRobot] Fechando navegador...');

@@ -2179,6 +2179,90 @@ function belapedEndpoints(db) {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BELAPED: GESTÃO E LIMPEZA ESTRITA DE CARRINHOS (REGRA MASTER DE SEGURANÇA)
+  // Garante que todos os portais alvo estejam 100% vazios (0 itens) antes de qualquer montagem.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Garante com até 2 retentativas que um robô já iniciado tenha seu carrinho 100% limpo (0 itens).
+   * Se persistir qualquer item após 2 retentativas, aborta lançando exceção para impedir compras não planejadas.
+   */
+  async function garantirCarrinhoVazioRobo(robot, nomePortal) {
+    console.log(`[BelaPed Segurança] 🛡️ Verificando se carrinho da ${nomePortal.toUpperCase()} está limpo (0 itens)...`);
+    let limpo = false;
+    let ultimoErro = null;
+
+    for (let tentativa = 1; tentativa <= 3; tentativa++) {
+      try {
+        const qtd = await robot.contarItensCarrinho();
+        if (qtd === 0) {
+          console.log(`[BelaPed Segurança] ✅ ${nomePortal.toUpperCase()} confirmado com 0 itens.`);
+          limpo = true;
+          break;
+        }
+
+        console.log(`[BelaPed Segurança] 🧹 ${nomePortal.toUpperCase()} continha ${qtd} item(ns) residual(is). Executando limpeza (Tentativa ${tentativa}/3)...`);
+        await robot.limparCarrinho();
+
+        const qtdApos = await robot.contarItensCarrinho();
+        if (qtdApos === 0) {
+          console.log(`[BelaPed Segurança] ✅ ${nomePortal.toUpperCase()} esvaziado com sucesso (0 itens confirmados).`);
+          limpo = true;
+          break;
+        } else {
+          ultimoErro = new Error(`Carrinho permaneceu com ${qtdApos} item(ns) após tentativa de limpeza.`);
+        }
+      } catch (err) {
+        ultimoErro = err;
+        console.warn(`[BelaPed Segurança] Tentativa ${tentativa} falhou em ${nomePortal}: ${err.message}`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    if (!limpo) {
+      throw new Error(`ABORTADO POR SEGURANÇA: Não foi possível garantir o carrinho da ${nomePortal.toUpperCase()} com 0 itens (${ultimoErro?.message || 'itens residuais persistiram'}). Montagem cancelada.`);
+    }
+  }
+
+  /**
+   * Garante que múltiplos portais estejam confirmados com 0 itens antes da criação de pedidos.
+   */
+  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins']) {
+    console.log(`[BelaPed Segurança] 🛡️ Verificando e garantindo carrinhos limpos para: ${portaisAlvo.join(', ')}...`);
+    const resultados = [];
+
+    const instanciarRobo = (nome) => {
+      switch (nome.toLowerCase()) {
+        case 'soton': return new SotonRobot({ headless: true });
+        case 'divimed': return new DivimedRobot({ headless: true });
+        case 'distrimed': return new DistrimedRobot({ headless: true });
+        case 'profarma': return new ProfarmaRobot({ headless: true });
+        case 'dpc': return new DpcRobot({ headless: true });
+        case 'martins': return new MartinsRobot({ headless: true });
+        default: return null;
+      }
+    };
+
+    for (const portal of portaisAlvo) {
+      let robot = null;
+      try {
+        robot = instanciarRobo(portal);
+        if (!robot) continue;
+        await robot.iniciar();
+        await garantirCarrinhoVazioRobo(robot, portal);
+        resultados.push({ portal, sucesso: true, itens: 0 });
+      } catch (err) {
+        console.error(`[BelaPed Segurança] ❌ ABORTANDO: Falha crítica na limpeza do carrinho ${portal.toUpperCase()}:`, err.message);
+        throw err;
+      } finally {
+        if (robot) await robot.fechar().catch(() => {});
+      }
+    }
+
+    return resultados;
+  }
+
   // Estado de montagem do carrinho na Soton
   const sotonCarrinhoStatus = {
     emAndamento: false,
@@ -2260,6 +2344,10 @@ function belapedEndpoints(db) {
           console.log('[BelaPed] Iniciando robô Soton para montagem de carrinho...');
           robot = new SotonRobot({ headless: true });
           await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          sotonCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'soton');
 
           for (let i = 0; i < itensParaAdicionar.length; i++) {
             const item = itensParaAdicionar[i];
@@ -2393,6 +2481,10 @@ function belapedEndpoints(db) {
           console.log('[BelaPed] Iniciando robô Divimed para montagem de carrinho...');
           robot = new DivimedRobot({ headless: true });
           await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          divimedCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'divimed');
 
           for (let i = 0; i < itensParaAdicionar.length; i++) {
             const item = itensParaAdicionar[i];
@@ -2548,6 +2640,11 @@ function belapedEndpoints(db) {
         try {
           robot = new DistrimedRobot({ headless: true });
           await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          distrimedImportStatus.mensagem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'distrimed');
+
           distrimedImportStatus.mensagem = 'Logado. Abrindo modal e anexando arquivo...';
 
           const resultado = await robot.importarCarrinhoArquivo(tempPath);
@@ -2580,6 +2677,332 @@ function belapedEndpoints(db) {
       success: true,
       status: distrimedImportStatus
     });
+  });
+
+  // Estado de montagem do carrinho na DPC
+  const dpcCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: []
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-dpc
+   */
+  router.post('/montar-carrinho-dpc', async (req, res) => {
+    try {
+      if (dpcCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Montagem de carrinho na DPC já em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT c.ean, c.descricao, c.saldo, c.vmd_ponderado, cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'DPC DISTRIBUIDORA' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 50
+        `).all();
+
+        itensParaAdicionar = produtosGanhadores.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na DPC para adicionar ao carrinho.' });
+      }
+
+      dpcCarrinhoStatus.emAndamento = true;
+      dpcCarrinhoStatus.total = itensParaAdicionar.length;
+      dpcCarrinhoStatus.atual = 0;
+      dpcCarrinhoStatus.sucessos = 0;
+      dpcCarrinhoStatus.erros = 0;
+      dpcCarrinhoStatus.ultimoItem = '';
+      dpcCarrinhoStatus.itens = [];
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na DPC com ${itensParaAdicionar.length} produtos.`,
+        status: dpcCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          robot = new DpcRobot({ headless: true });
+          await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          dpcCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'dpc');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            dpcCarrinhoStatus.atual = i + 1;
+            dpcCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            if (resItem.sucesso) {
+              dpcCarrinhoStatus.sucessos++;
+              dpcCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'ADICIONADO' });
+            } else {
+              dpcCarrinhoStatus.erros++;
+              dpcCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'FALHOU', motivo: resItem.motivo });
+            }
+          }
+        } catch (botErr) {
+          console.error('[BelaPed Carrinho DPC] Erro no robô:', botErr.message);
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          dpcCarrinhoStatus.emAndamento = false;
+        }
+      })();
+    } catch (err) {
+      dpcCarrinhoStatus.emAndamento = false;
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-dpc', (req, res) => {
+    res.json({ success: true, status: dpcCarrinhoStatus });
+  });
+
+  // Estado de montagem do carrinho na Profarma
+  const profarmaCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: []
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-profarma
+   */
+  router.post('/montar-carrinho-profarma', async (req, res) => {
+    try {
+      if (profarmaCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Montagem de carrinho na Profarma já em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT c.ean, c.descricao, c.saldo, c.vmd_ponderado, cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'PROFARMA' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 50
+        `).all();
+
+        itensParaAdicionar = produtosGanhadores.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na Profarma para adicionar ao carrinho.' });
+      }
+
+      profarmaCarrinhoStatus.emAndamento = true;
+      profarmaCarrinhoStatus.total = itensParaAdicionar.length;
+      profarmaCarrinhoStatus.atual = 0;
+      profarmaCarrinhoStatus.sucessos = 0;
+      profarmaCarrinhoStatus.erros = 0;
+      profarmaCarrinhoStatus.ultimoItem = '';
+      profarmaCarrinhoStatus.itens = [];
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Profarma com ${itensParaAdicionar.length} produtos.`,
+        status: profarmaCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          robot = new ProfarmaRobot({ headless: true });
+          await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          profarmaCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'profarma');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            profarmaCarrinhoStatus.atual = i + 1;
+            profarmaCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            if (resItem.sucesso) {
+              profarmaCarrinhoStatus.sucessos++;
+              profarmaCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'ADICIONADO' });
+            } else {
+              profarmaCarrinhoStatus.erros++;
+              profarmaCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'FALHOU', motivo: resItem.motivo });
+            }
+          }
+        } catch (botErr) {
+          console.error('[BelaPed Carrinho Profarma] Erro no robô:', botErr.message);
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          profarmaCarrinhoStatus.emAndamento = false;
+        }
+      })();
+    } catch (err) {
+      profarmaCarrinhoStatus.emAndamento = false;
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-profarma', (req, res) => {
+    res.json({ success: true, status: profarmaCarrinhoStatus });
+  });
+
+  // Estado de montagem do carrinho no Martins
+  const martinsCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: []
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-martins
+   */
+  router.post('/montar-carrinho-martins', async (req, res) => {
+    try {
+      if (martinsCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Montagem de carrinho no Martins já em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT c.ean, c.descricao, c.saldo, c.vmd_ponderado, cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'MARTINS' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 50
+        `).all();
+
+        itensParaAdicionar = produtosGanhadores.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor no Martins para adicionar ao carrinho.' });
+      }
+
+      martinsCarrinhoStatus.emAndamento = true;
+      martinsCarrinhoStatus.total = itensParaAdicionar.length;
+      martinsCarrinhoStatus.atual = 0;
+      martinsCarrinhoStatus.sucessos = 0;
+      martinsCarrinhoStatus.erros = 0;
+      martinsCarrinhoStatus.ultimoItem = '';
+      martinsCarrinhoStatus.itens = [];
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada no Martins com ${itensParaAdicionar.length} produtos.`,
+        status: martinsCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          robot = new MartinsRobot({ headless: true });
+          await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          martinsCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'martins');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            martinsCarrinhoStatus.atual = i + 1;
+            martinsCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            if (resItem.sucesso) {
+              martinsCarrinhoStatus.sucessos++;
+              martinsCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'ADICIONADO' });
+            } else {
+              martinsCarrinhoStatus.erros++;
+              martinsCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'FALHOU', motivo: resItem.motivo });
+            }
+          }
+        } catch (botErr) {
+          console.error('[BelaPed Carrinho Martins] Erro no robô:', botErr.message);
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          martinsCarrinhoStatus.emAndamento = false;
+        }
+      })();
+    } catch (err) {
+      martinsCarrinhoStatus.emAndamento = false;
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-martins', (req, res) => {
+    res.json({ success: true, status: martinsCarrinhoStatus });
+  });
+
+  /**
+   * POST /api/belaped/limpar-carrinhos
+   * Aciona a limpeza explícita e confirmação de 0 itens para os portais informados (ou todos os 6)
+   */
+  router.post('/limpar-carrinhos', async (req, res) => {
+    const portais = req.body.portais || ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins'];
+    try {
+      console.log(`[BelaPed API] Disparo manual de limpeza de carrinhos para: ${portais.join(', ')}...`);
+      const resultados = await garantirCarrinhosVazios(portais);
+      res.json({
+        success: true,
+        message: 'Todos os carrinhos selecionados foram confirmados vazios (0 itens).',
+        resultados
+      });
+    } catch (err) {
+      console.error('[BelaPed API] Erro ao limpar carrinhos:', err.message);
+      res.status(500).json({
+        success: false,
+        error: err.message
+      });
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
