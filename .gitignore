@@ -69,3 +69,4 @@ bancoInter/
 *.pem
 certs/
 scratch/
+.agents/teamwork/

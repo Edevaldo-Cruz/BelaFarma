@@ -48,7 +48,9 @@ import {
   Pill,
   FolderDown,
   FileDown,
-  RotateCcw
+  RotateCcw,
+  ArrowRightLeft,
+  ArrowRight
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -769,6 +771,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     erros: number;
     ultimoItem?: string;
   } | null>(null);
+
+  // Relatório de Auditoria e Repasse do Carrinho do Robô
+  const [modalRelatorioAberto, setModalRelatorioAberto] = useState(false);
+  const [ultimoRelatorioAuditoria, setUltimoRelatorioAuditoria] = useState<any | null>(null);
+  const [abaRelatorioAuditoria, setAbaRelatorioAuditoria] = useState<'TODOS' | 'ADICIONADOS' | 'REPASSADOS' | 'SEM_ESTOQUE'>('TODOS');
+  const [buscaRelatorioAuditoria, setBuscaRelatorioAuditoria] = useState('');
 
   // Registro de horário da última sincronização para feedback visual
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string>('');
@@ -1534,22 +1542,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     try {
       setMontandoCarrinhoSoton(true);
 
-      // Filtra itens selecionados onde a Soton é o 1º colocado (ou todos os selecionados se o usuário desejar)
-      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
-      const itensSoton = selecionados
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensSoton = base
         .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('SOTON') && f.ean)
         .map(f => ({
           ean: f.ean,
-          quantidade: f.qtd_sugerida_7d,
-          descricao: f.descricao
+          quantidade: f.qtd_sugerida_7d || 1,
+          descricao: f.descricao,
+          preco_1: f.preco_1,
+          fornecedor_1: f.fornecedor_1,
+          preco_2: f.preco_2,
+          fornecedor_2: f.fornecedor_2
         }));
+
+      if (itensSoton.length === 0) {
+        addToast('Nenhum item com a Soton como vencedora encontrado na lista atual do Belinha.', 'warning');
+        setMontandoCarrinhoSoton(false);
+        return;
+      }
 
       const res = await fetch('/api/belaped/montar-carrinho-soton', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itens: itensSoton.length > 0 ? itensSoton : undefined
-        })
+        body: JSON.stringify({ itens: itensSoton })
       });
 
       const data = await res.json();
@@ -1571,7 +1587,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             if (!stData.status.emAndamento) {
               clearInterval(timerSoton);
               setMontandoCarrinhoSoton(false);
-              addToast(`Carrinho montado na Soton! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
+              addToast(`Montagem Soton concluída! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
             }
           }
         } catch (e) {
@@ -1608,7 +1629,32 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleImportarCarrinhoDistrimed = async () => {
     try {
       setImportandoDistrimed(true);
-      const res = await fetch('/api/belaped/importar-carrinho-distrimed', { method: 'POST' });
+
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensDistrimed = base
+        .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('DISTRIMED') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          quantidade: f.qtd_sugerida_7d || 1,
+          descricao: f.descricao,
+          preco_1: f.preco_1,
+          fornecedor_1: f.fornecedor_1,
+          preco_2: f.preco_2,
+          fornecedor_2: f.fornecedor_2
+        }));
+
+      if (itensDistrimed.length === 0) {
+        addToast('Nenhum item com a Distrimed como vencedora encontrado na lista atual do Belinha.', 'warning');
+        setImportandoDistrimed(false);
+        return;
+      }
+
+      const res = await fetch('/api/belaped/importar-carrinho-distrimed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: itensDistrimed })
+      });
       const data = await res.json();
       if (!data.success) {
         addToast(data.message || 'Erro ao iniciar robô Distrimed', 'error');
@@ -1616,7 +1662,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         return;
       }
 
-      addToast('Robô Distrimed iniciado! Conectando para importar via modal...', 'success');
+      addToast(`Robô Distrimed iniciado! Importando ${itensDistrimed.length} itens via modal...`, 'success');
 
       // Polling do status da importação
       const timerDist = setInterval(async () => {
@@ -1628,6 +1674,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             if (!stData.status.emAndamento) {
               clearInterval(timerDist);
               setImportandoDistrimed(false);
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
               if (stData.status.sucesso) {
                 addToast('Pedido importado com sucesso na modal da Distrimed!', 'success');
               } else {
@@ -1652,23 +1703,32 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     try {
       setMontandoCarrinhoDivimed(true);
 
-      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
-      const itensDivimed = selecionados
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensDivimed = base
         .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('DIVIMED') && f.ean)
         .map(f => ({
           ean: f.ean,
           descricao: f.descricao,
-          quantidade: f.qtd_sugerida_7d || 1
+          quantidade: f.qtd_sugerida_7d || 1,
+          preco_1: f.preco_1,
+          fornecedor_1: f.fornecedor_1,
+          preco_2: f.preco_2,
+          fornecedor_2: f.fornecedor_2
         }));
 
-      addToast(`Iniciando robô para adicionar ${itensDivimed.length > 0 ? itensDivimed.length : 'os itens vencedores'} no carrinho da Divimed...`, 'info');
+      if (itensDivimed.length === 0) {
+        addToast('Nenhum item com a Divimed como vencedora encontrado na lista atual do Belinha.', 'warning');
+        setMontandoCarrinhoDivimed(false);
+        return;
+      }
+
+      addToast(`Iniciando robô para adicionar ${itensDivimed.length} itens no carrinho da Divimed...`, 'info');
 
       const res = await fetch('/api/belaped/montar-carrinho-divimed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itens: itensDivimed.length > 0 ? itensDivimed : undefined
-        })
+        body: JSON.stringify({ itens: itensDivimed })
       });
 
       const data = await res.json();
@@ -1687,6 +1747,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             if (!stData.status.emAndamento) {
               clearInterval(timerDiv);
               setMontandoCarrinhoDivimed(false);
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
               addToast(`Carrinho montado na Divimed! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
             }
           }
@@ -2930,6 +2995,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     </>
                   )}
                 </button>
+
+                {/* BOTÃO: ABRIR RELATÓRIO DO ROBÔ & AUDITORIA DE REPASSE */}
+                {ultimoRelatorioAuditoria && (
+                  <button
+                    onClick={() => setModalRelatorioAberto(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-100 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer shadow-sm animate-in fade-in"
+                    title={`Ver o relatório completo do robô com repasse do 2º colocado (${ultimoRelatorioAuditoria.distribuidora})`}
+                  >
+                    <ClipboardList className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Relatório Robô ({ultimoRelatorioAuditoria.distribuidora})</span>
+                  </button>
+                )}
 
                 {/* BOTÃO: RE-COTAR DIVERGENTES (>40% OU >60% VS ÚLTIMA COMPRA) */}
                 {itensDivergentes.length > 0 && (
@@ -4773,6 +4850,321 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* ─── MODAL: RELATÓRIO DE AUDITORIA & REPASSE DO CARRINHO (ROBÔ) ─── */}
+      {modalRelatorioAberto && ultimoRelatorioAuditoria && (() => {
+        const rel = ultimoRelatorioAuditoria;
+        const listaItens = [
+          ...(rel.itensAdicionados || []).map((i: any) => ({ ...i, tipoItem: 'ADICIONADO' })),
+          ...(rel.itensRepassados2Colocado || []).map((i: any) => ({ ...i, tipoItem: 'REPASSADO' })),
+          ...(rel.itensSemEstoqueGeral || []).map((i: any) => ({ ...i, tipoItem: 'SEM_ESTOQUE' }))
+        ];
+
+        const itensFiltrados = listaItens.filter((item: any) => {
+          if (abaRelatorioAuditoria === 'ADICIONADOS' && item.tipoItem !== 'ADICIONADO') return false;
+          if (abaRelatorioAuditoria === 'REPASSADOS' && item.tipoItem !== 'REPASSADO') return false;
+          if (abaRelatorioAuditoria === 'SEM_ESTOQUE' && item.tipoItem !== 'SEM_ESTOQUE') return false;
+          if (buscaRelatorioAuditoria.trim()) {
+            const b = buscaRelatorioAuditoria.toUpperCase().trim();
+            const desc = (item.descricao || '').toUpperCase();
+            const ean = (item.ean || '').toUpperCase();
+            const fDest = (item.fornecedor_destino || '').toUpperCase();
+            return desc.includes(b) || ean.includes(b) || fDest.includes(b);
+          }
+          return true;
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-[#0b1222] rounded-3xl max-w-5xl w-full border border-slate-700/80 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] text-slate-100">
+              
+              {/* Cabeçalho */}
+              <div className="p-5 px-6 bg-[#0e172a] border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">
+                    <ClipboardList className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      Relatório de Auditoria do Robô • <span className="text-cyan-400 uppercase">{rel.distribuidora}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium">
+                      Conferência de itens inseridos e repasse automático para o 2º colocado quando sem estoque.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setModalRelatorioAberto(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* KPI Cards */}
+              <div className="p-5 px-6 grid grid-cols-2 md:grid-cols-4 gap-3 bg-[#080d1a] border-b border-slate-800/80">
+                <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex flex-col justify-between">
+                  <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Adicionados
+                  </span>
+                  <div className="mt-2">
+                    <span className="text-xl font-black text-emerald-200 block">
+                      {rel.sucessos} itens
+                    </span>
+                    <span className="text-xs text-emerald-300 font-bold">
+                      R$ {Number(rel.totalAdicionadoReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/40 flex flex-col justify-between">
+                  <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <ArrowRightLeft className="w-3.5 h-3.5" /> Repassados (2º Col)
+                  </span>
+                  <div className="mt-2">
+                    <span className="text-xl font-black text-amber-200 block">
+                      {rel.itensRepassados2Colocado?.length || 0} itens
+                    </span>
+                    <span className="text-xs text-amber-300 font-bold">
+                      R$ {Number(rel.totalRepassadoReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/40 flex flex-col justify-between">
+                  <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Sem Estoque Geral
+                  </span>
+                  <div className="mt-2">
+                    <span className="text-xl font-black text-rose-200 block">
+                      {rel.itensSemEstoqueGeral?.length || 0} itens
+                    </span>
+                    <span className="text-[10px] text-rose-400 font-medium">
+                      Esgotado em todos portais
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-700/60 flex flex-col justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShoppingBag className="w-3.5 h-3.5" /> Total Processado
+                  </span>
+                  <div className="mt-2">
+                    <span className="text-xl font-black text-white block">
+                      {rel.totalSolicitado} itens
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      Lista exata do Belinha
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filtros e Busca */}
+              <div className="p-3 px-6 bg-[#0a1120] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setAbaRelatorioAuditoria('TODOS')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      abaRelatorioAuditoria === 'TODOS'
+                        ? 'bg-cyan-600 text-white shadow-sm'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Todos ({listaItens.length})
+                  </button>
+                  <button
+                    onClick={() => setAbaRelatorioAuditoria('ADICIONADOS')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      abaRelatorioAuditoria === 'ADICIONADOS'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Adicionados ({rel.itensAdicionados?.length || 0})
+                  </button>
+                  <button
+                    onClick={() => setAbaRelatorioAuditoria('REPASSADOS')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      abaRelatorioAuditoria === 'REPASSADOS'
+                        ? 'bg-amber-600 text-white shadow-sm'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Repassados ({rel.itensRepassados2Colocado?.length || 0})
+                  </button>
+                  <button
+                    onClick={() => setAbaRelatorioAuditoria('SEM_ESTOQUE')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      abaRelatorioAuditoria === 'SEM_ESTOQUE'
+                        ? 'bg-rose-600 text-white shadow-sm'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Sem Estoque ({rel.itensSemEstoqueGeral?.length || 0})
+                  </button>
+                </div>
+
+                <div className="relative min-w-[240px]">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={buscaRelatorioAuditoria}
+                    onChange={(e) => setBuscaRelatorioAuditoria(e.target.value)}
+                    placeholder="Filtrar por produto, EAN ou fornecedor..."
+                    className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {/* Tabela de Alta Densidade */}
+              <div className="flex-1 overflow-auto p-4 max-h-[460px]">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="sticky top-0 bg-[#0e172a] shadow-xs z-10 text-slate-300 border-b border-slate-700/80">
+                    <tr>
+                      <th className="py-2.5 px-3 w-32 whitespace-nowrap font-bold">EAN</th>
+                      <th className="py-2.5 px-3 min-w-[260px] whitespace-nowrap font-bold">Produto</th>
+                      <th className="py-2.5 px-2.5 w-16 text-center whitespace-nowrap font-bold">Qtd</th>
+                      <th className="py-2.5 px-3 w-40 whitespace-nowrap font-bold">Status Robô</th>
+                      <th className="py-2.5 px-3 min-w-[200px] whitespace-nowrap font-bold">Fornecedor Alocado</th>
+                      <th className="py-2.5 px-3 w-28 text-right whitespace-nowrap font-bold">Subtotal</th>
+                      <th className="py-2.5 px-3 min-w-[220px] whitespace-nowrap font-bold">Motivo / Auditoria</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {itensFiltrados.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 text-slate-400">
+                          Nenhum item corresponde ao filtro selecionado.
+                        </td>
+                      </tr>
+                    ) : (
+                      itensFiltrados.map((item: any, idx: number) => {
+                        const isAdicionado = item.tipoItem === 'ADICIONADO';
+                        const isRepassado = item.tipoItem === 'REPASSADO';
+                        const isSemEstoque = item.tipoItem === 'SEM_ESTOQUE';
+
+                        return (
+                          <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="py-2 px-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                              {item.ean}
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              <span className="font-bold text-slate-200 block truncate max-w-[320px]" title={item.descricao}>
+                                {item.descricao || 'Item sem descrição'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2.5 text-center whitespace-nowrap font-bold text-white">
+                              {item.quantidade} un
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              {isAdicionado && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-500/50">
+                                  <CheckCircle2 className="w-3 h-3" /> ADICIONADO
+                                </span>
+                              )}
+                              {isRepassado && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-500/50">
+                                  <ArrowRightLeft className="w-3 h-3" /> REPASSADO (2º COL)
+                                </span>
+                              )}
+                              {isSemEstoque && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-950 text-rose-300 border border-rose-500/50">
+                                  <AlertTriangle className="w-3 h-3" /> SEM ESTOQUE
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              {isAdicionado && (
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className="font-bold text-slate-200 text-xs">
+                                    {item.fornecedor || rel.distribuidora}
+                                  </span>
+                                  <span className="text-[11px] text-emerald-400 font-bold">
+                                    R$ {Number(item.preco_1 || 0).toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              {isRepassado && (
+                                <div className="inline-flex items-center gap-1 text-xs">
+                                  <span className="text-slate-400 line-through text-[11px]">
+                                    {item.fornecedor_origem}
+                                  </span>
+                                  <ArrowRight className="w-3 h-3 text-amber-400 shrink-0" />
+                                  <span className="font-black text-amber-300">
+                                    {item.fornecedor_destino}
+                                  </span>
+                                  <span className="text-[11px] text-amber-200 font-bold ml-1">
+                                    R$ {Number(item.preco_destino || 0).toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              {isSemEstoque && (
+                                <span className="text-slate-400 text-xs italic">
+                                  {item.fornecedor_origem} (Esgotado)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right whitespace-nowrap font-black">
+                              {isAdicionado && (
+                                <span className="text-emerald-300">
+                                  R$ {Number(item.subtotal || 0).toFixed(2)}
+                                </span>
+                              )}
+                              {isRepassado && (
+                                <span className="text-amber-300">
+                                  R$ {Number(item.subtotal_destino || 0).toFixed(2)}
+                                </span>
+                              )}
+                              {isSemEstoque && <span className="text-slate-500">—</span>}
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap text-[11px] text-slate-300">
+                              <span className="truncate max-w-[260px] block" title={item.motivo}>
+                                {item.motivo || (isAdicionado ? 'Adicionado com sucesso no carrinho' : 'Não informado')}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rodapé Informativo e Ações */}
+              <div className="p-4 px-6 bg-[#080d18] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <Info className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span>
+                    Os itens repassados foram invalidados na cotação de origem e <b>já assumiram a liderança no banco</b> para compras no 2º colocado.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      carregarDados();
+                      addToast('Lista de faltas atualizada com o novo ranking das distribuidoras!', 'info');
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 hover:text-white border border-cyan-500/40 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Atualizar Tabela do Belinha</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalRelatorioAberto(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
       {(() => {

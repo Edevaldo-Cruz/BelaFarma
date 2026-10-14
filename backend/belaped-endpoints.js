@@ -2329,6 +2329,49 @@ function belapedEndpoints(db) {
     return resultados;
   }
 
+  /**
+   * Resolve o repasse de um item que falhou na montagem para o 2º colocado
+   */
+  function resolverRepasseSegundoColocado(item, distribuidoraAtual, motivoFalha) {
+    let segForn = item.fornecedor_2;
+    let segPreco = Number(item.preco_2) || 0;
+
+    if (!segForn || segForn === '—' || segForn.includes('Sem Estoque') || segPreco <= 0) {
+      try {
+        const row = db.prepare(`
+          SELECT fornecedor, preco FROM belaped_cotacoes_reais
+          WHERE ean = ? AND disponivel = 1 AND preco > 0 AND UPPER(fornecedor) NOT LIKE ?
+          ORDER BY preco ASC LIMIT 1
+        `).get(item.ean, `%${distribuidoraAtual.toUpperCase()}%`);
+
+        if (row) {
+          segForn = row.fornecedor;
+          segPreco = Number(row.preco);
+        }
+      } catch (e) {}
+    }
+
+    const temRepasse = segForn && segForn !== '—' && !segForn.includes('Sem Estoque') && segPreco > 0;
+
+    // Invalida SEMPRE no banco a cotação da distribuidora que falhou para que o 2º colocado assuma a liderança (ou marque sem estoque)
+    try {
+      db.prepare(`
+        UPDATE belaped_cotacoes_reais
+        SET disponivel = 0, updated_at = datetime('now')
+        WHERE ean = ? AND UPPER(fornecedor) LIKE ?
+      `).run(item.ean, `%${distribuidoraAtual.toUpperCase()}%`);
+    } catch (e) {}
+
+    return {
+      status: temRepasse ? 'REPASSADO_2_COLOCADO' : 'SEM_ESTOQUE_GERAL',
+      motivo: motivoFalha || (temRepasse ? `Sem estoque na ${distribuidoraAtual} -> Repassado para ${segForn}` : `Sem estoque na ${distribuidoraAtual} e sem cotação nos demais`),
+      fornecedor_origem: distribuidoraAtual,
+      fornecedor_destino: temRepasse ? segForn : null,
+      preco_destino: temRepasse ? segPreco : null,
+      subtotal_destino: temRepasse ? Number((segPreco * item.quantidade).toFixed(2)) : 0
+    };
+  }
+
   // Estado de montagem do carrinho na Soton
   const sotonCarrinhoStatus = {
     emAndamento: false,
@@ -2337,7 +2380,8 @@ function belapedEndpoints(db) {
     sucessos: 0,
     erros: 0,
     ultimoItem: '',
-    itens: []
+    itens: [],
+    relatorio: null
   };
 
   /**
@@ -2378,7 +2422,7 @@ function belapedEndpoints(db) {
           const saldo = Number(p.saldo) || 0;
           const necessidade7d = Math.ceil(vmd * 7 * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao, preco_1: p.preco };
         });
       }
 
@@ -2396,6 +2440,7 @@ function belapedEndpoints(db) {
       sotonCarrinhoStatus.erros = 0;
       sotonCarrinhoStatus.ultimoItem = '';
       sotonCarrinhoStatus.itens = [];
+      sotonCarrinhoStatus.relatorio = null;
 
       res.json({
         success: true,
@@ -2418,29 +2463,83 @@ function belapedEndpoints(db) {
           for (let i = 0; i < itensParaAdicionar.length; i++) {
             const item = itensParaAdicionar[i];
             sotonCarrinhoStatus.atual = i + 1;
-            sotonCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+            sotonCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho Soton] Adicionando EAN ${item.ean} - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade);
+            console.log(`[BelaPed Carrinho Soton] Adicionando EAN ${item.ean} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
 
             if (resItem.sucesso) {
               sotonCarrinhoStatus.sucessos++;
               sotonCarrinhoStatus.itens.push({
                 ean: item.ean,
+                descricao: item.descricao || '',
                 quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                subtotal: Number(((Number(item.preco_1) || 0) * item.quantidade).toFixed(2)),
+                fornecedor: 'SOTON FARMA',
                 status: 'ADICIONADO'
               });
             } else {
               sotonCarrinhoStatus.erros++;
+              const infoRepasse = resolverRepasseSegundoColocado(item, 'SOTON FARMA', resItem.motivo);
               sotonCarrinhoStatus.itens.push({
                 ean: item.ean,
+                descricao: item.descricao || '',
                 quantidade: item.quantidade,
-                status: 'FALHOU',
-                motivo: resItem.motivo
+                preco_1: Number(item.preco_1) || 0,
+                ...infoRepasse
               });
             }
           }
-          console.log(`[BelaPed Carrinho Soton] Concluído: ${sotonCarrinhoStatus.sucessos} adicionados, ${sotonCarrinhoStatus.erros} falhas.`);
+
+          // Monta o Relatório Estruturado Final
+          const adicionados = sotonCarrinhoStatus.itens.filter(i => i.status === 'ADICIONADO');
+          const repassados = sotonCarrinhoStatus.itens.filter(i => i.status === 'REPASSADO_2_COLOCADO');
+          const semEstoque = sotonCarrinhoStatus.itens.filter(i => i.status === 'SEM_ESTOQUE_GERAL');
+
+          const totalAdicionadoReais = Number(adicionados.reduce((acc, c) => acc + (c.subtotal || 0), 0).toFixed(2));
+          const totalRepassadoReais = Number(repassados.reduce((acc, c) => acc + (c.subtotal_destino || 0), 0).toFixed(2));
+
+          sotonCarrinhoStatus.relatorio = {
+            distribuidora: 'SOTON FARMA',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: adicionados.length,
+            falhas: repassados.length + semEstoque.length,
+            totalAdicionadoReais,
+            totalRepassadoReais,
+            itensAdicionados: adicionados,
+            itensRepassados2Colocado: repassados,
+            itensSemEstoqueGeral: semEstoque
+          };
+
+          // Salva pedido formal no banco de dados belaped_pedidos
+          if (adicionados.length > 0) {
+            try {
+              const pedidoId = 'PED-SOTON-' + Date.now();
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'SOTON FARMA', 'CARRINHO_GERADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: repassados.length, semEstoque: semEstoque.length })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido Soton no banco:', pErr.message);
+            }
+          }
+
+          console.log(`[BelaPed Carrinho Soton] Concluído: ${adicionados.length} adicionados (R$ ${totalAdicionadoReais}), ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
           console.error('[BelaPed Carrinho Soton] Erro crítico no robô:', botErr.message);
         } finally {
@@ -2474,7 +2573,8 @@ function belapedEndpoints(db) {
     sucessos: 0,
     erros: 0,
     ultimoItem: '',
-    itens: []
+    itens: [],
+    relatorio: null
   };
 
   /**
@@ -2515,7 +2615,7 @@ function belapedEndpoints(db) {
           const saldo = Number(p.saldo) || 0;
           const necessidade7d = Math.ceil(vmd * 7 * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao, preco_1: p.preco };
         });
       }
 
@@ -2533,6 +2633,7 @@ function belapedEndpoints(db) {
       divimedCarrinhoStatus.erros = 0;
       divimedCarrinhoStatus.ultimoItem = '';
       divimedCarrinhoStatus.itens = [];
+      divimedCarrinhoStatus.relatorio = null;
 
       res.json({
         success: true,
@@ -2564,22 +2665,74 @@ function belapedEndpoints(db) {
               divimedCarrinhoStatus.sucessos++;
               divimedCarrinhoStatus.itens.push({
                 ean: item.ean,
-                descricao: item.descricao,
+                descricao: item.descricao || '',
                 quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                subtotal: Number(((Number(item.preco_1) || 0) * item.quantidade).toFixed(2)),
+                fornecedor: 'DIVIMED',
                 status: 'ADICIONADO'
               });
             } else {
               divimedCarrinhoStatus.erros++;
+              const infoRepasse = resolverRepasseSegundoColocado(item, 'DIVIMED', resItem.motivo);
               divimedCarrinhoStatus.itens.push({
                 ean: item.ean,
-                descricao: item.descricao,
+                descricao: item.descricao || '',
                 quantidade: item.quantidade,
-                status: 'FALHOU',
-                motivo: resItem.motivo
+                preco_1: Number(item.preco_1) || 0,
+                ...infoRepasse
               });
             }
           }
-          console.log(`[BelaPed Carrinho Divimed] Concluído: ${divimedCarrinhoStatus.sucessos} adicionados, ${divimedCarrinhoStatus.erros} falhas.`);
+
+          // Monta o Relatório Estruturado Final
+          const adicionados = divimedCarrinhoStatus.itens.filter(i => i.status === 'ADICIONADO');
+          const repassados = divimedCarrinhoStatus.itens.filter(i => i.status === 'REPASSADO_2_COLOCADO');
+          const semEstoque = divimedCarrinhoStatus.itens.filter(i => i.status === 'SEM_ESTOQUE_GERAL');
+
+          const totalAdicionadoReais = Number(adicionados.reduce((acc, c) => acc + (c.subtotal || 0), 0).toFixed(2));
+          const totalRepassadoReais = Number(repassados.reduce((acc, c) => acc + (c.subtotal_destino || 0), 0).toFixed(2));
+
+          divimedCarrinhoStatus.relatorio = {
+            distribuidora: 'DIVIMED',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: adicionados.length,
+            falhas: repassados.length + semEstoque.length,
+            totalAdicionadoReais,
+            totalRepassadoReais,
+            itensAdicionados: adicionados,
+            itensRepassados2Colocado: repassados,
+            itensSemEstoqueGeral: semEstoque
+          };
+
+          // Salva pedido formal no banco de dados belaped_pedidos
+          if (adicionados.length > 0) {
+            try {
+              const pedidoId = 'PED-DIVIMED-' + Date.now();
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'DIVIMED', 'CARRINHO_GERADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: repassados.length, semEstoque: semEstoque.length })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido Divimed no banco:', pErr.message);
+            }
+          }
+
+          console.log(`[BelaPed Carrinho Divimed] Concluído: ${adicionados.length} adicionados (R$ ${totalAdicionadoReais}), ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
           console.error('[BelaPed Carrinho Divimed] Erro crítico no robô:', botErr.message);
         } finally {
@@ -2648,7 +2801,9 @@ function belapedEndpoints(db) {
     emAndamento: false,
     mensagem: '',
     iniciadoEm: null,
-    sucesso: false
+    sucesso: false,
+    total: 0,
+    relatorio: null
   };
 
   /**
@@ -2664,40 +2819,60 @@ function belapedEndpoints(db) {
         });
       }
 
+      let itensParaAdicionar = req.body.itens || [];
+
+      // Se não passou lista explícita, seleciona os itens de ruptura onde Distrimed é a vencedora
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtos = db.prepare(`
+          SELECT 
+            c.ean,
+            c.descricao,
+            c.saldo,
+            c.vmd_ponderado,
+            cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'DISTRIMED' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 60
+        `).all();
+
+        itensParaAdicionar = produtos.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return { ean: p.ean, quantidade: qtd, descricao: p.descricao, preco_1: p.preco };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nenhum produto vencedor na Distrimed para importar no carrinho.'
+        });
+      }
+
       distrimedImportStatus.emAndamento = true;
       distrimedImportStatus.mensagem = 'Iniciando robô Distrimed...';
       distrimedImportStatus.iniciadoEm = new Date().toISOString();
       distrimedImportStatus.sucesso = false;
+      distrimedImportStatus.total = itensParaAdicionar.length;
+      distrimedImportStatus.relatorio = null;
 
       // Gera arquivo temporário no disco
       const tempPath = path.resolve(__dirname, 'pedido_temp_distrimed.csv');
-      const produtos = db.prepare(`
-        SELECT 
-          c.ean,
-          c.descricao,
-          c.saldo,
-          c.vmd_ponderado
-        FROM compras_estoque_cache c
-        WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
-          AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
-          AND c.curva_abc IN ('A', 'B')
-        ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
-        LIMIT 60
-      `).all();
-
       let csvContent = 'EAN;Quantidade\r\n';
-      for (const p of produtos) {
-        const vmd = Number(p.vmd_ponderado) || 0;
-        const saldo = Number(p.saldo) || 0;
-        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
-        let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-        csvContent += `${p.ean};${qtd}\r\n`;
+      for (const p of itensParaAdicionar) {
+        csvContent += `${p.ean};${p.quantidade}\r\n`;
       }
       fs.writeFileSync(tempPath, csvContent, 'utf-8');
 
       res.json({
         success: true,
-        message: 'Robô Distrimed iniciado para realizar o upload automático na modal de carrinho!'
+        message: `Robô Distrimed iniciado para realizar o upload de ${itensParaAdicionar.length} produtos na modal de carrinho!`
       });
 
       // Executa em background
@@ -2718,6 +2893,57 @@ function belapedEndpoints(db) {
           distrimedImportStatus.mensagem = resultado.sucesso
             ? 'Pedido importado na modal da Distrimed com sucesso!'
             : (resultado.motivo || 'Erro ao importar na modal');
+
+          if (resultado.sucesso) {
+            const adicionados = itensParaAdicionar.map(it => ({
+              ean: it.ean,
+              descricao: it.descricao || '',
+              quantidade: it.quantidade,
+              preco_1: Number(it.preco_1) || 0,
+              subtotal: Number(((Number(it.preco_1) || 0) * it.quantidade).toFixed(2)),
+              fornecedor: 'DISTRIMED',
+              status: 'ADICIONADO'
+            }));
+
+            const totalAdicionadoReais = Number(adicionados.reduce((acc, c) => acc + (c.subtotal || 0), 0).toFixed(2));
+
+            distrimedImportStatus.relatorio = {
+              distribuidora: 'DISTRIMED',
+              totalSolicitado: itensParaAdicionar.length,
+              sucessos: adicionados.length,
+              falhas: 0,
+              totalAdicionadoReais,
+              totalRepassadoReais: 0,
+              itensAdicionados: adicionados,
+              itensRepassados2Colocado: [],
+              itensSemEstoqueGeral: []
+            };
+
+            // Salva pedido formal no banco de dados belaped_pedidos
+            try {
+              const pedidoId = 'PED-DISTRIMED-' + Date.now();
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'DISTRIMED', 'ARQUIVO_IMPORTADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: 0, semEstoque: 0 })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido Distrimed no banco:', pErr.message);
+            }
+          }
         } catch (botErr) {
           distrimedImportStatus.sucesso = false;
           distrimedImportStatus.mensagem = 'Erro no robô: ' + botErr.message;

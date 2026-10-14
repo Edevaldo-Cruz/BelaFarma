@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "97d6654",
-  "commitMessage": "feat(belaped): adicionar auditor automatizado de links com checagem de estoque e precos",
-  "buildTime": "14/10/2026, 16:59:50"
+  "commitHash": "d1efdcf",
+  "commitMessage": "fix(belaped): corrigir modal de importacao da Distrimed e fluxo de limpeza e adicao do carrinho da Soton",
+  "buildTime": "14/10/2026, 18:59:53"
 }
