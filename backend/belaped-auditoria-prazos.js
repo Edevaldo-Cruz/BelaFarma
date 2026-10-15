@@ -135,8 +135,13 @@ async function extrairPrazosEMinimoPortal(robot, portalNorm) {
     const opcoesBoleto = await page.evaluate(() => {
       const elTextos = Array.from(document.querySelectorAll('select, option, li, span, div, p, label'))
         .map(el => (el.innerText || '').trim())
-        .filter(t => t.toUpperCase().includes('BOLETO') || t.toUpperCase().includes('DDL') || t.toUpperCase().includes('DIAS') || /\d+\/\d+/.test(t));
-      return Array.from(new Set(elTextos)).slice(0, 10);
+        .filter(t => t.length >= 3 && t.length <= 35 && (
+          t.toUpperCase().includes('BOLETO') || 
+          t.toUpperCase().includes('DDL') || 
+          /\b\d{1,3}\s*DIAS\b/i.test(t) || 
+          /^\d+(\/\d+)+(\s*DDL)?$/i.test(t)
+        ));
+      return Array.from(new Set(elTextos)).slice(0, 5);
     });
 
     prazosBoleto = opcoesBoleto.length > 0 ? opcoesBoleto : ['28 DDL', '28/35/42 DDL'];
@@ -159,7 +164,7 @@ async function extrairPrazosEMinimoPortal(robot, portalNorm) {
 
     const matchMin = info.match(/m[íi]nimo[:\s]*R?\$?\s*([\d.,]+)/i);
     pedidoMinimo = matchMin ? parseFloat(matchMin[1].replace(/\./g, '').replace(',', '.')) : 300.00;
-    prazosBoleto = ['28 DDL', '30/60 DDL'];
+    prazosBoleto = ['21 DDL', '28 DDL', '30/60 DDL'];
     melhorPrazo = '30/60 DDL';
     observacao = `Soton Farma: Pedido mínimo detectado R$ ${pedidoMinimo.toFixed(2)}`;
 
@@ -177,18 +182,18 @@ async function extrairPrazosEMinimoPortal(robot, portalNorm) {
 
   } else if (portalNorm === 'profarma') {
     pedidoMinimo = 400.00;
-    prazosBoleto = ['28 DDL', '30/60 DDL'];
+    prazosBoleto = ['28 DDL', '35 DDL', '30/60 DDL'];
     melhorPrazo = '30/60 DDL';
     observacao = `Profarma: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'martins') {
-    pedidoMinimo = 400.00;
+    pedidoMinimo = 200.00;
     prazosBoleto = ['28 DDL', '30/60 DDL'];
     melhorPrazo = '30/60 DDL';
     observacao = `Martins: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'oriente') {
-    pedidoMinimo = 400.00;
+    pedidoMinimo = 150.00;
     prazosBoleto = ['28 DDL', '30/45/60 DDL'];
     melhorPrazo = '30/45/60 DDL';
     observacao = `Oriente Farma: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;

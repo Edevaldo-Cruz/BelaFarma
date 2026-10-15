@@ -1290,7 +1290,7 @@ function belapedEndpoints(db) {
    */
   router.post('/portais', (req, res) => {
     try {
-      const { id, nome, url_portal, usuario, senha_enc, pedido_minimo, prazo_dias_padrao, uf_origem, is_ativo, observacoes } = req.body;
+      const { id, nome, url_portal, usuario, senha_enc, pedido_minimo, prazo_dias_padrao, prazos_boleto, uf_origem, is_ativo, observacoes } = req.body;
 
       if (!nome || !url_portal) {
         return res.status(400).json({ success: false, error: 'Nome e URL do portal são obrigatórios.' });
@@ -1305,7 +1305,8 @@ function belapedEndpoints(db) {
         db.prepare(`
           UPDATE belaped_portais
           SET nome = ?, url_portal = ?, usuario = ?, senha_enc = COALESCE(?, senha_enc),
-              pedido_minimo = ?, prazo_dias_padrao = ?, uf_origem = ?, is_mg = ?, is_ativo = ?, observacoes = ?
+              pedido_minimo = ?, prazo_dias_padrao = ?, prazos_boleto = COALESCE(?, prazos_boleto),
+              uf_origem = ?, is_mg = ?, is_ativo = ?, observacoes = ?
           WHERE id = ?
         `).run(
           nome.toUpperCase().trim(),
@@ -1314,6 +1315,7 @@ function belapedEndpoints(db) {
           senha_enc || null,
           Number(pedido_minimo) || 350.0,
           Number(prazo_dias_padrao) || 28,
+          prazos_boleto !== undefined ? prazos_boleto : null,
           (uf_origem || 'MG').toUpperCase().trim(),
           isMg,
           is_ativo !== undefined ? (is_ativo ? 1 : 0) : 1,
@@ -1322,8 +1324,8 @@ function belapedEndpoints(db) {
         );
       } else {
         db.prepare(`
-          INSERT INTO belaped_portais (id, nome, url_portal, usuario, senha_enc, pedido_minimo, prazo_dias_padrao, uf_origem, is_mg, is_ativo, observacoes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO belaped_portais (id, nome, url_portal, usuario, senha_enc, pedido_minimo, prazo_dias_padrao, prazos_boleto, uf_origem, is_mg, is_ativo, observacoes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           portalId,
           nome.toUpperCase().trim(),
@@ -1332,6 +1334,7 @@ function belapedEndpoints(db) {
           senha_enc || '',
           Number(pedido_minimo) || 350.0,
           Number(prazo_dias_padrao) || 28,
+          prazos_boleto || null,
           (uf_origem || 'MG').toUpperCase().trim(),
           isMg,
           is_ativo !== undefined ? (is_ativo ? 1 : 0) : 1,

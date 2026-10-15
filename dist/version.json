@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "a706622",
-  "commitMessage": "feat(belaped): botao em cada produto para adiar cotacao para proxima semana",
-  "buildTime": "15/10/2026, 13:07:36"
+  "commitHash": "48f0688",
+  "commitMessage": "feat(belaped): cotacao inteligente generico mais barato, multi-condicoes distrimed e auditoria quinzenal de prazos e boletos",
+  "buildTime": "15/10/2026, 13:27:13"
 }

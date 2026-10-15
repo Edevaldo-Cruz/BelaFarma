@@ -5489,6 +5489,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     uf_origem: 'MG',
                     is_mg: 1,
                     is_ativo: 1,
+                    prazos_boleto: '',
                     observacoes: ''
                   });
                   setPortalModalOpen(true);
@@ -5521,9 +5522,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800">
+                  <div className="flex items-center justify-between text-xs text-slate-400 pt-1.5 border-t border-slate-800">
                     <span>Pedido Mínimo: <b className="text-white">R$ {portal.pedido_minimo.toFixed(2)}</b></span>
-                    <span>Prazo: <b className="text-white">{portal.prazo_dias_padrao}d</b></span>
+                    <span>Prazo Padrão: <b className="text-white">{portal.prazo_dias_padrao}d</b></span>
+                  </div>
+
+                  {/* Informações de Boleto Auditadas */}
+                  <div className="p-2 rounded-xl bg-[#080d18] border border-slate-800/90 flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-1.5 min-w-0 text-slate-400">
+                        <CreditCard className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="font-semibold text-slate-300 shrink-0">Boleto:</span>
+                        <span className="font-black text-emerald-400 truncate" title={portal.prazos_boleto || `${portal.prazo_dias_padrao}d`}>
+                          {portal.prazos_boleto ? portal.prazos_boleto.replace(/ \| /g, ' · ') : `${portal.prazo_dias_padrao}d`}
+                        </span>
+                      </div>
+                      {portal.data_ultima_auditoria && (
+                        <span className="text-[10px] text-slate-500 font-medium shrink-0 ml-1" title={`Última auditoria: ${new Date(portal.data_ultima_auditoria).toLocaleString('pt-BR')}`}>
+                          🕒 {new Date(portal.data_ultima_auditoria).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-1">
@@ -5537,15 +5556,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       <ExternalLink className="w-3 h-3" />
                     </a>
 
-                    <button
-                      onClick={() => {
-                        setPortalEditando(portal);
-                        setPortalModalOpen(true);
-                      }}
-                      className="text-[11px] font-bold text-slate-400 hover:text-white cursor-pointer"
-                    >
-                      Configurar
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleDispararAuditoriaPrazos(portal.id)}
+                        disabled={auditandoPrazos}
+                        title={`Auditar prazos e pedido mínimo da ${portal.nome} agora`}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${auditandoPrazos ? 'animate-spin' : ''}`} />
+                        <span>Auditar</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setPortalEditando(portal);
+                          setPortalModalOpen(true);
+                        }}
+                        className="text-[11px] font-bold text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        Configurar
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -5893,6 +5924,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <span>Portal Ativo</span>
                   </label>
                 </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-300 block mb-1">Prazos de Boletos Auditados / Detectados</label>
+                <input
+                  type="text"
+                  value={portalEditando.prazos_boleto || ''}
+                  onChange={(e) => setPortalEditando({ ...portalEditando, prazos_boleto: e.target.value })}
+                  placeholder="Ex: 28 DDL | 28/35/42 DDL"
+                  className="w-full p-2.5 rounded-xl border border-slate-700 bg-[#080d18] text-emerald-400 font-bold"
+                />
+                <span className="text-[10px] text-slate-500 block mt-0.5">
+                  Preenchido e atualizado automaticamente pela rotina quinzenal de auditoria com cautela.
+                </span>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
