@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "58fd7e1",
-  "commitMessage": "feat(belaped): integra distribuidora Oriente Farma com seletor inteligente de condicoes e totalizador de economia no relatorio",
-  "buildTime": "15/10/2026, 12:14:04"
+  "commitHash": "a706622",
+  "commitMessage": "feat(belaped): botao em cada produto para adiar cotacao para proxima semana",
+  "buildTime": "15/10/2026, 13:07:36"
 }

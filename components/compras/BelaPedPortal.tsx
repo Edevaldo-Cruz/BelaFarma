@@ -54,6 +54,10 @@ import {
   LayoutGrid,
   Ban,
   MessageSquare,
+  CreditCard,
+  Tag,
+  Plus,
+  Trash2,
   Check,
   Copy
 } from 'lucide-react';
@@ -114,6 +118,11 @@ interface FaltaItem7d {
   qtd_emergencial?: number;
   prioridade?: 'P1' | 'P2' | 'P3' | 'P4';
   prioridade_rotulo?: string;
+  condicao_comercial_1?: string | null;
+  preco_padrao_1?: number | null;
+  is_generico_mais_barato_1?: boolean;
+  condicao_comercial_2?: string | null;
+  preco_padrao_2?: number | null;
   nao_cotar?: boolean;
   nao_carrinho?: boolean;
   motivo_justificativa?: string;
@@ -137,6 +146,8 @@ interface PortalDistribuidora {
   usuario: string;
   pedido_minimo: number;
   prazo_dias_padrao: number;
+  prazos_boleto?: string;
+  data_ultima_auditoria?: string;
   uf_origem: string;
   is_mg: number | boolean;
   is_ativo: number | boolean;
@@ -246,6 +257,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [justificativaEditando, setJustificativaEditando] = useState<{ [id: number]: string }>({});
   const [copiadoEan, setCopiadoEan] = useState<string | null>(null);
 
+  // Estados para Auditoria Segura de Prazos de Boletos e Pedidos Mínimos
+  const [auditandoPrazos, setAuditandoPrazos] = useState(false);
+  const [modalAuditoriaAberta, setModalAuditoriaAberta] = useState(false);
+  const [dadosAuditoria, setDadosAuditoria] = useState<{ historico: any[]; resumoPortais: any[] } | null>(null);
+
+  // Estados para Gestão de Campanhas Especiais da Distrimed
+  const [modalCampanhasAberta, setModalCampanhasAberta] = useState(false);
+  const [campanhasDistrimed, setCampanhasDistrimed] = useState<any[]>([]);
+  const [salvandoCampanha, setSalvandoCampanha] = useState(false);
+  const [formCampanha, setFormCampanha] = useState({ id: null, nome_opcao: '', termos_busca: '', minimo_valor: 0, minimo_qtd: 0, ativo: 1 });
+
   // Copiar EAN para área de transferência
   const handleCopiarEan = (ean: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -338,6 +360,102 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       d.setDate(d.getDate() + 7);
       const proximaData = d.toISOString().slice(0, 10);
       handleAtualizarRegraProduto(item, 'adiar_ate', proximaData);
+    }
+  };
+
+  // Disparar Auditoria Segura de Prazos de Boletos e Pedidos Mínimos
+  const handleDispararAuditoriaPrazos = async (portal?: string) => {
+    try {
+      setAuditandoPrazos(true);
+      addToast(
+        portal
+          ? `Iniciando simulação segura no portal ${portal}...`
+          : 'Iniciando auditoria segura de prazos de boletos e pedidos mínimos em todas as distribuidoras...',
+        'info'
+      );
+      const res = await fetch('/api/belaped/auditar-prazos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portal })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(data.message || 'Auditoria disparada com sucesso! Os resultados serão salvos no banco.', 'success');
+        setTimeout(() => {
+          carregarAuditoriaPrazos();
+          carregarDados();
+        }, 3000);
+      } else {
+        addToast(data.error || 'Erro ao iniciar auditoria de prazos.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro na auditoria de prazos: ' + err.message, 'error');
+    } finally {
+      setAuditandoPrazos(false);
+    }
+  };
+
+  // Carregar Histórico e Resumo da Auditoria de Prazos
+  const carregarAuditoriaPrazos = async () => {
+    try {
+      const res = await fetch('/api/belaped/auditoria-prazos');
+      const data = await res.json();
+      if (data.success) {
+        setDadosAuditoria(data);
+      }
+    } catch (e) {}
+  };
+
+  // Carregar Campanhas Comerciais da Distrimed
+  const carregarCampanhasDistrimed = async () => {
+    try {
+      const res = await fetch('/api/belaped/distrimed-campanhas');
+      const data = await res.json();
+      if (data.success) {
+        setCampanhasDistrimed(data.campanhas || []);
+      }
+    } catch (e) {}
+  };
+
+  // Salvar Campanha Comercial da Distrimed
+  const handleSalvarCampanhaDistrimed = async () => {
+    if (!formCampanha.nome_opcao || !formCampanha.termos_busca) {
+      addToast('Nome da opção e palavras-chave são obrigatórios.', 'warning');
+      return;
+    }
+    try {
+      setSalvandoCampanha(true);
+      const res = await fetch('/api/belaped/distrimed-campanhas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formCampanha)
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Campanha da Distrimed salva com sucesso!', 'success');
+        setFormCampanha({ id: null, nome_opcao: '', termos_busca: '', minimo_valor: 0, minimo_qtd: 0, ativo: 1 });
+        carregarCampanhasDistrimed();
+      } else {
+        addToast(data.error || 'Erro ao salvar campanha.', 'error');
+      }
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally {
+      setSalvandoCampanha(false);
+    }
+  };
+
+  // Remover Campanha Comercial da Distrimed
+  const handleRemoverCampanhaDistrimed = async (id: number) => {
+    try {
+      const res = await fetch(`/api/belaped/distrimed-campanhas/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Campanha removida.', 'info');
+        carregarCampanhasDistrimed();
+      }
+    } catch (e: any) {
+      addToast(e.message, 'error');
     }
   };
 
@@ -1001,6 +1119,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         const dataRel = await resRel.json();
         setRelatorioPrecos(dataRel.produtos || []);
       }
+
+      carregarAuditoriaPrazos();
+      carregarCampanhasDistrimed();
 
       setUltimaAtualizacao(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
@@ -2442,6 +2563,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <span className="text-xs font-bold text-emerald-300 truncate">{fornecedor1}</span>
                   );
                 })()}
+
+                {/* Badge de Campanha Comercial Especial (ex: Unilever, Nívea, Dapa) */}
+                {item.condicao_comercial_1 && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-black text-amber-300 bg-amber-950/90 px-1.5 py-0.5 rounded border border-amber-700/70 mt-0.5 truncate max-w-[150px]"
+                    title={`🏷️ Campanha: ${item.condicao_comercial_1}${item.preco_padrao_1 ? ` | Preço Padrão: R$ ${item.preco_padrao_1.toFixed(2)}` : ''}`}
+                  >
+                    🏷️ {item.condicao_comercial_1.length > 20 ? item.condicao_comercial_1.slice(0, 18) + '...' : item.condicao_comercial_1}
+                  </span>
+                )}
+
+                {/* Badge de Genérico Mais Barato Encontrado */}
+                {item.is_generico_mais_barato_1 && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-black text-cyan-300 bg-cyan-950/90 px-1.5 py-0.5 rounded border border-cyan-700/70 mt-0.5"
+                    title="⚡ Oferta vencedora encontrada em genérico equivalente com mesmo princípio ativo, dosagem e forma farmacêutica"
+                  >
+                    ⚡ Genérico Mais Barato
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-col items-end">
@@ -3582,6 +3723,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             {grp.qtdUnidades} unidades
                           </span>
                         )}
+                        {(() => {
+                          const portalInfo = portais.find(p => p.nome && p.nome.toUpperCase() === grp.distribuidora);
+                          const prazo = portalInfo?.prazos_boleto || (portalInfo?.prazo_dias_padrao ? `${portalInfo.prazo_dias_padrao} DDL` : null);
+                          if (!prazo) return null;
+                          return (
+                            <span className="text-[10px] text-indigo-300 font-bold block truncate mt-0.5" title={`Prazo de Boleto Bancário: ${prazo}`}>
+                              💳 {prazo.length > 20 ? prazo.slice(0, 18) + '..' : prazo}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </button>
                   );
@@ -4094,6 +4245,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`} />
                   <span>{refreshing ? 'Atualizando...' : 'Atualizar Tabela'}</span>
+                </button>
+
+                {/* BOTÃO: AUDITORIA SEGURA DE PRAZOS E MÍNIMOS */}
+                <button
+                  onClick={() => setModalAuditoriaAberta(true)}
+                  disabled={auditandoPrazos}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-950 via-purple-950 to-indigo-900 hover:from-indigo-900 hover:to-purple-900 text-indigo-200 hover:text-white border border-indigo-700/80 text-xs font-black transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
+                  title="Auditoria segura dos prazos de boletos e pedidos mínimos vigentes em cada distribuidora (Risco Zero / Preservação Total de Carrinho)"
+                >
+                  <CreditCard className={`w-3.5 h-3.5 ${auditandoPrazos ? 'animate-spin text-indigo-300' : 'text-indigo-400'}`} />
+                  <span>{auditandoPrazos ? 'Auditando...' : '💳 Prazos de Boletos'}</span>
+                </button>
+
+                {/* BOTÃO: CAMPANHAS ESPECIAIS DA DISTRIMED */}
+                <button
+                  onClick={() => setModalCampanhasAberta(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#091528] hover:bg-cyan-950 text-amber-300 hover:text-amber-100 border border-amber-700/60 text-xs font-bold transition-all shadow-sm cursor-pointer active:scale-95"
+                  title="Gerenciar campanhas comerciais da Distrimed (Unilever, Nívea, Dapa, Nestlé, etc.)"
+                >
+                  <Tag className="w-3.5 h-3.5 text-amber-400" />
+                  <span>🏷️ Campanhas Distrimed</span>
                 </button>
 
                 {/* Badge com Horário da Última Sincronização */}
@@ -4660,29 +4832,45 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     </td>
                                     <td className="py-2.5 px-3.5 whitespace-nowrap bg-cyan-950/10">
                                       {temCotacaoReal ? (
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                                          {(() => {
-                                            const linkProd = obterLinkDistribuidoraProduto(item, 1);
-                                            return linkProd ? (
-                                              <a
-                                                href={linkProd}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                onClick={() => handleAbrirLinkDistribuidora(item)}
-                                                className="inline-flex items-center gap-1 font-bold text-emerald-300 hover:text-emerald-100 hover:underline text-xs truncate max-w-[135px] group transition-all"
-                                                title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (O EAN será copiado automaticamente)`}
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                                            {(() => {
+                                              const linkProd = obterLinkDistribuidoraProduto(item, 1);
+                                              return linkProd ? (
+                                                <a
+                                                  href={linkProd}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  onClick={() => handleAbrirLinkDistribuidora(item)}
+                                                  className="inline-flex items-center gap-1 font-bold text-emerald-300 hover:text-emerald-100 hover:underline text-xs truncate max-w-[135px] group transition-all"
+                                                  title={`🔗 Conferir "${item.descricao}" no portal da ${fornecedor1} (O EAN será copiado automaticamente)`}
+                                                >
+                                                  <span className="truncate">{fornecedor1}</span>
+                                                  <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-125 transition-transform" />
+                                                </a>
+                                              ) : (
+                                                <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
+                                                  {fornecedor1}
+                                                </span>
+                                              );
+                                            })()}
+                                            {item.condicao_comercial_1 && (
+                                              <span
+                                                className="px-1 py-0.2 rounded text-[9px] font-black bg-amber-950 text-amber-300 border border-amber-700/80 shrink-0 whitespace-nowrap"
+                                                title={`🏷️ Campanha Comercial: ${item.condicao_comercial_1}${item.preco_padrao_1 ? ` | Padrão: R$ ${item.preco_padrao_1.toFixed(2)}` : ''}`}
                                               >
-                                                <span className="truncate">{fornecedor1}</span>
-                                                <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-125 transition-transform" />
-                                              </a>
-                                            ) : (
-                                              <span className="font-bold text-emerald-300 text-xs truncate max-w-[130px]" title={fornecedor1}>
-                                                {fornecedor1}
+                                                🏷️ {item.condicao_comercial_1.length > 14 ? item.condicao_comercial_1.slice(0, 12) + '..' : item.condicao_comercial_1}
                                               </span>
-                                            );
-                                          })()}
-                                        </div>
+                                            )}
+                                            {item.is_generico_mais_barato_1 && (
+                                              <span
+                                                className="px-1 py-0.2 rounded text-[9px] font-black bg-cyan-950 text-cyan-300 border border-cyan-700/80 shrink-0 whitespace-nowrap"
+                                                title="⚡ Oferta vencedora encontrada em genérico equivalente com mesmo princípio ativo e dosagem"
+                                              >
+                                                ⚡ Genérico
+                                              </span>
+                                            )}
+                                          </div>
                                       ) : semEstoquePortais ? (
                                         <div className="flex items-center gap-1.5">
                                           <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
@@ -5014,7 +5202,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             {/* 1º Colocado (Vendedor) */}
                             <td className="py-2.5 px-3.5 whitespace-nowrap bg-cyan-950/10">
                               {temCotacaoReal ? (
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
                                   {(() => {
                                     const linkProd = obterLinkDistribuidoraProduto(item, 1);
@@ -5036,6 +5224,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       </span>
                                     );
                                   })()}
+                                  {item.condicao_comercial_1 && (
+                                    <span
+                                      className="px-1 py-0.2 rounded text-[9px] font-black bg-amber-950 text-amber-300 border border-amber-700/80 shrink-0 whitespace-nowrap"
+                                      title={`🏷️ Campanha Comercial: ${item.condicao_comercial_1}${item.preco_padrao_1 ? ` | Padrão: R$ ${item.preco_padrao_1.toFixed(2)}` : ''}`}
+                                    >
+                                      🏷️ {item.condicao_comercial_1.length > 14 ? item.condicao_comercial_1.slice(0, 12) + '..' : item.condicao_comercial_1}
+                                    </span>
+                                  )}
+                                  {item.is_generico_mais_barato_1 && (
+                                    <span
+                                      className="px-1 py-0.2 rounded text-[9px] font-black bg-cyan-950 text-cyan-300 border border-cyan-700/80 shrink-0 whitespace-nowrap"
+                                      title="⚡ Oferta vencedora encontrada em genérico equivalente com mesmo princípio ativo e dosagem"
+                                    >
+                                      ⚡ Genérico
+                                    </span>
+                                  )}
                                 </div>
                               ) : semEstoquePortais ? (
                                 <div className="flex items-center gap-1.5">
@@ -6482,6 +6686,274 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         );
       })()}
+
+      {/* ─── MODAL DE AUDITORIA SEGURA DE PRAZOS DE BOLETOS E PEDIDOS MÍNIMOS ─── */}
+      {modalAuditoriaAberta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0b1322] border border-indigo-700/80 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-950/80 via-slate-900 to-[#0a1220]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-900/60 border border-indigo-500 text-indigo-300">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                    Auditoria de Prazos de Boletos e Pedidos Mínimos
+                  </h3>
+                  <p className="text-xs text-indigo-200/80">
+                    Simulação segura nos portais com Risco Zero (NUNCA finaliza pedidos reais e restaura os carrinhos intactos)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalAuditoriaAberta(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl bg-indigo-950/40 border border-indigo-900/60 text-xs">
+                <div>
+                  <span className="font-bold text-white block">Auditoria Automática Quinzenal</span>
+                  <span className="text-slate-300 text-[11px]">
+                    Executada a cada 15 dias para manter pedidos mínimos e prazos atualizados no sistema.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDispararAuditoriaPrazos()}
+                  disabled={auditandoPrazos}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white font-black text-xs shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95 shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${auditandoPrazos ? 'animate-spin' : ''}`} />
+                  <span>{auditandoPrazos ? 'Auditando em Segundo Plano...' : '⚡ Auditar Todas Agora'}</span>
+                </button>
+              </div>
+
+              {/* Tabela de Portais e Prazos Detectados */}
+              <div className="border border-slate-800 rounded-xl overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-[#070e1a] text-slate-400 text-[11px] uppercase font-bold border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Distribuidora</th>
+                      <th className="py-2.5 px-3 text-center">Pedido Mínimo</th>
+                      <th className="py-2.5 px-3">Prazos de Boleto Detectados</th>
+                      <th className="py-2.5 px-3 text-center">Última Checagem</th>
+                      <th className="py-2.5 px-3 text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80 bg-[#060c18]">
+                    {portais.map(portal => (
+                      <tr key={portal.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2.5 px-3 font-bold text-white flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${portal.is_ativo ? 'bg-emerald-400' : 'bg-slate-600'}`}></span>
+                          <span>{portal.nome}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-cyan-300">
+                          R$ {Number(portal.pedido_minimo || 300).toFixed(2)}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="text-indigo-300 font-bold bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-800/60 inline-block">
+                            💳 {portal.prazos_boleto || `${portal.prazo_dias_padrao || 28} DDL`}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-slate-400 text-[11px]">
+                          {portal.data_ultima_auditoria
+                            ? new Date(portal.data_ultima_auditoria).toLocaleDateString('pt-BR')
+                            : 'Padrão'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDispararAuditoriaPrazos(portal.id)}
+                            disabled={auditandoPrazos}
+                            className="p-1 px-2 rounded-lg bg-slate-800 hover:bg-indigo-900 text-indigo-300 hover:text-white border border-slate-700 text-[10px] font-bold transition-colors cursor-pointer"
+                            title={`Rodar simulação segura apenas na ${portal.nome}`}
+                          >
+                            Simular
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-3 border-t border-slate-800 bg-[#070e1a] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setModalAuditoriaAberta(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DE GESTÃO DE CAMPANHAS COMERCIAIS DA DISTRIMED ─── */}
+      {modalCampanhasAberta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0b1322] border border-amber-700/80 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-gradient-to-r from-amber-950/80 via-slate-900 to-[#0a1220]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-900/60 border border-amber-500 text-amber-300">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                    Campanhas e Condições Comerciais - Distrimed
+                  </h3>
+                  <p className="text-xs text-amber-200/80">
+                    Configure as opções da modal de condições de preços (Unilever, Nívea, Dapa, Solar, Nestlé, etc.)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalCampanhasAberta(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4">
+              {/* Formulário de Adicionar / Editar Campanha */}
+              <div className="p-3.5 rounded-xl bg-[#08101d] border border-slate-800 space-y-3">
+                <span className="text-xs font-bold text-amber-300 block">
+                  {formCampanha.id ? 'Editar Campanha da Distrimed' : 'Cadastrar / Ajustar Campanha'}
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Nome exato na modal da Distrimed:</label>
+                    <input
+                      type="text"
+                      value={formCampanha.nome_opcao}
+                      onChange={(e) => setFormCampanha(prev => ({ ...prev, nome_opcao: e.target.value }))}
+                      placeholder="Ex: NIVEA 14/10 E 15/10, PHARMALINK - UNILEVER"
+                      className="w-full bg-[#060c18] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:ring-1 focus:ring-amber-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Palavras-chave (separadas por vírgula):</label>
+                    <input
+                      type="text"
+                      value={formCampanha.termos_busca}
+                      onChange={(e) => setFormCampanha(prev => ({ ...prev, termos_busca: e.target.value }))}
+                      placeholder="Ex: NIVEA, DOVE, REXONA, DAPAGLIFLOZINA"
+                      className="w-full bg-[#060c18] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:ring-1 focus:ring-amber-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Pedido Mínimo da Campanha (R$):</label>
+                    <input
+                      type="number"
+                      value={formCampanha.minimo_valor || ''}
+                      onChange={(e) => setFormCampanha(prev => ({ ...prev, minimo_valor: parseFloat(e.target.value) || 0 }))}
+                      placeholder="0 para sem mínimo"
+                      className="w-full bg-[#060c18] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:ring-1 focus:ring-amber-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Qtd Mínima de Unidades (se houver):</label>
+                    <input
+                      type="number"
+                      value={formCampanha.minimo_qtd || ''}
+                      onChange={(e) => setFormCampanha(prev => ({ ...prev, minimo_qtd: parseInt(e.target.value) || 0 }))}
+                      placeholder="Ex: 24 ou 112 un (DAPA)"
+                      className="w-full bg-[#060c18] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:ring-1 focus:ring-amber-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  {formCampanha.id && (
+                    <button
+                      type="button"
+                      onClick={() => setFormCampanha({ id: null, nome_opcao: '', termos_busca: '', minimo_valor: 0, minimo_qtd: 0, ativo: 1 })}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSalvarCampanhaDistrimed}
+                    disabled={salvandoCampanha}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{salvandoCampanha ? 'Salvando...' : (formCampanha.id ? 'Atualizar Campanha' : 'Salvar Nova Campanha')}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Lista de Campanhas Cadastradas */}
+              <div className="border border-slate-800 rounded-xl overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-[#070e1a] text-slate-400 text-[11px] uppercase font-bold border-b border-slate-800">
+                    <tr>
+                      <th className="py-2 px-3">Opção Comercial (Modal Distrimed)</th>
+                      <th className="py-2 px-3">Palavras-chave</th>
+                      <th className="py-2 px-3 text-center">Mín. Valor</th>
+                      <th className="py-2 px-3 text-center">Mín. Qtd</th>
+                      <th className="py-2 px-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80 bg-[#060c18]">
+                    {campanhasDistrimed.map(c => (
+                      <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2 px-3 font-bold text-white">
+                          🏷️ {c.nome_opcao}
+                        </td>
+                        <td className="py-2 px-3 text-slate-300 font-mono text-[11px] truncate max-w-[200px]" title={c.termos_busca}>
+                          {c.termos_busca}
+                        </td>
+                        <td className="py-2 px-3 text-center font-bold text-emerald-400">
+                          {c.minimo_valor > 0 ? `R$ ${c.minimo_valor.toFixed(2)}` : '—'}
+                        </td>
+                        <td className="py-2 px-3 text-center font-bold text-cyan-300">
+                          {c.minimo_qtd > 0 ? `${c.minimo_qtd} un` : '—'}
+                        </td>
+                        <td className="py-2 px-3 text-right space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => setFormCampanha(c)}
+                            className="p-1 px-2 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold cursor-pointer"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverCampanhaDistrimed(c.id)}
+                            className="p-1 px-1.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 text-[10px] cursor-pointer"
+                            title="Remover campanha"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-3 border-t border-slate-800 bg-[#070e1a] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setModalCampanhasAberta(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
       {(() => {

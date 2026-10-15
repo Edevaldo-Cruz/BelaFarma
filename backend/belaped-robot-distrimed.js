@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const farmacoMatcher = require('./belaped-farmaco-matcher');
 
 function findChromeExecutable() {
   const candidates = [
@@ -118,25 +119,54 @@ class DistrimedRobot {
    * Garante que a condição comercial PADRÃO está ativa e confirmada para exibição de preços
    */
   async ativarCondicaoPadrao() {
+    return this.selecionarCondicaoComercial('PADRÃO');
+  }
+
+  /**
+   * Seleciona e confirma uma condição comercial na modal da Distrimed (ex: PADRÃO, PHARMALINK - UNILEVER, NIVEA, etc.)
+   */
+  async selecionarCondicaoComercial(nomeCondicao = 'PADRÃO') {
     try {
+      const alvo = String(nomeCondicao || 'PADRÃO').toUpperCase().trim();
       const condicaoAtual = await this.page.evaluate(() => {
         const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('sell'));
-        return btn ? btn.innerText : '';
+        return btn ? btn.innerText.toUpperCase() : '';
       });
 
-      if (condicaoAtual.includes('Nenhuma') || !condicaoAtual.includes('PADRÃO')) {
-        console.log('[DistrimedRobot] Ativando condição comercial PADRÃO...');
+      if (condicaoAtual.includes('NENHUMA') || !condicaoAtual.includes(alvo)) {
+        console.log(`[DistrimedRobot] Alternando condição comercial para: "${alvo}"...`);
         await this.page.evaluate(() => {
           const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('sell'));
           if (btn) btn.click();
         });
         await new Promise(r => setTimeout(r, 1200));
 
-        // Clica no item PADRÃO da lista
-        await this.page.evaluate(() => {
-          const li = Array.from(document.querySelectorAll('li, div, button')).find(el => (el.innerText || '').trim() === 'PADRÃO');
-          if (li) li.click();
-        });
+        // Clica no item correspondente da lista na modal
+        const clicou = await this.page.evaluate((termo) => {
+          const itens = Array.from(document.querySelectorAll('li, div, button, span, [role="option"]'));
+          const exato = itens.find(el => (el.innerText || '').trim().toUpperCase() === termo);
+          if (exato) {
+            exato.click();
+            return true;
+          }
+          const parcial = itens.find(el => (el.innerText || '').trim().toUpperCase().includes(termo));
+          if (parcial) {
+            parcial.click();
+            return true;
+          }
+          return false;
+        }, alvo);
+
+        if (!clicou) {
+          console.warn(`[DistrimedRobot] Opção comercial "${alvo}" não encontrada na modal da Distrimed.`);
+          // Fecha modal se estiver aberta
+          await this.page.evaluate(() => {
+            const btnClose = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('close'));
+            if (btnClose) btnClose.click();
+          });
+          return false;
+        }
+
         await new Promise(r => setTimeout(r, 800));
 
         // Clica no botão Confirmar da modal de condição de preços
@@ -152,9 +182,14 @@ class DistrimedRobot {
           const btnEntendido = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('Entendido'));
           if (btnEntendido) btnEntendido.click();
         });
+
+        console.log(`[DistrimedRobot] Condição comercial "${alvo}" confirmada com sucesso!`);
+        return true;
       }
+      return true;
     } catch (e) {
       console.warn('[DistrimedRobot] Aviso ao ajustar condição de preço:', e.message);
+      return false;
     }
   }
 
@@ -261,19 +296,19 @@ class DistrimedRobot {
   }
 
   /**
-   * Consulta um EAN no catálogo da Distrimed com validação estrita de EAN e Estoque
+   * Consulta um EAN no catálogo da Distrimed com validação estrita de EAN,
+   * suporte a busca por princípio ativo/genérico mais barato e validação de equivalência
    */
-  async cotarEAN(ean, descricaoProduto = '') {
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
     if (!this.page) throw new Error('Robô Distrimed não iniciado.');
 
     try {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'DISTRIMED', disponivel: false, preco: null };
 
-      // 1. Busca exata por EAN
+      // 1. Busca exata por EAN primeiro
       let itens = await this._buscarNoCatalogo(eanLimpo);
 
-      // Filtro ESTRITO por EAN: só aceita o produto se o EAN retornado coincidir exatamente com o pesquisado
       const eanDigitos = eanLimpo.replace(/\D/g, '');
       let itensCorrespondentes = itens.filter(it => {
         if (!it.ean) return false;
@@ -282,7 +317,50 @@ class DistrimedRobot {
                (eanCardDigitos.length >= 8 && eanDigitos.length >= 8 && (eanCardDigitos.endsWith(eanDigitos) || eanDigitos.endsWith(eanCardDigitos)));
       });
 
-      if (!itensCorrespondentes || itensCorrespondentes.length === 0) {
+      let melhorEanOriginal = null;
+      if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+        itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensCorrespondentes[0];
+      }
+
+      // 2. Busca por Princípio Ativo / Genérico Mais Barato (se habilitado ou se não achou pelo EAN)
+      const buscarGenerico = opts.buscarGenerico !== false && Boolean(descricaoProduto);
+      let melhorGenerico = null;
+
+      if (buscarGenerico) {
+        try {
+          const termoAtivo = farmacoMatcher.extrairTermoBuscaGenerico(descricaoProduto);
+          if (termoAtivo && termoAtivo.length >= 3) {
+            const itensGenericos = await this._buscarNoCatalogo(termoAtivo);
+            const validados = itensGenericos.filter(it => {
+              return farmacoMatcher.validarEquivalencia(
+                { descricao: descricaoProduto, ean: eanLimpo, tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO' },
+                it
+              );
+            });
+
+            if (validados.length > 0) {
+              validados.sort((a, b) => a.preco - b.preco);
+              melhorGenerico = validados[0];
+            }
+          }
+        } catch (eGen) {
+          console.warn('[DistrimedRobot] Aviso na busca de genéricos equivalentes:', eGen.message);
+        }
+      }
+
+      // 3. Decisão: Escolhe o menor preço entre o EAN exato e o Genérico equivalente mais barato
+      let vencedor = melhorEanOriginal;
+      let isEquivalente = false;
+
+      if (melhorGenerico) {
+        if (!melhorEanOriginal || melhorGenerico.preco < melhorEanOriginal.preco) {
+          vencedor = melhorGenerico;
+          isEquivalente = melhorGenerico.ean !== eanLimpo;
+        }
+      }
+
+      if (!vencedor) {
         return {
           fornecedor: 'DISTRIMED',
           ean: eanLimpo,
@@ -293,18 +371,19 @@ class DistrimedRobot {
         };
       }
 
-      // Entre os itens validados e com estoque real, escolhe o de menor preço
-      itensCorrespondentes.sort((a, b) => a.preco - b.preco);
-      const melhor = itensCorrespondentes[0];
-
       return {
         fornecedor: 'DISTRIMED',
         ean: eanLimpo,
-        eanEncontrado: melhor.ean,
+        eanEncontrado: vencedor.ean,
         disponivel: true,
-        preco: melhor.preco,
-        descricao: melhor.descricao || '',
-        mensagem: ''
+        preco: vencedor.preco,
+        descricao: vencedor.descricao || '',
+        isGenericoEquivalente: isEquivalente,
+        precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        economiaGenericoPct: (melhorEanOriginal && isEquivalente && melhorEanOriginal.preco > vencedor.preco)
+          ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1))
+          : 0,
+        mensagem: isEquivalente ? `Genérico mais barato encontrado (${vencedor.descricao})` : ''
       };
 
     } catch (err) {
@@ -537,6 +616,106 @@ class DistrimedRobot {
       console.error('[DistrimedRobot] Erro ao limpar carrinho:', err.message);
       throw err;
     }
+  }
+
+  /**
+   * Cotação em Lote Inteligente com comparação de múltiplas condições comerciais (Unilever, Nívea, Dapa, etc.)
+   */
+  async cotarLoteDistrimedMultiCondicoes(itens, campanhas = []) {
+    if (!this.page) throw new Error('Robô Distrimed não iniciado.');
+
+    const resultados = new Map();
+
+    // 1. Fase 1: Garante que a condição PADRÃO está ativa e cota todos os itens
+    await this.ativarCondicaoPadrao();
+
+    console.log(`[DistrimedRobot] Cotando ${itens.length} itens na condição PADRÃO...`);
+    for (const item of itens) {
+      const resPadrao = await this.cotarEAN(item.ean, item.descricao, { tipo_categoria: item.tipo_categoria });
+      resPadrao.condicao_comercial = 'PADRÃO';
+      resPadrao.preco_padrao = resPadrao.preco;
+      resultados.set(String(item.ean).trim(), resPadrao);
+    }
+
+    // Se não houver campanhas cadastradas ou nenhum item, encerra
+    if (!campanhas || campanhas.length === 0) {
+      return resultados;
+    }
+
+    // 2. Fase 2: Agrupa produtos por campanha elegível
+    for (const campanha of campanhas) {
+      const termos = (campanha.termos_busca || '').split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+      if (termos.length === 0) continue;
+
+      const itensCampanha = itens.filter(item => {
+        const desc = (item.descricao || '').toUpperCase();
+        return termos.some(termo => desc.includes(termo));
+      });
+
+      if (itensCampanha.length === 0) continue;
+
+      console.log(`[DistrimedRobot] Encontrados ${itensCampanha.length} itens elegíveis para campanha "${campanha.nome_opcao}"`);
+
+      // Alterna a condição comercial no portal
+      const ativou = await this.selecionarCondicaoComercial(campanha.nome_opcao);
+      if (!ativou) {
+        console.warn(`[DistrimedRobot] Não foi possível ativar "${campanha.nome_opcao}". Pulando campanha.`);
+        continue;
+      }
+
+      // Cota os itens nesta condição especial
+      const cotacoesCampanha = [];
+      let totalValorCampanha = 0;
+      let totalQtdCampanha = 0;
+
+      for (const item of itensCampanha) {
+        const resCamp = await this.cotarEAN(item.ean, item.descricao, { tipo_categoria: item.tipo_categoria });
+        const qtdSugerida = Number(item.quantidade || 1);
+        if (resCamp.disponivel && resCamp.preco > 0) {
+          totalValorCampanha += (resCamp.preco * qtdSugerida);
+          totalQtdCampanha += qtdSugerida;
+        }
+        cotacoesCampanha.push({ item, resCamp, qtdSugerida });
+      }
+
+      // Validação de requisitos mínimos da campanha
+      const minimoValor = Number(campanha.minimo_valor || 0);
+      const minimoQtd = Number(campanha.minimo_qtd || 0);
+      const atendeValor = minimoValor <= 0 || totalValorCampanha >= minimoValor;
+      const atendeQtd = minimoQtd <= 0 || totalQtdCampanha >= minimoQtd;
+
+      if (!atendeValor || !atendeQtd) {
+        console.log(`[DistrimedRobot] Lote da campanha "${campanha.nome_opcao}" NÃO atingiu os mínimos exigidos (Valor: R$ ${totalValorCampanha.toFixed(2)}/${minimoValor}, Qtd: ${totalQtdCampanha}/${minimoQtd}). Mantendo PADRÃO.`);
+        continue;
+      }
+
+      // Aplica a condição especial para os itens em que o preço da campanha for menor
+      for (const { item, resCamp } of cotacoesCampanha) {
+        if (!resCamp.disponivel || !resCamp.preco) continue;
+        const eanKey = String(item.ean).trim();
+        const resPadrao = resultados.get(eanKey);
+
+        if (!resPadrao || !resPadrao.disponivel || resCamp.preco < resPadrao.preco) {
+          const precoPadrao = resPadrao && resPadrao.preco ? resPadrao.preco : resCamp.preco;
+          const economiaPct = precoPadrao > resCamp.preco
+            ? Number((((precoPadrao - resCamp.preco) / precoPadrao) * 100).toFixed(1))
+            : 0;
+
+          resultados.set(eanKey, {
+            ...resCamp,
+            condicao_comercial: campanha.nome_opcao,
+            preco_padrao: precoPadrao,
+            economia_campanha_pct: economiaPct,
+            mensagem: `Preço reduzido pela campanha ${campanha.nome_opcao} (-${economiaPct}%)`
+          });
+        }
+      }
+    }
+
+    // 4. Retorna para a condição PADRÃO
+    await this.ativarCondicaoPadrao();
+
+    return resultados;
   }
 
   async fechar() {

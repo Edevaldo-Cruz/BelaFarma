@@ -25,6 +25,8 @@ const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
 const { validarCorrespondenciaProduto, expurgarCotacoesInconsistentes } = require('./belaped-validador');
+const farmacoMatcher = require('./belaped-farmaco-matcher');
+const { auditarPortalSeguro, auditarTodasDistribuidoras } = require('./belaped-auditoria-prazos');
 
 function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   const f = (fornecedorNome || '').toUpperCase();
@@ -236,8 +238,72 @@ function belapedEndpoints(db) {
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
       db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN url_produto TEXT`).run();
-    } catch (migErr) {
-      // Coluna já existe
+    } catch (migErr) {}
+
+    // Migração: Metadados de campanhas e genéricos em belaped_cotacoes_reais
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN condicao_comercial TEXT`).run();
+    } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN preco_padrao REAL`).run();
+    } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN is_generico_mais_barato INTEGER DEFAULT 0`).run();
+    } catch (e) {}
+
+    // Migração: Prazos e data de auditoria em belaped_portais
+    try {
+      db.prepare(`ALTER TABLE belaped_portais ADD COLUMN prazos_boleto TEXT`).run();
+    } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_portais ADD COLUMN data_ultima_auditoria TEXT`).run();
+    } catch (e) {}
+
+    // Criação da tabela de campanhas da Distrimed
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS belaped_distrimed_campanhas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome_opcao TEXT NOT NULL,
+        termos_busca TEXT NOT NULL,
+        minimo_valor REAL DEFAULT 0,
+        minimo_qtd INTEGER DEFAULT 0,
+        ativo INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS belaped_portais_auditoria_prazos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        portal TEXT NOT NULL,
+        pedido_minimo_detectado REAL NOT NULL,
+        prazos_boleto_json TEXT NOT NULL,
+        melhor_prazo TEXT,
+        itens_carrinho_previos INTEGER DEFAULT 0,
+        status_auditoria TEXT NOT NULL,
+        observacao TEXT,
+        data_auditoria TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Seed inicial de campanhas da Distrimed caso a tabela esteja vazia
+    const qtdCampanhas = db.prepare('SELECT count(*) as count FROM belaped_distrimed_campanhas').get().count;
+    if (qtdCampanhas === 0) {
+      const stmtCampanha = db.prepare(`
+        INSERT INTO belaped_distrimed_campanhas (nome_opcao, termos_busca, minimo_valor, minimo_qtd, ativo)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      stmtCampanha.run('PHARMALINK - UNILEVER', 'UNILEVER, DOVE, REXONA, SEDA, CLEAR, TRESEMME, LUX, CLOSE UP', 0, 0, 1);
+      stmtCampanha.run('TEMPORADA SOLAR 2026', 'PROTETOR SOLAR, BLOQUEADOR SOLAR, BRONZEADOR, SUNDOWN, CENOURA & BRONZE', 0, 0, 1);
+      stmtCampanha.run('KIMBERLY PARCEIRO ESTRATÉGICO - TUDO FARMA', 'KIMBERLY, HUGGIES, INTIMUS, PLENITUD, NEVE, KLEENEX', 0, 0, 1);
+      stmtCampanha.run('NESTLE CURVA C - NUTRIÇÃO INFANTIL PEDIDO MINIMO R$ 500,00', 'MUCILON, NAN, NESTOGENO, NUTRIÇÃO INFANTIL', 500.00, 0, 1);
+      stmtCampanha.run('NESTLE CURVA C - NUTRIÇÃO INFANTIL PEDIDO MINIMO R$ 1.000,00', 'MUCILON, NAN, NESTOGENO', 1000.00, 0, 1);
+      stmtCampanha.run('NESTLE CURVA C - NUTRIÇÃO ADULTO PEDIDO MINIMO R$ 350,00', 'NUTREN, NUTREN SENIOR, NUTRIÇÃO ADULTO', 350.00, 0, 1);
+      stmtCampanha.run('NESTLE CURVA C - NUTRIÇÃO ADULTO PEDIDO MINIMO R$ 500,00', 'NUTREN, NUTREN SENIOR', 500.00, 0, 1);
+      stmtCampanha.run('DESCONTO DAPAGLIFLOZINA NOVA QUIMICA', 'DAPAGLIFLOZINA NOVA QUIMICA, DAPAGLIFLOZINA', 0, 0, 1);
+      stmtCampanha.run('ACELERA DAPA DISTRIMED (112 UNIDADES )', 'DAPAGLIFLOZINA, FORXIGA', 0, 112, 1);
+      stmtCampanha.run('DAPA EMS PAINEL DISTY (24 UNIDADES)', 'DAPAGLIFLOZINA EMS, DAPAGLIFLOZINA', 0, 24, 1);
+      stmtCampanha.run('NIVEA 14/10 E 15/10', 'NIVEA', 0, 0, 1);
+      stmtCampanha.run('BRINQUEDOS PRAZO 60 DIAS 17/08 A 31/10', 'BRINQUEDO, CHOCALHO, MORDEDOR', 0, 0, 1);
+      console.log('[BelaPed] 12 campanhas comerciais da Distrimed cadastradas com sucesso!');
     }
   };
 
@@ -751,6 +817,11 @@ function belapedEndpoints(db) {
           fornecedor_2: fornecedor2,
           preco_2: preco2,
           url_produto_2: urlProduto2,
+          condicao_comercial_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].condicao_comercial || null) : null,
+          preco_padrao_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].preco_padrao || null) : null,
+          is_generico_mais_barato_1: Boolean(cotacoesReais && cotacoesReais[0] && cotacoesReais[0].is_generico_mais_barato),
+          condicao_comercial_2: cotacoesReais && cotacoesReais[1] ? (cotacoesReais[1].condicao_comercial || null) : null,
+          preco_padrao_2: cotacoesReais && cotacoesReais[1] ? (cotacoesReais[1].preco_padrao || null) : null,
           diferenca_percentual: diferencaPct,
 
           fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
@@ -1275,6 +1346,126 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/distrimed-campanhas
+   * Retorna todas as campanhas comerciais cadastradas para a Distrimed
+   */
+  router.get('/distrimed-campanhas', (req, res) => {
+    try {
+      const campanhas = db.prepare('SELECT * FROM belaped_distrimed_campanhas ORDER BY ativo DESC, nome_opcao ASC').all();
+      res.json({ success: true, campanhas });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/distrimed-campanhas
+   * Adiciona ou atualiza uma campanha da Distrimed
+   */
+  router.post('/distrimed-campanhas', (req, res) => {
+    try {
+      const { id, nome_opcao, termos_busca, minimo_valor, minimo_qtd, ativo } = req.body;
+      if (!nome_opcao || !termos_busca) {
+        return res.status(400).json({ success: false, error: 'Nome da opção e termos de busca são obrigatórios.' });
+      }
+
+      if (id) {
+        db.prepare(`
+          UPDATE belaped_distrimed_campanhas
+          SET nome_opcao = ?, termos_busca = ?, minimo_valor = ?, minimo_qtd = ?, ativo = ?
+          WHERE id = ?
+        `).run(
+          nome_opcao.trim().toUpperCase(),
+          termos_busca.trim().toUpperCase(),
+          Number(minimo_valor) || 0,
+          Number(minimo_qtd) || 0,
+          ativo !== undefined ? (ativo ? 1 : 0) : 1,
+          id
+        );
+      } else {
+        db.prepare(`
+          INSERT INTO belaped_distrimed_campanhas (nome_opcao, termos_busca, minimo_valor, minimo_qtd, ativo)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(
+          nome_opcao.trim().toUpperCase(),
+          termos_busca.trim().toUpperCase(),
+          Number(minimo_valor) || 0,
+          Number(minimo_qtd) || 0,
+          ativo !== undefined ? (ativo ? 1 : 0) : 1
+        );
+      }
+
+      res.json({ success: true, message: 'Campanha da Distrimed salva com sucesso!' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * DELETE /api/belaped/distrimed-campanhas/:id
+   * Remove uma campanha da Distrimed
+   */
+  router.delete('/distrimed-campanhas/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM belaped_distrimed_campanhas WHERE id = ?').run(req.params.id);
+      res.json({ success: true, message: 'Campanha removida com sucesso!' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/auditoria-prazos
+   * Retorna os últimos registros de auditoria segura de prazos de boletos e pedidos mínimos
+   */
+  router.get('/auditoria-prazos', (req, res) => {
+    try {
+      const historico = db.prepare(`
+        SELECT * FROM belaped_portais_auditoria_prazos 
+        ORDER BY id DESC LIMIT 50
+      `).all();
+
+      const resumoPortais = db.prepare(`
+        SELECT id, nome, pedido_minimo, prazo_dias_padrao, prazos_boleto, data_ultima_auditoria, is_ativo 
+        FROM belaped_portais
+        ORDER BY nome ASC
+      `).all();
+
+      res.json({ success: true, historico, resumoPortais });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/auditar-prazos
+   * Dispara a simulação segura de prazos de boletos e pedidos mínimos com preservação total de carrinhos
+   */
+  router.post('/auditar-prazos', async (req, res) => {
+    try {
+      const { portal } = req.body; // se especificado, audita só um portal; se omitido, audita todos
+      if (portal) {
+        const resultado = await auditarPortalSeguro(portal, null, db);
+        return res.json({ success: true, resultado });
+      } else {
+        // Dispara em background para não travar a requisição HTTP longa
+        auditarTodasDistribuidoras(db).then(resultados => {
+          console.log('[AuditoriaPrazos] Auditoria quinzenal concluída com sucesso:', resultados.length, 'portais.');
+        }).catch(err => {
+          console.error('[AuditoriaPrazos] Erro na auditoria em background:', err.message);
+        });
+
+        return res.json({
+          success: true,
+          message: 'Rotina de auditoria segura de prazos iniciada em segundo plano para todas as distribuidoras.'
+        });
+      }
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/belaped/simular-otimizacao
    * Executa a otimização matemática de compras considerando:
    * 1. Menor preço líquido
@@ -1618,14 +1809,17 @@ function belapedEndpoints(db) {
     // Executa os robôs em segundo plano (em paralelo quando fornecedor === 'TODOS')
     (async () => {
       const stmtSalvar = db.prepare(`
-        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(ean, fornecedor) DO UPDATE SET
           preco = excluded.preco,
           disponivel = excluded.disponivel,
           descricao = excluded.descricao,
           desc_pct = excluded.desc_pct,
           url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
+          condicao_comercial = excluded.condicao_comercial,
+          preco_padrao = excluded.preco_padrao,
+          is_generico_mais_barato = excluded.is_generico_mais_barato,
           updated_at = excluded.updated_at
       `);
 
@@ -1733,7 +1927,10 @@ function belapedEndpoints(db) {
                 1,
                 resultado.descricao || descAtual,
                 resultado.descPct || 0,
-                resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(nomeFornecedor, eanAtual, descAtual)
+                resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(nomeFornecedor, eanAtual, descAtual),
+                resultado.condicao_comercial || null,
+                resultado.preco_padrao || resultado.preco,
+                resultado.isGenericoEquivalente ? 1 : 0
               );
 
               // Grava na série histórica temporal para Inteligência de Mercado (Melhor Dia e Gráfico)
@@ -1783,7 +1980,10 @@ function belapedEndpoints(db) {
                 0,
                 resultado.mensagem || 'Indisponível',
                 0,
-                null
+                null,
+                null,
+                null,
+                0
               );
               cotacaoStatus.log.push({
                 hora: horaLog,
@@ -1899,6 +2099,14 @@ function belapedEndpoints(db) {
         ultimoMinutoAgendado = horaMinutoAtual;
         console.log(`[BelaPed Agendador] >>> HORÁRIO ESTRATÉGICO (${horaMinutoAtual}): Disparando cotação nos 6 portais! <<<`);
         verificarERodarCotacaoSegundoPlano(`HORARIO_ESTRATEGICO_${horaMinutoAtual}`);
+      }
+
+      // Agendador Quinzenal de Auditoria Segura de Prazos de Boletos e Pedidos Mínimos (Dias 1 e 16 às 06:15)
+      const diaDoMes = agora.getDate();
+      if ((diaDoMes === 1 || diaDoMes === 16) && horaMinutoAtual === '06:15' && ultimoMinutoAgendado !== 'AUDITORIA_06:15') {
+        ultimoMinutoAgendado = 'AUDITORIA_06:15';
+        console.log('[BelaPed Agendador] >>> DISPARO QUINZENAL: Iniciando Auditoria Segura de Prazos e Pedidos Mínimos <<<');
+        auditarTodasDistribuidoras(db).catch(e => console.error('[BelaPed Agendador] Erro na auditoria quinzenal:', e.message));
       }
     } catch (schedErr) {
       console.error('[BelaPed Agendador] Erro no timer estratégico:', schedErr.message);
@@ -2021,17 +2229,21 @@ function belapedEndpoints(db) {
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descricao || ''}) em [${portaisParaCotar.join(', ')}]...`);
 
       const stmtSalvar = db.prepare(`
-        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(ean, fornecedor) DO UPDATE SET
           preco = excluded.preco,
           disponivel = excluded.disponivel,
           descricao = excluded.descricao,
           desc_pct = excluded.desc_pct,
           url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
+          condicao_comercial = excluded.condicao_comercial,
+          preco_padrao = excluded.preco_padrao,
+          is_generico_mais_barato = excluded.is_generico_mais_barato,
           updated_at = excluded.updated_at
       `);
 
+      const campanhasDistrimed = db.prepare('SELECT * FROM belaped_distrimed_campanhas WHERE ativo = 1').all();
       const resultadosFinais = [];
 
       await Promise.allSettled(portaisParaCotar.map(async (nomePortal) => {
@@ -2040,10 +2252,18 @@ function belapedEndpoints(db) {
         const rob = new RobotCls({ headless: true });
         try {
           await rob.iniciar();
-          let resCot = await rob.cotarEAN(eanLimpo, descricao || '');
 
-          // 🛡️ Validação Estrita Semântica Anti-Alucinação
-          if (resCot.disponivel && resCot.preco > 0 && descricao && resCot.descricao) {
+          let resCot = null;
+          // Se for Distrimed e houver campanhas cadastradas, usa cotação multi-condições
+          if (nomePortal.includes('DISTRIMED') && typeof rob.cotarLoteDistrimedMultiCondicoes === 'function') {
+            const mapa = await rob.cotarLoteDistrimedMultiCondicoes([{ ean: eanLimpo, descricao: descricao || '', quantidade: 1 }], campanhasDistrimed);
+            resCot = mapa.get(eanLimpo) || await rob.cotarEAN(eanLimpo, descricao || '');
+          } else {
+            resCot = await rob.cotarEAN(eanLimpo, descricao || '');
+          }
+
+          // 🛡️ Validação Estrita Semântica Anti-Alucinação (se não for genérico intencional)
+          if (resCot.disponivel && resCot.preco > 0 && descricao && resCot.descricao && !resCot.isGenericoEquivalente) {
             const checagemSem = validarCorrespondenciaProduto(descricao, resCot.descricao);
             if (!checagemSem.valido) {
               console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${nomePortal}: esperado "${descricao}" vs retornado "${resCot.descricao}" (${checagemSem.motivo})`);
@@ -2061,7 +2281,10 @@ function belapedEndpoints(db) {
               1,
               resCot.descricao || descricao || '',
               resCot.descPct || 0,
-              resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descricao)
+              resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descricao),
+              resCot.condicao_comercial || null,
+              resCot.preco_padrao || resCot.preco,
+              resCot.isGenericoEquivalente ? 1 : 0
             );
           } else {
             stmtSalvar.run(
@@ -2071,7 +2294,10 @@ function belapedEndpoints(db) {
               0,
               resCot.mensagem || 'Indisponível no reteste do robô',
               0,
-              null
+              null,
+              null,
+              null,
+              0
             );
           }
 
@@ -2079,7 +2305,9 @@ function belapedEndpoints(db) {
             fornecedor: nomePortal,
             disponivel: resCot.disponivel,
             preco: resCot.preco,
-            descricao: resCot.descricao || ''
+            descricao: resCot.descricao || '',
+            condicao_comercial: resCot.condicao_comercial || null,
+            is_generico_mais_barato: Boolean(resCot.isGenericoEquivalente)
           });
         } catch (eRobo) {
           console.error(`[BelaPed Re-cotação] Erro no robô ${nomePortal}:`, eRobo.message);
