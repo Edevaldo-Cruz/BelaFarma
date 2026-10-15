@@ -1984,88 +1984,87 @@ function belapedEndpoints(db) {
         'MARTINS': MartinsRobot
       };
 
-      // Determina qual distribuidora rodar
-      let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : null;
-      if (!fornecedorAlvo || fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo]) {
-        const melhorAtual = db.prepare(`
-          SELECT fornecedor FROM belaped_cotacoes_reais
-          WHERE ean = ? AND disponivel = 1 AND preco > 0
-          ORDER BY preco ASC LIMIT 1
-        `).get(eanLimpo);
-        if (melhorAtual && MAPA_CLASSES[melhorAtual.fornecedor.toUpperCase()]) {
-          fornecedorAlvo = melhorAtual.fornecedor.toUpperCase();
-        } else {
-          fornecedorAlvo = 'DISTRIMED';
-        }
-      }
+      // Determina quais distribuidoras rodar
+      let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : 'TODOS';
+      const portaisParaCotar = (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo])
+        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED']
+        : [fornecedorAlvo];
 
-      const RobotClass = MAPA_CLASSES[fornecedorAlvo];
-      if (!RobotClass) {
-        return res.status(400).json({ success: false, error: `Robô para a distribuidora "${fornecedorAlvo}" não encontrado.` });
-      }
+      console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descricao || ''}) em [${portaisParaCotar.join(', ')}]...`);
 
-      console.log(`[BelaPed Re-cotação] Rodando robô ${fornecedorAlvo} sob demanda para o EAN ${eanLimpo} (${descricao || ''})...`);
-      const robot = new RobotClass({ headless: true });
-      await robot.iniciar();
+      const stmtSalvar = db.prepare(`
+        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(ean, fornecedor) DO UPDATE SET
+          preco = excluded.preco,
+          disponivel = excluded.disponivel,
+          descricao = excluded.descricao,
+          desc_pct = excluded.desc_pct,
+          url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
+          updated_at = excluded.updated_at
+      `);
 
-      try {
-        const resultado = await robot.cotarEAN(eanLimpo, descricao || '');
+      const resultadosFinais = [];
 
-        const stmtSalvar = db.prepare(`
-          INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-          ON CONFLICT(ean, fornecedor) DO UPDATE SET
-            preco = excluded.preco,
-            disponivel = excluded.disponivel,
-            descricao = excluded.descricao,
-            desc_pct = excluded.desc_pct,
-            url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
-            updated_at = excluded.updated_at
-        `);
+      await Promise.allSettled(portaisParaCotar.map(async (nomePortal) => {
+        const RobotCls = MAPA_CLASSES[nomePortal];
+        if (!RobotCls) return;
+        const rob = new RobotCls({ headless: true });
+        try {
+          await rob.iniciar();
+          let resCot = await rob.cotarEAN(eanLimpo, descricao || '');
 
-        // 🛡️ Validação Estrita Semântica Anti-Alucinação
-        if (resultado.disponivel && resultado.preco > 0 && descricao && resultado.descricao) {
-          const checagemSem = validarCorrespondenciaProduto(descricao, resultado.descricao);
-          if (!checagemSem.valido) {
-            console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${fornecedorAlvo}: esperado "${descricao}" vs retornado "${resultado.descricao}" (${checagemSem.motivo})`);
-            resultado.disponivel = false;
-            resultado.preco = null;
-            resultado.mensagem = `Descartado: ${checagemSem.motivo}`;
+          // 🛡️ Validação Estrita Semântica Anti-Alucinação
+          if (resCot.disponivel && resCot.preco > 0 && descricao && resCot.descricao) {
+            const checagemSem = validarCorrespondenciaProduto(descricao, resCot.descricao);
+            if (!checagemSem.valido) {
+              console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${nomePortal}: esperado "${descricao}" vs retornado "${resCot.descricao}" (${checagemSem.motivo})`);
+              resCot.disponivel = false;
+              resCot.preco = null;
+              resCot.mensagem = `Descartado: ${checagemSem.motivo}`;
+            }
           }
+
+          if (resCot.disponivel && resCot.preco > 0) {
+            stmtSalvar.run(
+              eanLimpo,
+              nomePortal,
+              resCot.preco,
+              1,
+              resCot.descricao || descricao || '',
+              resCot.descPct || 0,
+              resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descricao)
+            );
+          } else {
+            stmtSalvar.run(
+              eanLimpo,
+              nomePortal,
+              null,
+              0,
+              resCot.mensagem || 'Indisponível no reteste do robô',
+              0,
+              null
+            );
+          }
+
+          resultadosFinais.push({
+            fornecedor: nomePortal,
+            disponivel: resCot.disponivel,
+            preco: resCot.preco,
+            descricao: resCot.descricao || ''
+          });
+        } catch (eRobo) {
+          console.error(`[BelaPed Re-cotação] Erro no robô ${nomePortal}:`, eRobo.message);
+        } finally {
+          await rob.fechar().catch(() => {});
         }
+      }));
 
-        if (resultado.disponivel && resultado.preco > 0) {
-          stmtSalvar.run(
-            eanLimpo,
-            fornecedorAlvo,
-            resultado.preco,
-            1,
-            resultado.descricao || descricao || '',
-            resultado.descPct || 0,
-            resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(fornecedorAlvo, eanLimpo, descricao)
-          );
-        } else {
-          stmtSalvar.run(
-            eanLimpo,
-            fornecedorAlvo,
-            null,
-            0,
-            resultado.mensagem || 'Indisponível no reteste do robô',
-            0,
-            null
-          );
-        }
-
-        res.json({
-          success: true,
-          fornecedor: fornecedorAlvo,
-          ean: eanLimpo,
-          resultado
-        });
-      } finally {
-        await robot.fechar().catch(() => {});
-      }
-
+      res.json({
+        success: true,
+        ean: eanLimpo,
+        resultados: resultadosFinais
+      });
     } catch (err) {
       console.error('[BelaPed Re-cotação] Erro:', err.message);
       res.status(500).json({ success: false, error: err.message });

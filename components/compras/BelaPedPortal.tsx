@@ -571,34 +571,35 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   });
 
-  // Re-cotação imediata com o robô quando houver divergência de preço vs última compra
+  // Re-cotação imediata com o robô sob demanda para cada produto (Solicitado pelo Usuário)
   const [recotandoEan, setRecotandoEan] = useState<string | null>(null);
 
   const handleRecotarProduto = async (item: FaltaItem7d) => {
-    if (!item.ean) return;
+    if (!item.ean) {
+      addToast('Este produto não possui código EAN cadastrado para cotação.', 'warning');
+      return;
+    }
     setRecotandoEan(item.ean);
+    addToast(`Iniciando re-cotação robótica para "${item.descricao}"...`, 'info');
     try {
-      const fornecedorAlvo = item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !item.fornecedor_1.includes('Sem Estoque')
-        ? item.fornecedor_1
-        : 'TODOS';
       const res = await fetch('/api/belaped/recotar-produto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ean: item.ean,
-          fornecedor: fornecedorAlvo,
+          fornecedor: 'TODOS',
           descricao: item.descricao
         })
       });
       const data = await res.json();
       if (data.success) {
-        addToast(`Robô re-executado com sucesso para ${item.descricao}!`, 'success');
+        addToast(`Cotação atualizada com sucesso para "${item.descricao}"!`, 'success');
         carregarDados();
       } else {
         addToast(data.error || 'Erro ao recotar produto.', 'error');
       }
     } catch (err: any) {
-      addToast('Falha na comunicação com o robô: ' + err.message, 'error');
+      addToast('Falha na comunicação com os robôs: ' + err.message, 'error');
     } finally {
       setRecotandoEan(null);
     }
@@ -2074,10 +2075,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     type="button"
                     onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
-                    className="p-1 rounded bg-[#06101f] text-cyan-400 hover:text-white border border-cyan-800/80 transition-colors"
+                    className="p-1 rounded bg-[#06101f] text-cyan-400 hover:text-white border border-cyan-800/80 transition-colors cursor-pointer"
                     title="Ver série temporal e compras reais"
                   >
                     <LineChart className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRecotarProduto(item)}
+                    disabled={recotandoEan === item.ean}
+                    className={`p-1 rounded border transition-colors cursor-pointer ${
+                      recotandoEan === item.ean
+                        ? 'bg-amber-950 text-amber-300 border-amber-600 animate-pulse'
+                        : 'bg-[#06101f] text-cyan-400 hover:text-white border-cyan-800/80 hover:border-cyan-400'
+                    }`}
+                    title={`Re-cotar "${item.descricao}" sob demanda com os robôs`}
+                  >
+                    <RotateCcw className={`w-3 h-3 ${recotandoEan === item.ean ? 'animate-spin text-amber-300' : ''}`} />
                   </button>
                 </div>
 
@@ -2103,6 +2117,24 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </span>
               </div>
             )}
+          </div>
+
+          {/* Botão de Re-cotar com Robô em Cada Produto (Solicitado pelo Usuário) */}
+          <div className="mb-2.5">
+            <button
+              type="button"
+              onClick={() => handleRecotarProduto(item)}
+              disabled={recotandoEan === item.ean}
+              className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-black transition-all border cursor-pointer ${
+                recotandoEan === item.ean
+                  ? 'bg-amber-950/90 text-amber-300 border-amber-600 animate-pulse shadow-md shadow-amber-950/50'
+                  : 'bg-gradient-to-r from-[#0d2038] via-cyan-950/60 to-[#0a182c] hover:from-cyan-900 hover:to-blue-900 text-cyan-300 hover:text-white border-cyan-800/80 hover:border-cyan-400 shadow-sm'
+              }`}
+              title={`Acionar os robôs agora para pesquisar o preço ao vivo de "${item.descricao}" nos portais`}
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${recotandoEan === item.ean ? 'animate-spin text-amber-300' : 'text-cyan-400'}`} />
+              <span>{recotandoEan === item.ean ? 'Re-cotando nos Portais...' : '🔄 Re-cotar Este Produto'}</span>
+            </button>
           </div>
         </div>
 
@@ -4183,6 +4215,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                         })()}
                                         <button
                                           type="button"
+                                          onClick={() => handleRecotarProduto(item)}
+                                          disabled={recotandoEan === item.ean}
+                                          className={`p-1 rounded border transition-colors cursor-pointer ml-1 ${
+                                            recotandoEan === item.ean
+                                              ? 'bg-amber-950 text-amber-300 border-amber-600 animate-pulse'
+                                              : 'bg-[#071324] hover:bg-cyan-900/60 text-cyan-400 border border-cyan-800/80 hover:border-cyan-400'
+                                          }`}
+                                          title={`🔄 Re-cotar "${item.descricao}" sob demanda nos portais`}
+                                        >
+                                          <RotateCcw className={`w-3.5 h-3.5 ${recotandoEan === item.ean ? 'animate-spin text-amber-300' : ''}`} />
+                                        </button>
+                                        <button
+                                          type="button"
                                           onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
                                           className="p-1 rounded bg-[#071324] hover:bg-cyan-900/60 text-cyan-400 border border-cyan-800/80 transition-colors cursor-pointer ml-1"
                                           title="Ver série temporal de preços, melhor dia da semana e compras reais"
@@ -4500,6 +4545,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     </button>
                                   );
                                 })()}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRecotarProduto(item)}
+                                  disabled={recotandoEan === item.ean}
+                                  className={`p-1 rounded border transition-colors cursor-pointer ml-1 ${
+                                    recotandoEan === item.ean
+                                      ? 'bg-amber-950 text-amber-300 border-amber-600 animate-pulse'
+                                      : 'bg-[#071324] hover:bg-cyan-900/60 text-cyan-400 border border-cyan-800/80 hover:border-cyan-400'
+                                  }`}
+                                  title={`🔄 Re-cotar "${item.descricao}" sob demanda nos portais`}
+                                >
+                                  <RotateCcw className={`w-3.5 h-3.5 ${recotandoEan === item.ean ? 'animate-spin text-amber-300' : ''}`} />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
