@@ -188,12 +188,20 @@ function belapedEndpoints(db) {
         nao_cotar INTEGER DEFAULT 0,
         nao_carrinho INTEGER DEFAULT 0,
         motivo_justificativa TEXT DEFAULT '',
+        adiar_ate TEXT DEFAULT NULL,
         atualizado_por TEXT,
         atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_belaped_regras_ean ON belaped_produtos_regras (ean);
       CREATE INDEX IF NOT EXISTS idx_belaped_regras_pid ON belaped_produtos_regras (produto_id);
     `);
+
+    // Migração transparente: Coluna adiar_ate para adiar produto para próxima semana
+    try {
+      db.prepare(`ALTER TABLE belaped_produtos_regras ADD COLUMN adiar_ate TEXT`).run();
+    } catch (migRegraErr) {
+      // Coluna já existe
+    }
 
     // Cadastra e sincroniza EXCLUSIVAMENTE as 4 distribuidoras reais configuradas
     const portaisReais = [
@@ -360,10 +368,10 @@ function belapedEndpoints(db) {
         }
       } catch (e) {}
 
-      // Regras e preferências de produtos (não cotar, não colocar no carrinho e justificativas)
+      // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas e adiar para próx. semana)
       const regrasMap = {};
       try {
-        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa FROM belaped_produtos_regras`).all();
+        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate FROM belaped_produtos_regras`).all();
         for (const reg of rowsRegras) {
           if (reg.ean) regrasMap[reg.ean] = reg;
           if (reg.produto_id) regrasMap[`ID_${reg.produto_id}`] = reg;
@@ -756,6 +764,8 @@ function belapedEndpoints(db) {
           nao_cotar: Boolean(regProd?.nao_cotar),
           nao_carrinho: Boolean(regProd?.nao_carrinho),
           motivo_justificativa: regProd?.motivo_justificativa || '',
+          adiar_ate: regProd?.adiar_ate || null,
+          is_adiado_proxima_semana: Boolean(regProd?.adiar_ate && String(regProd.adiar_ate) >= new Date().toISOString().slice(0, 10)),
           falta_balcao_belinha: faltaBelinhaMatch ? {
             id: faltaBelinhaMatch.id,
             productName: faltaBelinhaMatch.productName,
@@ -924,7 +934,7 @@ function belapedEndpoints(db) {
    */
   router.post('/produtos-regras', (req, res) => {
     try {
-      const { ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, usuario } = req.body;
+      const { ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, usuario } = req.body;
       const eanLimpo = String(ean || '').trim();
       const pidNum = produto_id ? Number(produto_id) : null;
       const chaveRegra = eanLimpo || (pidNum ? `ID_${pidNum}` : null);
@@ -934,8 +944,8 @@ function belapedEndpoints(db) {
       }
 
       const stmt = db.prepare(`
-        INSERT INTO belaped_produtos_regras (chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, atualizado_por, atualizado_em)
-        VALUES (@chave_regra, @ean, @produto_id, @descricao, @nao_cotar, @nao_carrinho, @motivo_justificativa, @atualizado_por, datetime('now', 'localtime'))
+        INSERT INTO belaped_produtos_regras (chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, atualizado_por, atualizado_em)
+        VALUES (@chave_regra, @ean, @produto_id, @descricao, @nao_cotar, @nao_carrinho, @motivo_justificativa, @adiar_ate, @atualizado_por, datetime('now', 'localtime'))
         ON CONFLICT(chave_regra) DO UPDATE SET
           ean = COALESCE(excluded.ean, belaped_produtos_regras.ean),
           produto_id = COALESCE(excluded.produto_id, belaped_produtos_regras.produto_id),
@@ -943,6 +953,7 @@ function belapedEndpoints(db) {
           nao_cotar = excluded.nao_cotar,
           nao_carrinho = excluded.nao_carrinho,
           motivo_justificativa = excluded.motivo_justificativa,
+          adiar_ate = excluded.adiar_ate,
           atualizado_por = excluded.atualizado_por,
           atualizado_em = excluded.atualizado_em
       `);
@@ -955,6 +966,7 @@ function belapedEndpoints(db) {
         nao_cotar: nao_cotar ? 1 : 0,
         nao_carrinho: nao_carrinho ? 1 : 0,
         motivo_justificativa: String(motivo_justificativa || '').trim(),
+        adiar_ate: adiar_ate ? String(adiar_ate).trim() : null,
         atualizado_por: usuario || 'Farmacêutico/Gestor'
       });
 
@@ -967,7 +979,8 @@ function belapedEndpoints(db) {
           produto_id: pidNum,
           nao_cotar: Boolean(nao_cotar),
           nao_carrinho: Boolean(nao_carrinho),
-          motivo_justificativa: String(motivo_justificativa || '').trim()
+          motivo_justificativa: String(motivo_justificativa || '').trim(),
+          adiar_ate: adiar_ate || null
         }
       });
     } catch (err) {
@@ -1489,9 +1502,13 @@ function belapedEndpoints(db) {
       `).all().map(r => r.ean)
     );
 
-    // EANs marcados pelo usuário para NÃO COTAR
+    // EANs marcados pelo usuário para NÃO COTAR ou ADIADOS PARA A PRÓXIMA SEMANA
     const eansNaoCotar = new Set(
-      db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_cotar = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
+      db.prepare(`
+        SELECT ean FROM belaped_produtos_regras 
+        WHERE (nao_cotar = 1 OR (adiar_ate IS NOT NULL AND date(adiar_ate) > date('now', 'localtime')))
+          AND ean IS NOT NULL
+      `).all().map(r => r.ean)
     );
 
     let listaEans = [];
@@ -2573,6 +2590,16 @@ function belapedEndpoints(db) {
     };
   }
 
+  function obterEansBloqueadosCarrinho() {
+    return new Set(
+      db.prepare(`
+        SELECT ean FROM belaped_produtos_regras 
+        WHERE (nao_carrinho = 1 OR (adiar_ate IS NOT NULL AND date(adiar_ate) > date('now', 'localtime')))
+          AND ean IS NOT NULL
+      `).all().map(r => r.ean)
+    );
+  }
+
   // Estado de montagem do carrinho na Soton
   const sotonCarrinhoStatus = {
     emAndamento: false,
@@ -2600,10 +2627,8 @@ function belapedEndpoints(db) {
 
       let itensParaAdicionar = req.body.itens || [];
 
-      // Filtra produtos marcados expressamente com "Não colocar no carrinho"
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      // Filtra produtos marcados com "Não colocar no carrinho" ou "Adiado para próxima semana"
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       // Se não passou lista explícita, seleciona os itens de ruptura onde Soton é o 1º colocado
@@ -2812,9 +2837,7 @@ function belapedEndpoints(db) {
       let itensParaAdicionar = req.body.itens || [];
 
       // Filtra produtos marcados expressamente com "Não colocar no carrinho"
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       // Se não passou lista explícita, seleciona os itens de ruptura onde Divimed é a vencedora
@@ -3059,9 +3082,7 @@ function belapedEndpoints(db) {
       let itensParaAdicionar = req.body.itens || [];
 
       // Filtra produtos marcados expressamente com "Não colocar no carrinho"
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       // Se não passou lista explícita, seleciona os itens de ruptura onde Distrimed é a vencedora
@@ -3249,9 +3270,7 @@ function belapedEndpoints(db) {
       let itensParaAdicionar = req.body.itens || [];
 
       // Filtra produtos bloqueados nas regras
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
@@ -3444,9 +3463,7 @@ function belapedEndpoints(db) {
       let itensParaAdicionar = req.body.itens || [];
 
       // Filtra produtos bloqueados nas regras
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
@@ -3639,9 +3656,7 @@ function belapedEndpoints(db) {
       let itensParaAdicionar = req.body.itens || [];
 
       // Filtra produtos bloqueados nas regras
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
@@ -3834,9 +3849,7 @@ function belapedEndpoints(db) {
       let itensParaAdicionar = req.body.itens || [];
 
       // Filtra produtos bloqueados nas regras
-      const eansNaoCarrinho = new Set(
-        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
-      );
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
       itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
 
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {

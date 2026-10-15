@@ -117,6 +117,8 @@ interface FaltaItem7d {
   nao_cotar?: boolean;
   nao_carrinho?: boolean;
   motivo_justificativa?: string;
+  adiar_ate?: string | null;
+  is_adiado_proxima_semana?: boolean;
   falta_balcao_belinha?: {
     id: string;
     productName: string;
@@ -240,7 +242,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   };
 
   // Filtro específico para regras de produtos
-  const [filtroRegras, setFiltroRegras] = useState<'TODOS' | 'BLOQUEADOS_CARRINHO' | 'NAO_COTAR' | 'LIBERADOS'>('TODOS');
+  const [filtroRegras, setFiltroRegras] = useState<'TODOS' | 'BLOQUEADOS_CARRINHO' | 'NAO_COTAR' | 'ADIADOS_PROXIMA_SEMANA' | 'LIBERADOS'>('TODOS');
   const [justificativaEditando, setJustificativaEditando] = useState<{ [id: number]: string }>({});
   const [copiadoEan, setCopiadoEan] = useState<string | null>(null);
 
@@ -258,16 +260,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Atualizar Regra de Produto (Não colocar no carrinho, Não cotar e Justificativa)
+  // Atualizar Regra de Produto (Não colocar no carrinho, Não cotar, Justificativa e Adiar para próxima semana)
   const handleAtualizarRegraProduto = async (
     item: FaltaItem7d,
-    campo: 'nao_cotar' | 'nao_carrinho' | 'motivo_justificativa',
+    campo: 'nao_cotar' | 'nao_carrinho' | 'motivo_justificativa' | 'adiar_ate',
     valor: any
   ) => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const novoAdiarAte = campo === 'adiar_ate' ? (valor || null) : (item.adiar_ate || null);
+    const isAdiado = Boolean(novoAdiarAte && String(novoAdiarAte) >= hoje);
+
     const novaRegra = {
       nao_cotar: campo === 'nao_cotar' ? Boolean(valor) : Boolean(item.nao_cotar),
       nao_carrinho: campo === 'nao_carrinho' ? Boolean(valor) : Boolean(item.nao_carrinho),
-      motivo_justificativa: campo === 'motivo_justificativa' ? String(valor) : String(item.motivo_justificativa || '')
+      motivo_justificativa: campo === 'motivo_justificativa' ? String(valor) : String(item.motivo_justificativa || ''),
+      adiar_ate: novoAdiarAte,
+      is_adiado_proxima_semana: isAdiado
     };
 
     // Atualização otimista no estado local imediato
@@ -280,8 +288,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       return f;
     }));
 
-    // Se marcou para não colocar no carrinho, desmarca da seleção de compra
-    if (campo === 'nao_carrinho' && valor === true) {
+    // Se marcou para não colocar no carrinho ou adiou para próxima semana, desmarca da seleção de compra
+    if ((campo === 'nao_carrinho' && valor === true) || (campo === 'adiar_ate' && valor)) {
       setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false }));
     }
 
@@ -305,11 +313,31 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           addToast(valor ? `"${item.descricao}" marcado para NÃO cotar!` : `"${item.descricao}" liberado para cotação!`, 'info');
         } else if (campo === 'motivo_justificativa') {
           addToast(`Justificativa salva com sucesso!`, 'success');
+        } else if (campo === 'adiar_ate') {
+          addToast(valor ? `"${item.descricao}" adiado para cotar na próxima semana!` : `"${item.descricao}" liberado para cotar nesta semana!`, 'success');
         }
       }
     } catch (e: any) {
       console.error('Erro ao sincronizar regra:', e);
       addToast('Erro ao salvar regra: ' + e.message, 'error');
+    }
+  };
+
+  // Alternar Deixar para Cotar na Próxima Semana
+  const handleAlternarAdiarProximaSemana = (item: FaltaItem7d, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const hoje = new Date().toISOString().slice(0, 10);
+    const jaAdiado = Boolean(item.adiar_ate && String(item.adiar_ate) >= hoje);
+    if (jaAdiado) {
+      handleAtualizarRegraProduto(item, 'adiar_ate', null);
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() + 7);
+      const proximaData = d.toISOString().slice(0, 10);
+      handleAtualizarRegraProduto(item, 'adiar_ate', proximaData);
     }
   };
 
@@ -1092,14 +1120,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         return false;
       }
       if (filtroCategoria !== 'TODAS' && f.tipo_categoria !== filtroCategoria) return false;
-      // Filtro de Regras de Produtos (Bloqueados para Carrinho, Não Cotar ou Liberados)
+      // Filtro de Regras de Produtos (Bloqueados para Carrinho, Não Cotar, Liberados ou Adiados p/ Próx. Semana)
       if (filtroRegras === 'BLOQUEADOS_CARRINHO' && !f.nao_carrinho) {
         return false;
       }
       if (filtroRegras === 'NAO_COTAR' && !f.nao_cotar) {
         return false;
       }
-      if (filtroRegras === 'LIBERADOS' && (f.nao_carrinho || f.nao_cotar)) {
+      if (filtroRegras === 'ADIADOS_PROXIMA_SEMANA' && !f.is_adiado_proxima_semana) {
+        return false;
+      }
+      if (filtroRegras === 'LIBERADOS' && (f.nao_carrinho || f.nao_cotar || f.is_adiado_proxima_semana)) {
         return false;
       }
       if (buscaFalta) {
@@ -2299,6 +2330,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   🔔 Balcão
                 </span>
               )}
+
+              {item.is_adiado_proxima_semana && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950 text-indigo-300 border border-indigo-600 animate-pulse flex items-center gap-1" title={`Adiado até ${item.adiar_ate}. Não será cotado nesta semana.`}>
+                  📅 Próx. Semana
+                </span>
+              )}
             </div>
           </div>
 
@@ -2480,6 +2517,43 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
         {/* RODAPÉ DO CARD: REGRAS DE DECISÃO E JUSTIFICATIVA (SOLICITADO PELO USUÁRIO) */}
         <div className="pt-2.5 border-t border-slate-800/80 space-y-2 mt-auto">
+          {/* Opção 3: Cotar na Próxima Semana (Solicitado pelo Usuário) */}
+          <button
+            type="button"
+            onClick={(e) => handleAlternarAdiarProximaSemana(item, e)}
+            className={`w-full flex items-center justify-between p-2 px-3 rounded-xl border cursor-pointer transition-all select-none text-left ${
+              item.is_adiado_proxima_semana
+                ? 'bg-indigo-950/90 border-indigo-500 text-indigo-200 font-black shadow-md ring-1 ring-indigo-400/40'
+                : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-indigo-300 hover:border-indigo-800/60'
+            }`}
+            title={
+              item.is_adiado_proxima_semana
+                ? `Produto adiado até ${item.adiar_ate}. Não será cotado pelos robôs nem entrará no carrinho nesta semana. (Clique para cancelar e reativar cotação agora)`
+                : 'Clique para deixar este produto para cotar apenas na próxima semana (+7 dias)'
+            }
+          >
+            <div className="flex items-center gap-2">
+              <Calendar className={`w-4 h-4 shrink-0 ${item.is_adiado_proxima_semana ? 'text-indigo-400 animate-pulse' : 'text-slate-400'}`} />
+              <div className="flex flex-col">
+                <span className="text-xs font-bold leading-tight">
+                  {item.is_adiado_proxima_semana ? '📅 Adiado p/ Próx. Semana' : '📅 Deixar p/ Cotar Próx. Semana'}
+                </span>
+                {item.is_adiado_proxima_semana && item.adiar_ate && (
+                  <span className="text-[10px] text-indigo-300/80 font-normal">
+                    Bloqueado até {item.adiar_ate.split('-').reverse().slice(0, 2).join('/')}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+              item.is_adiado_proxima_semana
+                ? 'bg-indigo-900/90 text-indigo-100 border border-indigo-500'
+                : 'bg-slate-900 text-slate-400 border border-slate-800'
+            }`}>
+              {item.is_adiado_proxima_semana ? 'Reativar Agora' : '+7 dias'}
+            </span>
+          </button>
+
           <div className="grid grid-cols-2 gap-2 text-xs">
             {/* Opção 1: Não colocar no carrinho */}
             <button
@@ -3006,6 +3080,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   >
                     <Ban className="w-3 h-3 text-rose-300" />
                     <span>Não Cotar ({faltas.filter(f => f.nao_cotar).length})</span>
+                  </button>
+                  <button
+                    onClick={() => setFiltroRegras('ADIADOS_PROXIMA_SEMANA')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroRegras === 'ADIADOS_PROXIMA_SEMANA'
+                        ? 'bg-indigo-600 text-white font-black shadow-sm'
+                        : 'text-indigo-400/90 hover:text-indigo-300'
+                    }`}
+                    title="Filtrar produtos adiados para cotar na próxima semana"
+                  >
+                    <Calendar className="w-3 h-3 text-indigo-300" />
+                    <span>Próx. Semana ({faltas.filter(f => f.is_adiado_proxima_semana).length})</span>
                   </button>
                 </div>
               </div>
@@ -4502,6 +4588,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                               📋 Balcão {item.falta_balcao_belinha.userName ? `(${item.falta_balcao_belinha.userName})` : ''}
                                             </span>
                                           )}
+                                          {item.is_adiado_proxima_semana && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950 text-indigo-300 border border-indigo-600/80 shadow-xs whitespace-nowrap animate-pulse"
+                                              title={`📅 Adiado até ${item.adiar_ate}. Não será cotado nesta semana.`}
+                                            >
+                                              📅 Próx. Semana
+                                            </span>
+                                          )}
                                         </div>
                                         <div className="inline-flex items-center gap-2 text-xs text-slate-300 mt-1">
                                           <span className="font-mono text-slate-300">EAN: {item.ean || 'Sem EAN'}</span>
@@ -4657,6 +4751,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                           title="Ver série temporal de preços, melhor dia da semana e compras reais"
                                         >
                                           <LineChart className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleAlternarAdiarProximaSemana(item, e)}
+                                          className={`p-1 rounded border transition-colors cursor-pointer ml-1 ${
+                                            item.is_adiado_proxima_semana
+                                              ? 'bg-indigo-950 text-indigo-300 border-indigo-500 shadow-sm animate-pulse'
+                                              : 'bg-[#071324] hover:bg-indigo-950/60 text-slate-400 hover:text-indigo-300 border border-slate-800 hover:border-indigo-600'
+                                          }`}
+                                          title={
+                                            item.is_adiado_proxima_semana
+                                              ? `📅 Adiado até ${item.adiar_ate}. Não será cotado nesta semana nem entrará no carrinho. Clique para reativar agora.`
+                                              : '📅 Deixar para cotar na próxima semana (+7 dias)'
+                                          }
+                                        >
+                                          <Calendar className="w-3.5 h-3.5" />
                                         </button>
                                       </div>
                                     </td>
@@ -4818,6 +4928,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       title={`📋 Livro de Faltas do Balcão: Anotado por ${item.falta_balcao_belinha.userName || 'Balconista'}${item.falta_balcao_belinha.clientInquiry ? ' (Cliente procurou)' : ''}${item.falta_balcao_belinha.notes ? ` - Obs: ${item.falta_balcao_belinha.notes}` : ''}`}
                                     >
                                       📋 Balcão {item.falta_balcao_belinha.userName ? `(${item.falta_balcao_belinha.userName})` : ''}
+                                    </span>
+                                  )}
+                                  {item.is_adiado_proxima_semana && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-950 text-indigo-300 border border-indigo-600/80 shadow-xs whitespace-nowrap animate-pulse"
+                                      title={`📅 Adiado até ${item.adiar_ate}. Não será cotado nesta semana.`}
+                                    >
+                                      📅 Próx. Semana
                                     </span>
                                   )}
                                 </div>
@@ -4989,6 +5107,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   title="Ver série temporal de preços, melhor dia da semana e compras reais"
                                 >
                                   <LineChart className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleAlternarAdiarProximaSemana(item, e)}
+                                  className={`p-1 rounded border transition-colors cursor-pointer ml-1 ${
+                                    item.is_adiado_proxima_semana
+                                      ? 'bg-indigo-950 text-indigo-300 border-indigo-500 shadow-sm animate-pulse'
+                                      : 'bg-[#071324] hover:bg-indigo-950/60 text-slate-400 hover:text-indigo-300 border border-slate-800 hover:border-indigo-600'
+                                  }`}
+                                  title={
+                                    item.is_adiado_proxima_semana
+                                      ? `📅 Adiado até ${item.adiar_ate}. Não será cotado nesta semana nem entrará no carrinho. Clique para reativar agora.`
+                                      : '📅 Deixar para cotar na próxima semana (+7 dias)'
+                                  }
+                                >
+                                  <Calendar className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             </td>

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f6c562d",
-  "commitMessage": "fix(belaped): correcao da limpeza e contagem de itens do carrinho da DPC com seletores reais .item-remove",
-  "buildTime": "15/10/2026, 11:33:41"
+  "commitHash": "58fd7e1",
+  "commitMessage": "feat(belaped): integra distribuidora Oriente Farma com seletor inteligente de condicoes e totalizador de economia no relatorio",
+  "buildTime": "15/10/2026, 12:14:04"
 }
