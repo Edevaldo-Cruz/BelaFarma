@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "db1b410",
-  "commitMessage": "feat(belaped): executa auditoria segura de boletos e exibe prazos e minimos nos cards das distribuidoras",
-  "buildTime": "15/10/2026, 13:46:07"
+  "commitHash": "c4e2f4d",
+  "commitMessage": "feat(belaped): mapeia e cadastra grade completa de prazos de boletos por distribuidora",
+  "buildTime": "15/10/2026, 17:36:14"
 }

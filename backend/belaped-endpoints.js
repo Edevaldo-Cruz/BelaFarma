@@ -27,6 +27,7 @@ const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-orie
 const { validarCorrespondenciaProduto, expurgarCotacoesInconsistentes } = require('./belaped-validador');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
 const { auditarPortalSeguro, auditarTodasDistribuidoras } = require('./belaped-auditoria-prazos');
+const { executarCheckoutRobo } = require('./belaped-checkout');
 
 function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   const f = (fornecedorNome || '').toUpperCase();
@@ -1477,42 +1478,225 @@ function belapedEndpoints(db) {
    * 4. Alerta de ICMS/DIFAL para distribuidoras fora de MG
    * 5. Análise de prazo do boleto e compatibilidade com o orçamento
    */
+  /**
+   * Extrai os dias numéricos de uma string de prazos de boletos
+   * Ex: "À Vista | 21 DDL | 28 DDL | 28/35 DDL | 28/35/42 DDL | 30/60 DDL" -> [0, 21, 28, 35, 42, 60]
+   */
+  function extrairDiasDePrazos(prazosStr, prazoPadrao = 28) {
+    if (!prazosStr) return [Number(prazoPadrao) || 28];
+    const dias = new Set();
+    const strUpper = String(prazosStr).toUpperCase();
+    if (strUpper.includes('À VISTA') || strUpper.includes('A VISTA') || strUpper.includes('AVISTA')) {
+      dias.add(0);
+    }
+    const matches = prazosStr.match(/\d+/g);
+    if (matches) {
+      matches.forEach(m => dias.add(Number(m)));
+    }
+    if (dias.size === 0) dias.add(Number(prazoPadrao) || 28);
+    return Array.from(dias).sort((a, b) => a - b);
+  }
+
+  /**
+   * Avalia se uma distribuidora cumpre o filtro de prazo desejado
+   */
+  function avaliarElegibilidadePortalPorPrazo(portal, alvoVencimento = 'AUTOMATICO', diasMinimosRecomendados = 0) {
+    const prazosStr = portal.prazos_boleto || `${portal.prazo_dias_padrao || 28} DDL`;
+    const dias = extrairDiasDePrazos(prazosStr, portal.prazo_dias_padrao);
+    const maxDia = Math.max(...dias);
+
+    // Se sem restrição
+    if (!alvoVencimento || alvoVencimento === 'TODOS') {
+      const opcoes = prazosStr.split(' | ');
+      return {
+        elegivel: true,
+        prazoEleito: opcoes[opcoes.length - 1] || `${maxDia} DDL`,
+        diasEleitos: maxDia,
+        motivo: 'Sem restrição de prazo (Apenas Menor Preço)'
+      };
+    }
+
+    // Próximo Mês: exige que a distribuidora conceda boletos com pelo menos 28 dias
+    if (alvoVencimento === 'PROXIMO_MES') {
+      const diasProximoMes = dias.filter(d => d >= 28);
+      if (diasProximoMes.length > 0) {
+        const diaEleito = Math.max(...diasProximoMes);
+        const opcaoTexto = (portal.prazos_boleto || '').split(' | ').find(o => o.includes(String(diaEleito))) || `${diaEleito} DDL`;
+        return {
+          elegivel: true,
+          prazoEleito: opcaoTexto.trim(),
+          diasEleitos: diaEleito,
+          motivo: 'Compatível com vencimento no próximo mês'
+        };
+      }
+      return {
+        elegivel: false,
+        prazoEleito: null,
+        diasEleitos: 0,
+        motivo: `Distribuidora não oferece boletos para o próximo mês (Maior prazo: ${maxDia}d)`
+      };
+    }
+
+    // Prazo Longo (60d+): exige boletos de 45 dias ou mais
+    if (alvoVencimento === 'LONGO') {
+      const diasLongos = dias.filter(d => d >= 45);
+      if (diasLongos.length > 0) {
+        const diaEleito = Math.max(...diasLongos);
+        const opcaoTexto = (portal.prazos_boleto || '').split(' | ').find(o => o.includes(String(diaEleito))) || `${diaEleito} DDL`;
+        return {
+          elegivel: true,
+          prazoEleito: opcaoTexto.trim(),
+          diasEleitos: diaEleito,
+          motivo: 'Compatível com prazo longo (45d a 60d+)'
+        };
+      }
+      return {
+        elegivel: false,
+        prazoEleito: null,
+        diasEleitos: 0,
+        motivo: `Distribuidora não oferece prazos longos de 45d+ (Maior prazo: ${maxDia}d)`
+      };
+    }
+
+    // Automático (Saldo do Orçamento)
+    if (alvoVencimento === 'AUTOMATICO') {
+      const exigido = diasMinimosRecomendados > 0 ? diasMinimosRecomendados : 28;
+      const diasValidos = dias.filter(d => d >= exigido);
+      if (diasValidos.length > 0) {
+        const diaEleito = Math.max(...diasValidos);
+        const opcaoTexto = (portal.prazos_boleto || '').split(' | ').find(o => o.includes(String(diaEleito))) || `${diaEleito} DDL`;
+        return {
+          elegivel: true,
+          prazoEleito: opcaoTexto.trim(),
+          diasEleitos: diaEleito,
+          motivo: `Compatível com a folga do orçamento (${diaEleito}d >= ${exigido}d)`
+        };
+      }
+      return {
+        elegivel: false,
+        prazoEleito: null,
+        diasEleitos: 0,
+        motivo: `Prazo insuficiente para a folga orçamentária do mês (Exigido: >= ${exigido}d, Oferece: ${maxDia}d)`
+      };
+    }
+
+    return {
+      elegivel: true,
+      prazoEleito: `${maxDia} DDL`,
+      diasEleitos: maxDia,
+      motivo: 'Padrão'
+    };
+  }
+
+  /**
+   * POST /api/belaped/simular-otimizacao
+   * Executa a otimização matemática e financeira considerando:
+   * 1. Menor preço entre distribuidoras elegíveis (com prazo no mês com saldo)
+   * 2. Repasse em cascata de itens quando a distribuidora não atinge o pedido mínimo
+   * 3. Previsão de desembolso no fluxo de caixa e totalizador de economia
+   */
   router.post('/simular-otimizacao', (req, res) => {
     try {
-      const { itens, cotacoesPorDistribuidora } = req.body;
+      const { itens, cotacoesPorDistribuidora, alvoVencimento = 'AUTOMATICO' } = req.body;
 
       if (!itens || !Array.isArray(itens) || itens.length === 0) {
         return res.status(400).json({ success: false, error: 'Lista de itens vazia para simulação.' });
       }
 
+      // 1. Busca portais cadastrados
       const portais = db.prepare('SELECT * FROM belaped_portais WHERE is_ativo = 1').all();
       const portaisMap = {};
       portais.forEach(p => {
         portaisMap[p.nome.toUpperCase()] = p;
       });
 
-      // Passo 1: Descobrir o menor preço e ranking de cada item
+      // 2. Descobre dias mínimos recomendados pelo orçamento real (caso AUTOMATICO)
+      let diasMinimosRecomendados = 0;
+      let statusOrcamentoMesAtual = 'LIBERADO';
+      try {
+        const hoje = new Date();
+        const mesAtual = hoje.getMonth() + 1;
+        const anoAtual = hoje.getFullYear();
+        const mesStr = String(mesAtual).padStart(2, '0');
+        const prefixoData = `${anoAtual}-${mesStr}`;
+
+        let limiteMesAtual = 12500.0;
+        try {
+          const ml = db.prepare(`SELECT "limit" FROM monthly_limits WHERE month = ? AND year = ?`).get(mesAtual, anoAtual);
+          if (ml && ml.limit) limiteMesAtual = Number(ml.limit);
+        } catch (e) {}
+
+        const boletosMes = db.prepare(`
+          SELECT value FROM boletos 
+          WHERE due_date LIKE ? AND LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'rejeitado')
+        `).all(`${prefixoData}%`);
+
+        const totalBoletosMes = boletosMes.reduce((acc, b) => acc + (Number(b.value) || 0), 0);
+        if (totalBoletosMes >= limiteMesAtual) {
+          statusOrcamentoMesAtual = 'ESTOURADO';
+          const totalDiasNoMes = new Date(anoAtual, mesAtual, 0).getDate();
+          diasMinimosRecomendados = (totalDiasNoMes - hoje.getDate()) + 2;
+        } else if (totalBoletosMes >= limiteMesAtual * 0.8) {
+          statusOrcamentoMesAtual = 'ALERTA';
+          diasMinimosRecomendados = 28;
+        }
+      } catch (e) {
+        console.warn('[BelaPed] Aviso ao checar orcamento em simular-otimizacao:', e.message);
+      }
+
+      // 3. Avalia elegibilidade de cada distribuidora pelo prazo
+      const elegibilidadePorDistribuidora = {};
+      portais.forEach(p => {
+        const avaliacao = avaliarElegibilidadePortalPorPrazo(p, alvoVencimento, diasMinimosRecomendados);
+        elegibilidadePorDistribuidora[p.nome.toUpperCase()] = avaliacao;
+      });
+
+      // 4. Analisa cotações de cada item, filtrando distribuidoras elegíveis
+      const itensFiltradosPorPrazo = [];
       const itensComRanking = itens.map(item => {
         const precosItem = (cotacoesPorDistribuidora && cotacoesPorDistribuidora[item.ean || item.produto_id]) || [];
+        
+        // Todas as opções ordenadas por preço
+        const todosOrdenados = precosItem.filter(p => p.preco > 0).sort((a, b) => a.preco - b.preco);
+        const melhorAbsoluto = todosOrdenados[0] || null;
 
-        // Ordena por menor preço líquido
-        const ordenados = precosItem.filter(p => p.preco > 0).sort((a, b) => a.preco - b.preco);
-        const melhor = ordenados[0] || null;
-        const segundo = ordenados[1] || null;
+        // Cotações elegíveis pelo prazo
+        const elegiveisOrdenadas = todosOrdenados.filter(p => {
+          const distNome = String(p.distribuidora || '').toUpperCase();
+          const el = elegibilidadePorDistribuidora[distNome];
+          return el ? el.elegivel : true;
+        });
+
+        const melhorElegivel = elegiveisOrdenadas[0] || melhorAbsoluto;
+        const segundoElegivel = elegiveisOrdenadas[1] || null;
+
+        // Anota se a melhor opção mais barata absoluta foi filtrada por prazo
+        if (melhorAbsoluto && melhorElegivel && melhorAbsoluto.distribuidora !== melhorElegivel.distribuidora) {
+          itensFiltradosPorPrazo.push({
+            produto_id: item.produto_id,
+            descricao: item.descricao,
+            ean: item.ean,
+            melhorMaisBarato: melhorAbsoluto.distribuidora,
+            precoMaisBarato: melhorAbsoluto.preco,
+            eleitoPorPrazo: melhorElegivel.distribuidora,
+            precoEleito: melhorElegivel.preco,
+            diferenca: Number((melhorElegivel.preco - melhorAbsoluto.preco).toFixed(2))
+          });
+        }
 
         return {
           ...item,
-          melhorPreco: melhor ? melhor.preco : item.custo_unitario,
-          melhorDistribuidora: melhor ? melhor.distribuidora : (item.fornecedor_ult_compra || 'A DEFINIR'),
-          segundoPreco: segundo ? segundo.preco : null,
-          segundaDistribuidora: segundo ? segundo.distribuidora : null,
-          todasOpcoes: ordenados
+          melhorPreco: melhorElegivel ? melhorElegivel.preco : item.custo_unitario,
+          melhorDistribuidora: melhorElegivel ? melhorElegivel.distribuidora : (item.fornecedor_ult_compra || 'A DEFINIR'),
+          segundoPreco: segundoElegivel ? segundoElegivel.preco : null,
+          segundaDistribuidora: segundoElegivel ? segundoElegivel.distribuidora : null,
+          candidatasElegiveis: elegiveisOrdenadas,
+          todasOpcoes: todosOrdenados
         };
       });
 
-      // Passo 2: Agrupar itens por distribuidora vencedora
-      const carrinhosPorDistribuidora = {};
-
+      // 5. Agrupa itens inicialmente por distribuidora vencedora elegível
+      let carrinhosPorDistribuidora = {};
       itensComRanking.forEach(item => {
         const dist = (item.melhorDistribuidora || 'OUTROS').toUpperCase();
         if (!carrinhosPorDistribuidora[dist]) {
@@ -1522,11 +1706,13 @@ function belapedEndpoints(db) {
             is_mg: 1,
             uf_origem: 'MG'
           };
+          const elegInfo = elegibilidadePorDistribuidora[dist] || { prazoEleito: `${configPortal.prazo_dias_padrao} DDL`, diasEleitos: configPortal.prazo_dias_padrao };
 
           carrinhosPorDistribuidora[dist] = {
             distribuidora: dist,
             pedidoMinimo: configPortal.pedido_minimo,
-            prazoDias: configPortal.prazo_dias_padrao,
+            prazoDias: elegInfo.diasEleitos || configPortal.prazo_dias_padrao,
+            prazoEleitoBoleto: elegInfo.prazoEleito || `${configPortal.prazo_dias_padrao} DDL`,
             isMg: Boolean(configPortal.is_mg),
             uf: configPortal.uf_origem,
             itens: [],
@@ -1544,47 +1730,171 @@ function belapedEndpoints(db) {
           ...item,
           quantidade: qtd,
           precoUnitario: item.melhorPreco,
-          subtotal
+          subtotal,
+          repassado: false
         });
-        carrinhosPorDistribuidora[dist].total += subtotal;
+        carrinhosPorDistribuidora[dist].total = Number((carrinhosPorDistribuidora[dist].total + subtotal).toFixed(2));
       });
 
-      // Passo 3: Avaliar Pedido Mínimo e Reagrupamento Inteligente
+      // 6. ALGORITMO DE REPASSE EM CASCATA PARA DISTRIBUIDORAS QUE NÃO ATINGIRAM O MÍNIMO
+      const itensRepassados = [];
+      let houveRepasse = true;
+      let iteracoes = 0;
+
+      while (houveRepasse && iteracoes < 5) {
+        houveRepasse = false;
+        iteracoes++;
+
+        // Identifica distribuidoras que não atingiram o pedido mínimo
+        const nomesInsuficientes = Object.keys(carrinhosPorDistribuidora).filter(nome => {
+          const c = carrinhosPorDistribuidora[nome];
+          return c.total > 0 && c.total < c.pedidoMinimo;
+        });
+
+        // Ordena da mais distante do mínimo para a mais próxima
+        nomesInsuficientes.sort((a, b) => {
+          const diffA = carrinhosPorDistribuidora[a].pedidoMinimo - carrinhosPorDistribuidora[a].total;
+          const diffB = carrinhosPorDistribuidora[b].pedidoMinimo - carrinhosPorDistribuidora[b].total;
+          return diffB - diffA;
+        });
+
+        for (const distNome of nomesInsuficientes) {
+          const carrinhoOrigem = carrinhosPorDistribuidora[distNome];
+          if (!carrinhoOrigem || carrinhoOrigem.itens.length === 0) continue;
+
+          // Clona a lista de itens para iterar com segurança
+          const itensParaAvaliar = [...carrinhoOrigem.itens];
+
+          for (const item of itensParaAvaliar) {
+            // Procura entre as candidatas elegíveis uma distribuidora de destino viável
+            const candidatas = (item.candidatasElegiveis || []).filter(c => c.distribuidora.toUpperCase() !== distNome);
+
+            for (const cand of candidatas) {
+              const destNome = cand.distribuidora.toUpperCase();
+              const carrinhoDestino = carrinhosPorDistribuidora[destNome];
+
+              // A candidata é viável se já existe e atinge o mínimo, ou se com esse acréscimo ajuda a atingir
+              if (carrinhoDestino) {
+                const subtotalAntigo = item.subtotal;
+                const novoSubtotal = Number((item.quantidade * cand.preco).toFixed(2));
+
+                // Remove do carrinho de origem
+                carrinhoOrigem.itens = carrinhoOrigem.itens.filter(i => (i.produto_id !== item.produto_id));
+                carrinhoOrigem.total = Number(carrinhoOrigem.itens.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2));
+
+                // Adiciona no carrinho de destino com anotações de repasse
+                const itemRepassado = {
+                  ...item,
+                  precoUnitario: cand.preco,
+                  subtotal: novoSubtotal,
+                  repassado: true,
+                  repassadoDe: distNome,
+                  repassadoPara: destNome,
+                  precoOriginal: item.precoUnitario,
+                  diferencaPreco: Number((novoSubtotal - subtotalAntigo).toFixed(2)),
+                  motivoRepasse: `Repassado pois ${distNome} não atingiu o pedido mínimo (R$ ${carrinhoOrigem.total.toFixed(2)} vs R$ ${carrinhoOrigem.pedidoMinimo.toFixed(2)})`
+                };
+
+                carrinhoDestino.itens.push(itemRepassado);
+                carrinhoDestino.total = Number(carrinhoDestino.itens.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2));
+
+                itensRepassados.push({
+                  produto_id: item.produto_id,
+                  descricao: item.descricao,
+                  ean: item.ean,
+                  de: distNome,
+                  para: destNome,
+                  precoDe: item.precoUnitario,
+                  precoPara: cand.preco,
+                  diferenca: Number((cand.preco - item.precoUnitario).toFixed(2))
+                });
+
+                houveRepasse = true;
+                break; // Repassou este item com sucesso, avança para o próximo
+              }
+            }
+          }
+        }
+      }
+
+      // 7. Consolidação final dos carrinhos
       const carrinhosFinais = [];
       const sugestoesReagrupamento = [];
+      const distribuicaoPorVencimento = {};
+      let totalGeral = 0;
+      let economiaTotalVsReferencia = 0;
 
       Object.values(carrinhosPorDistribuidora).forEach(carrinho => {
+        // Se a distribuidora teve todos os itens repassados, descarta o carrinho zerado
+        if (carrinho.itens.length === 0 || carrinho.total <= 0) {
+          return;
+        }
+
         carrinho.total = Number(carrinho.total.toFixed(2));
+        totalGeral += carrinho.total;
+
+        // Vencimento e fluxo de caixa
+        const diasPrazo = carrinho.prazoDias || 28;
+        const dataVenc = new Date(Date.now() + diasPrazo * 86400000);
+        carrinho.dataVencimentoEstimada = dataVenc.toISOString().split('T')[0];
+        
+        const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        const mesAnoVenc = `${nomesMeses[dataVenc.getMonth()]}/${dataVenc.getFullYear()}`;
+        carrinho.mesVencimentoFormatado = mesAnoVenc;
+
+        if (!distribuicaoPorVencimento[mesAnoVenc]) {
+          distribuicaoPorVencimento[mesAnoVenc] = 0;
+        }
+        distribuicaoPorVencimento[mesAnoVenc] = Number((distribuicaoPorVencimento[mesAnoVenc] + carrinho.total).toFixed(2));
+
+        // Avalia se atingiu o mínimo
         if (carrinho.total >= carrinho.pedidoMinimo) {
           carrinho.atingiuMinimo = true;
           carrinho.faltaParaMinimo = 0;
         } else {
           carrinho.atingiuMinimo = false;
           carrinho.faltaParaMinimo = Number((carrinho.pedidoMinimo - carrinho.total).toFixed(2));
-
           sugestoesReagrupamento.push({
             distribuidora: carrinho.distribuidora,
             valorAtual: carrinho.total,
             pedidoMinimo: carrinho.pedidoMinimo,
             falta: carrinho.faltaParaMinimo,
-            sugestao: `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)} para atingir o pedido mínimo. Sugestão: realocar itens ou completar com medicamentos Curva A de alto giro para garantir frete grátis.`
+            sugestao: `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)} para atingir o mínimo. Sugestão: completar com itens Curva A ou aprovar faturamento.`
           });
         }
+
+        // Economia vs custo de referência do produto
+        carrinho.itens.forEach(i => {
+          const custoRef = Number(i.custo_unitario) || i.precoUnitario;
+          if (custoRef > i.precoUnitario) {
+            economiaTotalVsReferencia += (custoRef - i.precoUnitario) * i.quantidade;
+          }
+        });
+
         carrinhosFinais.push(carrinho);
       });
 
-      // Passo 4: Total consolidado do pedido simulado
-      const totalGeral = carrinhosFinais.reduce((acc, c) => acc + c.total, 0);
+      // Ordena carrinhos por valor decrescente
+      carrinhosFinais.sort((a, b) => b.total - a.total);
 
       res.json({
         success: true,
+        alvoVencimentoAtivo: alvoVencimento,
+        statusOrcamentoMesAtual,
+        diasMinimosRecomendados,
         resumo: {
           totalGeral: Number(totalGeral.toFixed(2)),
+          economiaTotal: Number(economiaTotalVsReferencia.toFixed(2)),
           totalDistribuidores: carrinhosFinais.length,
           distribuidoresQueAtingiramMinimo: carrinhosFinais.filter(c => c.atingiuMinimo).length,
-          distribuidoresAbaixoDoMinimo: carrinhosFinais.filter(c => !c.atingiuMinimo).length
+          distribuidoresAbaixoDoMinimo: carrinhosFinais.filter(c => !c.atingiuMinimo).length,
+          totalItensRepassados: itensRepassados.length,
+          totalItensFiltradosPorPrazo: itensFiltradosPorPrazo.length,
+          distribuicaoPorVencimento
         },
         carrinhos: carrinhosFinais,
+        itensRepassados,
+        itensFiltradosPorPrazo,
         sugestoesReagrupamento
       });
     } catch (err) {
@@ -4272,10 +4582,270 @@ function belapedEndpoints(db) {
     }
   });
 
+  /**
+   * Fábrica universal de robôs BelaPed
+   */
+  function obterInstanciaRobo(portalNome, options = { headless: true }) {
+    const p = String(portalNome || '').toUpperCase();
+    if (p.includes('PROFARMA')) return new ProfarmaRobot(options);
+    if (p.includes('SOTON')) return new SotonRobot(options);
+    if (p.includes('DPC')) return new DpcRobot(options);
+    if (p.includes('MARTINS')) return new MartinsRobot(options);
+    if (p.includes('DISTRIMED')) return new DistrimedRobot(options);
+    if (p.includes('DIVIMED')) return new DivimedRobot(options);
+    if (p.includes('ORIENTE')) return new OrienteRobot(options);
+    return null;
+  }
+
+  // Estado global do orquestrador de todos os carrinhos
+  const todosCarrinhosStatus = {
+    emAndamento: false,
+    totalDistribuidoras: 0,
+    distribuidoraAtualIndex: 0,
+    distribuidoraAtualNome: '',
+    totalItensDistribuidora: 0,
+    itemAtualIndex: 0,
+    ultimoItem: '',
+    itensSucessoTotal: 0,
+    itensErroTotal: 0,
+    carrinhosProcessados: [],
+    iniciadoEm: null,
+    finalizadoEm: null,
+    erroGeral: null
+  };
+
+  /**
+   * POST /api/belaped/montar-todos-carrinhos
+   * Orquestrador sequencial que monta os carrinhos robô a robô
+   */
+  router.post('/montar-todos-carrinhos', async (req, res) => {
+    try {
+      if (todosCarrinhosStatus.emAndamento) {
+        return res.status(400).json({
+          success: false,
+          message: 'Uma montagem de todos os carrinhos já está em andamento. Aguarde a conclusão.',
+          status: todosCarrinhosStatus
+        });
+      }
+
+      const { carrinhos = [] } = req.body;
+      const carrinhosValidos = carrinhos.filter(c => Array.isArray(c.itens) && c.itens.length > 0);
+
+      if (carrinhosValidos.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Nenhum carrinho com itens informado para montagem.'
+        });
+      }
+
+      todosCarrinhosStatus.emAndamento = true;
+      todosCarrinhosStatus.totalDistribuidoras = carrinhosValidos.length;
+      todosCarrinhosStatus.distribuidoraAtualIndex = 0;
+      todosCarrinhosStatus.distribuidoraAtualNome = '';
+      todosCarrinhosStatus.totalItensDistribuidora = 0;
+      todosCarrinhosStatus.itemAtualIndex = 0;
+      todosCarrinhosStatus.ultimoItem = 'Iniciando fila sequencial de carrinhos...';
+      todosCarrinhosStatus.itensSucessoTotal = 0;
+      todosCarrinhosStatus.itensErroTotal = 0;
+      todosCarrinhosStatus.carrinhosProcessados = [];
+      todosCarrinhosStatus.iniciadoEm = new Date().toISOString();
+      todosCarrinhosStatus.finalizadoEm = null;
+      todosCarrinhosStatus.erroGeral = null;
+
+      res.json({
+        success: true,
+        message: `Fila sequencial iniciada com ${carrinhosValidos.length} distribuidora(s).`,
+        status: todosCarrinhosStatus
+      });
+
+      // Executa em background sequencialmente para não sobrecarregar memória/portais
+      (async () => {
+        try {
+          for (let cIdx = 0; cIdx < carrinhosValidos.length; cIdx++) {
+            const carrinho = carrinhosValidos[cIdx];
+            const distNome = carrinho.distribuidora;
+            todosCarrinhosStatus.distribuidoraAtualIndex = cIdx + 1;
+            todosCarrinhosStatus.distribuidoraAtualNome = distNome;
+            todosCarrinhosStatus.totalItensDistribuidora = carrinho.itens.length;
+            todosCarrinhosStatus.itemAtualIndex = 0;
+            todosCarrinhosStatus.ultimoItem = `Iniciando robô da ${distNome}...`;
+
+            console.log(`[BelaPed Fila] [${cIdx + 1}/${carrinhosValidos.length}] Montando carrinho da ${distNome} (${carrinho.itens.length} itens)...`);
+
+            const robot = obterInstanciaRobo(distNome);
+            if (!robot) {
+              console.warn(`[BelaPed Fila] Robô não disponível para distribuidora: ${distNome}`);
+              todosCarrinhosStatus.itensErroTotal += carrinho.itens.length;
+              continue;
+            }
+
+            let itensSucesso = 0;
+            let itensErro = 0;
+            try {
+              await robot.iniciar();
+
+              // Se a distribuidora for Distrimed e aceitar importação via arquivo:
+              if (distNome.toUpperCase().includes('DISTRIMED') && typeof robot.importarCarrinhoArquivo === 'function') {
+                todosCarrinhosStatus.ultimoItem = `Garantindo carrinho limpo com 0 itens na Distrimed...`;
+                await garantirCarrinhoVazioRobo(robot, 'distrimed').catch(() => {});
+                
+                const linhasTxt = carrinho.itens.map(it => `${it.ean || it.produto_id};${it.quantidade}`).join('\r\n');
+                const tempPath = path.join(__dirname, `temp_carrinho_distrimed_${Date.now()}.txt`);
+                fs.writeFileSync(tempPath, linhasTxt, 'utf-8');
+                
+                todosCarrinhosStatus.ultimoItem = `Importando ${carrinho.itens.length} itens na modal da Distrimed...`;
+                const resImport = await robot.importarCarrinhoArquivo(tempPath);
+                try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (e) {}
+                
+                if (resImport.sucesso) {
+                  itensSucesso = carrinho.itens.length;
+                  todosCarrinhosStatus.itensSucessoTotal += itensSucesso;
+                } else {
+                  itensErro = carrinho.itens.length;
+                  todosCarrinhosStatus.itensErroTotal += itensErro;
+                }
+              } else {
+                // Montagem padrão item por item
+                const portalClean = distNome.toLowerCase().replace(/[^a-z]/g, '');
+                todosCarrinhosStatus.ultimoItem = `Garantindo carrinho limpo com 0 itens na ${distNome}...`;
+                await garantirCarrinhoVazioRobo(robot, portalClean).catch(() => {});
+
+                for (let itIdx = 0; itIdx < carrinho.itens.length; itIdx++) {
+                  const it = carrinho.itens[itIdx];
+                  todosCarrinhosStatus.itemAtualIndex = itIdx + 1;
+                  todosCarrinhosStatus.ultimoItem = `${distNome}: ${it.descricao || it.ean} (Qtd: ${it.quantidade})`;
+
+                  const resAdd = await robot.adicionarAoCarrinho(it.ean, it.quantidade, it.descricao);
+                  if (resAdd && resAdd.sucesso) {
+                    itensSucesso++;
+                    todosCarrinhosStatus.itensSucessoTotal++;
+                  } else {
+                    itensErro++;
+                    todosCarrinhosStatus.itensErroTotal++;
+                  }
+                  await new Promise(r => setTimeout(r, 600));
+                }
+              }
+
+              todosCarrinhosStatus.carrinhosProcessados.push({
+                distribuidora: distNome,
+                sucesso: itensSucesso > 0,
+                itensSucesso,
+                itensErro,
+                totalItens: carrinho.itens.length
+              });
+            } catch (distErr) {
+              console.error(`[BelaPed Fila] Erro ao montar ${distNome}:`, distErr.message);
+              todosCarrinhosStatus.itensErroTotal += (carrinho.itens.length - itensSucesso);
+              todosCarrinhosStatus.carrinhosProcessados.push({
+                distribuidora: distNome,
+                sucesso: false,
+                erro: distErr.message
+              });
+            } finally {
+              if (robot) await robot.fechar().catch(() => {});
+            }
+          }
+          console.log(`[BelaPed Fila] ✅ Montagem sequencial de todos os carrinhos finalizada!`);
+        } catch (errGlobal) {
+          console.error('[BelaPed Fila] Erro crítico no orquestrador:', errGlobal.message);
+          todosCarrinhosStatus.erroGeral = errGlobal.message;
+        } finally {
+          todosCarrinhosStatus.emAndamento = false;
+          todosCarrinhosStatus.finalizadoEm = new Date().toISOString();
+          todosCarrinhosStatus.ultimoItem = 'Todos os carrinhos foram processados.';
+        }
+      })();
+    } catch (err) {
+      todosCarrinhosStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-todos-carrinhos:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-todos-carrinhos', (req, res) => {
+    res.json({ success: true, status: todosCarrinhosStatus });
+  });
+
+  /**
+   * POST /api/belaped/comprar-carrinho
+   * Executa a compra direta no portal da distribuidora via robô com o prazo eleito
+   */
+  router.post('/comprar-carrinho', async (req, res) => {
+    try {
+      const { distribuidora, carrinho, prazoEscolhido } = req.body;
+      if (!distribuidora) {
+        return res.status(400).json({ success: false, error: 'Distribuidora é obrigatória.' });
+      }
+
+      const itens = carrinho?.itens || [];
+      const valorTotal = Number(carrinho?.total) || 0;
+      const robot = obterInstanciaRobo(distribuidora);
+
+      if (!robot) {
+        return res.status(400).json({ success: false, error: `Robô não disponível para ${distribuidora}.` });
+      }
+
+      console.log(`[BelaPed Compra Direta] 🚀 Disparando compra na ${distribuidora}... Prazo: ${prazoEscolhido} | Total: R$ ${valorTotal}`);
+
+      let resultadoCompra = null;
+      try {
+        await robot.iniciar();
+        resultadoCompra = await executarCheckoutRobo(distribuidora, robot, {
+          prazoEscolhido,
+          valorTotal,
+          itens
+        });
+      } finally {
+        await robot.fechar().catch(() => {});
+      }
+
+      // Registra no banco de dados belaped_pedidos
+      const pedidoId = crypto.randomUUID();
+      try {
+        db.prepare(`
+          INSERT INTO belaped_pedidos (
+            id, distribuidora, status, total, qtd_itens, prazo_previsto,
+            numero_pedido_portal, comprovante_url, prazo_escolhido, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(
+          pedidoId,
+          distribuidora,
+          resultadoCompra?.sucesso ? 'FINALIZADO_PELO_ROBO' : 'ERRO_COMPRA',
+          valorTotal,
+          itens.length,
+          prazoEscolhido,
+          resultadoCompra?.numeroPedido || null,
+          resultadoCompra?.comprovanteUrl || null,
+          prazoEscolhido
+        );
+
+        if (Array.isArray(itens) && itens.length > 0) {
+          const insertItem = db.prepare(`
+            INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+            VALUES (?, ?, ?, ?, ?)
+          `);
+          itens.forEach(it => {
+            insertItem.run(pedidoId, it.ean || null, it.descricao || '', Number(it.quantidade) || 1, Number(it.precoUnitario) || 0);
+          });
+        }
+      } catch (dbErr) {
+        console.warn('[BelaPed Compra Direta] Erro ao gravar pedido no banco:', dbErr.message);
+      }
+
+      res.json({
+        success: resultadoCompra?.sucesso || false,
+        resultado: resultadoCompra,
+        pedidoId
+      });
+    } catch (err) {
+      console.error('[BelaPed] Erro em comprar-carrinho:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PEDIDOS (histórico/acompanhamento)
-  // REGRA DE SEGURANÇA: os robôs NUNCA finalizam compras. Eles só montam o carrinho.
-  // A finalização é feita pelo usuário no portal; aqui só registramos/atualizamos status manualmente.
   // ═══════════════════════════════════════════════════════════════════════════
   try {
     db.exec(`
@@ -4290,6 +4860,9 @@ function belapedEndpoints(db) {
         nf TEXT,
         observacoes TEXT,
         criado_por TEXT,
+        numero_pedido_portal TEXT,
+        comprovante_url TEXT,
+        prazo_escolhido TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
@@ -4304,11 +4877,14 @@ function belapedEndpoints(db) {
         FOREIGN KEY (pedido_id) REFERENCES belaped_pedidos(id) ON DELETE CASCADE
       );
     `);
+    try { db.exec(`ALTER TABLE belaped_pedidos ADD COLUMN numero_pedido_portal TEXT;`); } catch (e) {}
+    try { db.exec(`ALTER TABLE belaped_pedidos ADD COLUMN comprovante_url TEXT;`); } catch (e) {}
+    try { db.exec(`ALTER TABLE belaped_pedidos ADD COLUMN prazo_escolhido TEXT;`); } catch (e) {}
   } catch (e) {
     console.error('[BelaPed] Erro ao criar tabelas de pedidos:', e.message);
   }
 
-  const STATUS_PEDIDO = ['RASCUNHO', 'CARRINHO_GERADO', 'FINALIZADO_PELO_USUARIO', 'FATURADO', 'RECEBIDO', 'CANCELADO'];
+  const STATUS_PEDIDO = ['RASCUNHO', 'CARRINHO_GERADO', 'FINALIZADO_PELO_ROBO', 'FINALIZADO_PELO_USUARIO', 'ERRO_COMPRA', 'FATURADO', 'RECEBIDO', 'CANCELADO'];
 
   /**
    * POST /api/belaped/pedidos

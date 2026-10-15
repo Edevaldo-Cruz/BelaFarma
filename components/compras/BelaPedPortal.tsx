@@ -973,6 +973,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [resumoSimulacao, setResumoSimulacao] = useState<any>(null);
   const [sugestoesReagrupamento, setSugestoesReagrupamento] = useState<any[]>([]);
   const [simulando, setSimulando] = useState(false);
+  const [alvoVencimento, setAlvoVencimento] = useState<'AUTOMATICO' | 'PROXIMO_MES' | 'LONGO' | 'TODOS'>('AUTOMATICO');
+  const [itensRepassados, setItensRepassados] = useState<any[]>([]);
+  const [itensFiltradosPorPrazo, setItensFiltradosPorPrazo] = useState<any[]>([]);
 
   // Relatório de Preços
   const [relatorioPrecos, setRelatorioPrecos] = useState<any[]>([]);
@@ -1067,6 +1070,37 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [ultimoRelatorioAuditoria, setUltimoRelatorioAuditoria] = useState<any | null>(null);
   const [abaRelatorioAuditoria, setAbaRelatorioAuditoria] = useState<'TODOS' | 'ADICIONADOS' | 'REPASSADOS' | 'SEM_ESTOQUE'>('TODOS');
   const [buscaRelatorioAuditoria, setBuscaRelatorioAuditoria] = useState('');
+
+  // Orquestrador Sequencial de Montagem de Todos os Carrinhos
+  const [montandoTodosCarrinhos, setMontandoTodosCarrinhos] = useState(false);
+  const [statusTodosCarrinhos, setStatusTodosCarrinhos] = useState<{
+    emAndamento: boolean;
+    totalDistribuidoras: number;
+    distribuidoraAtualIndex: number;
+    distribuidoraAtualNome: string;
+    totalItensDistribuidora: number;
+    itemAtualIndex: number;
+    ultimoItem: string;
+    itensSucessoTotal: number;
+    itensErroTotal: number;
+    carrinhosProcessados: any[];
+  } | null>(null);
+
+  // Modal do Carrinho Detalhado por Distribuidora (Belinha)
+  const [carrinhoModalAberto, setCarrinhoModalAberto] = useState(false);
+  const [carrinhoModalSelecionado, setCarrinhoModalSelecionado] = useState<any | null>(null);
+  const [prazoSelecionadoModal, setPrazoSelecionadoModal] = useState<string>('');
+
+  // Compra Direta nos Portais
+  const [comprandoDireto, setComprandoDireto] = useState(false);
+  const [distribuidoraComprando, setDistribuidoraComprando] = useState<string | null>(null);
+  const [resultadoUltimaCompra, setResultadoUltimaCompra] = useState<any | null>(null);
+
+  // Wizard "Comprar Todos" (Passo a Passo Assistido)
+  const [wizardComprarTodosAberto, setWizardComprarTodosAberto] = useState(false);
+  const [wizardEtapaAtual, setWizardEtapaAtual] = useState(0);
+  const [wizardPrazosPorDist, setWizardPrazosPorDist] = useState<Record<string, string>>({});
+  const [wizardHistoricoResultados, setWizardHistoricoResultados] = useState<any[]>([]);
 
   // Registro de horário da última sincronização para feedback visual
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string>('');
@@ -1656,7 +1690,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Executar Simulação de Carrinhos Otimizados
+  // Executar Simulação de Carrinhos Otimizados (Considerando Orçamento e Repasse de Mínimo)
   const handleExecutarSimulacao = async () => {
     try {
       setSimulando(true);
@@ -1673,10 +1707,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       selecionados.forEach(item => {
         const eanKey = item.ean || String(item.produto_id);
         const precos = [];
-        const fornecedorHistorico = item.fornecedor_ult_compra.toUpperCase();
+        const fornecedorHistorico = (item.fornecedor_ult_compra || '').toUpperCase();
         
         portaisAtivos.forEach(p => {
-          const isHistorico = fornecedorHistorico.includes(p.nome);
+          const isHistorico = fornecedorHistorico.includes(p.nome.toUpperCase());
           const fator = isHistorico ? 0.98 : (1 + (Math.random() * 0.06 - 0.03));
           const preco = Number((item.custo_unitario * fator).toFixed(2));
           precos.push({
@@ -1693,7 +1727,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itens: selecionados,
-          cotacoesPorDistribuidora: cotacoesSimuladas
+          cotacoesPorDistribuidora: cotacoesSimuladas,
+          alvoVencimento
         })
       });
 
@@ -1702,8 +1737,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         setCarrinhosOtimizados(data.carrinhos || []);
         setResumoSimulacao(data.resumo || null);
         setSugestoesReagrupamento(data.sugestoesReagrupamento || []);
+        setItensRepassados(data.itensRepassados || []);
+        setItensFiltradosPorPrazo(data.itensFiltradosPorPrazo || []);
         setActiveTab('cotacao');
-        addToast('Otimização concluída com sucesso!', 'success');
+        
+        if (data.itensRepassados && data.itensRepassados.length > 0) {
+          addToast(`Otimização concluída! ${data.itensRepassados.length} item(ns) repassados automaticamente para atingir o pedido mínimo.`, 'info');
+        } else {
+          addToast('Otimização concluída com sucesso!', 'success');
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        addToast(errData.error || 'Erro ao otimizar carrinhos', 'error');
       }
     } catch (e: any) {
       addToast('Erro na simulação: ' + e.message, 'error');
@@ -1718,6 +1763,117 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     const url = portal?.url_portal || 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido';
     window.open(url, '_blank');
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
+  };
+
+  // ─── COMPRA DIRETA & ORQUESTRADOR DE CARRINHOS ──────────────────────────────
+  // Dispara a montagem sequencial de todos os carrinhos otimizados
+  const handleMontarTodosCarrinhos = async () => {
+    try {
+      if (carrinhosOtimizados.length === 0) {
+        addToast('Nenhum carrinho otimizado disponível. Execute a otimização primeiro.', 'warning');
+        return;
+      }
+
+      setMontandoTodosCarrinhos(true);
+      const res = await fetch('/api/belaped/montar-todos-carrinhos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carrinhos: carrinhosOtimizados })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        addToast(data.error || data.message || 'Erro ao iniciar montagem de carrinhos.', 'error');
+        setMontandoTodosCarrinhos(false);
+        return;
+      }
+
+      addToast(data.message || 'Montagem iniciada com sucesso!', 'info');
+      setStatusTodosCarrinhos(data.status);
+
+      // Polling a cada 1.5s para acompanhar o avanço dos robôs
+      const timer = setInterval(async () => {
+        try {
+          const resPoll = await fetch('/api/belaped/status-todos-carrinhos');
+          const dataPoll = await resPoll.json();
+          if (dataPoll.success && dataPoll.status) {
+            setStatusTodosCarrinhos(dataPoll.status);
+            if (!dataPoll.status.emAndamento) {
+              clearInterval(timer);
+              setMontandoTodosCarrinhos(false);
+              addToast(`Montagem concluída! ${dataPoll.status.itensSucessoTotal} itens adicionados com sucesso nos carrinhos.`, 'success');
+            }
+          }
+        } catch (e) {
+          // Erro silencioso no polling
+        }
+      }, 1500);
+    } catch (err: any) {
+      addToast('Falha ao iniciar montagem de carrinhos: ' + err.message, 'error');
+      setMontandoTodosCarrinhos(false);
+    }
+  };
+
+  // Abrir Modal de Carrinho da Distribuidora (Belinha)
+  const handleAbrirModalCarrinho = (carrinho: any) => {
+    setCarrinhoModalSelecionado(carrinho);
+    // Sugere o melhor prazo eleito
+    setPrazoSelecionadoModal(carrinho.boletoEleito || (carrinho.prazoDias + ' DDL'));
+    setCarrinhoModalAberto(true);
+  };
+
+  // Executar a Compra Direta em uma Distribuidora Específica
+  const handleComprarCarrinhoDireto = async (carrinho: any, prazo?: string) => {
+    const prazoFinal = prazo || prazoSelecionadoModal || carrinho.boletoEleito || (carrinho.prazoDias + ' DDL');
+    try {
+      setComprandoDireto(true);
+      setDistribuidoraComprando(carrinho.distribuidora);
+      addToast(`Disparando robô para compra na ${carrinho.distribuidora} (Prazo: ${prazoFinal})...`, 'info');
+
+      const res = await fetch('/api/belaped/comprar-carrinho', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          distribuidora: carrinho.distribuidora,
+          carrinho,
+          prazoEscolhido: prazoFinal
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setResultadoUltimaCompra(data.resultado);
+        addToast(`🎉 Compra realizada com sucesso na ${carrinho.distribuidora}! Pedido: ${data.resultado?.numeroPedido || 'Confirmado'}`, 'success');
+        carregarDados();
+        return data.resultado;
+      } else {
+        const msg = data.resultado?.mensagem || data.error || 'Erro ao finalizar compra.';
+        addToast(`Aviso na ${carrinho.distribuidora}: ${msg}`, 'warning');
+        return data.resultado;
+      }
+    } catch (err: any) {
+      addToast(`Erro crítico ao comprar na ${carrinho.distribuidora}: ${err.message}`, 'error');
+      return null;
+    } finally {
+      setComprandoDireto(false);
+      setDistribuidoraComprando(null);
+    }
+  };
+
+  // Iniciar Wizard "Comprar Todos (Passo a Passo)"
+  const handleIniciarWizardComprarTodos = () => {
+    if (carrinhosOtimizados.length === 0) {
+      addToast('Nenhum carrinho otimizado para comprar.', 'warning');
+      return;
+    }
+    const prazosIniciais: Record<string, string> = {};
+    carrinhosOtimizados.forEach(c => {
+      prazosIniciais[c.distribuidora] = c.boletoEleito || (c.prazoDias + ' DDL');
+    });
+    setWizardPrazosPorDist(prazosIniciais);
+    setWizardEtapaAtual(0);
+    setWizardHistoricoResultados([]);
+    setWizardComprarTodosAberto(true);
   };
 
   // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Divimed / Todas)
@@ -5594,80 +5750,214 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             {/* Carrinhos Otimizados */}
             {carrinhosOtimizados.length > 0 ? (
               <div className="space-y-4 pt-4 border-t border-slate-800">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* Cabeçalho e Ações em Lote */}
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-[#0e1626] to-slate-900 border border-slate-800 shadow-xl">
                   <div>
-                    <h3 className="text-sm font-black uppercase text-white flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-base font-black uppercase text-white flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-cyan-400" />
                       Carrinhos Otimizados (Menor Preço & Pedido Mínimo)
                     </h3>
-                    <p className="text-xs text-slate-400">
-                      Total Geral: <b className="text-white">R$ {resumoSimulacao?.totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> distribuído em {carrinhosOtimizados.length} distribuidora(s).
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Total Geral: <b className="text-emerald-400 font-black">R$ {resumoSimulacao?.totalGeral?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> distribuído em <b className="text-white">{carrinhosOtimizados.length} distribuidora(s)</b>.
+                      {resumoSimulacao?.economiaTotal > 0 && (
+                        <span className="ml-2 text-emerald-300 font-bold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800/80">
+                          Economia: R$ {resumoSimulacao.economiaTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                      )}
                     </p>
                   </div>
 
-                  {sugestoesReagrupamento.length > 0 && (
-                    <div className="text-xs font-bold text-amber-300 bg-amber-950/50 px-3 py-1.5 rounded-xl border border-amber-800">
-                      ⚠️ {sugestoesReagrupamento.length} distribuidora(s) precisam de ajuste de mínimo.
-                    </div>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Botão 0: Criar Todos os Carrinhos */}
+                    <button
+                      onClick={handleMontarTodosCarrinhos}
+                      disabled={montandoTodosCarrinhos || comprandoDireto}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-950/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                      title="Dispara os robôs em fila sequencial para adicionar os produtos nos carrinhos de cada distribuidora"
+                    >
+                      <ShoppingCart className={`w-4 h-4 text-cyan-200 ${montandoTodosCarrinhos ? 'animate-bounce' : ''}`} />
+                      <span>{montandoTodosCarrinhos ? 'Montando Carrinhos...' : '🛒 Criar Todos os Carrinhos'}</span>
+                    </button>
+
+                    {/* Botão 1.3: Comprar Todos (Passo a Passo) */}
+                    <button
+                      onClick={handleIniciarWizardComprarTodos}
+                      disabled={montandoTodosCarrinhos || comprandoDireto}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                      title="Abre o assistente guiado para confirmar e realizar a compra direta distribuidora por distribuidora"
+                    >
+                      <Zap className="w-4 h-4 text-emerald-200" />
+                      <span>⚡ Comprar Todos (Passo a Passo)</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {carrinhosOtimizados.map((carrinho, idx) => (
-                    <div 
-                      key={idx}
-                      className={`p-4 rounded-2xl border bg-[#0e1626] shadow-lg space-y-3 ${
-                        carrinho.atingiuMinimo 
-                          ? 'border-emerald-800/80' 
-                          : 'border-amber-800/80'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-sm text-white uppercase">{carrinho.distribuidora}</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                            carrinho.atingiuMinimo 
-                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
-                              : 'bg-amber-950 text-amber-300 border border-amber-800'
-                          }`}>
-                            {carrinho.atingiuMinimo ? 'Frete Grátis OK' : `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)}`}
-                          </span>
-                        </div>
-
-                        <span className="font-black text-base text-cyan-300">
-                          R$ {carrinho.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                {/* BARRA DE PROGRESSO UNIFICADA DA MONTAGEM SEQUENCIAL DE TODOS OS CARRINHOS */}
+                {statusTodosCarrinhos && statusTodosCarrinhos.emAndamento && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/90 via-slate-900 to-blue-950/90 border-2 border-cyan-500/80 shadow-2xl ring-2 ring-cyan-500/20 space-y-2 animate-pulse">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <Bot className="w-4 h-4 text-cyan-400 animate-spin" />
+                        <span className="font-black text-white uppercase tracking-wider">
+                          Montando Carrinho {statusTodosCarrinhos.distribuidoraAtualIndex} de {statusTodosCarrinhos.totalDistribuidoras}:
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-black border border-cyan-500/40">
+                          {statusTodosCarrinhos.distribuidoraAtualNome}
                         </span>
                       </div>
+                      <span className="font-bold text-slate-300">
+                        Item {statusTodosCarrinhos.itemAtualIndex} de {statusTodosCarrinhos.totalItensDistribuidora} • {statusTodosCarrinhos.itensSucessoTotal} adicionados
+                      </span>
+                    </div>
 
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span>Prazo: <b className="text-white">{carrinho.prazoDias} dias</b></span>
-                        <span>Mínimo: <b className="text-white">R$ {carrinho.pedidoMinimo.toFixed(2)}</b></span>
-                      </div>
+                    <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-700">
+                      <div 
+                        className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2.5 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(100, Math.round(((statusTodosCarrinhos.distribuidoraAtualIndex - 1) / (statusTodosCarrinhos.totalDistribuidoras || 1)) * 100 + ((statusTodosCarrinhos.itemAtualIndex / (statusTodosCarrinhos.totalItensDistribuidora || 1)) * (100 / (statusTodosCarrinhos.totalDistribuidoras || 1)))))}%`
+                        }}
+                      />
+                    </div>
 
-                      <div className="max-h-36 overflow-y-auto space-y-1.5 divide-y divide-slate-800/60 text-xs">
-                        {carrinho.itens.map((it: any, itIdx: number) => (
-                          <div key={itIdx} className="pt-1.5 flex items-center justify-between">
-                            <span className="truncate max-w-[220px] font-medium text-slate-300" title={it.descricao}>
-                              {it.quantidade}x {it.descricao}
-                            </span>
-                            <span className="font-black text-white">
-                              R$ {it.subtotal.toFixed(2)}
+                    <p className="text-[11px] text-slate-300 font-mono truncate">
+                      {statusTodosCarrinhos.ultimoItem}
+                    </p>
+                  </div>
+                )}
+
+                {sugestoesReagrupamento.length > 0 && (
+                  <div className="text-xs font-bold text-amber-300 bg-amber-950/50 p-3 rounded-2xl border border-amber-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>⚠️ {sugestoesReagrupamento.length} distribuidora(s) abaixo do mínimo tiveram itens repassados para evitar pedidos travados.</span>
+                  </div>
+                )}
+
+                {/* Cards de Cada Distribuidora */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {carrinhosOtimizados.map((carrinho, idx) => {
+                    const portalCad = portais.find(p => p.nome.toUpperCase() === carrinho.distribuidora.toUpperCase());
+                    const prazoSugerido = carrinho.boletoEleito || (carrinho.prazoDias ? `${carrinho.prazoDias} DDL` : '28 DDL');
+                    const estaComprando = comprandoDireto && distribuidoraComprando === carrinho.distribuidora;
+
+                    return (
+                      <div 
+                        key={idx}
+                        className={`p-4 rounded-2xl border bg-[#0e1626] shadow-lg space-y-3 flex flex-col justify-between ${
+                          carrinho.atingiuMinimo 
+                            ? 'border-emerald-800/80 shadow-emerald-950/20' 
+                            : 'border-amber-800/80 shadow-amber-950/20'
+                        }`}
+                      >
+                        <div className="space-y-2.5">
+                          {/* Cabeçalho do Card */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-sm text-white uppercase">{carrinho.distribuidora}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                carrinho.atingiuMinimo 
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
+                                  : 'bg-amber-950 text-amber-300 border border-amber-800'
+                              }`}>
+                                {carrinho.atingiuMinimo ? 'Frete Grátis OK' : `Faltam R$ ${carrinho.faltaParaMinimo?.toFixed(2)}`}
+                              </span>
+                            </div>
+
+                            <span className="font-black text-base text-cyan-300">
+                              R$ {carrinho.total?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
-                        ))}
-                      </div>
 
-                      <div className="pt-2 border-t border-slate-800">
-                        <button
-                          onClick={() => handleAbrirNavegadorCarrinho(carrinho)}
-                          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>Abrir Navegador no Carrinho da {carrinho.distribuidora}</span>
-                        </button>
+                          {/* 1.1 Sugestão do Melhor Prazo conforme Orçamento */}
+                          <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-700/80 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <CreditCard className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <div className="truncate">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Melhor Prazo Orçamento:</span>
+                                <span className="text-xs font-black text-emerald-300 truncate block">
+                                  {prazoSugerido}
+                                </span>
+                              </div>
+                            </div>
+                            {carrinho.mesVencimentoFormatado && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
+                                Vence em {carrinho.mesVencimentoFormatado}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                            <span>Itens: <b className="text-white">{carrinho.itens?.length || 0} produtos</b></span>
+                            <span>Mínimo: <b className="text-white">R$ {carrinho.pedidoMinimo?.toFixed(2)}</b></span>
+                          </div>
+
+                          {/* Lista compacta de produtos */}
+                          <div className="max-h-32 overflow-y-auto space-y-1 divide-y divide-slate-800/60 text-xs pr-1">
+                            {carrinho.itens?.map((it: any, itIdx: number) => (
+                              <div key={itIdx} className="pt-1 flex items-center justify-between gap-2">
+                                <div className="truncate min-w-0 flex items-center gap-1.5">
+                                  <span className="text-slate-400 font-bold shrink-0">{it.quantidade}x</span>
+                                  <span className="truncate font-medium text-slate-300" title={it.descricao}>
+                                    {it.descricao}
+                                  </span>
+                                  {it.repassado && (
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-800 text-[9px] font-black shrink-0" title={it.motivoRepasse}>
+                                      Repassado de {it.repassadoDe}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-black text-white shrink-0">
+                                  R$ {it.subtotal?.toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Botões de Ação do Card: Ver Carrinho (Modal Belinha) e Comprar na Empresa */}
+                        <div className="pt-2.5 border-t border-slate-800 space-y-1.5">
+                          <div className="grid grid-cols-2 gap-2">
+                            {/* 1.1 Acesso ao Carrinho (Modal no Belinha) */}
+                            <button
+                              onClick={() => handleAbrirModalCarrinho(carrinho)}
+                              className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold transition-all cursor-pointer border border-slate-700 shadow-sm"
+                              title="Visualizar produtos e trocar prazo de boleto no modal do Belinha"
+                            >
+                              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>👁️ Ver Carrinho</span>
+                            </button>
+
+                            {/* 1.2 Botão de Comprar daquela empresa */}
+                            <button
+                              onClick={() => handleComprarCarrinhoDireto(carrinho, prazoSugerido)}
+                              disabled={estaComprando || montandoTodosCarrinhos}
+                              className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black transition-all cursor-pointer shadow-md disabled:opacity-50"
+                              title={`Comprar diretamente na ${carrinho.distribuidora} no prazo ${prazoSugerido}`}
+                            >
+                              {estaComprando ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Comprando...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Zap className="w-3.5 h-3.5 text-yellow-300" />
+                                  <span>Comprar Direto</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          <button
+                            onClick={() => handleAbrirNavegadorCarrinho(carrinho)}
+                            className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] font-bold text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>Abrir Navegador no Portal da {carrinho.distribuidora}</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -7008,6 +7298,358 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* ─── 1.1 MODAL DO CARRINHO POR DISTRIBUIDORA (BELINHA) ─── */}
+      {carrinhoModalAberto && carrinhoModalSelecionado && (() => {
+        const portalCad = portais.find(p => p.nome.toUpperCase() === carrinhoModalSelecionado.distribuidora.toUpperCase());
+        const opcoesPrazos = portalCad?.prazos_boleto 
+          ? portalCad.prazos_boleto.split(' | ') 
+          : [carrinhoModalSelecionado.boletoEleito || `${carrinhoModalSelecionado.prazoDias} DDL`];
+        const estaComprando = comprandoDireto && distribuidoraComprando === carrinhoModalSelecionado.distribuidora;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-[#0b1320] border-2 border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden ring-1 ring-cyan-500/20">
+              {/* Header */}
+              <div className="p-4 border-b border-slate-800 bg-[#070e1a] flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-cyan-950/80 border border-cyan-700 text-cyan-300">
+                    <ShoppingCart className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-black uppercase text-white tracking-wide">
+                        Carrinho {carrinhoModalSelecionado.distribuidora}
+                      </h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                        carrinhoModalSelecionado.atingiuMinimo 
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
+                          : 'bg-amber-950 text-amber-300 border border-amber-800'
+                      }`}>
+                        {carrinhoModalSelecionado.atingiuMinimo ? 'Frete Grátis OK' : `Falta R$ ${carrinhoModalSelecionado.faltaParaMinimo?.toFixed(2)}`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {carrinhoModalSelecionado.itens?.length || 0} produtos • Pedido Mínimo: R$ {carrinhoModalSelecionado.pedidoMinimo?.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-black text-cyan-300">
+                    R$ {carrinhoModalSelecionado.total?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <button 
+                    onClick={() => setCarrinhoModalAberto(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Seletor do Melhor Prazo Orçamentário */}
+              <div className="p-4 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <CreditCard className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <div>
+                    <span className="text-xs font-black uppercase tracking-wider text-white block">
+                      Prazo Eleito conforme Orçamento
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Alinhado ao fluxo de caixa. Você pode selecionar outra opção de boleto cadastrada:
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={prazoSelecionadoModal}
+                    onChange={(e) => setPrazoSelecionadoModal(e.target.value)}
+                    className="bg-slate-900 border border-emerald-600/80 rounded-xl px-3 py-1.5 text-xs font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-md"
+                  >
+                    {opcoesPrazos.map((pOpt: string, pIdx: number) => (
+                      <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
+                        💳 {pOpt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tabela de Produtos */}
+              <div className="p-4 overflow-y-auto flex-1">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-[11px] uppercase font-black text-slate-400">
+                      <th className="pb-2">EAN / Produto</th>
+                      <th className="pb-2 text-center">Quantidade</th>
+                      <th className="pb-2 text-right">Preço Un.</th>
+                      <th className="pb-2 text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {carrinhoModalSelecionado.itens?.map((it: any, iIdx: number) => (
+                      <tr key={iIdx} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2.5 pr-2">
+                          <span className="font-bold text-white block">{it.descricao}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="font-mono text-[10px] text-slate-400">{it.ean || '—'}</span>
+                            {it.repassado && (
+                              <span className="px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[9px] font-black" title={it.motivoRepasse}>
+                                🔄 Repassado de {it.repassadoDe}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-bold text-white">
+                          {it.quantidade} un
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-medium text-slate-300">
+                          R$ {it.precoUnitario?.toFixed(2)}
+                        </td>
+                        <td className="py-2.5 pl-2 text-right font-black text-emerald-400">
+                          R$ {it.subtotal?.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Footer com Botão de Comprar */}
+              <div className="p-4 border-t border-slate-800 bg-[#070e1a] flex flex-col sm:flex-row items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCarrinhoModalAberto(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer w-full sm:w-auto"
+                >
+                  Fechar
+                </button>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirNavegadorCarrinho(carrinhoModalSelecionado)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Abrir no Portal</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await handleComprarCarrinhoDireto(carrinhoModalSelecionado, prazoSelecionadoModal);
+                      if (res && res.sucesso) {
+                        setCarrinhoModalAberto(false);
+                      }
+                    }}
+                    disabled={estaComprando}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-950/40 transition-all cursor-pointer flex items-center justify-center gap-2 flex-1 sm:flex-initial disabled:opacity-50"
+                  >
+                    {estaComprando ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Comprando no Portal...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 text-yellow-300" />
+                        <span>Comprar na {carrinhoModalSelecionado.distribuidora} ({prazoSelecionadoModal})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─── 1.3 WIZARD ASSISTIDO "COMPRAR TODOS" (CONFIRMAR UM POR UM) ─── */}
+      {wizardComprarTodosAberto && carrinhosOtimizados.length > 0 && (() => {
+        const carrinhoAtual = carrinhosOtimizados[wizardEtapaAtual];
+        if (!carrinhoAtual) return null;
+
+        const totalEtapas = carrinhosOtimizados.length;
+        const portalCad = portais.find(p => p.nome.toUpperCase() === carrinhoAtual.distribuidora.toUpperCase());
+        const opcoesPrazos = portalCad?.prazos_boleto 
+          ? portalCad.prazos_boleto.split(' | ') 
+          : [carrinhoAtual.boletoEleito || `${carrinhoAtual.prazoDias} DDL`];
+        const prazoAtual = wizardPrazosPorDist[carrinhoAtual.distribuidora] || carrinhoAtual.boletoEleito || (carrinhoAtual.prazoDias + ' DDL');
+        const estaComprando = comprandoDireto && distribuidoraComprando === carrinhoAtual.distribuidora;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-[#0b1320] border-2 border-emerald-600/80 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ring-2 ring-emerald-500/30">
+              {/* Header do Wizard */}
+              <div className="p-5 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-[#070e1a] to-emerald-950/60 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 uppercase tracking-wider">
+                      Etapa {wizardEtapaAtual + 1} de {totalEtapas}
+                    </span>
+                    <span className="text-xs text-slate-400">Assistente de Compra BelaPed</span>
+                  </div>
+                  <h2 className="text-lg font-black text-white uppercase mt-1 flex items-center gap-2">
+                    <span>{carrinhoAtual.distribuidora}</span>
+                    <span className="text-cyan-300">• R$ {carrinhoAtual.total?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  </h2>
+                </div>
+
+                <button 
+                  onClick={() => setWizardComprarTodosAberto(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                  title="Cancelar assistente"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Barra de Progresso das Etapas */}
+              <div className="w-full bg-slate-900 h-1.5">
+                <div 
+                  className="bg-gradient-to-r from-cyan-500 to-emerald-500 h-1.5 transition-all duration-300"
+                  style={{ width: `${Math.round(((wizardEtapaAtual + 1) / totalEtapas) * 100)}%` }}
+                />
+              </div>
+
+              {/* Painel do Prazo Orçamentário */}
+              <div className="p-4 bg-[#0e1626] border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-white uppercase block">
+                      Condição de Pagamento & Prazo no Boleto
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      Calculado automaticamente com base no saldo orçamentário da farmácia:
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={prazoAtual}
+                    onChange={(e) => {
+                      const novoP = e.target.value;
+                      setWizardPrazosPorDist(prev => ({ ...prev, [carrinhoAtual.distribuidora]: novoP }));
+                    }}
+                    className="bg-slate-900 border-2 border-emerald-500/70 rounded-xl px-3 py-2 text-xs font-black text-emerald-300 focus:outline-none cursor-pointer shadow-md"
+                  >
+                    {opcoesPrazos.map((pOpt: string, pIdx: number) => (
+                      <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
+                        💳 {pOpt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tabela dos Produtos desta Distribuidora */}
+              <div className="p-4 overflow-y-auto flex-1 space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-400 pb-1 border-b border-slate-800">
+                  <span>Produtos selecionados ({carrinhoAtual.itens?.length || 0} itens)</span>
+                  <span>Mínimo: R$ {carrinhoAtual.pedidoMinimo?.toFixed(2)} • {carrinhoAtual.atingiuMinimo ? '✅ Atingido' : '⚠️ Abaixo do mínimo'}</span>
+                </div>
+
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800/80 text-[10px] uppercase font-bold text-slate-500">
+                      <th className="py-2">Item</th>
+                      <th className="py-2 text-center">Qtd</th>
+                      <th className="py-2 text-right">Preço</th>
+                      <th className="py-2 text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/40">
+                    {carrinhoAtual.itens?.map((it: any, itIdx: number) => (
+                      <tr key={itIdx} className="hover:bg-slate-800/30">
+                        <td className="py-2 pr-2">
+                          <span className="font-bold text-white block">{it.descricao}</span>
+                          <span className="font-mono text-[10px] text-slate-400">{it.ean}</span>
+                          {it.repassado && (
+                            <span className="ml-2 text-[9px] text-amber-300 font-bold bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-800">
+                              Repassado de {it.repassadoDe}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-center font-bold text-white">{it.quantidade} un</td>
+                        <td className="py-2 px-2 text-right text-slate-300">R$ {it.precoUnitario?.toFixed(2)}</td>
+                        <td className="py-2 pl-2 text-right font-black text-cyan-300">R$ {it.subtotal?.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rodapé com Navegação / Confirmação */}
+              <div className="p-4 border-t border-slate-800 bg-[#070e1a] flex flex-col sm:flex-row items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setWizardComprarTodosAberto(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold transition-colors cursor-pointer w-full sm:w-auto"
+                >
+                  Cancelar
+                </button>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  {/* Botão de Pular */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (wizardEtapaAtual + 1 < totalEtapas) {
+                        setWizardEtapaAtual(prev => prev + 1);
+                      } else {
+                        setWizardComprarTodosAberto(false);
+                        addToast('Assistente finalizado!', 'info');
+                      }
+                    }}
+                    disabled={estaComprando}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                  >
+                    <span>⏭️ Pular esta Distribuidora</span>
+                  </button>
+
+                  {/* Botão de Confirmar e Comprar */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await handleComprarCarrinhoDireto(carrinhoAtual, prazoAtual);
+                      if (res) {
+                        setWizardHistoricoResultados(prev => [...prev, res]);
+                        if (wizardEtapaAtual + 1 < totalEtapas) {
+                          setWizardEtapaAtual(prev => prev + 1);
+                        } else {
+                          setWizardComprarTodosAberto(false);
+                          addToast('Todas as compras do assistente foram processadas com sucesso!', 'success');
+                        }
+                      }
+                    }}
+                    disabled={estaComprando}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                  >
+                    {estaComprando ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Comprando na {carrinhoAtual.distribuidora}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Confirmar e Comprar na {carrinhoAtual.distribuidora}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── TELA FLUTUANTE DE ATIVIDADE AO VIVO DO ROBÔ (CANTO INFERIOR DIREITO) ─── */}
       {(() => {
