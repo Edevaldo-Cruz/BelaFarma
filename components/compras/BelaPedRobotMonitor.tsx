@@ -46,7 +46,7 @@ interface RobotLiveMonitorProps {
   cotandoAoVivo: boolean;
   statusCotacao: any;
   onDispararRobo: (
-    fornecedor?: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'TODOS',
+    fornecedor?: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'TODOS',
     tamanhoLote?: number,
     prioridade?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS'
   ) => void;
@@ -542,14 +542,14 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
             </div>
           )}
 
-          {/* Grid Ao Vivo dos 6 Navegadores / Robôs */}
+          {/* Grid Ao Vivo dos 7 Navegadores / Robôs */}
           <div className="space-y-1.5">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
               <Globe className="w-3 h-3 text-cyan-400" />
-              Atividade em Tempo Real nos 6 Portais
+              Atividade em Tempo Real nos 7 Portais
             </span>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {(['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO'] as const).map((portal) => {
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {(['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA'] as const).map((portal) => {
                 const w = workers[portal] || { status: 'PRONTO', itemAtual: '-', avaliados: 0, encontrados: 0, semEstoque: 0 };
                 const isWorking = w.status === 'COTANDO' || w.status === 'AUTENTICANDO' || w.status === 'INICIANDO';
                 const isErr = w.status === 'ERRO';

@@ -905,6 +905,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     ultimoItem?: string;
   } | null>(null);
 
+  // Montagem Robótica de Carrinho na Oriente Farma
+  const [montandoCarrinhoOriente, setMontandoCarrinhoOriente] = useState(false);
+  const [statusCarrinhoOriente, setStatusCarrinhoOriente] = useState<{
+    emAndamento: boolean;
+    total: number;
+    atual: number;
+    sucessos: number;
+    erros: number;
+    ultimoItem?: string;
+  } | null>(null);
+
   // Relatório de Auditoria e Repasse do Carrinho do Robô
   const [modalRelatorioAberto, setModalRelatorioAberto] = useState(false);
   const [ultimoRelatorioAuditoria, setUltimoRelatorioAuditoria] = useState<any | null>(null);
@@ -1992,6 +2003,76 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     } catch (err: any) {
       addToast('Erro ao acionar robô Martins: ' + err.message, 'error');
       setMontandoCarrinhoMartins(false);
+    }
+  };
+
+  // Montagem Robótica de Carrinho na Oriente Farma Produto por Produto
+  const handleMontarCarrinhoOriente = async () => {
+    try {
+      setMontandoCarrinhoOriente(true);
+
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensOriente = base
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('ORIENTE') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          quantidade: f.qtd_sugerida_7d || 1,
+          descricao: f.descricao,
+          preco_1: f.preco_1 || 0,
+          preco_ult_compra: f.preco_ult_compra || f.custo_unitario || 0,
+          fornecedor_2: f.fornecedor_2,
+          preco_2: f.preco_2
+        }));
+
+      if (itensOriente.length === 0) {
+        addToast('Nenhum item com melhor preço na Oriente Farma para adicionar ao carrinho (ou itens bloqueados).', 'warning');
+        setMontandoCarrinhoOriente(false);
+        return;
+      }
+
+      const res = await fetch('/api/belaped/montar-carrinho-oriente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: itensOriente })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        addToast(data.message || data.error || 'Erro ao iniciar robô Oriente Farma', 'error');
+        setMontandoCarrinhoOriente(false);
+        return;
+      }
+
+      addToast(data.message || 'Robô conectando na Oriente Farma para adicionar os produtos no carrinho!', 'success');
+
+      // Polling de status
+      const timerOriente = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-oriente');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCarrinhoOriente(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerOriente);
+              setMontandoCarrinhoOriente(false);
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
+              addToast(`Montagem Oriente Farma concluída! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+            }
+          }
+        } catch (e) {
+          clearInterval(timerOriente);
+          setMontandoCarrinhoOriente(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao acionar robô Oriente Farma: ' + err.message, 'error');
+      setMontandoCarrinhoOriente(false);
     }
   };
 
@@ -3816,6 +3897,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       <>
                         <ShoppingCart className="w-3.5 h-3.5 text-sky-400" />
                         <span>Montar Martins (Robô)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Robô Oriente Farma */}
+                  <button
+                    onClick={handleMontarCarrinhoOriente}
+                    disabled={montandoCarrinhoOriente}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-100 border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login na Oriente Farma e adicionará produto a produto no carrinho na condição comercial ideal"
+                  >
+                    {montandoCarrinhoOriente ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                        <span>Montando Oriente ({statusCarrinhoOriente?.atual || 0}/{statusCarrinhoOriente?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Montar Oriente (Robô)</span>
                       </>
                     )}
                   </button>
@@ -6150,6 +6251,66 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       })
                     )}
                   </tbody>
+                  {/* Totalizador Consolidado do Relatório com Economia Líquida */}
+                  <tfoot className="bg-[#050a14] border-t-2 border-slate-700 font-bold text-xs sticky bottom-0 z-10 shadow-lg">
+                    <tr className="border-b border-slate-800">
+                      <td className="py-3 px-3 text-slate-200">
+                        <div className="flex items-center gap-1.5 font-black uppercase text-[11px] text-cyan-300">
+                          <DollarSign className="w-3.5 h-3.5" />
+                          <span>Totais Consolidados</span>
+                          <span className="text-slate-400 font-normal">({itensFiltrados.length} no filtro)</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-center text-white font-black text-sm">
+                        {itensFiltrados.reduce((acc: number, item: any) => acc + (Number(item.quantidade) || 0), 0)} un
+                      </td>
+                      <td colSpan={2} className="py-3 px-3 text-left">
+                        <div className="flex items-center gap-2 text-[11px]">
+                          <span className="text-emerald-400 font-bold">
+                            {rel.sucessos} no carrinho
+                          </span>
+                          <span className="text-slate-600">|</span>
+                          <span className="text-amber-400 font-bold">
+                            {rel.itensRepassados2Colocado?.length || 0} repassados
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap font-black text-sm text-emerald-300 bg-emerald-950/20">
+                        R$ {Number(rel.totalAdicionadoReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap font-bold text-xs text-amber-300 bg-amber-950/10">
+                        R$ {Number(rel.totalUltimaCompraReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {Number(rel.economiaTotalReais || 0) > 0 ? (
+                          <div className="inline-flex flex-col items-center px-2 py-1 rounded-lg bg-emerald-950 border border-emerald-500 shadow-md">
+                            <span className="text-[10px] text-emerald-400 font-black uppercase tracking-wider">Economia Líquida</span>
+                            <span className="text-xs font-black text-emerald-200">
+                              -R$ {Number(rel.economiaTotalReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-emerald-300 font-bold">
+                              (-{Math.abs(Number(rel.economiaTotalPct || 0))}%)
+                            </span>
+                          </div>
+                        ) : Number(rel.economiaTotalReais || 0) < 0 ? (
+                          <div className="inline-flex flex-col items-center px-2 py-1 rounded-lg bg-rose-950 border border-rose-500 shadow-md">
+                            <span className="text-[10px] text-rose-400 font-black uppercase tracking-wider">Gasto Adicional</span>
+                            <span className="text-xs font-black text-rose-200">
+                              +R$ {Math.abs(Number(rel.economiaTotalReais || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-rose-300 font-bold">
+                              (+{Math.abs(Number(rel.economiaTotalPct || 0))}%)
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-bold">Neutro (R$ 0,00)</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap text-[11px] text-slate-400 font-normal">
+                        Auditado pelo BelaPed
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
 

@@ -23,6 +23,7 @@ const { SotonRobot } = require('./belaped-robot-soton');
 const { DistrimedRobot } = require('./belaped-robot-distrimed');
 const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
+const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
 const { validarCorrespondenciaProduto, expurgarCotacoesInconsistentes } = require('./belaped-validador');
 
 function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
@@ -46,6 +47,9 @@ function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   }
   if (f.includes('DIVIMED')) {
     return `https://divimed.artpedidoweb.com.br/#/comprar?busca=${termo}`;
+  }
+  if (f.includes('ORIENTE')) {
+    return `https://pedidoweb.orientefarma.com.br/pedidos?busca=${termo}`;
   }
   return null;
 }
@@ -198,7 +202,8 @@ function belapedEndpoints(db) {
       { id: 'soton', nome: 'SOTON FARMA', url: 'https://sotonfarma.meuspedidos.com.br/entrar', usuario: 'belafarmasul@gmail.com', min: 300.0, prazo: 21, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica de carrinho produto a produto' },
       { id: 'distrimed', nome: 'DISTRIMED', url: 'https://inovacao.distrimed.com.br/login?referencia=/solicitacaoSac', usuario: 'bela farma sul', min: 350.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação automática via modal' },
       { id: 'divimed', nome: 'DIVIMED', url: 'https://divimed.artpedidoweb.com.br/#/', usuario: 'belafarmasul@gmail.com', min: 400.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica produto por produto por nome' },
-      { id: 'martins', nome: 'MARTINS ATACADO', url: 'https://www.martinsatacado.com.br/login/pessoa-juridica?pathName=%2F', usuario: '47.378.578/0001-40', min: 200.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Pedido mínimo R$ 200,00 - Filtro estrito: apenas produtos faturados em MG' }
+      { id: 'martins', nome: 'MARTINS ATACADO', url: 'https://www.martinsatacado.com.br/login/pessoa-juridica?pathName=%2F', usuario: '47.378.578/0001-40', min: 200.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Pedido mínimo R$ 200,00 - Filtro estrito: apenas produtos faturados em MG' },
+      { id: 'oriente', nome: 'ORIENTE FARMA', url: 'https://pedidoweb.orientefarma.com.br/auth/login', usuario: 'belafarmasul@gmail.com', min: 150.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Condições: Geral (96), Verão (4774) e Unilever (18)' }
     ];
 
     const stmtUpsert = db.prepare(`
@@ -217,8 +222,8 @@ function belapedEndpoints(db) {
       stmtUpsert.run(p.id, p.nome, p.url, p.usuario, p.min, p.prazo, p.uf, p.is_mg, p.obs);
     }
 
-    // Remove qualquer distribuidora não configurada (garante apenas as 6 oficiais)
-    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins')`).run();
+    // Remove qualquer distribuidora não configurada (garante apenas as 7 oficiais)
+    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente')`).run();
 
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
@@ -1614,7 +1619,8 @@ function belapedEndpoints(db) {
         'SOTON FARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
         'DISTRIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
         'DIVIMED': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
-        'MARTINS ATACADO': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
+        'MARTINS ATACADO': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 },
+        'ORIENTE FARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
       };
 
       const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass) => {
@@ -1803,6 +1809,8 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('DIVIMED', DivimedRobot);
         } else if (fornecedor === 'MARTINS') {
           await executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot);
+        } else if (fornecedor === 'ORIENTE') {
+          await executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
             executarRoboParaFornecedor('PROFARMA', ProfarmaRobot),
@@ -1810,7 +1818,8 @@ function belapedEndpoints(db) {
             executarRoboParaFornecedor('SOTON FARMA', SotonRobot),
             executarRoboParaFornecedor('DISTRIMED', DistrimedRobot),
             executarRoboParaFornecedor('DIVIMED', DivimedRobot),
-            executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot)
+            executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot),
+            executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -1981,13 +1990,15 @@ function belapedEndpoints(db) {
         'DISTRIMED': DistrimedRobot,
         'DIVIMED': DivimedRobot,
         'MARTINS ATACADO': MartinsRobot,
-        'MARTINS': MartinsRobot
+        'MARTINS': MartinsRobot,
+        'ORIENTE FARMA': OrienteRobot,
+        'ORIENTE': OrienteRobot
       };
 
       // Determina quais distribuidoras rodar
       let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : 'TODOS';
       const portaisParaCotar = (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo])
-        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED']
+        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA']
         : [fornecedorAlvo];
 
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descricao || ''}) em [${portaisParaCotar.join(', ')}]...`);
@@ -2483,7 +2494,7 @@ function belapedEndpoints(db) {
   /**
    * Garante que múltiplos portais estejam confirmados com 0 itens antes da criação de pedidos.
    */
-  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins']) {
+  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente']) {
     console.log(`[BelaPed Segurança] 🛡️ Verificando e garantindo carrinhos limpos para: ${portaisAlvo.join(', ')}...`);
     const resultados = [];
 
@@ -2495,6 +2506,7 @@ function belapedEndpoints(db) {
         case 'profarma': return new ProfarmaRobot({ headless: true });
         case 'dpc': return new DpcRobot({ headless: true });
         case 'martins': return new MartinsRobot({ headless: true });
+        case 'oriente': return new OrienteRobot({ headless: true });
         default: return null;
       }
     };
@@ -3793,16 +3805,212 @@ function belapedEndpoints(db) {
     }
   });
 
-  router.get('/status-carrinho-martins', (req, res) => {
+    router.get('/status-carrinho-martins', (req, res) => {
     res.json({ success: true, status: martinsCarrinhoStatus });
+  });
+
+  // Estado de montagem do carrinho na Oriente Farma
+  const orienteCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-oriente
+   * Inicia o robô Puppeteer para adicionar produto a produto no carrinho da Oriente Farma
+   */
+  router.post('/montar-carrinho-oriente', async (req, res) => {
+    try {
+      if (orienteCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na Oriente Farma já está em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+
+      // Filtra produtos bloqueados nas regras
+      const eansNaoCarrinho = new Set(
+        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
+      );
+      itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
+
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT 
+            c.ean, 
+            c.descricao, 
+            c.saldo, 
+            c.vmd_ponderado, 
+            c.preco_unitario_ult_compra,
+            c.custo_unitario,
+            cr.preco
+          FROM compras_estoque_cache c
+          JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND UPPER(cr.fornecedor) LIKE '%ORIENTE%' AND cr.disponivel = 1
+          WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
+            AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+            AND c.ean NOT IN (SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL)
+          ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
+          LIMIT 50
+        `).all();
+
+        itensParaAdicionar = produtosGanhadores.map(p => {
+          const vmd = Number(p.vmd_ponderado) || 0;
+          const saldo = Number(p.saldo) || 0;
+          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
+          return {
+            ean: p.ean,
+            quantidade: qtd,
+            descricao: p.descricao,
+            preco_1: p.preco,
+            preco_ult_compra: Number(p.preco_unitario_ult_compra) || Number(p.custo_unitario) || 0
+          };
+        });
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na Oriente Farma para adicionar ao carrinho no momento (ou itens bloqueados).' });
+      }
+
+      orienteCarrinhoStatus.emAndamento = true;
+      orienteCarrinhoStatus.total = itensParaAdicionar.length;
+      orienteCarrinhoStatus.atual = 0;
+      orienteCarrinhoStatus.sucessos = 0;
+      orienteCarrinhoStatus.erros = 0;
+      orienteCarrinhoStatus.ultimoItem = '';
+      orienteCarrinhoStatus.itens = [];
+      orienteCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Oriente Farma com ${itensParaAdicionar.length} produtos.`,
+        status: orienteCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Oriente Farma para montagem de carrinho...');
+          robot = new OrienteRobot({ headless: true, condicaoComercial: 'GERAL' });
+          await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          orienteCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'oriente');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            orienteCarrinhoStatus.atual = i + 1;
+            orienteCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            console.log(`[BelaPed Carrinho Oriente] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const finItem = calcularEconomiaItem(item, item.preco_1, db);
+
+            if (resItem.sucesso) {
+              orienteCarrinhoStatus.sucessos++;
+              orienteCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                subtotal: Number(((Number(item.preco_1) || 0) * item.quantidade).toFixed(2)),
+                fornecedor: 'ORIENTE FARMA',
+                status: 'ADICIONADO',
+                motivo: 'Adicionado com sucesso ao carrinho Oriente Farma',
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct
+              });
+            } else {
+              orienteCarrinhoStatus.erros++;
+              const infoRepasse = resolverRepasseSegundoColocado(item, 'ORIENTE FARMA', resItem.erro);
+              orienteCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct,
+                ...infoRepasse
+              });
+            }
+          }
+
+          // Monta o Relatório Estruturado Final com Análise Financeira vs Última Compra
+          const adicionados = orienteCarrinhoStatus.itens.filter(i => i.status === 'ADICIONADO');
+          const repassados = orienteCarrinhoStatus.itens.filter(i => i.status === 'REPASSADO_2_COLOCADO');
+          const semEstoque = orienteCarrinhoStatus.itens.filter(i => i.status === 'SEM_ESTOQUE_GERAL');
+
+          orienteCarrinhoStatus.relatorio = consolidarRelatorioFinanceiro(
+            'ORIENTE FARMA',
+            itensParaAdicionar.length,
+            adicionados,
+            repassados,
+            semEstoque
+          );
+
+          if (adicionados.length > 0) {
+            try {
+              const pedidoId = 'PED-ORIENTE-' + Date.now();
+              const totalAdicionadoReais = orienteCarrinhoStatus.relatorio?.totalAdicionadoReais || 0;
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'ORIENTE FARMA', 'CARRINHO_GERADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: repassados.length, semEstoque: semEstoque.length })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido Oriente no banco:', pErr.message);
+            }
+          }
+
+          console.log(`[BelaPed Carrinho Oriente] Concluído: ${adicionados.length} adicionados, ${repassados.length} repassados p/ 2º colocado.`);
+        } catch (botErr) {
+          console.error('[BelaPed Carrinho Oriente] Erro crítico no robô:', botErr.message);
+        } finally {
+          if (robot) await robot.fechar().catch(() => {});
+          orienteCarrinhoStatus.emAndamento = false;
+        }
+      })();
+    } catch (err) {
+      orienteCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-oriente:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-oriente', (req, res) => {
+    res.json({ success: true, status: orienteCarrinhoStatus });
   });
 
   /**
    * POST /api/belaped/limpar-carrinhos
-   * Aciona a limpeza explícita e confirmação de 0 itens para os portais informados (ou todos os 6)
+   * Aciona a limpeza explícita e confirmação de 0 itens para os portais informados (ou todos os 7)
    */
   router.post('/limpar-carrinhos', async (req, res) => {
-    const portais = req.body.portais || ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins'];
+    const portais = req.body.portais || ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente'];
     try {
       console.log(`[BelaPed API] Disparo manual de limpeza de carrinhos para: ${portais.join(', ')}...`);
       const resultados = await garantirCarrinhosVazios(portais);
