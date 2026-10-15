@@ -325,26 +325,24 @@ class SotonRobot {
         if (
           bodyText.includes('Seu carrinho está vazio') ||
           bodyText.includes('Nenhum item no carrinho') ||
-          bodyText.includes('Carrinho vazio') ||
-          bodyText.includes('0 ITENS')
+          bodyText.includes('Carrinho vazio')
         ) {
           return 0;
         }
 
-        const matchItens = bodyText.match(/(\d+)\s*ITEN[S]?/i) || bodyText.match(/(\d+)\s*ITEM/i);
+        const matchItens = bodyText.match(/(\d+)\s*ITENS/i) || bodyText.match(/(\d+)\s*ITEM/i);
         if (matchItens) {
           return parseInt(matchItens[1], 10);
         }
 
-        const linhas = document.querySelectorAll('.b2b-checkout-item, [class*="CheckoutItem"], [class*="CartItem"], .cart-item');
+        const linhas = document.querySelectorAll('.OrderItem__deleteButton___x2z1N, button[class*="deleteButton"], .b2b-checkout-item, [class*="CheckoutItem"]');
         if (linhas && linhas.length > 0) {
           return linhas.length;
         }
 
-        const badge = document.querySelector('[class*="badge"], [class*="CartButton"] span, [class*="counter"]');
-        if (badge) {
-          const num = parseInt(badge.innerText.trim(), 10);
-          if (!isNaN(num)) return num;
+        const btnDanger = document.querySelector('button[class*="CartOrderFooter__danger"], button[class*="danger"]');
+        if (btnDanger) {
+          return 1;
         }
 
         return 0;
@@ -364,58 +362,58 @@ class SotonRobot {
   async limparCarrinho() {
     if (!this.page) throw new Error('Robô Soton não iniciado.');
     try {
-      let qtdInicial = await this.contarItensCarrinho();
-      if (qtdInicial === 0) {
-        console.log('[SotonRobot] Carrinho já está 100% vazio (0 itens).');
-        return { sucesso: true, itensRestantes: 0 };
+      await this.page.goto('https://sotonfarma.meuspedidos.com.br/carrinho', {
+        waitUntil: 'networkidle2',
+        timeout: 25000
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      const btnDangerSelector = 'button[class*="CartOrderFooter__danger"], button[class*="danger"]';
+      let temBotaoExcluir = await this.page.$(btnDangerSelector);
+
+      if (!temBotaoExcluir) {
+        temBotaoExcluir = await this.page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btn = btns.find(b => (b.innerText || '').toLowerCase().includes('excluir carrinho'));
+          return !!btn;
+        });
       }
 
-      console.log(`[SotonRobot] Limpando carrinho com ${qtdInicial} itens...`);
-
-      const clicouExcluir = await this.page.evaluate(() => {
-        const botoes = Array.from(document.querySelectorAll('button, a'));
-        const btnExcluir = botoes.find(b => {
-          const t = (b.innerText || '').toLowerCase();
-          return t.includes('excluir carrinho') || t.includes('limpar carrinho') || t.includes('esvaziar carrinho');
-        });
-        if (btnExcluir) {
-          btnExcluir.click();
-          return true;
-        }
-        return false;
-      });
-
-      if (clicouExcluir) {
-        await new Promise(r => setTimeout(r, 1500));
-        await this.page.evaluate(() => {
-          const botoesModal = Array.from(document.querySelectorAll('button'));
-          const btnConfirmar = botoesModal.find(b => {
-            const t = (b.innerText || '').trim().toUpperCase();
-            return t === 'EXCLUIR' || t === 'SIM' || t === 'CONFIRMAR' || t === 'OK';
-          });
-          if (btnConfirmar) btnConfirmar.click();
-        });
-        await new Promise(r => setTimeout(r, 2500));
-      } else {
-        const botoesRemover = await this.page.evaluate(() => {
-          const lixeiras = Array.from(document.querySelectorAll('button[class*="delete"], button[class*="remove"], [data-action*="remove"]'));
-          return lixeiras.length;
-        });
-
-        for (let i = 0; i < botoesRemover; i++) {
+      if (temBotaoExcluir) {
+        console.log('[SotonRobot] Clicando no botão Excluir carrinho com page.click...');
+        try {
+          await this.page.$eval(btnDangerSelector, el => el.scrollIntoView());
+          await new Promise(r => setTimeout(r, 400));
+          await this.page.click(btnDangerSelector);
+        } catch (e) {
           await this.page.evaluate(() => {
-            const btn = document.querySelector('button[class*="delete"], button[class*="remove"], [data-action*="remove"]');
+            const btns = Array.from(document.querySelectorAll('button'));
+            const btn = btns.find(b => (b.innerText || '').toLowerCase().includes('excluir carrinho'));
             if (btn) btn.click();
           });
-          await new Promise(r => setTimeout(r, 800));
-          await this.page.evaluate(() => {
-            const b = Array.from(document.querySelectorAll('button')).find(btn => ['EXCLUIR', 'SIM', 'CONFIRMAR'].includes(btn.innerText.trim().toUpperCase()));
-            if (b) b.click();
-          });
-          await new Promise(r => setTimeout(r, 800));
+        }
+
+        console.log('[SotonRobot] Aguardando modal ConfirmDialog abrir...');
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Clica no botão EXCLUIR do ConfirmDialog
+        const clicouExcluirModal = await this.page.evaluate(() => {
+          const dialogBtns = Array.from(document.querySelectorAll('[class*="ConfirmDialog"] button, button'));
+          const btnExcluir = dialogBtns.find(b => (b.innerText || '').trim().toUpperCase() === 'EXCLUIR');
+          if (btnExcluir) {
+            btnExcluir.click();
+            return true;
+          }
+          return false;
+        });
+
+        if (clicouExcluirModal) {
+          console.log('[SotonRobot] Confirmou exclusão do carrinho no ConfirmDialog.');
+          await new Promise(r => setTimeout(r, 3000));
         }
       }
 
+      // Confere se esvaziou
       const qtdFinal = await this.contarItensCarrinho();
       if (qtdFinal === 0) {
         console.log('[SotonRobot] ✅ Carrinho da Soton esvaziado com sucesso (0 itens).');

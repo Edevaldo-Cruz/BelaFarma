@@ -452,7 +452,7 @@ class DistrimedRobot {
         const botoes = Array.from(document.querySelectorAll('button, a, div, span'));
         const btnCarrinho = botoes.find(b => {
           const t = (b.innerText || '').trim();
-          return /Carrinho\s*\d+/i.test(t);
+          return t.includes('Carrinho');
         });
 
         if (btnCarrinho) {
@@ -490,39 +490,41 @@ class DistrimedRobot {
   async limparCarrinho() {
     if (!this.page) throw new Error('Robô Distrimed não iniciado.');
     try {
-      let qtdInicial = await this.contarItensCarrinho();
-      if (qtdInicial === 0) {
-        console.log('[DistrimedRobot] Carrinho já está 100% vazio (0 itens).');
-        return { sucesso: true, itensRestantes: 0 };
-      }
+      console.log('[DistrimedRobot] Abrindo drawer do Carrinho para limpeza...');
+      await this.page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button'));
+        const btnCart = btns.find(b => (b.innerText || '').includes('Carrinho'));
+        if (btnCart) btnCart.click();
+      });
+      await new Promise(r => setTimeout(r, 1500));
 
-      console.log(`[DistrimedRobot] Limpando carrinho com ${qtdInicial} itens...`);
-
+      console.log('[DistrimedRobot] Clicando em Limpar carrinho...');
       const clicouLimpar = await this.page.evaluate(() => {
-        const botoes = Array.from(document.querySelectorAll('button, a'));
-        const btnLimpar = botoes.find(b => {
-          const t = (b.innerText || '').toLowerCase();
-          return t.includes('limpar carrinho') || t.includes('esvaziar carrinho') || t.includes('excluir carrinho');
-        });
-        if (btnLimpar) {
-          btnLimpar.click();
+        const btns = Array.from(document.querySelectorAll('button'));
+        const btn = btns.find(b => (b.innerText || '').includes('Limpar carrinho'));
+        if (btn) {
+          btn.click();
           return true;
         }
         return false;
       });
 
       if (clicouLimpar) {
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1500));
+        // Clica no botão Sim do modal de confirmação (texto contém "Sim")
         await this.page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll('.modal button, [role="dialog"] button, button'));
-          const btnConf = btns.find(b => {
-            const t = (b.innerText || '').trim().toLowerCase();
-            return t === 'confirmar' || t === 'sim' || t === 'limpar' || t === 'ok' || t.includes('confirmar');
-          });
-          if (btnConf) btnConf.click();
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btnSim = btns.find(b => (b.innerText || '').includes('Sim'));
+          if (btnSim) btnSim.click();
         });
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 2500));
       }
+
+      // Fecha eventuais modais/gavetas clicando no fechar ou fora
+      await this.page.evaluate(() => {
+        const btnClose = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === 'close');
+        if (btnClose) btnClose.click();
+      }).catch(() => {});
 
       const qtdFinal = await this.contarItensCarrinho();
       if (qtdFinal === 0) {

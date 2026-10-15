@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "d1efdcf",
-  "commitMessage": "fix(belaped): corrigir modal de importacao da Distrimed e fluxo de limpeza e adicao do carrinho da Soton",
-  "buildTime": "14/10/2026, 18:59:53"
+  "commitHash": "ad1fc28",
+  "commitMessage": "feat(belaped): sincronizacao exata do carrinho com Belinha, relatorio de auditoria e repasse automatico para o 2 colocado",
+  "buildTime": "15/10/2026, 08:37:27"
 }

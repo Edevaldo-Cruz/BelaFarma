@@ -50,7 +50,12 @@ import {
   FileDown,
   RotateCcw,
   ArrowRightLeft,
-  ArrowRight
+  ArrowRight,
+  LayoutGrid,
+  Ban,
+  MessageSquare,
+  Check,
+  Copy
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -109,6 +114,9 @@ interface FaltaItem7d {
   qtd_emergencial?: number;
   prioridade?: 'P1' | 'P2' | 'P3' | 'P4';
   prioridade_rotulo?: string;
+  nao_cotar?: boolean;
+  nao_carrinho?: boolean;
+  motivo_justificativa?: string;
   falta_balcao_belinha?: {
     id: string;
     productName: string;
@@ -212,6 +220,95 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       localStorage.setItem('belaped_apenas_tabela', String(novo));
       localStorage.setItem('belaped_tabela_expandida', String(novo));
     } catch {}
+  };
+
+  // Modo de visualização dos produtos a cotar/comprar: CARDS por padrão (conforme solicitado pelo usuário)
+  const [modoVisualizacao, setModoVisualizacao] = useState<'cards' | 'tabela'>(() => {
+    try {
+      const salvo = localStorage.getItem('belaped_modo_visualizacao');
+      return (salvo === 'tabela' || salvo === 'cards') ? salvo : 'cards';
+    } catch {
+      return 'cards';
+    }
+  });
+
+  const alternarModoVisualizacao = (modo: 'cards' | 'tabela') => {
+    setModoVisualizacao(modo);
+    try {
+      localStorage.setItem('belaped_modo_visualizacao', modo);
+    } catch {}
+  };
+
+  // Filtro específico para regras de produtos
+  const [filtroRegras, setFiltroRegras] = useState<'TODOS' | 'BLOQUEADOS_CARRINHO' | 'NAO_COTAR' | 'LIBERADOS'>('TODOS');
+  const [justificativaEditando, setJustificativaEditando] = useState<{ [id: number]: string }>({});
+  const [copiadoEan, setCopiadoEan] = useState<string | null>(null);
+
+  // Copiar EAN para área de transferência
+  const handleCopiarEan = (ean: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!ean) return;
+    try {
+      navigator.clipboard.writeText(ean);
+      setCopiadoEan(ean);
+      addToast(`EAN ${ean} copiado!`, 'success');
+      setTimeout(() => setCopiadoEan(null), 2000);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Atualizar Regra de Produto (Não colocar no carrinho, Não cotar e Justificativa)
+  const handleAtualizarRegraProduto = async (
+    item: FaltaItem7d,
+    campo: 'nao_cotar' | 'nao_carrinho' | 'motivo_justificativa',
+    valor: any
+  ) => {
+    const novaRegra = {
+      nao_cotar: campo === 'nao_cotar' ? Boolean(valor) : Boolean(item.nao_cotar),
+      nao_carrinho: campo === 'nao_carrinho' ? Boolean(valor) : Boolean(item.nao_carrinho),
+      motivo_justificativa: campo === 'motivo_justificativa' ? String(valor) : String(item.motivo_justificativa || '')
+    };
+
+    // Atualização otimista no estado local imediato
+    setFaltas(prev => prev.map(f => {
+      if (f.produto_id === item.produto_id || (f.ean && f.ean === item.ean)) {
+        return { ...f, ...novaRegra };
+      }
+      return f;
+    }));
+
+    // Se marcou para não colocar no carrinho, desmarca da seleção de compra
+    if (campo === 'nao_carrinho' && valor === true) {
+      setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false }));
+    }
+
+    try {
+      const res = await fetch('/api/belaped/produtos-regras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ean: item.ean,
+          produto_id: item.produto_id,
+          descricao: item.descricao,
+          ...novaRegra,
+          usuario: user?.name || user?.username || 'Farmacêutico'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (campo === 'nao_carrinho') {
+          addToast(valor ? `"${item.descricao}" bloqueado para carrinho!` : `"${item.descricao}" liberado para carrinho!`, 'info');
+        } else if (campo === 'nao_cotar') {
+          addToast(valor ? `"${item.descricao}" marcado para NÃO cotar!` : `"${item.descricao}" liberado para cotação!`, 'info');
+        } else if (campo === 'motivo_justificativa') {
+          addToast(`Justificativa salva com sucesso!`, 'success');
+        }
+      }
+    } catch (e: any) {
+      console.error('Erro ao sincronizar regra:', e);
+      addToast('Erro ao salvar regra: ' + e.message, 'error');
+    }
   };
 
   // Modal de Exportação TXT com opções de Agrupamento por Categoria e Fornecedor
@@ -948,6 +1045,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         return false;
       }
       if (filtroCategoria !== 'TODAS' && f.tipo_categoria !== filtroCategoria) return false;
+      // Filtro de Regras de Produtos (Bloqueados para Carrinho, Não Cotar ou Liberados)
+      if (filtroRegras === 'BLOQUEADOS_CARRINHO' && !f.nao_carrinho) {
+        return false;
+      }
+      if (filtroRegras === 'NAO_COTAR' && !f.nao_cotar) {
+        return false;
+      }
+      if (filtroRegras === 'LIBERADOS' && (f.nao_carrinho || f.nao_cotar)) {
+        return false;
+      }
       if (buscaFalta) {
         const termo = buscaFalta.toLowerCase();
         const bateNome = f.descricao.toLowerCase().includes(termo);
@@ -956,7 +1063,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
       return true;
     });
-  }, [faltas, modoListaManual, filtroModoReposicao, filtroApenasBalcao, filtroCurva, filtroPrioridade, filtroCategoria, buscaFalta]);
+  }, [faltas, modoListaManual, filtroModoReposicao, filtroApenasBalcao, filtroCurva, filtroPrioridade, filtroCategoria, filtroRegras, buscaFalta]);
 
   // Calcula os totais consolidados por empresa/distribuidora (1º Colocado)
   const totaisPorDistribuidora = useMemo(() => {
@@ -1545,7 +1652,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
       const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
       const itensSoton = base
-        .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('SOTON') && f.ean)
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('SOTON') && f.ean)
         .map(f => ({
           ean: f.ean,
           quantidade: f.qtd_sugerida_7d || 1,
@@ -1553,11 +1660,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           preco_1: f.preco_1,
           fornecedor_1: f.fornecedor_1,
           preco_2: f.preco_2,
-          fornecedor_2: f.fornecedor_2
+          fornecedor_2: f.fornecedor_2,
+          preco_ult_compra: Number(f.preco_ult_compra ?? f.custo_unitario ?? 0)
         }));
 
       if (itensSoton.length === 0) {
-        addToast('Nenhum item com a Soton como vencedora encontrado na lista atual do Belinha.', 'warning');
+        addToast('Nenhum item liberado com a Soton como vencedora encontrado na lista atual do Belinha.', 'warning');
         setMontandoCarrinhoSoton(false);
         return;
       }
@@ -1633,7 +1741,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
       const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
       const itensDistrimed = base
-        .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('DISTRIMED') && f.ean)
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('DISTRIMED') && f.ean)
         .map(f => ({
           ean: f.ean,
           quantidade: f.qtd_sugerida_7d || 1,
@@ -1641,11 +1749,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           preco_1: f.preco_1,
           fornecedor_1: f.fornecedor_1,
           preco_2: f.preco_2,
-          fornecedor_2: f.fornecedor_2
+          fornecedor_2: f.fornecedor_2,
+          preco_ult_compra: Number(f.preco_ult_compra ?? f.custo_unitario ?? 0)
         }));
 
       if (itensDistrimed.length === 0) {
-        addToast('Nenhum item com a Distrimed como vencedora encontrado na lista atual do Belinha.', 'warning');
+        addToast('Nenhum item liberado com a Distrimed como vencedora encontrado na lista atual do Belinha.', 'warning');
         setImportandoDistrimed(false);
         return;
       }
@@ -1706,7 +1815,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
       const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
       const itensDivimed = base
-        .filter(f => (f.fornecedor_1 || '').toUpperCase().includes('DIVIMED') && f.ean)
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('DIVIMED') && f.ean)
         .map(f => ({
           ean: f.ean,
           descricao: f.descricao,
@@ -1714,11 +1823,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           preco_1: f.preco_1,
           fornecedor_1: f.fornecedor_1,
           preco_2: f.preco_2,
-          fornecedor_2: f.fornecedor_2
+          fornecedor_2: f.fornecedor_2,
+          preco_ult_compra: Number(f.preco_ult_compra ?? f.custo_unitario ?? 0)
         }));
 
       if (itensDivimed.length === 0) {
-        addToast('Nenhum item com a Divimed como vencedora encontrado na lista atual do Belinha.', 'warning');
+        addToast('Nenhum item liberado com a Divimed como vencedora encontrado na lista atual do Belinha.', 'warning');
         setMontandoCarrinhoDivimed(false);
         return;
       }
@@ -1765,6 +1875,309 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       addToast('Erro ao acionar robô Divimed: ' + err.message, 'error');
       setMontandoCarrinhoDivimed(false);
     }
+  };
+
+  // Renderizador do Card Individual de Produto (Visualização em Cards solicitada pelo usuário)
+  const renderProdutoCard = (item: FaltaItem7d) => {
+    const isSelected = Boolean(itensSelecionados[item.produto_id]);
+    const isRuptura = item.saldo <= 0;
+    const semEstoquePortais = item.fornecedor_1 === 'Sem Estoque (Portais)';
+    const temCotacaoReal = Boolean(item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !semEstoquePortais && item.preco_1 && item.preco_1 > 0);
+    const fornecedor1 = temCotacaoReal ? item.fornecedor_1! : (semEstoquePortais ? 'Sem Estoque (Portais)' : 'Aguardando Robô');
+    const preco1 = temCotacaoReal ? item.preco_1! : null;
+    const fornecedor2 = (item.fornecedor_2 && item.fornecedor_2 !== '—') ? item.fornecedor_2 : null;
+    const preco2 = (item.preco_2 && item.preco_2 > 0) ? item.preco_2 : null;
+    const precoUltCompra = Number(item.preco_ult_compra ?? item.custo_unitario ?? 0);
+    const diffUltCompra = (preco1 && precoUltCompra > 0) ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1)) : 0;
+    const diff2Colocado = (preco1 && preco2 && preco2 > preco1) ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
+    const economizou = preco1 && precoUltCompra > 0 && preco1 < precoUltCompra;
+    const diferencaReais = preco1 && precoUltCompra > 0 ? Number((precoUltCompra - preco1).toFixed(2)) : 0;
+    const dataUltFormatada = item.data_ult_compra ? new Date(item.data_ult_compra).toLocaleDateString('pt-BR') : '';
+
+    const isBloqueadoCarrinho = Boolean(item.nao_carrinho);
+    const isNaoCotar = Boolean(item.nao_cotar);
+
+    return (
+      <div
+        key={item.produto_id}
+        className={`flex flex-col justify-between rounded-2xl border transition-all duration-200 p-4 shadow-lg relative ${
+          isBloqueadoCarrinho
+            ? 'bg-[#151016] border-amber-600/70 shadow-amber-950/20 ring-1 ring-amber-500/30'
+            : isNaoCotar
+            ? 'bg-[#180e14] border-rose-600/70 shadow-rose-950/20 ring-1 ring-rose-500/30'
+            : isSelected
+            ? 'bg-[#0a182c] border-cyan-500/80 shadow-cyan-950/40 ring-1 ring-cyan-500/50'
+            : 'bg-[#0b1322] border-slate-800 hover:border-slate-700 hover:shadow-slate-900/40'
+        }`}
+      >
+        {/* Topo do Card: Checkbox + Badges */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                disabled={isBloqueadoCarrinho}
+                onChange={() => setItensSelecionados(prev => ({ ...prev, [item.produto_id]: !prev[item.produto_id] }))}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isBloqueadoCarrinho ? 'Produto bloqueado para não entrar no carrinho' : 'Selecionar item'}
+              />
+              <span className={`px-2 py-0.5 rounded text-[11px] font-black border ${
+                item.curva_abc === 'A'
+                  ? 'bg-emerald-950 text-emerald-300 border-emerald-600'
+                  : item.curva_abc === 'B'
+                  ? 'bg-blue-950 text-blue-300 border-blue-600'
+                  : 'bg-slate-900 text-slate-400 border-slate-700'
+              }`}>
+                Curva {item.curva_abc}
+              </span>
+              <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800">
+                {item.tipo_categoria === 'MEDICAMENTO' ? 'MED' : 'PERF'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {item.prioridade && (
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-black border whitespace-nowrap ${
+                  item.prioridade === 'P1'
+                    ? 'bg-rose-950 text-rose-300 border-rose-600 animate-pulse'
+                    : item.prioridade === 'P2'
+                    ? 'bg-amber-950 text-amber-300 border-amber-600'
+                    : item.prioridade === 'P3'
+                    ? 'bg-blue-950 text-blue-300 border-blue-600'
+                    : 'bg-slate-900 text-slate-400 border-slate-800'
+                }`}>
+                  {item.prioridade} {item.prioridade === 'P1' ? 'Crítico' : ''}
+                </span>
+              )}
+
+              {item.falta_balcao_belinha && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-700">
+                  🔔 Balcão
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Nome do Produto e Apresentação */}
+          <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug hover:text-cyan-300 transition-colors" title={item.descricao}>
+            {item.descricao}
+          </h3>
+
+          <div className="flex items-center justify-between text-xs text-slate-400 mt-1 mb-3">
+            <span className="truncate max-w-[150px]">{item.apresentacao || 'Sem apresentação'}</span>
+            {item.ean && (
+              <button
+                type="button"
+                onClick={(e) => handleCopiarEan(item.ean, e)}
+                className="inline-flex items-center gap-1 font-mono text-[11px] text-cyan-400 hover:text-cyan-200 bg-[#06101d] px-1.5 py-0.5 rounded border border-cyan-900/60 transition-colors cursor-pointer"
+                title="Copiar código EAN de barras"
+              >
+                {copiadoEan === item.ean ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{item.ean}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Grade de Estoque e Vendas (4 Blocos) */}
+          <div className="grid grid-cols-4 gap-1.5 bg-[#070e1c] p-2 rounded-xl border border-slate-800/80 mb-3 text-center">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Saldo</span>
+              <span className={`text-xs font-black ${isRuptura ? 'text-rose-400 animate-pulse' : 'text-amber-300'}`}>
+                {item.saldo} un
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Cobert.</span>
+              <span className={`text-xs font-bold ${item.dias_estoque_restante <= 0 ? 'text-rose-400' : 'text-slate-200'}`}>
+                {item.dias_estoque_restante <= 0 ? '0d' : `${item.dias_estoque_restante}d`}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">VMD</span>
+              <span className="text-xs font-bold text-slate-200">
+                {item.vmd_ponderado}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">30 Dias</span>
+              <span className="text-xs font-bold text-slate-200">
+                {item.vendas_30d} un
+              </span>
+            </div>
+          </div>
+
+          {/* Caixa de Sugestão 7d e Subtotal */}
+          <div className="flex items-center justify-between bg-cyan-950/30 px-3 py-2 rounded-xl border border-cyan-800/60 mb-3">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-cyan-300 block">Pedir (7 Dias)</span>
+              <span className="text-base font-black text-cyan-200">
+                {item.qtd_sugerida_7d} un
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Subtotal Est.</span>
+              <span className="text-base font-black text-white">
+                R$ {item.subtotal_7d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Comparativo de Preços (Última Compra vs 1º e 2º Colocados) */}
+          <div className="space-y-2 bg-[#081020] p-2.5 rounded-xl border border-slate-800/90 mb-3 text-xs">
+            {/* Última Compra */}
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="text-slate-400 text-[11px]">Última Compra:</span>
+              <div className="text-right">
+                <b className="text-amber-300 font-black">
+                  {precoUltCompra > 0 ? `R$ ${precoUltCompra.toFixed(2)}` : '—'}
+                </b>
+                {item.fornecedor_ult_compra && (
+                  <span className="text-[10px] text-slate-500 block truncate max-w-[130px]" title={`${item.fornecedor_ult_compra} ${dataUltFormatada ? `(${dataUltFormatada})` : ''}`}>
+                    {item.fornecedor_ult_compra}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 1º Colocado (Vencedor) */}
+            <div className="flex items-center justify-between pt-1.5 border-t border-slate-800">
+              <div className="flex flex-col truncate max-w-[135px]">
+                <span className="text-[10px] uppercase font-black text-cyan-400">1º Colocado</span>
+                {(() => {
+                  const link1 = obterLinkDistribuidoraProduto(item, 1);
+                  return link1 ? (
+                    <a
+                      href={link1}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => handleAbrirLinkDistribuidora(item)}
+                      className="text-xs font-bold text-emerald-300 hover:text-white hover:underline truncate inline-flex items-center gap-1 group"
+                      title={`Conferir no portal da ${fornecedor1}`}
+                    >
+                      <span className="truncate">{fornecedor1}</span>
+                      <ExternalLink className="w-3 h-3 text-emerald-400 group-hover:scale-125 transition-transform shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="text-xs font-bold text-emerald-300 truncate">{fornecedor1}</span>
+                  );
+                })()}
+              </div>
+
+              <div className="flex flex-col items-end">
+                <div className="flex items-center gap-1">
+                  <span className="text-sm font-black text-emerald-300">
+                    {preco1 !== null ? `R$ ${preco1.toFixed(2)}` : '—'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
+                    className="p-1 rounded bg-[#06101f] text-cyan-400 hover:text-white border border-cyan-800/80 transition-colors"
+                    title="Ver série temporal e compras reais"
+                  >
+                    <LineChart className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Badge Economia vs Última Compra */}
+                {preco1 && precoUltCompra > 0 && (
+                  <span className={`text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
+                    economizou
+                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                      : 'bg-rose-950 text-rose-300 border border-rose-700'
+                  }`}>
+                    {economizou ? `Economia: -R$ ${diferencaReais.toFixed(2)} (-${Math.abs(diffUltCompra)}%)` : `+R$ ${Math.abs(diferencaReais).toFixed(2)} (+${diffUltCompra}%)`}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 2º Colocado */}
+            {fornecedor2 && preco2 && (
+              <div className="flex items-center justify-between pt-1 border-t border-slate-800/60 text-slate-400">
+                <span className="text-[11px] truncate max-w-[135px]">2º: {fornecedor2}</span>
+                <span className="text-xs font-bold text-slate-300">
+                  R$ {preco2.toFixed(2)} {diff2Colocado > 0 && <span className="text-[10px] text-amber-400 font-bold">+{diff2Colocado}%</span>}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RODAPÉ DO CARD: REGRAS DE DECISÃO E JUSTIFICATIVA (SOLICITADO PELO USUÁRIO) */}
+        <div className="pt-2.5 border-t border-slate-800/80 space-y-2 mt-auto">
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {/* Opção 1: Não colocar no carrinho */}
+            <label className={`flex items-center gap-1.5 p-1.5 rounded-xl border cursor-pointer transition-all select-none ${
+              isBloqueadoCarrinho
+                ? 'bg-amber-950/80 border-amber-500 text-amber-200 font-black shadow-sm'
+                : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}>
+              <input
+                type="checkbox"
+                checked={isBloqueadoCarrinho}
+                onChange={(e) => handleAtualizarRegraProduto(item, 'nao_carrinho', e.target.checked)}
+                className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500 cursor-pointer"
+              />
+              <span className="text-[11px] leading-tight">🚫 Não colocar no carrinho</span>
+            </label>
+
+            {/* Opção 2: Não cotar */}
+            <label className={`flex items-center gap-1.5 p-1.5 rounded-xl border cursor-pointer transition-all select-none ${
+              isNaoCotar
+                ? 'bg-rose-950/80 border-rose-500 text-rose-200 font-black shadow-sm'
+                : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}>
+              <input
+                type="checkbox"
+                checked={isNaoCotar}
+                onChange={(e) => handleAtualizarRegraProduto(item, 'nao_cotar', e.target.checked)}
+                className="rounded border-slate-700 bg-slate-900 text-rose-500 focus:ring-rose-500 cursor-pointer"
+              />
+              <span className="text-[11px] leading-tight">🛑 Não cotar</span>
+            </label>
+          </div>
+
+          {/* Campo de Justificativa com chips de motivo rápido */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <MessageSquare className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={justificativaEditando[item.produto_id] !== undefined ? justificativaEditando[item.produto_id] : (item.motivo_justificativa || '')}
+                onChange={(e) => setJustificativaEditando(prev => ({ ...prev, [item.produto_id]: e.target.value }))}
+                onBlur={(e) => handleAtualizarRegraProduto(item, 'motivo_justificativa', e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAtualizarRegraProduto(item, 'motivo_justificativa', (e.target as HTMLInputElement).value);
+                  }
+                }}
+                placeholder="Justificativa (ex: estoque em trânsito...)"
+                className="w-full bg-[#060d19] border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              />
+            </div>
+
+            {/* Chips Rápidos de Motivo em 1 Toque */}
+            <div className="flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+              <span className="text-[9px] uppercase font-bold text-slate-500">Motivos:</span>
+              {['Em trânsito', 'Descontinuado', 'Substituído', 'Sem giro', 'Preço alto'].map(chip => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => {
+                    setJustificativaEditando(prev => ({ ...prev, [item.produto_id]: chip }));
+                    handleAtualizarRegraProduto(item, 'motivo_justificativa', chip);
+                  }}
+                  className="px-1.5 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer border border-slate-700/60"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -2137,6 +2550,72 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     {faltas.filter(f => f.falta_balcao_belinha).length}
                   </span>
                 </button>
+
+                {/* Seletor de Modo: CARDS vs TABELA */}
+                <div className="flex items-center bg-[#070e1b] p-1 rounded-xl border border-slate-700 shadow-inner">
+                  <button
+                    onClick={() => alternarModoVisualizacao('cards')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      modoVisualizacao === 'cards'
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-300'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibir os produtos em Cards detalhados com controles de bloqueio e justificativas"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>🗂️ Cards</span>
+                  </button>
+                  <button
+                    onClick={() => alternarModoVisualizacao('tabela')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      modoVisualizacao === 'tabela'
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-300'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibir os produtos na tabela clássica"
+                  >
+                    <Table className="w-3.5 h-3.5" />
+                    <span>📊 Tabela</span>
+                  </button>
+                </div>
+
+                {/* Filtro Rápido de Regras de Bloqueio */}
+                <div className="flex items-center gap-1 bg-[#070e1b] p-1 rounded-xl border border-slate-800 text-[11px]">
+                  <button
+                    onClick={() => setFiltroRegras('TODOS')}
+                    className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroRegras === 'TODOS'
+                        ? 'bg-slate-700 text-white font-black'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Todos ({faltas.length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroRegras('BLOQUEADOS_CARRINHO')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroRegras === 'BLOQUEADOS_CARRINHO'
+                        ? 'bg-amber-600 text-white font-black shadow-sm'
+                        : 'text-amber-400/90 hover:text-amber-300'
+                    }`}
+                    title="Filtrar produtos marcados para NÃO colocar no carrinho"
+                  >
+                    <Ban className="w-3 h-3 text-amber-300" />
+                    <span>Bloq. Carrinho ({faltas.filter(f => f.nao_carrinho).length})</span>
+                  </button>
+                  <button
+                    onClick={() => setFiltroRegras('NAO_COTAR')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroRegras === 'NAO_COTAR'
+                        ? 'bg-rose-600 text-white font-black shadow-sm'
+                        : 'text-rose-400/90 hover:text-rose-300'
+                    }`}
+                    title="Filtrar produtos marcados para NÃO cotar"
+                  >
+                    <Ban className="w-3 h-3 text-rose-300" />
+                    <span>Não Cotar ({faltas.filter(f => f.nao_cotar).length})</span>
+                  </button>
+                </div>
               </div>
 
               {/* Indicadores Compactos quando no Modo Expandido */}
@@ -3208,13 +3687,93 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
             )}
 
-            {/* TABELA DE ALTA DENSIDADE (DIRETRIZES AGENTS.MD: 1 LINHA COMPACTA) */}
+            {/* CONTAINER PRINCIPAL DE PRODUTOS: CARDS OU TABELA */}
             <div className="bg-[#0e1626] rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
               
               {/* Barra animada de status durante carregamento ou cotação */}
               {(refreshing || (statusCotacao && statusCotacao.emAndamento)) && (
                 <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-blue-500 animate-pulse belaped-no-print"></div>
               )}
+
+              {modoVisualizacao === 'cards' ? (
+                <div className={`p-4 space-y-4 overflow-auto ${modoTabelaExpandida ? 'max-h-[82vh]' : 'max-h-[68vh]'} custom-scrollbar`}>
+                  {/* Barra de Seleção e Resumo no Modo Cards */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-[#080f1d] p-3 rounded-xl border border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length > 0 && (agruparPorDistribuidora ? faltasFiltradas : itensPaginados).every(f => itensSelecionados[f.produto_id])}
+                          onChange={() => {
+                            const listaAlvo = agruparPorDistribuidora ? faltasFiltradas : itensPaginados;
+                            const todosMarcados = listaAlvo.length > 0 && listaAlvo.every(f => itensSelecionados[f.produto_id]);
+                            const novoMap = { ...itensSelecionados };
+                            listaAlvo.forEach(f => {
+                              if (!todosMarcados && f.nao_carrinho) {
+                                novoMap[f.produto_id] = false;
+                              } else {
+                                novoMap[f.produto_id] = !todosMarcados;
+                              }
+                            });
+                            setItensSelecionados(novoMap);
+                          }}
+                          className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                        />
+                        <span>Selecionar Todos ({agruparPorDistribuidora ? faltasFiltradas.length : itensPaginados.length})</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-400">Total Selecionado:</span>
+                      <b className="text-emerald-400 font-black">
+                        R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </b>
+                      <span className="text-slate-500">({totaisSelecionados.qtdItens} produtos)</span>
+                    </div>
+                  </div>
+
+                  {/* Lista de Cards */}
+                  {agruparPorDistribuidora ? (
+                    <div className="space-y-6">
+                      {totaisPorDistribuidora.map(grupo => (
+                        <div key={grupo.distribuidora} className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-r from-cyan-950/60 to-slate-900/80 p-3 rounded-xl border border-cyan-800/60">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-black text-cyan-300 uppercase">{grupo.distribuidora}</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-bold">
+                                {grupo.qtdProdutos} produtos ({grupo.qtdUnidades} un)
+                              </span>
+                              {grupo.pedidoMinimo > 0 && (
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-bold border ${
+                                  grupo.atingiuMinimo
+                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600'
+                                    : 'bg-amber-950/80 text-amber-300 border-amber-600'
+                                }`}>
+                                  {grupo.atingiuMinimo ? '✓ Mínimo Atingido' : `⚠️ Faltam R$ ${grupo.faltaParaMinimo.toFixed(2)}`}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-sm font-black text-emerald-300">
+                              Total: R$ {grupo.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {ordenarListaFaltas(grupo.itens).map(item => renderProdutoCard(item))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : itensPaginados.length === 0 ? (
+                    <div className="p-12 text-center bg-[#091120] rounded-2xl border border-slate-800">
+                      <p className="text-sm font-bold text-slate-400">Nenhum produto encontrado com os filtros selecionados.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {itensPaginados.map(item => renderProdutoCard(item))}
+                    </div>
+                  )}
+                </div>
+              ) : (
               <div className={`overflow-auto ${modoTabelaExpandida ? 'max-h-[82vh]' : 'max-h-[68vh]'} custom-scrollbar relative`}>
                 <table className="w-full text-left border-collapse belaped-print-table">
                   <thead className="sticky top-0 z-20 bg-[#09101f] shadow-lg">
@@ -3993,6 +4552,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </tbody>
                 </table>
               </div>
+            )}
 
               {/* ─── CONTROLE DE PAGINAÇÃO DA TABELA ─────────────────────────────── */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-[#09101f] border-t border-slate-800 text-xs">
@@ -4902,7 +5462,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
 
               {/* KPI Cards */}
-              <div className="p-5 px-6 grid grid-cols-2 md:grid-cols-4 gap-3 bg-[#080d1a] border-b border-slate-800/80">
+              <div className="p-5 px-6 grid grid-cols-2 md:grid-cols-5 gap-3 bg-[#080d1a] border-b border-slate-800/80">
                 <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex flex-col justify-between">
                   <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Adicionados
@@ -4913,6 +5473,31 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     </span>
                     <span className="text-xs text-emerald-300 font-bold">
                       R$ {Number(rel.totalAdicionadoReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Economia Líquida vs Última Compra */}
+                <div className={`p-3.5 rounded-2xl flex flex-col justify-between border ${
+                  Number(rel.economiaTotalReais || 0) > 0
+                    ? 'bg-teal-950/50 border-teal-500/50 text-teal-200'
+                    : Number(rel.economiaTotalReais || 0) < 0
+                    ? 'bg-rose-950/50 border-rose-500/50 text-rose-200'
+                    : 'bg-slate-900/60 border-slate-700 text-slate-300'
+                }`}>
+                  <span className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    {Number(rel.economiaTotalReais || 0) >= 0 ? 'Economia vs Últ. Compra' : 'Gasto Adicional'}
+                  </span>
+                  <div className="mt-2">
+                    <span className="text-xl font-black block">
+                      {Number(rel.economiaTotalReais || 0) >= 0 ? 'R$ ' : '+R$ '}
+                      {Math.abs(Number(rel.economiaTotalReais || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-[11px] font-bold block">
+                      {Number(rel.economiaTotalReais || 0) >= 0
+                        ? `-${Math.abs(Number(rel.economiaTotalPct || 0))}% vs Última Compra`
+                        : `+${Math.abs(Number(rel.economiaTotalPct || 0))}% acima da Últ. Compra`}
                     </span>
                   </div>
                 </div>
@@ -4954,7 +5539,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       {rel.totalSolicitado} itens
                     </span>
                     <span className="text-[10px] text-slate-400 font-medium">
-                      Lista exata do Belinha
+                      Base Última: R$ {Number(rel.totalUltimaCompraReais || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
                     </span>
                   </div>
                 </div>
@@ -5005,7 +5590,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </button>
                 </div>
 
-                <div className="relative min-w-[240px]">
+                <div className="relative w-72">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -5017,24 +5602,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               </div>
 
-              {/* Tabela de Alta Densidade */}
+              {/* Tabela de Alta Densidade com Auditoria Financeira */}
               <div className="flex-1 overflow-auto p-4 max-h-[460px]">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead className="sticky top-0 bg-[#0e172a] shadow-xs z-10 text-slate-300 border-b border-slate-700/80">
                     <tr>
                       <th className="py-2.5 px-3 w-32 whitespace-nowrap font-bold">EAN</th>
-                      <th className="py-2.5 px-3 min-w-[260px] whitespace-nowrap font-bold">Produto</th>
+                      <th className="py-2.5 px-3 min-w-[240px] whitespace-nowrap font-bold">Produto</th>
                       <th className="py-2.5 px-2.5 w-16 text-center whitespace-nowrap font-bold">Qtd</th>
-                      <th className="py-2.5 px-3 w-40 whitespace-nowrap font-bold">Status Robô</th>
-                      <th className="py-2.5 px-3 min-w-[200px] whitespace-nowrap font-bold">Fornecedor Alocado</th>
+                      <th className="py-2.5 px-3 w-36 whitespace-nowrap font-bold">Status Robô</th>
+                      <th className="py-2.5 px-3 min-w-[180px] whitespace-nowrap font-bold">Fornecedor Alocado</th>
                       <th className="py-2.5 px-3 w-28 text-right whitespace-nowrap font-bold">Subtotal</th>
-                      <th className="py-2.5 px-3 min-w-[220px] whitespace-nowrap font-bold">Motivo / Auditoria</th>
+                      <th className="py-2.5 px-3 w-28 text-right whitespace-nowrap font-bold">Últ. Compra</th>
+                      <th className="py-2.5 px-3 w-32 text-center whitespace-nowrap font-bold">Economia / Dif.</th>
+                      <th className="py-2.5 px-3 min-w-[180px] whitespace-nowrap font-bold">Motivo / Auditoria</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-medium">
                     {itensFiltrados.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="text-center py-8 text-slate-400">
+                        <td colSpan={9} className="text-center py-8 text-slate-400">
                           Nenhum item corresponde ao filtro selecionado.
                         </td>
                       </tr>
@@ -5043,6 +5630,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         const isAdicionado = item.tipoItem === 'ADICIONADO';
                         const isRepassado = item.tipoItem === 'REPASSADO';
                         const isSemEstoque = item.tipoItem === 'SEM_ESTOQUE';
+                        const precoUlt = Number(item.preco_ult_compra || 0);
+                        const difReais = Number(item.diferenca_reais || 0);
+                        const varPct = Number(item.variacao_pct || 0);
 
                         return (
                           <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
@@ -5050,7 +5640,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               {item.ean}
                             </td>
                             <td className="py-2 px-3 whitespace-nowrap">
-                              <span className="font-bold text-slate-200 block truncate max-w-[320px]" title={item.descricao}>
+                              <span className="font-bold text-slate-200 block truncate max-w-[280px]" title={item.descricao}>
                                 {item.descricao || 'Item sem descrição'}
                               </span>
                             </td>
@@ -5118,8 +5708,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               )}
                               {isSemEstoque && <span className="text-slate-500">—</span>}
                             </td>
+                            {/* Preço de Última Compra */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap text-amber-300 font-bold">
+                              {precoUlt > 0 ? (
+                                <div>
+                                  <span>R$ {precoUlt.toFixed(2)}</span>
+                                  <span className="block text-[10px] text-slate-500 font-normal">
+                                    Sub: R$ {(precoUlt * item.quantidade).toFixed(2)}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
+                            {/* Badge Economia / Diferença */}
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              {precoUlt > 0 ? (
+                                difReais > 0 ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-600">
+                                    -R$ {difReais.toFixed(2)} (-{Math.abs(varPct)}%)
+                                  </span>
+                                ) : difReais < 0 ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-950 text-rose-300 border border-rose-600">
+                                    +R$ {Math.abs(difReais).toFixed(2)} (+{varPct}%)
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">Mesmo preço</span>
+                                )
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
                             <td className="py-2 px-3 whitespace-nowrap text-[11px] text-slate-300">
-                              <span className="truncate max-w-[260px] block" title={item.motivo}>
+                              <span className="truncate max-w-[220px] block" title={item.motivo}>
                                 {item.motivo || (isAdicionado ? 'Adicionado com sucesso no carrinho' : 'Não informado')}
                               </span>
                             </td>
