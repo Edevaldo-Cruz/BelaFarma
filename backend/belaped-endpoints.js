@@ -23,6 +23,7 @@ const { SotonRobot } = require('./belaped-robot-soton');
 const { DistrimedRobot } = require('./belaped-robot-distrimed');
 const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
+const { validarCorrespondenciaProduto, expurgarCotacoesInconsistentes } = require('./belaped-validador');
 
 function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   const f = (fornecedorNome || '').toUpperCase();
@@ -229,9 +230,23 @@ function belapedEndpoints(db) {
 
   try {
     initTables();
+    expurgarCotacoesInconsistentes(db);
   } catch (e) {
     console.error('[BelaPed] Erro ao inicializar tabelas:', e.message);
   }
+
+  /**
+   * POST /api/belaped/expurgar-inconsistencias
+   * Varre e invalida qualquer cotação no banco que não corresponda com certeza ao produto esperado
+   */
+  router.post('/expurgar-inconsistencias', (req, res) => {
+    try {
+      const removidas = expurgarCotacoesInconsistentes(db);
+      res.json({ success: true, expurgadas: removidas, message: `${removidas} cotações inconsistentes foram expurgadas com sucesso.` });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   /**
    * POST /api/belaped/sincronizar-estoque
@@ -1667,6 +1682,14 @@ function belapedEndpoints(db) {
                 console.warn(`[BelaPed Segurança] ⛔ Queda absurda (> 70%): R$ ${resultado.preco.toFixed(2)} vs Custo R$ ${ultCustoRef.toFixed(2)} para "${descAtual || eanAtual}". Descartado.`);
                 resultado = { disponivel: false, preco: null, mensagem: 'Descartado: Variação absurda (> 70% de desconto vs custo)' };
               }
+              // Trava 3: 🛡️ Validação Estrita Semântica Anti-Alucinação (impede troca de produto/marca/público)
+              else if (descAtual && resultado.descricao) {
+                const checagemSem = validarCorrespondenciaProduto(descAtual, resultado.descricao);
+                if (!checagemSem.valido) {
+                  console.warn(`[BelaPed Segurança] ⛔ Cotação bloqueada por discrepância semântica em ${nomeFornecedor}: esperado "${descAtual}" vs retornado "${resultado.descricao}" (${checagemSem.motivo})`);
+                  resultado = { disponivel: false, preco: null, mensagem: `Descartado: ${checagemSem.motivo}` };
+                }
+              }
             }
 
             passosConcluidos++;
@@ -1999,6 +2022,17 @@ function belapedEndpoints(db) {
             url_produto = CASE WHEN excluded.url_produto IS NOT NULL AND excluded.url_produto != '' THEN excluded.url_produto ELSE belaped_cotacoes_reais.url_produto END,
             updated_at = excluded.updated_at
         `);
+
+        // 🛡️ Validação Estrita Semântica Anti-Alucinação
+        if (resultado.disponivel && resultado.preco > 0 && descricao && resultado.descricao) {
+          const checagemSem = validarCorrespondenciaProduto(descricao, resultado.descricao);
+          if (!checagemSem.valido) {
+            console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${fornecedorAlvo}: esperado "${descricao}" vs retornado "${resultado.descricao}" (${checagemSem.motivo})`);
+            resultado.disponivel = false;
+            resultado.preco = null;
+            resultado.mensagem = `Descartado: ${checagemSem.motivo}`;
+          }
+        }
 
         if (resultado.disponivel && resultado.preco > 0) {
           stmtSalvar.run(

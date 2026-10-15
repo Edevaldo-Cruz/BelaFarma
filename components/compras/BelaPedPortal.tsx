@@ -271,8 +271,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     };
 
     // Atualização otimista no estado local imediato
-    setFaltas(prev => prev.map(f => {
-      if (f.produto_id === item.produto_id || (f.ean && f.ean === item.ean)) {
+    setFaltasRaw(prev => prev.map(f => {
+      const matchId = String(f.produto_id) === String(item.produto_id);
+      const matchEan = Boolean(f.ean && item.ean && String(f.ean).trim() === String(item.ean).trim());
+      if (matchId || matchEan) {
         return { ...f, ...novaRegra };
       }
       return f;
@@ -2108,34 +2110,52 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         <div className="pt-2.5 border-t border-slate-800/80 space-y-2 mt-auto">
           <div className="grid grid-cols-2 gap-2 text-xs">
             {/* Opção 1: Não colocar no carrinho */}
-            <label className={`flex items-center gap-1.5 p-1.5 rounded-xl border cursor-pointer transition-all select-none ${
-              isBloqueadoCarrinho
-                ? 'bg-amber-950/80 border-amber-500 text-amber-200 font-black shadow-sm'
-                : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-            }`}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleAtualizarRegraProduto(item, 'nao_carrinho', !isBloqueadoCarrinho);
+              }}
+              className={`flex items-center gap-1.5 p-1.5 rounded-xl border cursor-pointer transition-all select-none text-left ${
+                isBloqueadoCarrinho
+                  ? 'bg-amber-950/90 border-amber-500 text-amber-200 font-black shadow-md ring-1 ring-amber-400/40'
+                  : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+              }`}
+              title={isBloqueadoCarrinho ? 'Produto BLOQUEADO: não será inserido no carrinho da distribuidora (Clique para liberar)' : 'Clique para BLOQUEAR este produto e impedi-lo de entrar no carrinho'}
+            >
               <input
                 type="checkbox"
                 checked={isBloqueadoCarrinho}
-                onChange={(e) => handleAtualizarRegraProduto(item, 'nao_carrinho', e.target.checked)}
-                className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                readOnly
+                className="pointer-events-none rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-0 cursor-pointer shrink-0"
               />
-              <span className="text-[11px] leading-tight">🚫 Não colocar no carrinho</span>
-            </label>
+              <span className="text-[11px] leading-tight font-bold">🚫 Não colocar no carrinho</span>
+            </button>
 
             {/* Opção 2: Não cotar */}
-            <label className={`flex items-center gap-1.5 p-1.5 rounded-xl border cursor-pointer transition-all select-none ${
-              isNaoCotar
-                ? 'bg-rose-950/80 border-rose-500 text-rose-200 font-black shadow-sm'
-                : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-            }`}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleAtualizarRegraProduto(item, 'nao_cotar', !isNaoCotar);
+              }}
+              className={`flex items-center gap-1.5 p-1.5 rounded-xl border cursor-pointer transition-all select-none text-left ${
+                isNaoCotar
+                  ? 'bg-rose-950/90 border-rose-500 text-rose-200 font-black shadow-md ring-1 ring-rose-400/40'
+                  : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+              }`}
+              title={isNaoCotar ? 'Produto MARCADO PARA NÃO COTAR: os robôs irão ignorá-lo (Clique para liberar)' : 'Clique para IGNORAR este produto nas próximas cotações de robôs'}
+            >
               <input
                 type="checkbox"
                 checked={isNaoCotar}
-                onChange={(e) => handleAtualizarRegraProduto(item, 'nao_cotar', e.target.checked)}
-                className="rounded border-slate-700 bg-slate-900 text-rose-500 focus:ring-rose-500 cursor-pointer"
+                readOnly
+                className="pointer-events-none rounded border-slate-700 bg-slate-900 text-rose-500 focus:ring-0 cursor-pointer shrink-0"
               />
-              <span className="text-[11px] leading-tight">🛑 Não cotar</span>
-            </label>
+              <span className="text-[11px] leading-tight font-bold">🛑 Não cotar</span>
+            </button>
           </div>
 
           {/* Campo de Justificativa com chips de motivo rápido */}

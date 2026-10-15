@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -168,12 +169,29 @@ class DpcRobot {
         };
       }
 
+      // 🛡️ VALIDAÇÃO ESTRITA SEMÂNTICA ANTI-ALUCINAÇÃO
+      if (descricaoProduto && dados.descricao) {
+        const checagem = validarCorrespondenciaProduto(descricaoProduto, dados.descricao);
+        if (!checagem.valido) {
+          console.warn(`[DpcRobot] ⛔ Rejeitando item incompatível retornado na DPC: esperado "${descricaoProduto}" vs encontrado "${dados.descricao}" (${checagem.motivo})`);
+          return {
+            fornecedor: 'DPC DISTRIBUIDORA',
+            ean: eanLimpo,
+            disponivel: false,
+            preco: null,
+            descricao: dados.descricao,
+            mensagem: 'Produto divergente do catálogo na DPC'
+          };
+        }
+      }
+
       return {
         fornecedor: 'DPC DISTRIBUIDORA',
         ean: eanLimpo,
         disponivel: true,
         descricao: dados.descricao || '',
         preco: dados.preco,
+        urlProduto: urlBusca,
         dataHora: new Date().toISOString()
       };
 

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ad1fc28",
-  "commitMessage": "feat(belaped): sincronizacao exata do carrinho com Belinha, relatorio de auditoria e repasse automatico para o 2 colocado",
-  "buildTime": "15/10/2026, 08:37:27"
+  "commitHash": "987c965",
+  "commitMessage": "feat(belaped): visualizacao em cards, bloqueio de carrinho, bloqueio de cotacao, justificativas e auditoria com economia vs ultima compra",
+  "buildTime": "15/10/2026, 09:19:56"
 }

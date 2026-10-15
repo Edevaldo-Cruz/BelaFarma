@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -118,9 +119,21 @@ class SotonRobot {
       if (
         bodyText.includes('Nenhum resultado encontrado') ||
         bodyText.includes('Nenhum produto encontrado') ||
-        bodyText.includes('não encontramos')
+        bodyText.includes('não encontramos') ||
+        bodyText.includes('0 produtos encontrados')
       ) {
         return [];
+      }
+
+      // Mapeia links de produtos na página para redirecionamento direto
+      const mapaLinks = {};
+      const linksNaPagina = Array.from(document.querySelectorAll('a[href*="/produtos/"]'));
+      for (const a of linksNaPagina) {
+        const txt = (a.innerText || '').trim().toUpperCase();
+        const href = a.getAttribute('href');
+        if (txt && href && !mapaLinks[txt]) {
+          mapaLinks[txt] = href.startsWith('http') ? href : ('https://sotonfarma.meuspedidos.com.br' + href);
+        }
       }
 
       // Na Soton (MeusPedidos), os itens ficam entre "Resultados para" e "contato@sotonfarma"
@@ -172,9 +185,20 @@ class SotonRobot {
           }
 
           if (precoNum !== null) {
+            // Tenta encontrar o link direto mais adequado
+            let linkDireto = null;
+            const titUpper = titulo.toUpperCase();
+            for (const [txtLink, href] of Object.entries(mapaLinks)) {
+              if (titUpper.includes(txtLink) || txtLink.includes(titUpper)) {
+                linkDireto = href;
+                break;
+              }
+            }
+
             encontrados.push({
               descricao: titulo,
-              preco: precoNum
+              preco: precoNum,
+              url: linkDireto || null
             });
           }
         }
@@ -185,7 +209,7 @@ class SotonRobot {
   }
 
   /**
-   * Consulta um EAN no catálogo da Soton Farma com validação estrita de EAN e Estoque
+   * Consulta um EAN no catálogo da Soton Farma com validação estrita de EAN, Semântica e Estoque
    */
   async cotarEAN(ean, descricaoProduto = '') {
     if (!this.page) throw new Error('Robô Soton não iniciado.');
@@ -208,8 +232,32 @@ class SotonRobot {
         };
       }
 
-      itens.sort((a, b) => a.preco - b.preco);
-      const melhor = itens[0];
+      // 2. 🛡️ VALIDAÇÃO ESTRITA SEMÂNTICA ANTI-ALUCINAÇÃO:
+      // Impede que resultados broad-match/fuzzy da busca do Mercos aceitem produtos errados
+      const itensValidados = itens.filter(it => {
+        if (!descricaoProduto) return true;
+        const checagem = validarCorrespondenciaProduto(descricaoProduto, it.descricao);
+        if (!checagem.valido) {
+          console.warn(`[SotonRobot] ⛔ Rejeitando item incompatível retornado na Soton: esperado "${descricaoProduto}" vs encontrado "${it.descricao}" (${checagem.motivo})`);
+          return false;
+        }
+        return true;
+      });
+
+      if (!itensValidados || itensValidados.length === 0) {
+        return {
+          fornecedor: 'SOTON FARMA',
+          ean: eanLimpo,
+          disponivel: false,
+          preco: null,
+          descricao: '',
+          mensagem: 'Sem estoque ou produto divergente na Soton Farma'
+        };
+      }
+
+      itensValidados.sort((a, b) => a.preco - b.preco);
+      const melhor = itensValidados[0];
+      const urlProduto = melhor.url || `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(eanLimpo)}`;
 
       return {
         fornecedor: 'SOTON FARMA',
@@ -217,6 +265,7 @@ class SotonRobot {
         disponivel: true,
         preco: melhor.preco,
         descricao: melhor.descricao || '',
+        urlProduto: urlProduto,
         mensagem: ''
       };
 
