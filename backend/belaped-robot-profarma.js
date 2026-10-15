@@ -275,32 +275,31 @@ class ProfarmaRobot {
         }
       }
 
-      const adicionou = await this.page.evaluate((qtd) => {
-        const inputs = Array.from(document.querySelectorAll('input[type="number"], input[inputmode="numeric"]'));
-        if (inputs.length === 0) return { sucesso: false, motivo: 'Campo de quantidade não encontrado na tabela' };
+      // Localiza o input do produto (que não seja a barra de busca principal)
+      const inputElement = await this.page.$('input.MuiOutlinedInput-input:not([placeholder*="buscando"])');
+      if (!inputElement) {
+        return {
+          sucesso: false,
+          ean: eanLimpo,
+          quantidade: qtdNum,
+          motivo: 'Campo de quantidade não encontrado na tabela de produtos da Profarma'
+        };
+      }
 
-        const inputQtd = inputs[0];
-        inputQtd.focus();
-        inputQtd.value = '';
-        inputQtd.value = String(qtd);
-        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
-        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+      // Foca, limpa e digita a quantidade desejada + Enter para submeter imediatamente
+      await inputElement.click({ clickCount: 3 });
+      await this.page.keyboard.press('Backspace');
+      await inputElement.type(String(qtdNum));
+      await this.page.keyboard.press('Enter');
 
-        const row = inputQtd.closest('tr, div[class*="row"], div[class*="item"]');
-        const btnAdd = row ? row.querySelector('button, [role="button"]') : null;
-        if (btnAdd) {
-          btnAdd.click();
-          return { sucesso: true };
-        }
-        return { sucesso: true };
-      }, qtdNum);
+      await new Promise(r => setTimeout(r, 1800));
 
-      await new Promise(r => setTimeout(r, 1500));
+      console.log(`[ProfarmaRobot] ✅ EAN ${eanLimpo} - ${qtdNum} un adicionado com sucesso via Enter no input!`);
       return {
-        sucesso: adicionou.sucesso,
+        sucesso: true,
         ean: eanLimpo,
         quantidade: qtdNum,
-        motivo: adicionou.sucesso ? 'Adicionado com sucesso no carrinho da Profarma' : adicionou.motivo
+        motivo: 'Adicionado com sucesso no carrinho da Profarma'
       };
     } catch (err) {
       return {
@@ -320,21 +319,40 @@ class ProfarmaRobot {
     if (!this.page) throw new Error('Robô Profarma não iniciado.');
     try {
       const qtd = await this.page.evaluate(() => {
-        const botoes = Array.from(document.querySelectorAll('header button, [class*="MuiAppBar"] button, button'));
-        for (const b of botoes) {
-          const t = (b.innerText || '').trim();
-          const m = t.match(/^(\d+)\s*\n+\s*R\$/i);
-          if (m) {
-            return parseInt(m[1], 10);
+        // 1. Procura especificamente o botão do carrinho de compras
+        const btnCart = document.querySelector('button[aria-label="Abrir Carrinho de Compras"], button[aria-label*="Carrinho" i]');
+        if (btnCart) {
+          const t = (btnCart.innerText || '').trim();
+          // Se o texto for "R$ 0,00" ou "0\n\nR$ 0,00", está vazio
+          if (t === 'R$ 0,00' || t.includes('0,00') && !t.match(/R\$\s*[1-9]/)) {
+            return 0;
           }
-          const badge = b.querySelector('[class*="MuiBadge-badge"], [class*="badge"]');
-          if (badge) {
+
+          // Se tem valor monetário diferente de 0, tenta ler a badge ou deduzir
+          const m = t.match(/^(\d+)\s*(?:\n+|\s+)*R\$/i);
+          if (m) return parseInt(m[1], 10);
+
+          const badge = btnCart.querySelector('[class*="MuiBadge-badge"]');
+          if (badge && badge.innerText.trim()) {
             const num = parseInt(badge.innerText.trim(), 10);
             if (!isNaN(num)) return num;
           }
+
+          // Se há valor em R$ maior que zero, tem ao menos 1 item
+          if (t.includes('R$')) return 1;
         }
 
-        if (document.body.innerText.includes('Carrinho vazio')) return 0;
+        // Se estiver na tela de /carrinho-compras, lê o total de itens
+        const corpo = document.body ? document.body.innerText : '';
+        const mTotal = corpo.match(/Total\s*\(\s*(\d+)\s*itens?\s*\)/i);
+        if (mTotal) {
+          return parseInt(mTotal[1], 10);
+        }
+
+        if (corpo.includes('Carrinho de compras atualizado!\nTotal (0 itens)') || corpo.includes('Total (0 itens)')) {
+          return 0;
+        }
+
         return 0;
       });
 
@@ -354,70 +372,58 @@ class ProfarmaRobot {
     try {
       let qtdInicial = await this.contarItensCarrinho();
       if (qtdInicial === 0) {
-        console.log('[ProfarmaRobot] Carrinho já está 100% vazio (0 itens).');
+        console.log('[ProfarmaRobot] Carrinho já está 100% vazio (0 itens / R$ 0,00).');
         return { sucesso: true, itensRestantes: 0 };
       }
 
-      console.log(`[ProfarmaRobot] Limpando carrinho com ${qtdInicial} itens...`);
+      console.log(`[ProfarmaRobot] Limpando carrinho com itens... Acessando /carrinho-compras...`);
+      await this.page.goto('https://pedido.profarma.com.br/carrinho-compras', { waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 2000));
 
-      await this.page.evaluate(() => {
-        const botoes = Array.from(document.querySelectorAll('header button, [class*="MuiAppBar"] button, button'));
-        const btnCart = botoes.find(b => {
-          const t = (b.innerText || '').trim();
-          return /^(\d+)\s*\n+\s*R\$/i.test(t) || b.querySelector('[data-testid*="ShoppingCart"], [class*="cart"]');
+      let tentativas = 0;
+      while (tentativas < 50) {
+        tentativas++;
+        // Procura os botões de Menos (-) que decrementam/removem os itens
+        const clicouMenos = await this.page.evaluate(() => {
+          const botoes = Array.from(document.querySelectorAll('button'));
+          const btnMenos = botoes.find(b => {
+            const path = b.querySelector('svg path');
+            return path && path.getAttribute('d') && path.getAttribute('d').includes('104.11');
+          });
+          if (btnMenos) {
+            btnMenos.click();
+            return true;
+          }
+          return false;
         });
-        if (btnCart) btnCart.click();
-      });
 
-      await new Promise(r => setTimeout(r, 1500));
+        if (!clicouMenos) break;
+        await new Promise(r => setTimeout(r, 1200));
 
-      const clicouLimpar = await this.page.evaluate(() => {
-        const botoes = Array.from(document.querySelectorAll('button, a'));
-        const btnLimpar = botoes.find(b => {
-          const t = (b.innerText || '').toLowerCase();
-          return t.includes('limpar carrinho') || t.includes('esvaziar') || t.includes('excluir todos');
-        });
-        if (btnLimpar) {
-          btnLimpar.click();
-          return true;
-        }
-        return false;
-      });
-
-      if (clicouLimpar) {
-        await new Promise(r => setTimeout(r, 1000));
+        // Confirma modal de diálogo caso apareça
         await this.page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll('button'));
-          const btnConf = btns.find(b => ['sim', 'confirmar', 'esvaziar', 'limpar', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
-          if (btnConf) btnConf.click();
-        });
-        await new Promise(r => setTimeout(r, 2000));
-      } else {
-        let tentativas = 0;
-        while (tentativas < 100) {
-          tentativas++;
-          const removeu = await this.page.evaluate(() => {
-            const btn = document.querySelector('[data-testid*="Delete"], button[aria-label*="delete"], button[class*="delete"]');
-            if (btn) {
-              btn.click();
-              return true;
-            }
-            return false;
-          });
-
-          if (!removeu) break;
-          await new Promise(r => setTimeout(r, 600));
-
-          await this.page.evaluate(() => {
-            const btns = Array.from(document.querySelectorAll('button'));
-            const btnConf = btns.find(b => ['sim', 'confirmar', 'excluir', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
+          const dialog = document.querySelector('[role="dialog"]');
+          if (dialog) {
+            const btns = Array.from(dialog.querySelectorAll('button'));
+            const btnConf = btns.find(b => ['sim', 'confirmar', 'excluir', 'remover', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
             if (btnConf) btnConf.click();
-          });
-          await new Promise(r => setTimeout(r, 800));
-        }
+          }
+        });
+
+        await new Promise(r => setTimeout(r, 800));
+
+        // Verifica se já zerou
+        const zerou = await this.page.evaluate(() => {
+          const t = document.body ? document.body.innerText : '';
+          return t.includes('Total (0 itens)') || t.includes('Carrinho vazio');
+        });
+        if (zerou) break;
       }
 
+      // Volta para a tela de novo pedido
+      await this.page.goto('https://pedido.profarma.com.br/novo-pedido', { waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1500));
+
       const qtdFinal = await this.contarItensCarrinho();
       if (qtdFinal === 0) {
         console.log('[ProfarmaRobot] ✅ Carrinho da Profarma esvaziado com sucesso (0 itens).');
