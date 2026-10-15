@@ -853,6 +853,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     ultimoItem: string;
   } | null>(null);
 
+  // Montagem Robótica de Carrinho na DPC Distribuidora
+  const [montandoCarrinhoDpc, setMontandoCarrinhoDpc] = useState(false);
+  const [statusCarrinhoDpc, setStatusCarrinhoDpc] = useState<{
+    emAndamento: boolean;
+    total: number;
+    atual: number;
+    sucessos: number;
+    erros: number;
+    ultimoItem?: string;
+  } | null>(null);
+
+  // Montagem Robótica de Carrinho na Profarma
+  const [montandoCarrinhoProfarma, setMontandoCarrinhoProfarma] = useState(false);
+  const [statusCarrinhoProfarma, setStatusCarrinhoProfarma] = useState<{
+    emAndamento: boolean;
+    total: number;
+    atual: number;
+    sucessos: number;
+    erros: number;
+    ultimoItem?: string;
+  } | null>(null);
+
+  // Montagem Robótica de Carrinho no Martins Atacado
+  const [montandoCarrinhoMartins, setMontandoCarrinhoMartins] = useState(false);
+  const [statusCarrinhoMartins, setStatusCarrinhoMartins] = useState<{
+    emAndamento: boolean;
+    total: number;
+    atual: number;
+    sucessos: number;
+    erros: number;
+    ultimoItem?: string;
+  } | null>(null);
+
   // Importação Robótica na Modal da Distrimed
   const [importandoDistrimed, setImportandoDistrimed] = useState(false);
   const [statusImportDistrimed, setStatusImportDistrimed] = useState<{
@@ -1718,22 +1751,248 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
+  // Download silencioso de arquivos sem abrir abas em branco no navegador
+  const baixarArquivoSemAbrirAba = (url: string, nomeArquivo: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nomeArquivo;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try { document.body.removeChild(a); } catch (e) {}
+    }, 200);
+  };
+
   // Baixar Planilha Pronta no Modelo do Pedido Profarma (Codigo/EAN e Quantidade)
   const handleExportarPlanilhaProfarma = () => {
-    window.open('/api/belaped/exportar-planilha-profarma', '_blank');
+    baixarArquivoSemAbrirAba('/api/belaped/exportar-planilha-profarma', 'pedido_profarma.csv');
     addToast('Download da planilha de pedido Profarma gerado com sucesso!', 'info');
   };
 
   // Baixar Planilha Pronta no Modelo do Pedido DPC (codigo ou ean e quantidade)
   const handleExportarPlanilhaDpc = () => {
-    window.open('/api/belaped/exportar-planilha-dpc', '_blank');
+    baixarArquivoSemAbrirAba('/api/belaped/exportar-planilha-dpc', 'pedido_dpc.csv');
     addToast('Download da planilha de pedido DPC gerado com sucesso!', 'info');
   };
 
   // Baixar Planilha no Modelo da Distrimed (EAN;Quantidade)
   const handleExportarPlanilhaDistrimed = () => {
-    window.open('/api/belaped/exportar-planilha-distrimed', '_blank');
+    baixarArquivoSemAbrirAba('/api/belaped/exportar-planilha-distrimed', 'pedido_distrimed.csv');
     addToast('Download da planilha de pedido Distrimed gerado com sucesso!', 'info');
+  };
+
+  // Montar Carrinho Roboticamente na DPC Distribuidora (Produto a Produto)
+  const handleMontarCarrinhoDpc = async () => {
+    try {
+      setMontandoCarrinhoDpc(true);
+
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensDpc = base
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('DPC') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          quantidade: f.qtd_sugerida_7d || 1,
+          descricao: f.descricao,
+          preco_1: f.preco_1,
+          fornecedor_1: f.fornecedor_1,
+          preco_2: f.preco_2,
+          fornecedor_2: f.fornecedor_2,
+          preco_ult_compra: Number(f.preco_ult_compra ?? f.custo_unitario ?? 0)
+        }));
+
+      if (itensDpc.length === 0) {
+        addToast('Nenhum item liberado com a DPC como vencedora encontrado na lista atual do Belinha.', 'warning');
+        setMontandoCarrinhoDpc(false);
+        return;
+      }
+
+      const res = await fetch('/api/belaped/montar-carrinho-dpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: itensDpc })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        addToast(data.message || 'Erro ao iniciar robô da DPC', 'error');
+        setMontandoCarrinhoDpc(false);
+        return;
+      }
+
+      addToast(data.message || 'Robô conectando na DPC para adicionar os produtos no carrinho!', 'success');
+
+      // Polling do status da montagem de carrinho DPC
+      const timerDpc = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-dpc');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCarrinhoDpc(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerDpc);
+              setMontandoCarrinhoDpc(false);
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
+              addToast(`Montagem DPC concluída! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+            }
+          }
+        } catch (e) {
+          clearInterval(timerDpc);
+          setMontandoCarrinhoDpc(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao acionar robô DPC: ' + err.message, 'error');
+      setMontandoCarrinhoDpc(false);
+    }
+  };
+
+  // Montar Carrinho Roboticamente na Profarma (Produto a Produto)
+  const handleMontarCarrinhoProfarma = async () => {
+    try {
+      setMontandoCarrinhoProfarma(true);
+
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensProfarma = base
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('PROFARMA') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          quantidade: f.qtd_sugerida_7d || 1,
+          descricao: f.descricao,
+          preco_1: f.preco_1,
+          fornecedor_1: f.fornecedor_1,
+          preco_2: f.preco_2,
+          fornecedor_2: f.fornecedor_2,
+          preco_ult_compra: Number(f.preco_ult_compra ?? f.custo_unitario ?? 0)
+        }));
+
+      if (itensProfarma.length === 0) {
+        addToast('Nenhum item liberado com a Profarma como vencedora encontrado na lista atual do Belinha.', 'warning');
+        setMontandoCarrinhoProfarma(false);
+        return;
+      }
+
+      const res = await fetch('/api/belaped/montar-carrinho-profarma', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: itensProfarma })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        addToast(data.message || 'Erro ao iniciar robô da Profarma', 'error');
+        setMontandoCarrinhoProfarma(false);
+        return;
+      }
+
+      addToast(data.message || 'Robô conectando na Profarma para adicionar os produtos no carrinho!', 'success');
+
+      // Polling do status da montagem de carrinho Profarma
+      const timerProf = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-profarma');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCarrinhoProfarma(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerProf);
+              setMontandoCarrinhoProfarma(false);
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
+              addToast(`Montagem Profarma concluída! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+            }
+          }
+        } catch (e) {
+          clearInterval(timerProf);
+          setMontandoCarrinhoProfarma(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao acionar robô Profarma: ' + err.message, 'error');
+      setMontandoCarrinhoProfarma(false);
+    }
+  };
+
+  // Montar Carrinho Roboticamente no Martins Atacado (Produto a Produto)
+  const handleMontarCarrinhoMartins = async () => {
+    try {
+      setMontandoCarrinhoMartins(true);
+
+      const temSelecaoManual = Object.values(itensSelecionados).some(Boolean);
+      const base = temSelecaoManual ? faltasFiltradas.filter(f => itensSelecionados[f.produto_id]) : faltasFiltradas;
+      const itensMartins = base
+        .filter(f => !f.nao_carrinho && (f.fornecedor_1 || '').toUpperCase().includes('MARTINS') && f.ean)
+        .map(f => ({
+          ean: f.ean,
+          quantidade: f.qtd_sugerida_7d || 1,
+          descricao: f.descricao,
+          preco_1: f.preco_1,
+          fornecedor_1: f.fornecedor_1,
+          preco_2: f.preco_2,
+          fornecedor_2: f.fornecedor_2,
+          preco_ult_compra: Number(f.preco_ult_compra ?? f.custo_unitario ?? 0)
+        }));
+
+      if (itensMartins.length === 0) {
+        addToast('Nenhum item liberado com Martins como vencedor encontrado na lista atual do Belinha.', 'warning');
+        setMontandoCarrinhoMartins(false);
+        return;
+      }
+
+      const res = await fetch('/api/belaped/montar-carrinho-martins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: itensMartins })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        addToast(data.message || 'Erro ao iniciar robô do Martins', 'error');
+        setMontandoCarrinhoMartins(false);
+        return;
+      }
+
+      addToast(data.message || 'Robô conectando no Martins para adicionar os produtos no carrinho!', 'success');
+
+      // Polling do status da montagem de carrinho Martins
+      const timerMartins = setInterval(async () => {
+        try {
+          const stRes = await fetch('/api/belaped/status-carrinho-martins');
+          const stData = await stRes.json();
+          if (stData.success && stData.status) {
+            setStatusCarrinhoMartins(stData.status);
+            if (!stData.status.emAndamento) {
+              clearInterval(timerMartins);
+              setMontandoCarrinhoMartins(false);
+              if (stData.status.relatorio) {
+                setUltimoRelatorioAuditoria(stData.status.relatorio);
+                setModalRelatorioAberto(true);
+              }
+              carregarDados();
+              addToast(`Montagem Martins concluída! ${stData.status.sucessos} itens adicionados com sucesso!`, 'success');
+            }
+          }
+        } catch (e) {
+          clearInterval(timerMartins);
+          setMontandoCarrinhoMartins(false);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      addToast('Erro ao acionar robô Martins: ' + err.message, 'error');
+      setMontandoCarrinhoMartins(false);
+    }
   };
 
   // Importar Carrinho Automaticamente na Modal da Distrimed via Robô Puppeteer
@@ -3439,93 +3698,157 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               {/* Ações: Planilhas de Pedido, Robôs de Cotação ao Vivo e Otimização */}
               <div className="flex flex-wrap items-center gap-2">
                 
-                {/* Exportar Planilhas de Pedido */}
-                <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                {/* Robôs de Montagem de Carrinho (Item por Item / Automático nos Portais) */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {/* Robô Profarma */}
                   <button
-                    onClick={handleExportarPlanilhaProfarma}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-950/60 transition-all cursor-pointer"
-                    title="Baixar planilha modelo aceita pela Profarma (Codigo/EAN e Quantidade)"
+                    onClick={handleMontarCarrinhoProfarma}
+                    disabled={montandoCarrinhoProfarma}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-100 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login na Profarma e adicionará produto a produto no carrinho"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Planilha Profarma</span>
+                    {montandoCarrinhoProfarma ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                        <span>Montando Profarma ({statusCarrinhoProfarma?.atual || 0}/{statusCarrinhoProfarma?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Montar Profarma (Robô)</span>
+                      </>
+                    )}
                   </button>
+
+                  {/* Robô DPC */}
                   <button
-                    onClick={handleExportarPlanilhaDpc}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-cyan-300 hover:text-white hover:bg-cyan-950/60 transition-all cursor-pointer"
-                    title="Baixar planilha modelo aceita pela DPC (codigo ou ean e quantidade)"
+                    onClick={handleMontarCarrinhoDpc}
+                    disabled={montandoCarrinhoDpc}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login na DPC e adicionará produto a produto no carrinho"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Planilha DPC</span>
+                    {montandoCarrinhoDpc ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                        <span>Montando DPC ({statusCarrinhoDpc?.atual || 0}/{statusCarrinhoDpc?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Montar DPC (Robô)</span>
+                      </>
+                    )}
                   </button>
+
+                  {/* Robô Soton */}
                   <button
-                    onClick={handleExportarPlanilhaDistrimed}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-indigo-300 hover:text-white hover:bg-indigo-950/60 transition-all cursor-pointer"
-                    title="Baixar planilha modelo aceita pela Distrimed (EAN e Quantidade)"
+                    onClick={handleMontarCarrinhoSoton}
+                    disabled={montandoCarrinhoSoton}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login na Soton e adicionará item por item os produtos no carrinho"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Planilha Distrimed</span>
+                    {montandoCarrinhoSoton ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                        <span>Montando Soton ({statusCarrinhoSoton?.atual || 0}/{statusCarrinhoSoton?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Montar Soton (Robô)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Robô Distrimed */}
+                  <button
+                    onClick={handleImportarCarrinhoDistrimed}
+                    disabled={importandoDistrimed}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-100 border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login na Distrimed, abrirá a modal de importação e subirá o pedido automaticamente"
+                  >
+                    {importandoDistrimed ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                        <span>Importando Distrimed...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Importar Distrimed (Robô)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Robô Divimed */}
+                  <button
+                    onClick={handleMontarCarrinhoDivimed}
+                    disabled={montandoCarrinhoDivimed}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login na Divimed e adicionará produto a produto no carrinho buscando pelo nome (Mínimo R$ 400)"
+                  >
+                    {montandoCarrinhoDivimed ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                        <span>Montando Divimed ({statusCarrinhoDivimed?.atual || 0}/{statusCarrinhoDivimed?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Montar Divimed (Robô)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Robô Martins */}
+                  <button
+                    onClick={handleMontarCarrinhoMartins}
+                    disabled={montandoCarrinhoMartins}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 hover:text-sky-100 border border-sky-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    title="O robô fará login no Martins e adicionará produto a produto no carrinho (faturado em MG)"
+                  >
+                    {montandoCarrinhoMartins ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                        <span>Montando Martins ({statusCarrinhoMartins?.atual || 0}/{statusCarrinhoMartins?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5 text-sky-400" />
+                        <span>Montar Martins (Robô)</span>
+                      </>
+                    )}
                   </button>
                 </div>
 
-                {/* Robô Montador de Carrinho na Soton Farma (Item a Item) */}
-                <button
-                  onClick={handleMontarCarrinhoSoton}
-                  disabled={montandoCarrinhoSoton}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                  title="O robô fará login na Soton e adicionará item por item os produtos no carrinho"
-                >
-                  {montandoCarrinhoSoton ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                      <span>Montando Soton ({statusCarrinhoSoton?.atual || 0}/{statusCarrinhoSoton?.total || 0})...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Montar Soton (Robô)</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Robô Importador na Modal da Distrimed */}
-                <button
-                  onClick={handleImportarCarrinhoDistrimed}
-                  disabled={importandoDistrimed}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-100 border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                  title="O robô fará login na Distrimed, abrirá a modal de importação e subirá o pedido automaticamente"
-                >
-                  {importandoDistrimed ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                      <span>Importando Distrimed...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>Importar Distrimed (Robô)</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Robô Montador de Carrinho na Divimed (Item por Item pelo Nome) */}
-                <button
-                  onClick={handleMontarCarrinhoDivimed}
-                  disabled={montandoCarrinhoDivimed}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                  title="O robô fará login na Divimed e adicionará produto a produto no carrinho buscando pelo nome (Mínimo R$ 400)"
-                >
-                  {montandoCarrinhoDivimed ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                      <span>Montando Divimed ({statusCarrinhoDivimed?.atual || 0}/{statusCarrinhoDivimed?.total || 0})...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingCart className="w-3.5 h-3.5 text-rose-400" />
-                      <span>Montar Divimed (Robô)</span>
-                    </>
-                  )}
-                </button>
+                {/* Exportar Planilhas de Pedido (Backup CSV sem abrir nova aba) */}
+                <div className="flex items-center rounded-xl border border-slate-700/80 p-0.5 bg-[#080d18] text-xs font-bold">
+                  <span className="text-[10px] text-slate-500 px-2 uppercase tracking-wider font-extrabold">Planilhas:</span>
+                  <button
+                    onClick={handleExportarPlanilhaProfarma}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-emerald-400 hover:text-white hover:bg-emerald-950/60 transition-all cursor-pointer text-[11px]"
+                    title="Baixar planilha modelo CSV da Profarma"
+                  >
+                    <FileSpreadsheet className="w-3 h-3 text-emerald-400" />
+                    <span>Profarma</span>
+                  </button>
+                  <button
+                    onClick={handleExportarPlanilhaDpc}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-cyan-400 hover:text-white hover:bg-cyan-950/60 transition-all cursor-pointer text-[11px]"
+                    title="Baixar planilha modelo CSV da DPC"
+                  >
+                    <FileSpreadsheet className="w-3 h-3 text-cyan-400" />
+                    <span>DPC</span>
+                  </button>
+                  <button
+                    onClick={handleExportarPlanilhaDistrimed}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-indigo-400 hover:text-white hover:bg-indigo-950/60 transition-all cursor-pointer text-[11px]"
+                    title="Baixar planilha modelo CSV da Distrimed"
+                  >
+                    <FileSpreadsheet className="w-3 h-3 text-indigo-400" />
+                    <span>Distrimed</span>
+                  </button>
+                </div>
 
                 {/* BOTÃO: ABRIR RELATÓRIO DO ROBÔ & AUDITORIA DE REPASSE */}
                 {ultimoRelatorioAuditoria && (

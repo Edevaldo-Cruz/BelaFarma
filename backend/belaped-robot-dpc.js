@@ -220,6 +220,62 @@ class DpcRobot {
       await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
       await new Promise(r => setTimeout(r, 1000));
 
+      const dados = await this.page.evaluate(() => {
+        const bodyText = document.body.innerText || '';
+        const idxIni = bodyText.indexOf('Resultado da Busca:');
+        const idxFim = bodyText.indexOf('Empresa especializada na distribuição');
+        const areaBusca = idxIni >= 0
+          ? bodyText.slice(idxIni, idxFim > idxIni ? idxFim : undefined)
+          : '';
+
+        if (
+          !areaBusca ||
+          areaBusca.includes('Foram encontrados 0 produtos') ||
+          areaBusca.includes('Não localizamos nenhum resultado') ||
+          areaBusca.includes('Sem estoque') ||
+          areaBusca.includes('Indisponível') ||
+          areaBusca.includes('indisponível') ||
+          areaBusca.includes('Esgotado') ||
+          areaBusca.includes('Avise-me')
+        ) {
+          return { encontrado: false };
+        }
+
+        const linhas = areaBusca.split('\n').map(l => l.trim()).filter(Boolean);
+        let descricao = '';
+        for (let i = 0; i < linhas.length; i++) {
+          const l = linhas[i];
+          if (l.startsWith('Emb.:') && i + 1 < linhas.length) {
+            descricao = linhas[i + 1];
+            break;
+          }
+        }
+        return { encontrado: true, descricao };
+      });
+
+      if (!dados.encontrado) {
+        return {
+          sucesso: false,
+          ean,
+          quantidade: qtdNum,
+          motivo: 'Item sem estoque ou não localizado no catálogo da DPC'
+        };
+      }
+
+      // Validação semântica de marca e descrição
+      if (descricaoProduto && dados.descricao) {
+        const checagem = validarCorrespondenciaProduto(descricaoProduto, dados.descricao);
+        if (!checagem.valido) {
+          console.warn(`[DpcRobot] ⛔ Rejeitando adição ao carrinho DPC: esperado "${descricaoProduto}" vs encontrado "${dados.descricao}" (${checagem.motivo})`);
+          return {
+            sucesso: false,
+            ean,
+            quantidade: qtdNum,
+            motivo: `Incompatível no portal DPC: ${checagem.motivo}`
+          };
+        }
+      }
+
       const adicionou = await this.page.evaluate((qtd) => {
         const card = document.querySelector('.bloco-produto, .card-produto, [class*="produto"], .item') || document;
         const inputQtd = card.querySelector('input[type="number"], input[name*="qtd"], input[name*="quantidade"]');

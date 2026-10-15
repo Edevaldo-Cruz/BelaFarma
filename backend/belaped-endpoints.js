@@ -2722,6 +2722,7 @@ function belapedEndpoints(db) {
           if (adicionados.length > 0) {
             try {
               const pedidoId = 'PED-SOTON-' + Date.now();
+              const totalAdicionadoReais = sotonCarrinhoStatus.relatorio?.totalAdicionadoReais || 0;
               db.prepare(`
                 INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
                 VALUES (?, 'SOTON FARMA', 'CARRINHO_GERADO', ?, ?, ?, ?)
@@ -2932,6 +2933,7 @@ function belapedEndpoints(db) {
           if (adicionados.length > 0) {
             try {
               const pedidoId = 'PED-DIVIMED-' + Date.now();
+              const totalAdicionadoReais = divimedCarrinhoStatus.relatorio?.totalAdicionadoReais || 0;
               db.prepare(`
                 INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
                 VALUES (?, 'DIVIMED', 'CARRINHO_GERADO', ?, ?, ?, ?)
@@ -3218,27 +3220,44 @@ function belapedEndpoints(db) {
     sucessos: 0,
     erros: 0,
     ultimoItem: '',
-    itens: []
+    itens: [],
+    relatorio: null
   };
 
   /**
    * POST /api/belaped/montar-carrinho-dpc
+   * Inicia o robô Puppeteer para adicionar produto a produto no carrinho da DPC Distribuidora
    */
   router.post('/montar-carrinho-dpc', async (req, res) => {
     try {
       if (dpcCarrinhoStatus.emAndamento) {
-        return res.status(400).json({ success: false, message: 'Montagem de carrinho na DPC já em andamento.' });
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na DPC já está em andamento.' });
       }
 
       let itensParaAdicionar = req.body.itens || [];
+
+      // Filtra produtos bloqueados nas regras
+      const eansNaoCarrinho = new Set(
+        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
+      );
+      itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
+
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
         const produtosGanhadores = db.prepare(`
-          SELECT c.ean, c.descricao, c.saldo, c.vmd_ponderado, cr.preco
+          SELECT 
+            c.ean, 
+            c.descricao, 
+            c.saldo, 
+            c.vmd_ponderado, 
+            c.preco_unitario_ult_compra,
+            c.custo_unitario,
+            cr.preco
           FROM compras_estoque_cache c
           JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'DPC DISTRIBUIDORA' AND cr.disponivel = 1
           WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
             AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
             AND c.curva_abc IN ('A', 'B')
+            AND c.ean NOT IN (SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL)
           ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
           LIMIT 50
         `).all();
@@ -3248,12 +3267,18 @@ function belapedEndpoints(db) {
           const saldo = Number(p.saldo) || 0;
           const necessidade7d = Math.ceil(vmd * 7 * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+          return {
+            ean: p.ean,
+            quantidade: qtd,
+            descricao: p.descricao,
+            preco_1: p.preco,
+            preco_ult_compra: Number(p.preco_unitario_ult_compra) || Number(p.custo_unitario) || 0
+          };
         });
       }
 
       if (itensParaAdicionar.length === 0) {
-        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na DPC para adicionar ao carrinho.' });
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na DPC para adicionar ao carrinho no momento (ou itens bloqueados).' });
       }
 
       dpcCarrinhoStatus.emAndamento = true;
@@ -3263,6 +3288,7 @@ function belapedEndpoints(db) {
       dpcCarrinhoStatus.erros = 0;
       dpcCarrinhoStatus.ultimoItem = '';
       dpcCarrinhoStatus.itens = [];
+      dpcCarrinhoStatus.relatorio = null;
 
       res.json({
         success: true,
@@ -3273,6 +3299,7 @@ function belapedEndpoints(db) {
       (async () => {
         let robot = null;
         try {
+          console.log('[BelaPed] Iniciando robô DPC para montagem de carrinho...');
           robot = new DpcRobot({ headless: true });
           await robot.iniciar();
 
@@ -3283,19 +3310,87 @@ function belapedEndpoints(db) {
           for (let i = 0; i < itensParaAdicionar.length; i++) {
             const item = itensParaAdicionar[i];
             dpcCarrinhoStatus.atual = i + 1;
-            dpcCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+            dpcCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
+            console.log(`[BelaPed Carrinho DPC] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
             const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const finItem = calcularEconomiaItem(item, item.preco_1, db);
+
             if (resItem.sucesso) {
               dpcCarrinhoStatus.sucessos++;
-              dpcCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'ADICIONADO' });
+              dpcCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                subtotal: Number(((Number(item.preco_1) || 0) * item.quantidade).toFixed(2)),
+                fornecedor: 'DPC DISTRIBUIDORA',
+                status: 'ADICIONADO',
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct
+              });
             } else {
               dpcCarrinhoStatus.erros++;
-              dpcCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'FALHOU', motivo: resItem.motivo });
+              const infoRepasse = resolverRepasseSegundoColocado(item, 'DPC DISTRIBUIDORA', resItem.motivo);
+              dpcCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct,
+                ...infoRepasse
+              });
             }
           }
+
+          // Monta o Relatório Estruturado Final com Análise Financeira vs Última Compra
+          const adicionados = dpcCarrinhoStatus.itens.filter(i => i.status === 'ADICIONADO');
+          const repassados = dpcCarrinhoStatus.itens.filter(i => i.status === 'REPASSADO_2_COLOCADO');
+          const semEstoque = dpcCarrinhoStatus.itens.filter(i => i.status === 'SEM_ESTOQUE_GERAL');
+
+          dpcCarrinhoStatus.relatorio = consolidarRelatorioFinanceiro(
+            'DPC DISTRIBUIDORA',
+            itensParaAdicionar.length,
+            adicionados,
+            repassados,
+            semEstoque
+          );
+
+          if (adicionados.length > 0) {
+            try {
+              const pedidoId = 'PED-DPC-' + Date.now();
+              const totalAdicionadoReais = dpcCarrinhoStatus.relatorio?.totalAdicionadoReais || 0;
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'DPC DISTRIBUIDORA', 'CARRINHO_GERADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: repassados.length, semEstoque: semEstoque.length })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido DPC no banco:', pErr.message);
+            }
+          }
+
+          console.log(`[BelaPed Carrinho DPC] Concluído: ${adicionados.length} adicionados, ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
-          console.error('[BelaPed Carrinho DPC] Erro no robô:', botErr.message);
+          console.error('[BelaPed Carrinho DPC] Erro crítico no robô:', botErr.message);
         } finally {
           if (robot) await robot.fechar().catch(() => {});
           dpcCarrinhoStatus.emAndamento = false;
@@ -3303,6 +3398,7 @@ function belapedEndpoints(db) {
       })();
     } catch (err) {
       dpcCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-dpc:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -3319,27 +3415,44 @@ function belapedEndpoints(db) {
     sucessos: 0,
     erros: 0,
     ultimoItem: '',
-    itens: []
+    itens: [],
+    relatorio: null
   };
 
   /**
    * POST /api/belaped/montar-carrinho-profarma
+   * Inicia o robô Puppeteer para adicionar produto a produto no carrinho da Profarma
    */
   router.post('/montar-carrinho-profarma', async (req, res) => {
     try {
       if (profarmaCarrinhoStatus.emAndamento) {
-        return res.status(400).json({ success: false, message: 'Montagem de carrinho na Profarma já em andamento.' });
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na Profarma já está em andamento.' });
       }
 
       let itensParaAdicionar = req.body.itens || [];
+
+      // Filtra produtos bloqueados nas regras
+      const eansNaoCarrinho = new Set(
+        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
+      );
+      itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
+
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
         const produtosGanhadores = db.prepare(`
-          SELECT c.ean, c.descricao, c.saldo, c.vmd_ponderado, cr.preco
+          SELECT 
+            c.ean, 
+            c.descricao, 
+            c.saldo, 
+            c.vmd_ponderado, 
+            c.preco_unitario_ult_compra,
+            c.custo_unitario,
+            cr.preco
           FROM compras_estoque_cache c
           JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'PROFARMA' AND cr.disponivel = 1
           WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
             AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
             AND c.curva_abc IN ('A', 'B')
+            AND c.ean NOT IN (SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL)
           ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
           LIMIT 50
         `).all();
@@ -3349,12 +3462,18 @@ function belapedEndpoints(db) {
           const saldo = Number(p.saldo) || 0;
           const necessidade7d = Math.ceil(vmd * 7 * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+          return {
+            ean: p.ean,
+            quantidade: qtd,
+            descricao: p.descricao,
+            preco_1: p.preco,
+            preco_ult_compra: Number(p.preco_unitario_ult_compra) || Number(p.custo_unitario) || 0
+          };
         });
       }
 
       if (itensParaAdicionar.length === 0) {
-        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na Profarma para adicionar ao carrinho.' });
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor na Profarma para adicionar ao carrinho no momento (ou itens bloqueados).' });
       }
 
       profarmaCarrinhoStatus.emAndamento = true;
@@ -3364,6 +3483,7 @@ function belapedEndpoints(db) {
       profarmaCarrinhoStatus.erros = 0;
       profarmaCarrinhoStatus.ultimoItem = '';
       profarmaCarrinhoStatus.itens = [];
+      profarmaCarrinhoStatus.relatorio = null;
 
       res.json({
         success: true,
@@ -3374,6 +3494,7 @@ function belapedEndpoints(db) {
       (async () => {
         let robot = null;
         try {
+          console.log('[BelaPed] Iniciando robô Profarma para montagem de carrinho...');
           robot = new ProfarmaRobot({ headless: true });
           await robot.iniciar();
 
@@ -3384,19 +3505,87 @@ function belapedEndpoints(db) {
           for (let i = 0; i < itensParaAdicionar.length; i++) {
             const item = itensParaAdicionar[i];
             profarmaCarrinhoStatus.atual = i + 1;
-            profarmaCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+            profarmaCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
+            console.log(`[BelaPed Carrinho Profarma] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
             const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const finItem = calcularEconomiaItem(item, item.preco_1, db);
+
             if (resItem.sucesso) {
               profarmaCarrinhoStatus.sucessos++;
-              profarmaCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'ADICIONADO' });
+              profarmaCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                subtotal: Number(((Number(item.preco_1) || 0) * item.quantidade).toFixed(2)),
+                fornecedor: 'PROFARMA',
+                status: 'ADICIONADO',
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct
+              });
             } else {
               profarmaCarrinhoStatus.erros++;
-              profarmaCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'FALHOU', motivo: resItem.motivo });
+              const infoRepasse = resolverRepasseSegundoColocado(item, 'PROFARMA', resItem.motivo);
+              profarmaCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct,
+                ...infoRepasse
+              });
             }
           }
+
+          // Monta o Relatório Estruturado Final com Análise Financeira vs Última Compra
+          const adicionados = profarmaCarrinhoStatus.itens.filter(i => i.status === 'ADICIONADO');
+          const repassados = profarmaCarrinhoStatus.itens.filter(i => i.status === 'REPASSADO_2_COLOCADO');
+          const semEstoque = profarmaCarrinhoStatus.itens.filter(i => i.status === 'SEM_ESTOQUE_GERAL');
+
+          profarmaCarrinhoStatus.relatorio = consolidarRelatorioFinanceiro(
+            'PROFARMA',
+            itensParaAdicionar.length,
+            adicionados,
+            repassados,
+            semEstoque
+          );
+
+          if (adicionados.length > 0) {
+            try {
+              const pedidoId = 'PED-PROFARMA-' + Date.now();
+              const totalAdicionadoReais = profarmaCarrinhoStatus.relatorio?.totalAdicionadoReais || 0;
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'PROFARMA', 'CARRINHO_GERADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: repassados.length, semEstoque: semEstoque.length })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido Profarma no banco:', pErr.message);
+            }
+          }
+
+          console.log(`[BelaPed Carrinho Profarma] Concluído: ${adicionados.length} adicionados, ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
-          console.error('[BelaPed Carrinho Profarma] Erro no robô:', botErr.message);
+          console.error('[BelaPed Carrinho Profarma] Erro crítico no robô:', botErr.message);
         } finally {
           if (robot) await robot.fechar().catch(() => {});
           profarmaCarrinhoStatus.emAndamento = false;
@@ -3404,6 +3593,7 @@ function belapedEndpoints(db) {
       })();
     } catch (err) {
       profarmaCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-profarma:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -3420,27 +3610,44 @@ function belapedEndpoints(db) {
     sucessos: 0,
     erros: 0,
     ultimoItem: '',
-    itens: []
+    itens: [],
+    relatorio: null
   };
 
   /**
    * POST /api/belaped/montar-carrinho-martins
+   * Inicia o robô Puppeteer para adicionar produto a produto no carrinho do Martins Atacado
    */
   router.post('/montar-carrinho-martins', async (req, res) => {
     try {
       if (martinsCarrinhoStatus.emAndamento) {
-        return res.status(400).json({ success: false, message: 'Montagem de carrinho no Martins já em andamento.' });
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho no Martins já está em andamento.' });
       }
 
       let itensParaAdicionar = req.body.itens || [];
+
+      // Filtra produtos bloqueados nas regras
+      const eansNaoCarrinho = new Set(
+        db.prepare(`SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL`).all().map(r => r.ean)
+      );
+      itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
+
       if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
         const produtosGanhadores = db.prepare(`
-          SELECT c.ean, c.descricao, c.saldo, c.vmd_ponderado, cr.preco
+          SELECT 
+            c.ean, 
+            c.descricao, 
+            c.saldo, 
+            c.vmd_ponderado, 
+            c.preco_unitario_ult_compra,
+            c.custo_unitario,
+            cr.preco
           FROM compras_estoque_cache c
           JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'MARTINS' AND cr.disponivel = 1
           WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
             AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
             AND c.curva_abc IN ('A', 'B')
+            AND c.ean NOT IN (SELECT ean FROM belaped_produtos_regras WHERE nao_carrinho = 1 AND ean IS NOT NULL)
           ORDER BY (c.saldo <= 0) DESC, c.vmd_ponderado DESC
           LIMIT 50
         `).all();
@@ -3450,12 +3657,18 @@ function belapedEndpoints(db) {
           const saldo = Number(p.saldo) || 0;
           const necessidade7d = Math.ceil(vmd * 7 * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-          return { ean: p.ean, quantidade: qtd, descricao: p.descricao };
+          return {
+            ean: p.ean,
+            quantidade: qtd,
+            descricao: p.descricao,
+            preco_1: p.preco,
+            preco_ult_compra: Number(p.preco_unitario_ult_compra) || Number(p.custo_unitario) || 0
+          };
         });
       }
 
       if (itensParaAdicionar.length === 0) {
-        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor no Martins para adicionar ao carrinho.' });
+        return res.status(400).json({ success: false, message: 'Nenhum produto vencedor no Martins para adicionar ao carrinho no momento (ou itens bloqueados).' });
       }
 
       martinsCarrinhoStatus.emAndamento = true;
@@ -3465,6 +3678,7 @@ function belapedEndpoints(db) {
       martinsCarrinhoStatus.erros = 0;
       martinsCarrinhoStatus.ultimoItem = '';
       martinsCarrinhoStatus.itens = [];
+      martinsCarrinhoStatus.relatorio = null;
 
       res.json({
         success: true,
@@ -3475,6 +3689,7 @@ function belapedEndpoints(db) {
       (async () => {
         let robot = null;
         try {
+          console.log('[BelaPed] Iniciando robô Martins para montagem de carrinho...');
           robot = new MartinsRobot({ headless: true });
           await robot.iniciar();
 
@@ -3485,19 +3700,87 @@ function belapedEndpoints(db) {
           for (let i = 0; i < itensParaAdicionar.length; i++) {
             const item = itensParaAdicionar[i];
             martinsCarrinhoStatus.atual = i + 1;
-            martinsCarrinhoStatus.ultimoItem = `${item.ean} (Qtd: ${item.quantidade})`;
+            martinsCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
+            console.log(`[BelaPed Carrinho Martins] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
             const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const finItem = calcularEconomiaItem(item, item.preco_1, db);
+
             if (resItem.sucesso) {
               martinsCarrinhoStatus.sucessos++;
-              martinsCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'ADICIONADO' });
+              martinsCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                subtotal: Number(((Number(item.preco_1) || 0) * item.quantidade).toFixed(2)),
+                fornecedor: 'MARTINS',
+                status: 'ADICIONADO',
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct
+              });
             } else {
               martinsCarrinhoStatus.erros++;
-              martinsCarrinhoStatus.itens.push({ ean: item.ean, quantidade: item.quantidade, status: 'FALHOU', motivo: resItem.motivo });
+              const infoRepasse = resolverRepasseSegundoColocado(item, 'MARTINS', resItem.motivo);
+              martinsCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao || '',
+                quantidade: item.quantidade,
+                preco_1: Number(item.preco_1) || 0,
+                preco_ult_compra: finItem.preco_ult_compra,
+                subtotal_ult_compra: finItem.subtotal_ult_compra,
+                diferenca_reais: finItem.diferenca_reais,
+                variacao_pct: finItem.variacao_pct,
+                ...infoRepasse
+              });
             }
           }
+
+          // Monta o Relatório Estruturado Final com Análise Financeira vs Última Compra
+          const adicionados = martinsCarrinhoStatus.itens.filter(i => i.status === 'ADICIONADO');
+          const repassados = martinsCarrinhoStatus.itens.filter(i => i.status === 'REPASSADO_2_COLOCADO');
+          const semEstoque = martinsCarrinhoStatus.itens.filter(i => i.status === 'SEM_ESTOQUE_GERAL');
+
+          martinsCarrinhoStatus.relatorio = consolidarRelatorioFinanceiro(
+            'MARTINS ATACADO',
+            itensParaAdicionar.length,
+            adicionados,
+            repassados,
+            semEstoque
+          );
+
+          if (adicionados.length > 0) {
+            try {
+              const pedidoId = 'PED-MARTINS-' + Date.now();
+              const totalAdicionadoReais = martinsCarrinhoStatus.relatorio?.totalAdicionadoReais || 0;
+              db.prepare(`
+                INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
+                VALUES (?, 'MARTINS ATACADO', 'CARRINHO_GERADO', ?, ?, ?, ?)
+              `).run(
+                pedidoId,
+                totalAdicionadoReais,
+                adicionados.length,
+                adicionados.reduce((acc, c) => acc + c.quantidade, 0),
+                JSON.stringify({ sucessos: adicionados.length, repassados: repassados.length, semEstoque: semEstoque.length })
+              );
+
+              const insItem = db.prepare(`
+                INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado)
+                VALUES (?, ?, ?, ?, ?)
+              `);
+              for (const it of adicionados) {
+                insItem.run(pedidoId, it.ean, it.descricao || '', it.quantidade, it.preco_1 || 0);
+              }
+            } catch (pErr) {
+              console.error('[BelaPed] Erro ao salvar pedido Martins no banco:', pErr.message);
+            }
+          }
+
+          console.log(`[BelaPed Carrinho Martins] Concluído: ${adicionados.length} adicionados, ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
-          console.error('[BelaPed Carrinho Martins] Erro no robô:', botErr.message);
+          console.error('[BelaPed Carrinho Martins] Erro crítico no robô:', botErr.message);
         } finally {
           if (robot) await robot.fechar().catch(() => {});
           martinsCarrinhoStatus.emAndamento = false;
@@ -3505,6 +3788,7 @@ function belapedEndpoints(db) {
       })();
     } catch (err) {
       martinsCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-martins:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });

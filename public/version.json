@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "f772e0c",
-  "commitMessage": "fix(belaped): blindagem anti-alucinacao na cotacao, validacao semantica de marcas/produtos, expurgo de cotacoes fantasmas e correcao dos checkboxes de bloqueio",
-  "buildTime": "15/10/2026, 09:45:08"
+  "commitHash": "0ed466c",
+  "commitMessage": "feat(belaped): botao de re-cotar produto em cada card e tabela, blindagem semantica anti-alucinacao e expurgo de cotacoes fantasmas",
+  "buildTime": "15/10/2026, 10:11:47"
 }

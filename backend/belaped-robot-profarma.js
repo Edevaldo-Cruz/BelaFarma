@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -259,6 +260,19 @@ class ProfarmaRobot {
           quantidade: qtdNum,
           motivo: 'Produto indisponível ou não localizado na Profarma'
         };
+      }
+
+      if (descricaoProduto && itens[0]?.descricao) {
+        const checagem = validarCorrespondenciaProduto(descricaoProduto, itens[0].descricao);
+        if (!checagem.valido) {
+          console.warn(`[ProfarmaRobot] ⛔ Rejeitando adição ao carrinho Profarma: esperado "${descricaoProduto}" vs encontrado "${itens[0].descricao}" (${checagem.motivo})`);
+          return {
+            sucesso: false,
+            ean: eanLimpo,
+            quantidade: qtdNum,
+            motivo: `Incompatível no portal Profarma: ${checagem.motivo}`
+          };
+        }
       }
 
       const adicionou = await this.page.evaluate((qtd) => {
