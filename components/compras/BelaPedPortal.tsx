@@ -5527,21 +5527,30 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <span>Prazo Padrão: <b className="text-white">{portal.prazo_dias_padrao}d</b></span>
                   </div>
 
-                  {/* Informações de Boleto Auditadas */}
-                  <div className="p-2 rounded-xl bg-[#080d18] border border-slate-800/90 flex flex-col gap-1">
+                  {/* Informações de Boleto Auditadas / Todas as Opções */}
+                  <div className="p-2.5 rounded-xl bg-[#080d18] border border-slate-800/90 flex flex-col gap-1.5">
                     <div className="flex items-center justify-between text-[11px]">
-                      <div className="flex items-center gap-1.5 min-w-0 text-slate-400">
+                      <div className="flex items-center gap-1.5 text-slate-300 font-bold">
                         <CreditCard className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="font-semibold text-slate-300 shrink-0">Boleto:</span>
-                        <span className="font-black text-emerald-400 truncate" title={portal.prazos_boleto || `${portal.prazo_dias_padrao}d`}>
-                          {portal.prazos_boleto ? portal.prazos_boleto.replace(/ \| /g, ' · ') : `${portal.prazo_dias_padrao}d`}
-                        </span>
+                        <span>Opções de Boleto ({((portal.prazos_boleto ? portal.prazos_boleto.split(' | ') : [`${portal.prazo_dias_padrao}d`]).length)}):</span>
                       </div>
                       {portal.data_ultima_auditoria && (
                         <span className="text-[10px] text-slate-500 font-medium shrink-0 ml-1" title={`Última auditoria: ${new Date(portal.data_ultima_auditoria).toLocaleString('pt-BR')}`}>
                           🕒 {new Date(portal.data_ultima_auditoria).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                         </span>
                       )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-0.5">
+                      {(portal.prazos_boleto ? portal.prazos_boleto.split(' | ') : [`${portal.prazo_dias_padrao}d`]).map((opt, i) => (
+                        <span 
+                          key={i} 
+                          className="px-1.5 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-800/80 text-[10px] font-bold text-emerald-300 whitespace-nowrap shadow-xs"
+                          title={`Opção de prazo disponível para ${portal.nome}`}
+                        >
+                          {opt}
+                        </span>
+                      ))}
                     </div>
                   </div>
 

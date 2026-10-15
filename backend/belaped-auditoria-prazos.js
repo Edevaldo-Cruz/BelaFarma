@@ -144,8 +144,8 @@ async function extrairPrazosEMinimoPortal(robot, portalNorm) {
       return Array.from(new Set(elTextos)).slice(0, 5);
     });
 
-    prazosBoleto = opcoesBoleto.length > 0 ? opcoesBoleto : ['28 DDL', '28/35/42 DDL'];
-    melhorPrazo = prazosBoleto[prazosBoleto.length - 1] || '28 DDL';
+    prazosBoleto = opcoesBoleto.length > 0 ? opcoesBoleto : ['À Vista', '21 DDL', '28 DDL', '28/35 DDL', '28/35/42 DDL', '30/60 DDL'];
+    melhorPrazo = '28/35/42 DDL';
     observacao = `Distrimed: Pedido mínimo detectado R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'soton') {
@@ -164,37 +164,37 @@ async function extrairPrazosEMinimoPortal(robot, portalNorm) {
 
     const matchMin = info.match(/m[íi]nimo[:\s]*R?\$?\s*([\d.,]+)/i);
     pedidoMinimo = matchMin ? parseFloat(matchMin[1].replace(/\./g, '').replace(',', '.')) : 300.00;
-    prazosBoleto = ['21 DDL', '28 DDL', '30/60 DDL'];
-    melhorPrazo = '30/60 DDL';
+    prazosBoleto = ['14 DDL', '21 DDL', '28 DDL', '35 DDL', '21/28 DDL', '21/28/35 DDL', '30/60 DDL'];
+    melhorPrazo = '21/28/35 DDL';
     observacao = `Soton Farma: Pedido mínimo detectado R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'divimed') {
     pedidoMinimo = 400.00;
-    prazosBoleto = ['28 DDL', '28/35 DDL'];
-    melhorPrazo = '28/35 DDL';
+    prazosBoleto = ['21 DDL', '28 DDL', '35 DDL', '28/35 DDL', '28/35/42 DDL', '30/60 DDL'];
+    melhorPrazo = '28/35/42 DDL';
     observacao = `Divimed: Pedido mínimo padrão R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'dpc') {
     pedidoMinimo = 300.00;
-    prazosBoleto = ['21/28/35 DDL', '28/35/42 DDL'];
+    prazosBoleto = ['14 DDL', '21 DDL', '28 DDL', '35 DDL', '21/28/35 DDL', '28/35/42 DDL', '30/60 DDL'];
     melhorPrazo = '28/35/42 DDL';
     observacao = `DPC Distribuidora: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'profarma') {
     pedidoMinimo = 400.00;
-    prazosBoleto = ['28 DDL', '35 DDL', '30/60 DDL'];
-    melhorPrazo = '30/60 DDL';
+    prazosBoleto = ['21 DDL', '28 DDL', '35 DDL', '28/35 DDL', '28/35/42 DDL', '30/60 DDL', '30/60/90 DDL'];
+    melhorPrazo = '30/60/90 DDL';
     observacao = `Profarma: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'martins') {
     pedidoMinimo = 200.00;
-    prazosBoleto = ['28 DDL', '30/60 DDL'];
-    melhorPrazo = '30/60 DDL';
+    prazosBoleto = ['21 DDL', '28 DDL', '30 DDL', '35 DDL', '45 DDL', '30/60 DDL', '30/60/90 DDL', '30/60/90/120 DDL'];
+    melhorPrazo = '30/60/90/120 DDL';
     observacao = `Martins: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
 
   } else if (portalNorm === 'oriente') {
     pedidoMinimo = 150.00;
-    prazosBoleto = ['28 DDL', '30/45/60 DDL'];
+    prazosBoleto = ['14 DDL', '21 DDL', '28 DDL', '35 DDL', '42 DDL', '28/35/42 DDL', '35/42/49 DDL', '30/45/60 DDL'];
     melhorPrazo = '30/45/60 DDL';
     observacao = `Oriente Farma: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
   }
