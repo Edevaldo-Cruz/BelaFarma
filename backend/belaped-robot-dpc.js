@@ -321,20 +321,46 @@ class DpcRobot {
   async contarItensCarrinho() {
     if (!this.page) throw new Error('Robô DPC não iniciado.');
     try {
+      // Se já estiver na página de checkout/review, conta diretamente os elementos .item-remove
+      const currentUrl = this.page.url() || '';
+      if (currentUrl.includes('/checkout/review') || currentUrl.includes('/checkout')) {
+        const qtdDireta = await this.page.evaluate(() => {
+          const bodyText = document.body.innerText || '';
+          if (
+            bodyText.includes('Seu carrinho está vazio') ||
+            bodyText.includes('Nenhum produto no carrinho') ||
+            bodyText.includes('0 produtos')
+          ) {
+            return 0;
+          }
+          return document.querySelectorAll('.item-remove').length;
+        });
+        return qtdDireta;
+      }
+
+      // Tenta ler o botão flutuante de carrinho no topo: a quantidade fica na última linha
       const qtdBadge = await this.page.evaluate(() => {
         const btnFloating = document.querySelector('.btn-floating-cart, [class*="floating-cart"], [class*="badge-cart"]');
         if (btnFloating) {
           const t = (btnFloating.innerText || '').trim();
-          const m = t.match(/(\d+)/);
-          if (m) return parseInt(m[1], 10);
+          const lines = t.split('\n').map(l => l.trim()).filter(Boolean);
+          // O formato é: linha 1 = valor em R$, linha 2 = quantidade inteira de itens
+          if (lines.length >= 2) {
+            const m = lines[lines.length - 1].match(/^(\d+)$/);
+            if (m) return parseInt(m[1], 10);
+          } else if (lines.length === 1) {
+            const m = lines[0].match(/^(\d+)$/);
+            if (m) return parseInt(m[1], 10);
+          }
         }
         return null;
       });
 
-      if (qtdBadge !== null) return qtdBadge;
+      if (qtdBadge !== null && qtdBadge >= 0) return qtdBadge;
 
+      // Se não encontrou no badge ou está na dúvida, navega para /checkout/review
       await this.page.goto('https://dpcnet.com.br/checkout/review', {
-        waitUntil: 'networkidle2',
+        waitUntil: 'domcontentloaded',
         timeout: 25000
       });
       await new Promise(r => setTimeout(r, 1500));
@@ -349,11 +375,13 @@ class DpcRobot {
           return 0;
         }
 
-        const linhas = document.querySelectorAll('tr.item, .item-carrinho, [class*="cart-item"], [data-item-id]');
-        if (linhas && linhas.length > 0) return linhas.length;
+        const removes = document.querySelectorAll('.item-remove');
+        if (removes && removes.length > 0) return removes.length;
 
-        const botoesRemover = document.querySelectorAll('a[href*="remover"], button[class*="remove"], [class*="delete"]');
-        return botoesRemover ? botoesRemover.length : 0;
+        const inputsQty = document.querySelectorAll('input.qty');
+        if (inputsQty && inputsQty.length > 0) return inputsQty.length;
+
+        return 0;
       });
 
       return qtdTela;
@@ -370,62 +398,39 @@ class DpcRobot {
   async limparCarrinho() {
     if (!this.page) throw new Error('Robô DPC não iniciado.');
     try {
-      let qtdInicial = await this.contarItensCarrinho();
-      if (qtdInicial === 0) {
-        console.log('[DpcRobot] Carrinho já está 100% vazio (0 itens).');
-        return { sucesso: true, itensRestantes: 0 };
-      }
-
-      console.log(`[DpcRobot] Limpando carrinho com ${qtdInicial} itens...`);
+      console.log('[DpcRobot] Acessando checkout da DPC para verificar e limpar carrinho...');
       await this.page.goto('https://dpcnet.com.br/checkout/review', {
-        waitUntil: 'networkidle2',
-        timeout: 25000
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
       });
       await new Promise(r => setTimeout(r, 1500));
 
-      const clicouGeral = await this.page.evaluate(() => {
-        const botoes = Array.from(document.querySelectorAll('button, a'));
-        const btnLimpar = botoes.find(b => {
-          const t = (b.innerText || '').toLowerCase();
-          return t.includes('esvaziar carrinho') || t.includes('limpar carrinho') || t.includes('excluir todos');
+      let qtdInicial = await this.contarItensCarrinho();
+      if (qtdInicial === 0) {
+        console.log('[DpcRobot] ✅ Carrinho DPC já está 100% vazio (0 itens).');
+        return { sucesso: true, itensRestantes: 0 };
+      }
+
+      console.log(`[DpcRobot] Limpando carrinho DPC com ${qtdInicial} itens...`);
+      let tentativas = 0;
+      while (tentativas < 250) {
+        tentativas++;
+        const removeu = await this.page.evaluate(() => {
+          const btn = document.querySelector('.item-remove');
+          if (btn) {
+            btn.click();
+            return true;
+          }
+          return false;
         });
-        if (btnLimpar) {
-          btnLimpar.click();
-          return true;
-        }
-        return false;
-      });
 
-      if (clicouGeral) {
-        await new Promise(r => setTimeout(r, 1200));
-        await this.page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll('button'));
-          const btnConf = btns.find(b => ['sim', 'confirmar', 'esvaziar', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
-          if (btnConf) btnConf.click();
-        });
-        await new Promise(r => setTimeout(r, 2000));
-      } else {
-        let tentativas = 0;
-        while (tentativas < 100) {
-          tentativas++;
-          const removeu = await this.page.evaluate(() => {
-            const btn = document.querySelector('a[href*="remover"], button[class*="remove"], [class*="btn-remove"], [class*="delete"]');
-            if (btn) {
-              btn.click();
-              return true;
-            }
-            return false;
-          });
+        if (!removeu) break;
+        await new Promise(r => setTimeout(r, 350));
 
-          if (!removeu) break;
-          await new Promise(r => setTimeout(r, 800));
-
-          await this.page.evaluate(() => {
-            const btns = Array.from(document.querySelectorAll('button'));
-            const btnConf = btns.find(b => ['sim', 'confirmar', 'remover', 'ok'].includes((b.innerText || '').trim().toLowerCase()));
-            if (btnConf) btnConf.click();
-          });
-          await new Promise(r => setTimeout(r, 1000));
+        if (tentativas % 10 === 0) {
+          const restantes = await this.page.evaluate(() => document.querySelectorAll('.item-remove').length);
+          console.log(`[DpcRobot] Limpeza em andamento: ${restantes} itens restantes...`);
+          if (restantes === 0) break;
         }
       }
 
