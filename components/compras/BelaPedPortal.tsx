@@ -1765,6 +1765,51 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     addToast(`Redirecionando para ${carrinho.distribuidora}. O carrinho foi montado com ${carrinho.itens.length} itens (Total R$ ${carrinho.total.toFixed(2)})!`, 'success');
   };
 
+  // Calcula as datas de vencimento reais dos boletos a partir de uma string de prazo (ex: "42 DDL" -> "27/11/2026", "28/35/42 DDL" -> "13/11, 20/11 e 27/11")
+  const formatarPrazoComDataVencimento = (prazoStr: string): string => {
+    if (!prazoStr) return '';
+    const str = String(prazoStr).trim();
+    const hoje = new Date();
+
+    if (str.toLowerCase().includes('à vista') || str.toLowerCase().includes('a vista')) {
+      const d = new Date(hoje);
+      const mNum = str.match(/\d+/);
+      if (mNum) {
+        d.setDate(d.getDate() + parseInt(mNum[0], 10));
+      }
+      const dia = String(d.getDate()).padStart(2, '0');
+      const mes = String(d.getMonth() + 1).padStart(2, '0');
+      const ano = d.getFullYear();
+      return `${dia}/${mes}/${ano}`;
+    }
+
+    const numeros = str.match(/\d+/g);
+    if (!numeros || numeros.length === 0) return '';
+
+    const dias = numeros.map(n => parseInt(n, 10)).filter(n => n > 0 && n <= 365);
+    if (dias.length === 0) return '';
+
+    if (dias.length === 1) {
+      const d = new Date(hoje);
+      d.setDate(d.getDate() + dias[0]);
+      const dia = String(d.getDate()).padStart(2, '0');
+      const mes = String(d.getMonth() + 1).padStart(2, '0');
+      const ano = d.getFullYear();
+      return `${dia}/${mes}/${ano}`;
+    }
+
+    // Múltiplas parcelas (ex: 28/35/42 DDL)
+    const datasFormatadas = dias.map(diasPrazo => {
+      const d = new Date(hoje);
+      d.setDate(d.getDate() + diasPrazo);
+      const dia = String(d.getDate()).padStart(2, '0');
+      const mes = String(d.getMonth() + 1).padStart(2, '0');
+      return `${dia}/${mes}`;
+    });
+
+    return datasFormatadas.join(' • ');
+  };
+
   // ─── COMPRA DIRETA & ORQUESTRADOR DE CARRINHOS ──────────────────────────────
   // Dispara a montagem sequencial de todos os carrinhos otimizados
   const handleMontarTodosCarrinhos = async () => {
@@ -5878,11 +5923,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                 </span>
                               </div>
                             </div>
-                            {carrinho.mesVencimentoFormatado && (
+                            {prazoSugerido && formatarPrazoComDataVencimento(prazoSugerido) ? (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 shrink-0">
+                                📅 Venc: {formatarPrazoComDataVencimento(prazoSugerido)}
+                              </span>
+                            ) : carrinho.mesVencimentoFormatado ? (
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
                                 Vence em {carrinho.mesVencimentoFormatado}
                               </span>
-                            )}
+                            ) : null}
                           </div>
 
                           <div className="flex items-center justify-between text-xs text-slate-400 px-1">
@@ -7362,18 +7411,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0">
                   <select
                     value={prazoSelecionadoModal}
                     onChange={(e) => setPrazoSelecionadoModal(e.target.value)}
-                    className="bg-slate-900 border border-emerald-600/80 rounded-xl px-3 py-1.5 text-xs font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-md"
+                    className="bg-slate-900 border-2 border-emerald-500/80 rounded-xl px-3 py-1.5 text-xs font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-md"
                   >
-                    {opcoesPrazos.map((pOpt: string, pIdx: number) => (
-                      <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
-                        💳 {pOpt}
-                      </option>
-                    ))}
+                    {opcoesPrazos.map((pOpt: string, pIdx: number) => {
+                      const dataVenc = formatarPrazoComDataVencimento(pOpt);
+                      return (
+                        <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
+                          💳 {pOpt} {dataVenc ? `• (Venc: ${dataVenc})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
+
+                  {prazoSelecionadoModal && formatarPrazoComDataVencimento(prazoSelecionadoModal) && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-700/80 text-[11px] font-bold text-emerald-300 whitespace-nowrap shadow-sm">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Data do Boleto: <b className="text-white">{formatarPrazoComDataVencimento(prazoSelecionadoModal)}</b></span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -7531,7 +7590,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                   <select
                     value={prazoAtual}
                     onChange={(e) => {
@@ -7540,12 +7599,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     }}
                     className="bg-slate-900 border-2 border-emerald-500/70 rounded-xl px-3 py-2 text-xs font-black text-emerald-300 focus:outline-none cursor-pointer shadow-md"
                   >
-                    {opcoesPrazos.map((pOpt: string, pIdx: number) => (
-                      <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
-                        💳 {pOpt}
-                      </option>
-                    ))}
+                    {opcoesPrazos.map((pOpt: string, pIdx: number) => {
+                      const dataVenc = formatarPrazoComDataVencimento(pOpt);
+                      return (
+                        <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
+                          💳 {pOpt} {dataVenc ? `• (Venc: ${dataVenc})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
+
+                  {prazoAtual && formatarPrazoComDataVencimento(prazoAtual) && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-700/80 text-[11px] font-bold text-emerald-300 whitespace-nowrap shadow-sm">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Data do Boleto: <b className="text-white">{formatarPrazoComDataVencimento(prazoAtual)}</b></span>
+                    </div>
+                  )}
                 </div>
               </div>
 
