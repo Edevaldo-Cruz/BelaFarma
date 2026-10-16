@@ -64,11 +64,17 @@ class DivimedRobot {
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--no-zygote'
+        '--no-zygote',
+        '--start-minimized'
       ]
     });
 
     this.page = await this.browser.newPage();
+    try {
+      const session = await this.page.target().createCDPSession();
+      const { windowId } = await session.send('Browser.getWindowForTarget');
+      await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+    } catch (e) {}
     await this.page.setViewport({ width: 1366, height: 768 });
 
     // Otimização: desabilita imagens pesadas para acelerar a raspagem e cotação

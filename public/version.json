@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "b5f5dd8",
-  "commitMessage": "fix(belaped): corrigir deteccao de carrinho e adicao de itens na Profarma",
-  "buildTime": "16/10/2026, 08:46:13"
+  "commitHash": "ca4caff",
+  "commitMessage": "feat(belaped): exibir data de vencimento real do boleto nos seletores e cards",
+  "buildTime": "16/10/2026, 11:59:48"
 }

@@ -824,6 +824,14 @@ function belapedEndpoints(db) {
           condicao_comercial_2: cotacoesReais && cotacoesReais[1] ? (cotacoesReais[1].condicao_comercial || null) : null,
           preco_padrao_2: cotacoesReais && cotacoesReais[1] ? (cotacoesReais[1].preco_padrao || null) : null,
           diferenca_percentual: diferencaPct,
+          todas_cotacoes_reais: Array.isArray(cotacoesReais)
+            ? cotacoesReais.map(cr => ({
+                distribuidora: cr.fornecedor,
+                preco: Number(cr.preco) || 0,
+                url_produto: cr.url_produto || null,
+                condicao_comercial: cr.condicao_comercial || null
+              }))
+            : [],
 
           fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
           data_ult_compra: r.ultima_compra_data || '',
@@ -850,23 +858,28 @@ function belapedEndpoints(db) {
         };
       }).filter(Boolean);
 
-      // Ordenação estratégica pela Matriz de Gravidade Operacional:
-      // 1. Prioridade P1 (Ruptura Crítica) -> P2 (Risco Iminente) -> P3 (Orçamento) -> P4 (Regular)
-      // 2. Ruptura real (saldo <= 0) no topo absoluto de cada grupo
-      // 3. Ordem de Curva A -> B -> C
-      // 4. Maior giro / retorno para a loja
+      // Sistema de Rankeamento Estratégico: Primeiras posições para Alto Giro + Risco de Ruptura
       const pesoPrioridade = { P1: 1, P2: 2, P3: 3, P4: 4 };
+      items.forEach(it => {
+        const bonusCurva = it.curva_abc === 'A' ? 400 : it.curva_abc === 'B' ? 200 : 50;
+        const bonusRuptura = it.saldo <= 0 ? 500 : Math.max(0, 300 - (Number(it.dias_estoque_restante || 0) * 35));
+        const bonusGiro = (Number(it.vmd_ponderado || 0) * 120) + (Number(it.vendas_30d || 0) * 6);
+        const bonusBalcao = it.falta_balcao_belinha ? 250 : 0;
+        it.score_ranking = Math.round(bonusCurva + bonusRuptura + bonusGiro + bonusBalcao);
+      });
+
       items.sort((a, b) => {
         const pa = pesoPrioridade[a.prioridade] || 4;
         const pb = pesoPrioridade[b.prioridade] || 4;
         if (pa !== pb) return pa - pb;
+        if (b.score_ranking !== a.score_ranking) return b.score_ranking - a.score_ranking;
         if (a.saldo <= 0 && b.saldo > 0) return -1;
         if (b.saldo <= 0 && a.saldo > 0) return 1;
-        const ordemCurva = { A: 1, B: 2, C: 3 };
-        const ca = ordemCurva[a.curva_abc] || 3;
-        const cb = ordemCurva[b.curva_abc] || 3;
-        if (ca !== cb) return ca - cb;
-        return (b.margem_lucro_percentual * Math.max(0.05, b.vmd_ponderado)) - (a.margem_lucro_percentual * Math.max(0.05, a.vmd_ponderado));
+        return (b.vmd_ponderado || 0) - (a.vmd_ponderado || 0);
+      });
+
+      items.forEach((it, idx) => {
+        it.ranking_posicao = idx + 1;
       });
 
       // Resumo consolidado por distribuidora vencedora (1º Colocado)
@@ -1589,11 +1602,190 @@ function belapedEndpoints(db) {
   }
 
   /**
+   * Calcula a melhor divisão de boletos para a DISTRIMED segundo sua regra de negócio:
+   * - Opção "Escolher o vencimento" com prazo máximo de 60 dias.
+   * - Divide o valor total em parcelas de até R$ 250,00.
+   * - Seleciona os meses que possuem saldo no orçamento e os dias úteis com MENOR fluxo de despesas (boletos + contas fixas) no Belinha.
+   */
+  function calcularParcelasDistrimedMenorDespesa(valorTotalCompra) {
+    const total = Math.max(0, Number(valorTotalCompra) || 0);
+    if (total <= 0) {
+      return {
+        opcaoLabel: 'Escolher Vencimento (Até 60 DDL)',
+        resumoDatas: '',
+        qtdParcelas: 1,
+        parcelas: []
+      };
+    }
+
+    const qtdParcelas = Math.max(1, Math.ceil(total / 250));
+    const valorBase = Math.floor((total / qtdParcelas) * 100) / 100;
+
+    const hoje = new Date();
+    hoje.setHours(12, 0, 0, 0);
+
+    // 1. Carrega limites de orçamento e gastos por mês (YYYY-MM)
+    const limitesMap = {};
+    const gastosMesMap = {};
+    try {
+      const rowsLim = db.prepare('SELECT month, year, "limit" FROM monthly_limits').all();
+      rowsLim.forEach(r => {
+        const key = `${r.year}-${String(r.month).padStart(2, '0')}`;
+        limitesMap[key] = Number(r.limit) || 12500;
+      });
+    } catch (e) {}
+
+    // 2. Carrega boletos pendentes por data (YYYY-MM-DD) e soma por mês
+    const despesasDiaMap = {};
+    try {
+      const rowsBol = db.prepare(`
+        SELECT due_date, value FROM boletos
+        WHERE LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'rejeitado')
+      `).all();
+      rowsBol.forEach(b => {
+        const dStr = String(b.due_date || '').slice(0, 10);
+        if (!dStr) return;
+        const val = Number(b.value) || 0;
+        despesasDiaMap[dStr] = (despesasDiaMap[dStr] || 0) + val;
+        const ym = dStr.slice(0, 7);
+        gastosMesMap[ym] = (gastosMesMap[ym] || 0) + val;
+      });
+    } catch (e) {}
+
+    // 3. Carrega contas fixas ativas por dia do mês (dueDay)
+    const contasFixasDiaMes = {};
+    let totalFixasMensal = 0;
+    try {
+      const rowsFix = db.prepare('SELECT dueDay, value FROM fixed_accounts WHERE isActive = 1').all();
+      rowsFix.forEach(f => {
+        const dia = Number(f.dueDay) || 1;
+        const val = Number(f.value) || 0;
+        contasFixasDiaMes[dia] = (contasFixasDiaMes[dia] || 0) + val;
+        totalFixasMensal += val;
+      });
+    } catch (e) {}
+
+    // 4. Gera candidatos de dias úteis entre D+14 e D+60 (respeitando máximo de 60 dias da Distrimed)
+    const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const diasCandidatos = [];
+
+    for (let d = 14; d <= 60; d++) {
+      const dt = new Date(hoje.getTime() + d * 86400000);
+      const dow = dt.getDay();
+      if (dow === 0 || dow === 6) continue; // Apenas dias úteis (Seg a Sex)
+
+      const yyyy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      const dateKey = `${yyyy}-${mm}-${dd}`;
+      const ymKey = `${yyyy}-${mm}`;
+
+      const limiteMes = limitesMap[ymKey] || 12500;
+      const gastoAtualMes = (gastosMesMap[ymKey] || 0);
+      const saldoLivreMes = limiteMes - gastoAtualMes;
+      const temOrcamentoMes = saldoLivreMes >= valorBase;
+
+      const despesaBoletosDia = despesasDiaMap[dateKey] || 0;
+      const despesaFixaDia = contasFixasDiaMes[dt.getDate()] || 0;
+      const despesaTotalDia = Number((despesaBoletosDia + despesaFixaDia).toFixed(2));
+
+      diasCandidatos.push({
+        diasCorridos: d,
+        dueDate: dateKey,
+        dataBR: `${dd}/${mm}/${yyyy}`,
+        dataCurta: `${dd}/${mm}`,
+        ymKey,
+        nomeMes: nomesMeses[dt.getMonth()],
+        temOrcamentoMes,
+        saldoLivreMes: Number(saldoLivreMes.toFixed(2)),
+        despesaTotalDia
+      });
+    }
+
+    // 5. Ordena os dias: 1º Mês com saldo no orçamento, 2º Menor despesa no dia, 3º Maior prazo
+    const ordenados = [...diasCandidatos].sort((a, b) => {
+      if (a.temOrcamentoMes !== b.temOrcamentoMes) {
+        return a.temOrcamentoMes ? -1 : 1;
+      }
+      if (a.despesaTotalDia !== b.despesaTotalDia) {
+        return a.despesaTotalDia - b.despesaTotalDia;
+      }
+      return b.diasCorridos - a.diasCorridos;
+    });
+
+    // 6. Seleciona as N datas mantendo espaçamento mínimo entre parcelas (ex: >= 5 dias quando possível)
+    const escolhidos = [];
+    for (const cand of ordenados) {
+      if (escolhidos.length >= qtdParcelas) break;
+      const muitoPerto = escolhidos.some(e => Math.abs(e.diasCorridos - cand.diasCorridos) < 5);
+      if (!muitoPerto) {
+        escolhidos.push(cand);
+      }
+    }
+    // Fallback se qtdParcelas for grande e precisar de espaçamento menor
+    if (escolhidos.length < qtdParcelas) {
+      for (const cand of ordenados) {
+        if (escolhidos.length >= qtdParcelas) break;
+        if (!escolhidos.some(e => e.dueDate === cand.dueDate)) {
+          escolhidos.push(cand);
+        }
+      }
+    }
+
+    // Ordena cronologicamente as parcelas escolhidas
+    escolhidos.sort((a, b) => a.diasCorridos - b.diasCorridos);
+
+    const parcelas = escolhidos.map((esc, idx) => {
+      const isUltima = idx === escolhidos.length - 1;
+      const valorParcela = isUltima
+        ? Number((total - valorBase * (escolhidos.length - 1)).toFixed(2))
+        : Number(valorBase.toFixed(2));
+      return {
+        numero: idx + 1,
+        valor: valorParcela,
+        dueDate: esc.dueDate,
+        dataBR: esc.dataBR,
+        dataCurta: esc.dataCurta,
+        diasCorridos: esc.diasCorridos,
+        despesaNoDia: esc.despesaTotalDia,
+        nomeMes: esc.nomeMes,
+        temOrcamentoMes: esc.temOrcamentoMes
+      };
+    });
+
+    const resumoDatas = parcelas.map(p => `${p.dataCurta} (R$ ${p.valor.toFixed(2)})`).join(' • ');
+    const diasStr = parcelas.map(p => p.diasCorridos).join('/');
+    const opcaoLabel = `Escolher Vencimento (${parcelas.length}x ≤ R$ 250 • ${diasStr} DDL)`;
+
+    return {
+      opcaoLabel,
+      resumoDatas,
+      qtdParcelas: parcelas.length,
+      parcelas
+    };
+  }
+
+  /**
+   * GET /api/belaped/distrimed-vencimentos?valorTotal=600
+   * Retorna o plano de vencimentos inteligente da Distrimed (até 60d, parcelas <= R$ 250 nos dias de menor despesa)
+   */
+  router.get('/distrimed-vencimentos', (req, res) => {
+    try {
+      const valorTotal = Number(req.query.valorTotal) || 350;
+      const plano = calcularParcelasDistrimedMenorDespesa(valorTotal);
+      res.json({ success: true, plano });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/belaped/simular-otimizacao
    * Executa a otimização matemática e financeira considerando:
-   * 1. Menor preço entre distribuidoras elegíveis (com prazo no mês com saldo)
-   * 2. Repasse em cascata de itens quando a distribuidora não atinge o pedido mínimo
-   * 3. Previsão de desembolso no fluxo de caixa e totalizador de economia
+   * 1. Preços reais cotados em todos os 7 portais (belaped_cotacoes_reais)
+   * 2. Menor preço entre distribuidoras elegíveis (com prazo no mês com saldo)
+   * 3. Repasse automático de itens das empresas que NÃO atingiram o pedido mínimo para as demais empresas
+   * 4. Regra de negócio da Distrimed (Escolher Vencimento em até 60d, parcelas <= R$ 250 nos dias de menor despesa)
    */
   router.post('/simular-otimizacao', (req, res) => {
     try {
@@ -1609,6 +1801,32 @@ function belapedEndpoints(db) {
       portais.forEach(p => {
         portaisMap[p.nome.toUpperCase()] = p;
       });
+
+      // 1.1 Busca TODAS as cotações reais diretamente do banco para garantir preços 100% reais
+      const cotacoesBancoPorEan = {};
+      try {
+        const rowsCotReais = db.prepare(`
+          SELECT ean, fornecedor, preco, url_produto, condicao_comercial
+          FROM belaped_cotacoes_reais
+          WHERE disponivel = 1 AND preco > 0
+          ORDER BY preco ASC
+        `).all();
+        rowsCotReais.forEach(r => {
+          const k = String(r.ean || '').trim();
+          if (!k) return;
+          if (!cotacoesBancoPorEan[k]) cotacoesBancoPorEan[k] = [];
+          if (!cotacoesBancoPorEan[k].some(x => x.distribuidora.toUpperCase() === String(r.fornecedor).toUpperCase())) {
+            cotacoesBancoPorEan[k].push({
+              distribuidora: String(r.fornecedor).toUpperCase(),
+              preco: Number(r.preco),
+              url_produto: r.url_produto || null,
+              condicao_comercial: r.condicao_comercial || null
+            });
+          }
+        });
+      } catch (e) {
+        console.warn('[BelaPed] Aviso ao ler belaped_cotacoes_reais em simular-otimizacao:', e.message);
+      }
 
       // 2. Descobre dias mínimos recomendados pelo orçamento real (caso AUTOMATICO)
       let diasMinimosRecomendados = 0;
@@ -1651,13 +1869,71 @@ function belapedEndpoints(db) {
         elegibilidadePorDistribuidora[p.nome.toUpperCase()] = avaliacao;
       });
 
-      // 4. Analisa cotações de cada item, filtrando distribuidoras elegíveis
+      // 4. Analisa cotações REAIS de cada item, filtrando distribuidoras elegíveis
       const itensFiltradosPorPrazo = [];
-      const itensComRanking = itens.map(item => {
-        const precosItem = (cotacoesPorDistribuidora && cotacoesPorDistribuidora[item.ean || item.produto_id]) || [];
-        
-        // Todas as opções ordenadas por preço
-        const todosOrdenados = precosItem.filter(p => p.preco > 0).sort((a, b) => a.preco - b.preco);
+      const itensComRanking = [];
+
+      itens.forEach(item => {
+        if (item.nao_carrinho) return;
+        const eanKey = String(item.ean || '').trim();
+        const mapaOpcoes = new Map();
+
+        // a) Primeiro carrega do banco belaped_cotacoes_reais
+        const doBanco = (eanKey && cotacoesBancoPorEan[eanKey]) || [];
+        doBanco.forEach(op => {
+          if (op.preco > 0 && op.distribuidora) {
+            mapaOpcoes.set(op.distribuidora.toUpperCase(), {
+              distribuidora: op.distribuidora.toUpperCase(),
+              preco: Number(op.preco)
+            });
+          }
+        });
+
+        // b) Mescla com todas_cotacoes_reais do próprio item (inclui equivalentes/genéricos)
+        if (Array.isArray(item.todas_cotacoes_reais)) {
+          item.todas_cotacoes_reais.forEach(op => {
+            const dName = String(op.distribuidora || op.fornecedor || '').toUpperCase();
+            const pr = Number(op.preco);
+            if (dName && pr > 0 && (!mapaOpcoes.has(dName) || pr < mapaOpcoes.get(dName).preco)) {
+              mapaOpcoes.set(dName, { distribuidora: dName, preco: pr });
+            }
+          });
+        }
+
+        // c) Garante fornecedor_1 e fornecedor_2 do item se forem distribuidoras reais cotadas
+        if (item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !String(item.fornecedor_1).includes('Sem Estoque') && Number(item.preco_1) > 0) {
+          const d1 = String(item.fornecedor_1).toUpperCase();
+          const p1 = Number(item.preco_1);
+          if (!mapaOpcoes.has(d1) || p1 < mapaOpcoes.get(d1).preco) {
+            mapaOpcoes.set(d1, { distribuidora: d1, preco: p1 });
+          }
+        }
+        if (item.fornecedor_2 && item.fornecedor_2 !== '—' && item.fornecedor_2 !== 'Não Cotado' && Number(item.preco_2) > 0) {
+          const d2 = String(item.fornecedor_2).toUpperCase();
+          const p2 = Number(item.preco_2);
+          if (!mapaOpcoes.has(d2) || p2 < mapaOpcoes.get(d2).preco) {
+            mapaOpcoes.set(d2, { distribuidora: d2, preco: p2 });
+          }
+        }
+
+        // d) Fallback se cotacoesPorDistribuidora foi enviado explicitamente
+        const enviadas = (cotacoesPorDistribuidora && cotacoesPorDistribuidora[eanKey || item.produto_id]) || [];
+        if (mapaOpcoes.size === 0 && Array.isArray(enviadas)) {
+          enviadas.forEach(op => {
+            const dName = String(op.distribuidora || '').toUpperCase();
+            const pr = Number(op.preco);
+            if (dName && pr > 0) {
+              mapaOpcoes.set(dName, { distribuidora: dName, preco: pr });
+            }
+          });
+        }
+
+        // Todas as opções reais ordenadas por preço
+        const todosOrdenados = Array.from(mapaOpcoes.values()).filter(p => p.preco > 0).sort((a, b) => a.preco - b.preco);
+        if (todosOrdenados.length === 0) {
+          return; // Ignora itens que ainda não foram cotados em nenhum portal
+        }
+
         const melhorAbsoluto = todosOrdenados[0] || null;
 
         // Cotações elegíveis pelo prazo
@@ -1667,8 +1943,9 @@ function belapedEndpoints(db) {
           return el ? el.elegivel : true;
         });
 
-        const melhorElegivel = elegiveisOrdenadas[0] || melhorAbsoluto;
-        const segundoElegivel = elegiveisOrdenadas[1] || null;
+        const listaValida = elegiveisOrdenadas.length > 0 ? elegiveisOrdenadas : todosOrdenados;
+        const melhorElegivel = listaValida[0];
+        const segundoElegivel = listaValida[1] || todosOrdenados.find(t => t.distribuidora !== melhorElegivel.distribuidora) || null;
 
         // Anota se a melhor opção mais barata absoluta foi filtrada por prazo
         if (melhorAbsoluto && melhorElegivel && melhorAbsoluto.distribuidora !== melhorElegivel.distribuidora) {
@@ -1684,35 +1961,37 @@ function belapedEndpoints(db) {
           });
         }
 
-        return {
+        itensComRanking.push({
           ...item,
-          melhorPreco: melhorElegivel ? melhorElegivel.preco : item.custo_unitario,
-          melhorDistribuidora: melhorElegivel ? melhorElegivel.distribuidora : (item.fornecedor_ult_compra || 'A DEFINIR'),
+          melhorPreco: melhorElegivel.preco,
+          melhorDistribuidora: melhorElegivel.distribuidora,
           segundoPreco: segundoElegivel ? segundoElegivel.preco : null,
           segundaDistribuidora: segundoElegivel ? segundoElegivel.distribuidora : null,
-          candidatasElegiveis: elegiveisOrdenadas,
+          candidatasElegiveis: listaValida,
           todasOpcoes: todosOrdenados
-        };
+        });
       });
 
-      // 5. Agrupa itens inicialmente por distribuidora vencedora elegível
-      let carrinhosPorDistribuidora = {};
-      itensComRanking.forEach(item => {
-        const dist = (item.melhorDistribuidora || 'OUTROS').toUpperCase();
-        if (!carrinhosPorDistribuidora[dist]) {
-          const configPortal = portaisMap[dist] || {
-            pedido_minimo: 350.0,
+      // Função auxiliar para garantir que a estrutura de carrinho de uma distribuidora exista
+      const obterOuCriarCarrinho = (carrinhosMap, distNomeUpper) => {
+        if (!carrinhosMap[distNomeUpper]) {
+          const configPortal = portaisMap[distNomeUpper] || {
+            pedido_minimo: 300.0,
             prazo_dias_padrao: 28,
             is_mg: 1,
             uf_origem: 'MG'
           };
-          const elegInfo = elegibilidadePorDistribuidora[dist] || { prazoEleito: `${configPortal.prazo_dias_padrao} DDL`, diasEleitos: configPortal.prazo_dias_padrao };
+          const elegInfo = elegibilidadePorDistribuidora[distNomeUpper] || {
+            prazoEleito: `${configPortal.prazo_dias_padrao} DDL`,
+            diasEleitos: configPortal.prazo_dias_padrao
+          };
 
-          carrinhosPorDistribuidora[dist] = {
-            distribuidora: dist,
-            pedidoMinimo: configPortal.pedido_minimo,
+          carrinhosMap[distNomeUpper] = {
+            distribuidora: distNomeUpper,
+            pedidoMinimo: Number(configPortal.pedido_minimo) || 300,
             prazoDias: elegInfo.diasEleitos || configPortal.prazo_dias_padrao,
             prazoEleitoBoleto: elegInfo.prazoEleito || `${configPortal.prazo_dias_padrao} DDL`,
+            boletoEleito: elegInfo.prazoEleito || `${configPortal.prazo_dias_padrao} DDL`,
             isMg: Boolean(configPortal.is_mg),
             uf: configPortal.uf_origem,
             itens: [],
@@ -1722,98 +2001,129 @@ function belapedEndpoints(db) {
             alertaTributario: !configPortal.is_mg ? '⚠️ Fora de MG (Incidência de ICMS-ST / DIFAL)' : null
           };
         }
+        return carrinhosMap[distNomeUpper];
+      };
 
-        const qtd = Number(item.qtd_sugerida_7d) || 1;
+      // 5. Agrupa itens inicialmente por distribuidora vencedora
+      let carrinhosPorDistribuidora = {};
+      itensComRanking.forEach(item => {
+        const dist = (item.melhorDistribuidora || 'OUTROS').toUpperCase();
+        const carrinho = obterOuCriarCarrinho(carrinhosPorDistribuidora, dist);
+
+        const qtd = Number(item.qtd_sugerida_7d || item.quantidade) || 1;
         const subtotal = Number((qtd * item.melhorPreco).toFixed(2));
 
-        carrinhosPorDistribuidora[dist].itens.push({
+        carrinho.itens.push({
           ...item,
           quantidade: qtd,
           precoUnitario: item.melhorPreco,
           subtotal,
+          segundoPreco: item.segundoPreco,
+          segundaDistribuidora: item.segundaDistribuidora,
           repassado: false
         });
-        carrinhosPorDistribuidora[dist].total = Number((carrinhosPorDistribuidora[dist].total + subtotal).toFixed(2));
+        carrinho.total = Number((carrinho.total + subtotal).toFixed(2));
       });
 
       // 6. ALGORITMO DE REPASSE EM CASCATA PARA DISTRIBUIDORAS QUE NÃO ATINGIRAM O MÍNIMO
+      // Dissolve uma por uma as distribuidoras abaixo do mínimo (da menor/mais distante do mínimo para a maior),
+      // dividindo seus itens entre as demais distribuidoras onde o produto tem cotação!
       const itensRepassados = [];
+      const distribuidorasDissolvidas = new Set();
       let houveRepasse = true;
       let iteracoes = 0;
 
-      while (houveRepasse && iteracoes < 5) {
+      while (houveRepasse && iteracoes < 10) {
         houveRepasse = false;
         iteracoes++;
 
-        // Identifica distribuidoras que não atingiram o pedido mínimo
+        // Identifica distribuidoras que não atingiram o pedido mínimo e ainda não foram dissolvidas
         const nomesInsuficientes = Object.keys(carrinhosPorDistribuidora).filter(nome => {
+          if (distribuidorasDissolvidas.has(nome)) return false;
           const c = carrinhosPorDistribuidora[nome];
-          return c.total > 0 && c.total < c.pedidoMinimo;
+          return c.itens.length > 0 && c.total > 0 && c.total < c.pedidoMinimo;
         });
 
-        // Ordena da mais distante do mínimo para a mais próxima
+        if (nomesInsuficientes.length === 0) break;
+
+        // Ordena pela que está mais longe de atingir o mínimo (ou menor valor total)
         nomesInsuficientes.sort((a, b) => {
-          const diffA = carrinhosPorDistribuidora[a].pedidoMinimo - carrinhosPorDistribuidora[a].total;
-          const diffB = carrinhosPorDistribuidora[b].pedidoMinimo - carrinhosPorDistribuidora[b].total;
-          return diffB - diffA;
+          const cA = carrinhosPorDistribuidora[a];
+          const cB = carrinhosPorDistribuidora[b];
+          const pctA = cA.pedidoMinimo > 0 ? (cA.total / cA.pedidoMinimo) : 1;
+          const pctB = cB.pedidoMinimo > 0 ? (cB.total / cB.pedidoMinimo) : 1;
+          return pctA - pctB;
         });
 
-        for (const distNome of nomesInsuficientes) {
-          const carrinhoOrigem = carrinhosPorDistribuidora[distNome];
-          if (!carrinhoOrigem || carrinhoOrigem.itens.length === 0) continue;
+        // Pega a distribuidora mais distante do mínimo para dissolver seus itens nas outras
+        const distNome = nomesInsuficientes[0];
+        const carrinhoOrigem = carrinhosPorDistribuidora[distNome];
+        const totalOrigemAntes = carrinhoOrigem.total;
+        distribuidorasDissolvidas.add(distNome);
 
-          // Clona a lista de itens para iterar com segurança
-          const itensParaAvaliar = [...carrinhoOrigem.itens];
+        const itensParaAvaliar = [...carrinhoOrigem.itens];
 
-          for (const item of itensParaAvaliar) {
-            // Procura entre as candidatas elegíveis uma distribuidora de destino viável
-            const candidatas = (item.candidatasElegiveis || []).filter(c => c.distribuidora.toUpperCase() !== distNome);
+        for (const item of itensParaAvaliar) {
+          // Lista todas as outras distribuidoras que têm preço cotado para este item e não foram dissolvidas
+          const opcoesDispo = (item.todasOpcoes || []).filter(
+            c => c.distribuidora.toUpperCase() !== distNome && !distribuidorasDissolvidas.has(c.distribuidora.toUpperCase())
+          );
 
-            for (const cand of candidatas) {
-              const destNome = cand.distribuidora.toUpperCase();
-              const carrinhoDestino = carrinhosPorDistribuidora[destNome];
+          if (opcoesDispo.length === 0) continue;
 
-              // A candidata é viável se já existe e atinge o mínimo, ou se com esse acréscimo ajuda a atingir
-              if (carrinhoDestino) {
-                const subtotalAntigo = item.subtotal;
-                const novoSubtotal = Number((item.quantidade * cand.preco).toFixed(2));
+          // Prioriza: 1º empresas que já têm carrinho aberto (ordenadas pelo menor preço do item), 2º qualquer outra cotada
+          const comCarrinhoAberto = opcoesDispo.filter(c => {
+            const dest = carrinhosPorDistribuidora[c.distribuidora.toUpperCase()];
+            return dest && dest.itens.length > 0;
+          });
 
-                // Remove do carrinho de origem
-                carrinhoOrigem.itens = carrinhoOrigem.itens.filter(i => (i.produto_id !== item.produto_id));
-                carrinhoOrigem.total = Number(carrinhoOrigem.itens.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2));
+          const candEscolhida = comCarrinhoAberto.length > 0 ? comCarrinhoAberto[0] : opcoesDispo[0];
+          const destNome = candEscolhida.distribuidora.toUpperCase();
+          const carrinhoDestino = obterOuCriarCarrinho(carrinhosPorDistribuidora, destNome);
 
-                // Adiciona no carrinho de destino com anotações de repasse
-                const itemRepassado = {
-                  ...item,
-                  precoUnitario: cand.preco,
-                  subtotal: novoSubtotal,
-                  repassado: true,
-                  repassadoDe: distNome,
-                  repassadoPara: destNome,
-                  precoOriginal: item.precoUnitario,
-                  diferencaPreco: Number((novoSubtotal - subtotalAntigo).toFixed(2)),
-                  motivoRepasse: `Repassado pois ${distNome} não atingiu o pedido mínimo (R$ ${carrinhoOrigem.total.toFixed(2)} vs R$ ${carrinhoOrigem.pedidoMinimo.toFixed(2)})`
-                };
+          const subtotalAntigo = item.subtotal;
+          const novoSubtotal = Number((item.quantidade * candEscolhida.preco).toFixed(2));
 
-                carrinhoDestino.itens.push(itemRepassado);
-                carrinhoDestino.total = Number(carrinhoDestino.itens.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2));
+          // Remove do carrinho de origem
+          carrinhoOrigem.itens = carrinhoOrigem.itens.filter(i => i.produto_id !== item.produto_id);
+          carrinhoOrigem.total = Number(carrinhoOrigem.itens.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2));
 
-                itensRepassados.push({
-                  produto_id: item.produto_id,
-                  descricao: item.descricao,
-                  ean: item.ean,
-                  de: distNome,
-                  para: destNome,
-                  precoDe: item.precoUnitario,
-                  precoPara: cand.preco,
-                  diferenca: Number((cand.preco - item.precoUnitario).toFixed(2))
-                });
+          // Descobre qual passa a ser a nova 2ª colocada para este item (caso o usuário queira repassar manualmente depois)
+          const outraOpcao = opcoesDispo.find(c => c.distribuidora.toUpperCase() !== destNome) || null;
 
-                houveRepasse = true;
-                break; // Repassou este item com sucesso, avança para o próximo
-              }
-            }
-          }
+          const itemRepassado = {
+            ...item,
+            melhorDistribuidora: destNome,
+            melhorPreco: candEscolhida.preco,
+            precoUnitario: candEscolhida.preco,
+            subtotal: novoSubtotal,
+            segundaDistribuidora: outraOpcao ? outraOpcao.distribuidora : distNome,
+            segundoPreco: outraOpcao ? outraOpcao.preco : item.precoUnitario,
+            repassado: true,
+            repassadoDe: distNome,
+            repassadoPara: destNome,
+            precoOriginal: item.precoUnitario,
+            diferencaPreco: Number((novoSubtotal - subtotalAntigo).toFixed(2)),
+            motivoRepasse: `Repassado de ${distNome} (tinha R$ ${totalOrigemAntes.toFixed(2)} de R$ ${carrinhoOrigem.pedidoMinimo.toFixed(2)} mín.)`
+          };
+
+          carrinhoDestino.itens.push(itemRepassado);
+          carrinhoDestino.total = Number(carrinhoDestino.itens.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2));
+
+          itensRepassados.push({
+            produto_id: item.produto_id,
+            descricao: item.descricao,
+            ean: item.ean,
+            quantidade: item.quantidade,
+            de: distNome,
+            para: destNome,
+            precoDe: item.precoUnitario,
+            precoPara: candEscolhida.preco,
+            diferenca: Number((candEscolhida.preco - item.precoUnitario).toFixed(2)),
+            diferencaSubtotal: Number((novoSubtotal - subtotalAntigo).toFixed(2))
+          });
+
+          houveRepasse = true;
         }
       }
 
@@ -1825,7 +2135,6 @@ function belapedEndpoints(db) {
       let economiaTotalVsReferencia = 0;
 
       Object.values(carrinhosPorDistribuidora).forEach(carrinho => {
-        // Se a distribuidora teve todos os itens repassados, descarta o carrinho zerado
         if (carrinho.itens.length === 0 || carrinho.total <= 0) {
           return;
         }
@@ -1833,15 +2142,27 @@ function belapedEndpoints(db) {
         carrinho.total = Number(carrinho.total.toFixed(2));
         totalGeral += carrinho.total;
 
-        // Vencimento e fluxo de caixa
-        const diasPrazo = carrinho.prazoDias || 28;
-        const dataVenc = new Date(Date.now() + diasPrazo * 86400000);
-        carrinho.dataVencimentoEstimada = dataVenc.toISOString().split('T')[0];
-        
-        const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-        const mesAnoVenc = `${nomesMeses[dataVenc.getMonth()]}/${dataVenc.getFullYear()}`;
-        carrinho.mesVencimentoFormatado = mesAnoVenc;
+        // Regra Especial da DISTRIMED: Escolher o vencimento (até 60d, parcelas <= R$ 250 nos dias de menor despesa)
+        if (carrinho.distribuidora.toUpperCase().includes('DISTRIMED')) {
+          const planoDistrimed = calcularParcelasDistrimedMenorDespesa(carrinho.total);
+          carrinho.distrimedPlanoInteligente = planoDistrimed;
+          carrinho.boletoEleito = planoDistrimed.opcaoLabel;
+          carrinho.prazoEleitoBoleto = planoDistrimed.opcaoLabel;
+          carrinho.parcelasCalculadas = planoDistrimed.parcelas;
+          if (planoDistrimed.parcelas.length > 0) {
+            const primeiraParc = planoDistrimed.parcelas[0];
+            carrinho.dataVencimentoEstimada = primeiraParc.dueDate;
+            carrinho.mesVencimentoFormatado = `${primeiraParc.nomeMes}/${primeiraParc.dueDate.slice(0, 4)}`;
+          }
+        } else {
+          const diasPrazo = carrinho.prazoDias || 28;
+          const dataVenc = new Date(Date.now() + diasPrazo * 86400000);
+          carrinho.dataVencimentoEstimada = dataVenc.toISOString().split('T')[0];
+          const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+          carrinho.mesVencimentoFormatado = `${nomesMeses[dataVenc.getMonth()]}/${dataVenc.getFullYear()}`;
+        }
 
+        const mesAnoVenc = carrinho.mesVencimentoFormatado || 'Próximo Mês';
         if (!distribuicaoPorVencimento[mesAnoVenc]) {
           distribuicaoPorVencimento[mesAnoVenc] = 0;
         }
@@ -1859,13 +2180,13 @@ function belapedEndpoints(db) {
             valorAtual: carrinho.total,
             pedidoMinimo: carrinho.pedidoMinimo,
             falta: carrinho.faltaParaMinimo,
-            sugestao: `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)} para atingir o mínimo. Sugestão: completar com itens Curva A ou aprovar faturamento.`
+            sugestao: `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)} para atingir o mínimo (itens exclusivos desta distribuidora).`
           });
         }
 
         // Economia vs custo de referência do produto
         carrinho.itens.forEach(i => {
-          const custoRef = Number(i.custo_unitario) || i.precoUnitario;
+          const custoRef = Number(i.preco_ult_compra || i.custo_unitario) || i.precoUnitario;
           if (custoRef > i.precoUnitario) {
             economiaTotalVsReferencia += (custoRef - i.precoUnitario) * i.quantidade;
           }
@@ -1874,8 +2195,11 @@ function belapedEndpoints(db) {
         carrinhosFinais.push(carrinho);
       });
 
-      // Ordena carrinhos por valor decrescente
-      carrinhosFinais.sort((a, b) => b.total - a.total);
+      // Ordena carrinhos: primeiro os que atingiram o mínimo e por maior valor
+      carrinhosFinais.sort((a, b) => {
+        if (a.atingiuMinimo !== b.atingiuMinimo) return a.atingiuMinimo ? -1 : 1;
+        return b.total - a.total;
+      });
 
       res.json({
         success: true,
@@ -4768,12 +5092,272 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * Helper: Lança automaticamente a compra realizada no BelaPed na guia "Pedidos" (orders + boletos) do Belinha
+   * com previsão de chegada de +2 dias úteis e parcelas/boletos calculados.
+   */
+  function lancarPedidoNaGuiaBelinha({ distribuidora, valorTotal, prazoEscolhido, parcelasCustomizadas, itens = [], numeroPedido = '' }) {
+    const total = Number((Number(valorTotal) || 0).toFixed(2));
+    if (!distribuidora || total <= 0) return null;
+
+    const hoje = new Date();
+    const orderDate = hoje.toISOString().slice(0, 10);
+
+    // Previsão de entrega: +2 dias úteis
+    const previsao = new Date(hoje);
+    let diasUteisSomados = 0;
+    while (diasUteisSomados < 2) {
+      previsao.setDate(previsao.getDate() + 1);
+      const dow = previsao.getDay();
+      if (dow !== 0 && dow !== 6) diasUteisSomados++;
+    }
+    const arrivalForecast = previsao.toISOString().slice(0, 10);
+
+    // Calcula as parcelas (installments)
+    let installments = [];
+    const isDistrimedCustom = String(distribuidora).toUpperCase().includes('DISTRIMED') &&
+      (String(prazoEscolhido || '').toUpperCase().includes('ESCOLHER') || (Array.isArray(parcelasCustomizadas) && parcelasCustomizadas.length > 0));
+
+    if (isDistrimedCustom) {
+      const listaParc = (Array.isArray(parcelasCustomizadas) && parcelasCustomizadas.length > 0)
+        ? parcelasCustomizadas
+        : calcularParcelasDistrimedMenorDespesa(total).parcelas;
+
+      installments = listaParc.map((p, idx) => ({
+        id: String(idx + 1),
+        value: Number(p.valor || p.value || 0),
+        dueDate: String(p.dueDate || orderDate).slice(0, 10)
+      }));
+    } else {
+      const prazoStr = String(prazoEscolhido || '28 DDL').trim();
+      const matchesDias = prazoStr.match(/\d+/g);
+      const diasArray = (matchesDias && matchesDias.length > 0)
+        ? matchesDias.map(Number).filter(n => n > 0 && n <= 365)
+        : [28];
+      if (diasArray.length === 0) diasArray.push(28);
+
+      const valorBase = Math.floor((total / diasArray.length) * 100) / 100;
+      installments = diasArray.map((dias, idx) => {
+        const dtVenc = new Date(hoje.getTime() + dias * 86400000);
+        const isUltima = idx === diasArray.length - 1;
+        const valParc = isUltima
+          ? Number((total - valorBase * (diasArray.length - 1)).toFixed(2))
+          : Number(valorBase.toFixed(2));
+        return {
+          id: String(idx + 1),
+          value: valParc,
+          dueDate: dtVenc.toISOString().slice(0, 10)
+        };
+      });
+    }
+
+    const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const primeiraData = installments[0]?.dueDate ? new Date(installments[0].dueDate + 'T12:00:00') : hoje;
+    const paymentMonth = nomesMeses[primeiraData.getMonth()] || 'Novembro';
+
+    const orderId = `belaped_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const resumoItens = Array.isArray(itens) && itens.length > 0
+      ? itens.slice(0, 8).map(i => `${i.quantidade || 1}x ${i.descricao}`).join(', ') + (itens.length > 8 ? ` (+${itens.length - 8} itens)` : '')
+      : '';
+    const notes = `Compra via BelaPed (${itens.length || 0} produtos) • Prazo: ${prazoEscolhido || '28 DDL'}${numeroPedido ? ` • Pedido Portal: #${numeroPedido}` : ''}${resumoItens ? ` • Itens: ${resumoItens}` : ''}`;
+
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, isFogueteAmarelo, boletoPath)
+        VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
+      `).run({
+        id: orderId,
+        orderDate,
+        distributor: distribuidora,
+        seller: 'BelaPed Automático',
+        totalValue: total,
+        arrivalForecast,
+        status: 'Pendente',
+        paymentMonth,
+        invoiceNumber: numeroPedido || '',
+        paymentMethod: 'Boleto',
+        receiptDate: null,
+        notes,
+        installments: JSON.stringify(installments),
+        isFogueteAmarelo: 0,
+        boletoPath: null
+      });
+
+      const insertBoleto = db.prepare(`
+        INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
+        VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
+      `);
+
+      installments.forEach((inst, index) => {
+        insertBoleto.run({
+          id: `${orderId}-boleto-${index + 1}`,
+          supplierName: distribuidora,
+          order_id: orderId,
+          due_date: inst.dueDate,
+          value: Number(inst.value),
+          status: 'Pendente',
+          invoice_number: numeroPedido || null
+        });
+      });
+    })();
+
+    console.log(`[BelaPed -> Guia Pedidos] ✅ Pedido ${orderId} (${distribuidora} - R$ ${total.toFixed(2)}) e ${installments.length} boleto(s) lançados na guia Pedidos do Belinha!`);
+    return { orderId, installments, arrivalForecast, paymentMonth };
+  }
+
+  /**
+   * POST /api/belaped/lancar-pedido-belinha
+   * Permite lançar/confirmar uma compra diretamente na guia "Pedidos" do Belinha (orders + boletos)
+   */
+  router.post('/lancar-pedido-belinha', (req, res) => {
+    try {
+      const { distribuidora, valorTotal, prazoEscolhido, parcelasCustomizadas, itens, numeroPedido } = req.body || {};
+      if (!distribuidora || !valorTotal) {
+        return res.status(400).json({ success: false, error: 'Distribuidora e valorTotal são obrigatórios.' });
+      }
+      const lancamento = lancarPedidoNaGuiaBelinha({
+        distribuidora,
+        valorTotal,
+        prazoEscolhido,
+        parcelasCustomizadas,
+        itens: itens || [],
+        numeroPedido: numeroPedido || ''
+      });
+      res.json({ success: true, lancamento });
+    } catch (err) {
+      console.error('[BelaPed] Erro ao lançar pedido na guia do Belinha:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/buscar-estoque-real?q=...
+   * Pesquisa produtos no estoque real completo da farmácia (compras_estoque_cache),
+   * indicando se o produto já está na cotação ou gerando a justificativa exata de por que não é o momento de comprá-lo.
+   */
+  router.get('/buscar-estoque-real', (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim();
+      if (q.length < 2) {
+        return res.json({ success: true, produtos: [] });
+      }
+
+      const termoLike = `%${q}%`;
+      const rows = db.prepare(`
+        SELECT 
+          produto_id, descricao, apresentacao, ean, curva_abc, saldo,
+          est_minimo_calculado, vmd_ponderado, vendas_30d, vendas_31_60d,
+          COALESCE(vendas_61_90d, 0) as vendas_61_90d,
+          COALESCE(vendas_10m, 0) as vendas_10m,
+          custo_unitario, preco_unitario_ult_compra, preco_venda_vigente,
+          ultima_compra_fornecedor, ultima_compra_data, categoria_id
+        FROM compras_estoque_cache
+        WHERE descricao LIKE ? OR ean LIKE ?
+        ORDER BY 
+          CASE WHEN curva_abc = 'A' THEN 1 WHEN curva_abc = 'B' THEN 2 ELSE 3 END ASC,
+          vmd_ponderado DESC,
+          vendas_30d DESC
+        LIMIT 30
+      `).all(termoLike, termoLike);
+
+      // Carrega avulsos e regras para saber o que já está incluído manualmente ou bloqueado
+      const avulsosSet = new Set();
+      try {
+        db.prepare('SELECT ean, descricao, produto_id FROM belaped_itens_avulsos').all().forEach(a => {
+          if (a.ean) avulsosSet.add(String(a.ean).trim());
+          if (a.produto_id) avulsosSet.add(`ID_${a.produto_id}`);
+          if (a.descricao) avulsosSet.add(String(a.descricao).toUpperCase().trim());
+        });
+      } catch (e) {}
+
+      const regrasMap = {};
+      try {
+        db.prepare('SELECT * FROM belaped_produtos_regras').all().forEach(r => {
+          if (r.ean) regrasMap[String(r.ean).trim()] = r;
+          if (r.produto_id) regrasMap[`ID_${r.produto_id}`] = r;
+        });
+      } catch (e) {}
+
+      const produtosAnalisados = rows.map(r => {
+        const saldo = Math.max(0, Number(r.saldo) || 0);
+        const vmd = Number(r.vmd_ponderado) || 0;
+        const vendas30d = Number(r.vendas_30d) || 0;
+        const vendas60d = Number(r.vendas_31_60d) || 0;
+        const vendas90d = Number(r.vendas_61_90d) || 0;
+        const vendas10m = Math.max(Number(r.vendas_10m) || 0, vendas30d + vendas60d + vendas90d);
+        const vendas6m = vendas60d + vendas90d + Math.max(0, vendas10m - vendas30d);
+        const diasCobertura = vmd > 0 ? Math.round(saldo / vmd) : (saldo > 0 ? 999 : 0);
+        const metaUnidades7d = Math.max(1, Math.ceil(vmd * 7));
+        const eanTrim = String(r.ean || '').trim();
+        const reg = (eanTrim && regrasMap[eanTrim]) || regrasMap[`ID_${r.produto_id}`] || null;
+        const isAvulso = (eanTrim && avulsosSet.has(eanTrim)) || avulsosSet.has(`ID_${r.produto_id}`) || avulsosSet.has(String(r.descricao || '').toUpperCase().trim());
+
+        const isCurvaAB = r.curva_abc === 'A' || r.curva_abc === 'B';
+        const isEsquecido6m = saldo <= 0 && vendas30d === 0 && vendas6m >= 1;
+        const isCurvaCRupturaAtiva = r.curva_abc === 'C' && saldo <= 0 && (vendas30d >= 1 || isEsquecido6m);
+        const precisaComprarPelaRegra = (isCurvaAB || isCurvaCRupturaAtiva || isEsquecido6m) &&
+          (saldo <= 0 || diasCobertura <= 7 || saldo < metaUnidades7d) &&
+          !(reg && reg.nao_cotar);
+
+        const jaNaCotacao = Boolean(precisaComprarPelaRegra || isAvulso);
+
+        // Constrói a justificativa exata de por que não é o momento de comprar (se não estiver na cotação)
+        let justificativaNaoComprar = '';
+        if (jaNaCotacao) {
+          justificativaNaoComprar = isAvulso
+            ? 'Incluído manualmente na cotação.'
+            : (saldo <= 0
+              ? `Em ruptura (Saldo 0) • Giro de ${vendas30d} un/30d (Curva ${r.curva_abc}) — já está indicado na cotação!`
+              : `Cobertura baixa (${diasCobertura}d restantes para Saldo ${saldo} un) — já está indicado na cotação!`);
+        } else if (reg && reg.nao_cotar) {
+          justificativaNaoComprar = `Bloqueado manualmente pela regra "Não Cotar"${reg.motivo_justificativa ? `: ${reg.motivo_justificativa}` : ''}.`;
+        } else if (saldo > 0 && diasCobertura > 7 && vmd > 0) {
+          justificativaNaoComprar = `Estoque Suficiente: Saldo atual de ${saldo} un cobre ${diasCobertura} dias de venda (VMD ${vmd.toFixed(2)}/dia • Meta semanal: 7 dias / ${metaUnidades7d} un).`;
+        } else if (saldo > 0 && vmd <= 0 && vendas30d === 0) {
+          justificativaNaoComprar = `Estoque Parado: Loja já possui ${saldo} un em estoque e o produto teve 0 vendas nos últimos 30 dias (Curva ${r.curva_abc}).`;
+        } else if (saldo <= 0 && vendas30d === 0 && vendas6m === 0) {
+          justificativaNaoComprar = `Sem Giro Histórico: Produto zerado, porém sem nenhuma venda registrada nos últimos 6 meses (Curva ${r.curva_abc}) — risco de capital parado.`;
+        } else {
+          justificativaNaoComprar = `Abaixo dos critérios de prioridade semanal (Saldo: ${saldo} un • Vendas 30d: ${vendas30d} un • Curva ${r.curva_abc}).`;
+        }
+
+        const precoRef = Number(r.preco_unitario_ult_compra || r.custo_unitario || 5.0);
+        const qtdSugeridaInclusao = Math.max(1, metaUnidades7d - saldo);
+
+        return {
+          produto_id: r.produto_id,
+          descricao: r.descricao,
+          apresentacao: r.apresentacao || '',
+          ean: eanTrim,
+          curva_abc: r.curva_abc || 'C',
+          saldo,
+          vmd_ponderado: Number(vmd.toFixed(2)),
+          vendas_30d: vendas30d,
+          vendas_6m: vendas6m,
+          dias_cobertura: diasCobertura,
+          preco_ult_compra: Number(precoRef.toFixed(2)),
+          preco_venda: Number((Number(r.preco_venda_vigente) || 0).toFixed(2)),
+          fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
+          qtd_sugerida: qtdSugeridaInclusao,
+          ja_na_cotacao: jaNaCotacao,
+          justificativa_compra: justificativaNaoComprar
+        };
+      });
+
+      res.json({ success: true, produtos: produtosAnalisados });
+    } catch (err) {
+      console.error('[BelaPed] Erro em buscar-estoque-real:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/belaped/comprar-carrinho
    * Executa a compra direta no portal da distribuidora via robô com o prazo eleito
+   * e já lança automaticamente na guia "Pedidos" (orders + boletos) do Belinha!
    */
   router.post('/comprar-carrinho', async (req, res) => {
     try {
-      const { distribuidora, carrinho, prazoEscolhido } = req.body;
+      const { distribuidora, carrinho, prazoEscolhido, parcelasCustomizadas } = req.body;
       if (!distribuidora) {
         return res.status(400).json({ success: false, error: 'Distribuidora é obrigatória.' });
       }
@@ -4794,7 +5378,8 @@ function belapedEndpoints(db) {
         resultadoCompra = await executarCheckoutRobo(distribuidora, robot, {
           prazoEscolhido,
           valorTotal,
-          itens
+          itens,
+          parcelasCustomizadas: parcelasCustomizadas || carrinho?.parcelasCalculadas || null
         });
       } finally {
         await robot.fechar().catch(() => {});
@@ -4802,6 +5387,7 @@ function belapedEndpoints(db) {
 
       // Registra no banco de dados belaped_pedidos
       const pedidoId = crypto.randomUUID();
+      let lancamentoBelinha = null;
       try {
         db.prepare(`
           INSERT INTO belaped_pedidos (
@@ -4829,6 +5415,18 @@ function belapedEndpoints(db) {
             insertItem.run(pedidoId, it.ean || null, it.descricao || '', Number(it.quantidade) || 1, Number(it.precoUnitario) || 0);
           });
         }
+
+        // Lança automaticamente na guia "Pedidos" do Belinha (orders + boletos)
+        if (resultadoCompra?.sucesso) {
+          lancamentoBelinha = lancarPedidoNaGuiaBelinha({
+            distribuidora,
+            valorTotal,
+            prazoEscolhido,
+            parcelasCustomizadas: parcelasCustomizadas || carrinho?.parcelasCalculadas || null,
+            itens,
+            numeroPedido: resultadoCompra?.numeroPedido || ''
+          });
+        }
       } catch (dbErr) {
         console.warn('[BelaPed Compra Direta] Erro ao gravar pedido no banco:', dbErr.message);
       }
@@ -4836,7 +5434,8 @@ function belapedEndpoints(db) {
       res.json({
         success: resultadoCompra?.sucesso || false,
         resultado: resultadoCompra,
-        pedidoId
+        pedidoId,
+        lancamentoBelinha
       });
     } catch (err) {
       console.error('[BelaPed] Erro em comprar-carrinho:', err.message);

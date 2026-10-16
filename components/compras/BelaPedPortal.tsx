@@ -128,6 +128,10 @@ interface FaltaItem7d {
   motivo_justificativa?: string;
   adiar_ate?: string | null;
   is_adiado_proxima_semana?: boolean;
+  ranking_posicao?: number;
+  score_ranking?: number;
+  todas_cotacoes_reais?: Array<{ distribuidora: string; preco: number }>;
+  repassado_de?: string;
   falta_balcao_belinha?: {
     id: string;
     productName: string;
@@ -1086,10 +1090,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     carrinhosProcessados: any[];
   } | null>(null);
 
-  // Modal do Carrinho Detalhado por Distribuidora (Belinha)
+  // Modal Unificada "Ver Carrinhos" com Guias (Abas) de cada Distribuidora Cotada
   const [carrinhoModalAberto, setCarrinhoModalAberto] = useState(false);
   const [carrinhoModalSelecionado, setCarrinhoModalSelecionado] = useState<any | null>(null);
+  const [abaEmpresaModalIndex, setAbaEmpresaModalIndex] = useState<number>(0);
   const [prazoSelecionadoModal, setPrazoSelecionadoModal] = useState<string>('');
+  const [lancandoPedidoBelinha, setLancandoPedidoBelinha] = useState<boolean>(false);
+
+  // Pesquisa Global no Estoque Real da Farmácia com Justificativa do Sistema
+  const [resultadosEstoqueReal, setResultadosEstoqueReal] = useState<any[]>([]);
+  const [buscandoEstoqueReal, setBuscandoEstoqueReal] = useState<boolean>(false);
+  const [qtdIncluirEstoque, setQtdIncluirEstoque] = useState<Record<number, number>>({});
 
   // Compra Direta nos Portais
   const [comprandoDireto, setComprandoDireto] = useState(false);
@@ -1307,7 +1318,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'DPC DISTRIBUIDORA': 300,
       'DIVIMED': 400,
       'MARTINS ATACADO': 200,
-      'MARTINS': 200
+      'MARTINS': 200,
+      'ORIENTE FARMA': 400
     };
     portais.forEach(p => {
       if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
@@ -1330,7 +1342,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     faltasBaseFiltradas.forEach(item => {
       const f1 = item.fornecedor_1 || 'Não Cotado';
       const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
-      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
+      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (7 PORTAIS)' : 'AGUARDANDO ROBÔ');
 
       if (!grupos[chave]) {
         const min = isReal ? (minimosPadrao[chave] || 300) : 0;
@@ -1390,8 +1402,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     } else {
       setOrdenarColuna(coluna);
       // Para colunas numéricas de valor/quantidade, primeira clicada já ordena do maior para o menor (desc)
-      const isNumericoDesc = ['qtd_sugerida_7d', 'preco_ult_compra', 'preco_1', 'preco_2', 'margem_lucro_percentual', 'subtotal_7d'].includes(coluna as string);
-      setOrdenarDirecao(isNumericoDesc ? 'desc' : 'asc');
+      const isNumericoDesc = ['qtd_sugerida_7d', 'preco_ult_compra', 'preco_1', 'preco_2', 'margem_lucro_percentual', 'subtotal_7d', 'ranking_posicao'].includes(coluna as string);
+      setOrdenarDirecao(coluna === 'ranking_posicao' ? 'asc' : (isNumericoDesc ? 'desc' : 'asc'));
     }
     setPaginaAtual(1);
   };
@@ -1418,7 +1430,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       : faltasBaseFiltradas.filter(item => {
           const f1 = item.fornecedor_1 || 'Não Cotado';
           const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
-          const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (4 PORTAIS)' : 'AGUARDANDO ROBÔ');
+          const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (7 PORTAIS)' : 'AGUARDANDO ROBÔ');
           return chave === filtroDistribuidora;
         });
     return ordenarListaFaltas(base);
@@ -1432,6 +1444,66 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   useEffect(() => {
     setPaginaAtual(1);
   }, [filtroCurva, filtroPrioridade, filtroCategoria, filtroDistribuidora, buscaFalta, itensPorPagina]);
+
+  // Pesquisa em tempo real no Estoque Real completo da farmácia ao digitar na barra de busca
+  useEffect(() => {
+    const termo = buscaFalta.trim();
+    if (termo.length < 2) {
+      setResultadosEstoqueReal([]);
+      setBuscandoEstoqueReal(false);
+      return;
+    }
+
+    let cancelado = false;
+    setBuscandoEstoqueReal(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/belaped/buscar-estoque-real?q=${encodeURIComponent(termo)}`);
+        if (res.ok && !cancelado) {
+          const data = await res.json();
+          setResultadosEstoqueReal(data.resultados || []);
+        }
+      } catch (e) {
+        if (!cancelado) setResultadosEstoqueReal([]);
+      } finally {
+        if (!cancelado) setBuscandoEstoqueReal(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelado = true;
+      clearTimeout(timer);
+    };
+  }, [buscaFalta]);
+
+  // Incluir produto do estoque real manualmente na cotação
+  const handleIncluirDoEstoqueRealNaCotacao = async (prod: any) => {
+    try {
+      const qtd = Math.max(1, Number(qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2) || 2);
+      const res = await fetch('/api/belaped/itens-avulsos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descricao: prod.descricao,
+          ean: prod.ean || '',
+          quantidade: qtd,
+          preco_referencia: Number(prod.custo_unitario) > 0 ? Number(prod.custo_unitario) : 5.0,
+          motivo: 'Incluído manualmente pela busca do Estoque Real',
+          usuario: user.name || 'Comprador'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`"${prod.descricao}" (${qtd} un) incluído na cotação do BelaPed!`, 'success');
+        setResultadosEstoqueReal(prev => prev.map(r => r.produto_id === prod.produto_id ? { ...r, ja_na_cotacao: true } : r));
+        carregarDados();
+      } else {
+        addToast(data.error || 'Erro ao incluir produto na cotação', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro ao incluir produto: ' + err.message, 'error');
+    }
+  };
 
   const totalPaginas = Math.max(1, Math.ceil(faltasFiltradas.length / itensPorPagina));
 
@@ -1690,70 +1762,316 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Executar Simulação de Carrinhos Otimizados (Considerando Orçamento e Repasse de Mínimo)
-  const handleExecutarSimulacao = async () => {
+  // Executar Otimização Real de Carrinhos (Dissolve empresas abaixo do mínimo usando preços reais cotados nos 7 portais)
+  const handleExecutarSimulacao = async (abrirModalAutomatico: boolean = true) => {
     try {
       setSimulando(true);
-      const selecionados = faltasFiltradas.filter(f => itensSelecionados[f.produto_id]);
+      const selecionadosBase = faltasFiltradas.filter(f => itensSelecionados[f.produto_id] && !f.nao_carrinho);
+      const selecionados = selecionadosBase.length > 0 ? selecionadosBase : faltasFiltradas.filter(f => !f.nao_carrinho);
 
       if (selecionados.length === 0) {
-        addToast('Selecione pelo menos um produto para cotar.', 'warning');
+        addToast('Selecione pelo menos um produto liberado para otimizar os carrinhos.', 'warning');
         return;
       }
-
-      const cotacoesSimuladas: Record<string, any[]> = {};
-      const portaisAtivos = portais.filter(p => p.is_ativo);
-
-      selecionados.forEach(item => {
-        const eanKey = item.ean || String(item.produto_id);
-        const precos = [];
-        const fornecedorHistorico = (item.fornecedor_ult_compra || '').toUpperCase();
-        
-        portaisAtivos.forEach(p => {
-          const isHistorico = fornecedorHistorico.includes(p.nome.toUpperCase());
-          const fator = isHistorico ? 0.98 : (1 + (Math.random() * 0.06 - 0.03));
-          const preco = Number((item.custo_unitario * fator).toFixed(2));
-          precos.push({
-            distribuidora: p.nome,
-            preco: preco > 0 ? preco : item.custo_unitario
-          });
-        });
-
-        cotacoesSimuladas[eanKey] = precos;
-      });
 
       const res = await fetch('/api/belaped/simular-otimizacao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itens: selecionados,
-          cotacoesPorDistribuidora: cotacoesSimuladas,
           alvoVencimento
         })
       });
 
       if (res.ok) {
         const data = await res.json();
-        setCarrinhosOtimizados(data.carrinhos || []);
+        const listaCarrinhos = data.carrinhos || [];
+        setCarrinhosOtimizados(listaCarrinhos);
         setResumoSimulacao(data.resumo || null);
         setSugestoesReagrupamento(data.sugestoesReagrupamento || []);
         setItensRepassados(data.itensRepassados || []);
         setItensFiltradosPorPrazo(data.itensFiltradosPorPrazo || []);
-        setActiveTab('cotacao');
-        
-        if (data.itensRepassados && data.itensRepassados.length > 0) {
-          addToast(`Otimização concluída! ${data.itensRepassados.length} item(ns) repassados automaticamente para atingir o pedido mínimo.`, 'info');
+
+        // Atualiza imediatamente a tabela principal com os itens repassados das distribuidoras que não atingiram o mínimo
+        if (Array.isArray(data.itensRepassados) && data.itensRepassados.length > 0) {
+          const mapaRepasse = new Map<string, any>();
+          data.itensRepassados.forEach((rep: any) => {
+            if (rep.ean) mapaRepasse.set(String(rep.ean).trim(), rep);
+            if (rep.produto) mapaRepasse.set(String(rep.produto).trim().toUpperCase(), rep);
+          });
+
+          setFaltasRaw(prev => prev.map(f => {
+            const rep = (f.ean && mapaRepasse.get(String(f.ean).trim())) || mapaRepasse.get(String(f.descricao).trim().toUpperCase());
+            if (!rep) return f;
+            const novoPreco = Number(rep.precoPara) || f.preco_1 || f.custo_unitario;
+            const qtd = Number(f.qtd_sugerida_7d) || 1;
+            return {
+              ...f,
+              fornecedor_1: rep.para,
+              preco_1: novoPreco,
+              subtotal_7d: Number((qtd * novoPreco).toFixed(2)),
+              repassado_de: rep.de
+            };
+          }));
+
+          addToast(
+            `✨ Carrinhos otimizados! ${data.itensRepassados.length} produto(s) de empresas abaixo do mínimo foram redistribuídos automaticamente.`,
+            'success'
+          );
         } else {
-          addToast('Otimização concluída com sucesso!', 'success');
+          addToast('✨ Carrinhos otimizados com sucesso usando as cotações reais!', 'success');
+        }
+
+        if (abrirModalAutomatico && listaCarrinhos.length > 0) {
+          setAbaEmpresaModalIndex(0);
+          setCarrinhoModalSelecionado(listaCarrinhos[0]);
+          setPrazoSelecionadoModal(listaCarrinhos[0].boletoEleito || `${listaCarrinhos[0].prazoDias || 28} DDL`);
+          setCarrinhoModalAberto(true);
         }
       } else {
         const errData = await res.json().catch(() => ({}));
         addToast(errData.error || 'Erro ao otimizar carrinhos', 'error');
       }
     } catch (e: any) {
-      addToast('Erro na simulação: ' + e.message, 'error');
+      addToast('Erro na otimização: ' + e.message, 'error');
     } finally {
       setSimulando(false);
+    }
+  };
+
+  // Abrir a Modal Unificada "Ver Carrinhos" com Guias (Abas) de todas as empresas cotadas
+  const handleAbrirModalVerCarrinhos = async (distribuidoraFoco?: string) => {
+    if (carrinhosOtimizados.length > 0) {
+      let idx = 0;
+      if (distribuidoraFoco) {
+        const achou = carrinhosOtimizados.findIndex(
+          c => String(c.distribuidora).toUpperCase() === String(distribuidoraFoco).toUpperCase()
+        );
+        if (achou >= 0) idx = achou;
+      }
+      setAbaEmpresaModalIndex(idx);
+      const car = carrinhosOtimizados[idx];
+      setCarrinhoModalSelecionado(car);
+      setPrazoSelecionadoModal(car?.boletoEleito || `${car?.prazoDias || 28} DDL`);
+      setCarrinhoModalAberto(true);
+      return;
+    }
+    await handleExecutarSimulacao(true);
+  };
+
+  // Excluir item de um carrinho dentro da Modal Unificada "Ver Carrinhos"
+  const handleExcluirItemDoCarrinhoModal = (distribuidoraNome: string, itemExcluir: any) => {
+    setCarrinhosOtimizados(prev => {
+      const atualizados = prev.map(car => {
+        if (String(car.distribuidora).toUpperCase() !== String(distribuidoraNome).toUpperCase()) return car;
+        const novosItens = (car.itens || []).filter((it: any) => {
+          if (itemExcluir.produto_id && it.produto_id) return it.produto_id !== itemExcluir.produto_id;
+          if (itemExcluir.ean && it.ean) return String(it.ean) !== String(itemExcluir.ean);
+          return it.descricao !== itemExcluir.descricao;
+        });
+        const novoTotal = Number(novosItens.reduce((acc: number, i: any) => acc + (Number(i.subtotal) || 0), 0).toFixed(2));
+        const min = Number(car.pedidoMinimo) || 300;
+        const atingiu = novoTotal >= min;
+        const falta = atingiu ? 0 : Number((min - novoTotal).toFixed(2));
+        return {
+          ...car,
+          itens: novosItens,
+          total: novoTotal,
+          atingiuMinimo: atingiu,
+          faltaParaMinimo: falta
+        };
+      }).filter(car => (car.itens || []).length > 0);
+
+      const novoSelecionado = atualizados[Math.min(abaEmpresaModalIndex, Math.max(0, atualizados.length - 1))] || null;
+      setCarrinhoModalSelecionado(novoSelecionado);
+      return atualizados;
+    });
+
+    if (itemExcluir.produto_id) {
+      setItensSelecionados(prev => ({ ...prev, [itemExcluir.produto_id]: false }));
+    }
+    addToast(`"${itemExcluir.descricao}" removido do carrinho da ${distribuidoraNome}.`, 'info');
+  };
+
+  // Passar item para o 2º colocado diretamente dentro da Modal Unificada "Ver Carrinhos"
+  const handlePassarItemParaSegundoColocadoModal = (distribuidoraOrigem: string, itemMover: any) => {
+    const itemTabela = faltasRaw.find(
+      f => (itemMover.produto_id && f.produto_id === itemMover.produto_id) || (itemMover.ean && f.ean === itemMover.ean)
+    );
+    const segDist = (itemMover.segundoColocado || itemTabela?.fornecedor_2 || '').trim().toUpperCase();
+    const segPreco = Number(itemMover.precoSegundoColocado || itemTabela?.preco_2 || 0);
+
+    if (!segDist || segDist === '—' || segPreco <= 0) {
+      addToast(`Não há 2º colocado com preço cotado disponível para "${itemMover.descricao}".`, 'warning');
+      return;
+    }
+
+    const qtd = Number(itemMover.quantidade) || 1;
+    const novoSubtotal = Number((qtd * segPreco).toFixed(2));
+    const itemAtualizado = {
+      ...itemMover,
+      precoUnitario: segPreco,
+      subtotal: novoSubtotal,
+      repassado: true,
+      repassadoDe: distribuidoraOrigem,
+      motivoRepasse: `Passado manualmente para o 2º colocado (${segDist})`
+    };
+
+    setCarrinhosOtimizados(prev => {
+      let destinoExiste = false;
+      const lista = prev.map(car => {
+        const nomeUpper = String(car.distribuidora).toUpperCase();
+        if (nomeUpper === String(distribuidoraOrigem).toUpperCase()) {
+          const novosItens = (car.itens || []).filter((it: any) => {
+            if (itemMover.produto_id && it.produto_id) return it.produto_id !== itemMover.produto_id;
+            if (itemMover.ean && it.ean) return String(it.ean) !== String(itemMover.ean);
+            return it.descricao !== itemMover.descricao;
+          });
+          const novoTotal = Number(novosItens.reduce((acc: number, i: any) => acc + (Number(i.subtotal) || 0), 0).toFixed(2));
+          const min = Number(car.pedidoMinimo) || 300;
+          return {
+            ...car,
+            itens: novosItens,
+            total: novoTotal,
+            atingiuMinimo: novoTotal >= min,
+            faltaParaMinimo: novoTotal >= min ? 0 : Number((min - novoTotal).toFixed(2))
+          };
+        }
+        if (nomeUpper === segDist) {
+          destinoExiste = true;
+          const novosItens = [...(car.itens || []), itemAtualizado];
+          const novoTotal = Number(novosItens.reduce((acc: number, i: any) => acc + (Number(i.subtotal) || 0), 0).toFixed(2));
+          const min = Number(car.pedidoMinimo) || 300;
+          return {
+            ...car,
+            itens: novosItens,
+            total: novoTotal,
+            atingiuMinimo: novoTotal >= min,
+            faltaParaMinimo: novoTotal >= min ? 0 : Number((min - novoTotal).toFixed(2))
+          };
+        }
+        return car;
+      }).filter(car => (car.itens || []).length > 0);
+
+      if (!destinoExiste) {
+        const portalCad = portais.find(p => p.nome.toUpperCase() === segDist);
+        const min = Number(portalCad?.pedido_minimo) || 300;
+        lista.push({
+          distribuidora: segDist,
+          uf: portalCad?.uf_origem || 'MG',
+          isMg: true,
+          pedidoMinimo: min,
+          prazoDias: Number(portalCad?.prazo_dias_padrao) || 28,
+          boletoEleito: `${Number(portalCad?.prazo_dias_padrao) || 28} DDL`,
+          total: novoSubtotal,
+          atingiuMinimo: novoSubtotal >= min,
+          faltaParaMinimo: novoSubtotal >= min ? 0 : Number((min - novoSubtotal).toFixed(2)),
+          itens: [itemAtualizado]
+        });
+      }
+
+      const novoSel = lista[Math.min(abaEmpresaModalIndex, Math.max(0, lista.length - 1))] || null;
+      setCarrinhoModalSelecionado(novoSel);
+      return lista;
+    });
+
+    // Atualiza também na tabela principal
+    setFaltasRaw(prev => prev.map(f => {
+      const bate = (itemMover.produto_id && f.produto_id === itemMover.produto_id) || (itemMover.ean && f.ean === itemMover.ean);
+      if (!bate) return f;
+      return {
+        ...f,
+        fornecedor_1: segDist,
+        preco_1: segPreco,
+        subtotal_7d: novoSubtotal,
+        repassado_de: distribuidoraOrigem
+      };
+    }));
+
+    addToast(`🔄 "${itemMover.descricao}" passado da ${distribuidoraOrigem} para ${segDist} (R$ ${segPreco.toFixed(2)})!`, 'success');
+  };
+
+  // Montar o carrinho de uma distribuidora específica diretamente pela Modal Unificada "Ver Carrinhos"
+  const handleMontarCarrinhoDaAbaModal = async (carrinho: any) => {
+    if (!carrinho || !Array.isArray(carrinho.itens) || carrinho.itens.length === 0) {
+      addToast('Carrinho vazio para montagem.', 'warning');
+      return;
+    }
+    const dist = String(carrinho.distribuidora || '').toUpperCase();
+    const payloadItens = carrinho.itens.map((it: any) => ({
+      ean: it.ean,
+      descricao: it.descricao,
+      quantidade: Number(it.quantidade) || 1,
+      preco_1: Number(it.precoUnitario) || 0,
+      fornecedor_1: dist,
+      fornecedor_2: it.segundoColocado || null,
+      preco_2: Number(it.precoSegundoColocado) || 0,
+      preco_ult_compra: Number(it.precoUnitario) || 0
+    }));
+
+    let endpoint = '';
+    if (dist.includes('PROFARMA')) endpoint = '/api/belaped/montar-carrinho-profarma';
+    else if (dist.includes('DPC')) endpoint = '/api/belaped/montar-carrinho-dpc';
+    else if (dist.includes('SOTON')) endpoint = '/api/belaped/montar-carrinho-soton';
+    else if (dist.includes('DISTRIMED')) endpoint = '/api/belaped/importar-carrinho-distrimed';
+    else if (dist.includes('DIVIMED')) endpoint = '/api/belaped/montar-carrinho-divimed';
+    else if (dist.includes('MARTINS')) endpoint = '/api/belaped/montar-carrinho-martins';
+    else if (dist.includes('ORIENTE')) endpoint = '/api/belaped/montar-carrinho-oriente';
+
+    if (!endpoint) {
+      addToast(`Portal ${dist} não possui robô de montagem individual mapeado.`, 'warning');
+      return;
+    }
+
+    try {
+      addToast(`🤖 Iniciando robô para montar o carrinho da ${dist} (${payloadItens.length} itens)...`, 'info');
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: payloadItens })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(data.message || `Robô montando carrinho na ${dist}! Acompanhe pelo monitor do robô.`, 'success');
+      } else {
+        addToast(data.message || data.error || `Erro ao montar carrinho na ${dist}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Erro ao acionar robô da ${dist}: ${e.message}`, 'error');
+    }
+  };
+
+  // Confirmar compra e lançar o Pedido + Boletos diretamente na guia "Pedidos" do Belinha
+  const handleConfirmarELancarPedidoModal = async (carrinho: any, prazoEscolhido?: string) => {
+    if (!carrinho) return;
+    const prazoFinal = prazoEscolhido || prazoSelecionadoModal || carrinho.boletoEleito || `${carrinho.prazoDias || 28} DDL`;
+    try {
+      setLancandoPedidoBelinha(true);
+      const res = await fetch('/api/belaped/lancar-pedido-belinha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          distribuidora: carrinho.distribuidora,
+          carrinho,
+          prazoEscolhido: prazoFinal,
+          numeroPedido: `PED-${Date.now().toString().slice(-6)}`
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const qtdBol = data.lancamento?.boletosCriados?.length || 1;
+        addToast(
+          `✅ Compra confirmada e lançada na guia "Pedidos" do Belinha! (${carrinho.distribuidora} • R$ ${Number(carrinho.total || 0).toFixed(2)} • ${qtdBol} boleto(s) agendado(s))`,
+          'success'
+        );
+        carregarDados();
+      } else {
+        addToast(data.error || 'Erro ao lançar pedido na guia Pedidos do Belinha', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro ao lançar pedido: ' + err.message, 'error');
+    } finally {
+      setLancandoPedidoBelinha(false);
     }
   };
 
@@ -1861,13 +2179,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Abrir Modal de Carrinho da Distribuidora (Belinha)
   const handleAbrirModalCarrinho = (carrinho: any) => {
+    const idx = carrinhosOtimizados.findIndex(
+      c => String(c.distribuidora).toUpperCase() === String(carrinho.distribuidora).toUpperCase()
+    );
+    if (idx >= 0) setAbaEmpresaModalIndex(idx);
     setCarrinhoModalSelecionado(carrinho);
     // Sugere o melhor prazo eleito
     setPrazoSelecionadoModal(carrinho.boletoEleito || (carrinho.prazoDias + ' DDL'));
     setCarrinhoModalAberto(true);
   };
 
-  // Executar a Compra Direta em uma Distribuidora Específica
+  // Executar a Compra Direta em uma Distribuidora Específica (e lança automaticamente em Pedidos do Belinha)
   const handleComprarCarrinhoDireto = async (carrinho: any, prazo?: string) => {
     const prazoFinal = prazo || prazoSelecionadoModal || carrinho.boletoEleito || (carrinho.prazoDias + ' DDL');
     try {
@@ -1888,7 +2210,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       const data = await res.json();
       if (res.ok && data.success) {
         setResultadoUltimaCompra(data.resultado);
-        addToast(`🎉 Compra realizada com sucesso na ${carrinho.distribuidora}! Pedido: ${data.resultado?.numeroPedido || 'Confirmado'}`, 'success');
+        addToast(`🎉 Compra realizada na ${carrinho.distribuidora} e lançada na guia Pedidos do Belinha! Pedido: ${data.resultado?.numeroPedido || 'Confirmado'}`, 'success');
         carregarDados();
         return data.resultado;
       } else {
@@ -1921,9 +2243,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     setWizardComprarTodosAberto(true);
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer (Profarma / DPC / Soton / Distrimed / Divimed / Todas)
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (7 Portais)
   const handleIniciarCotacaoAoVivo = async (
-    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'TODOS' = 'TODOS',
+    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
     prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS',
     eansEspecificos?: string[]
@@ -1969,7 +2291,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
 
       const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? `[${prioridadeFiltro}] ` : '';
-      const nomeExibicao = fornecedor === 'TODOS' ? '5 Portais (Profarma, DPC, Soton, Distrimed e Divimed)' : fornecedor;
+      const nomeExibicao = fornecedor === 'TODOS' ? '7 Portais (Profarma, DPC, Soton, Distrimed, Divimed, Martins e Oriente)' : fornecedor;
 
       // Resposta visual IMEDIATA (0ms): Mostra o banner e status instantaneamente
       setStatusCotacao({
@@ -2618,6 +2940,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 title={isBloqueadoCarrinho ? 'Produto bloqueado para não entrar no carrinho' : 'Selecionar item'}
               />
+              {item.ranking_posicao && (
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[11px] font-black border ${
+                    item.ranking_posicao <= 10
+                      ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400 shadow-sm'
+                      : 'bg-cyan-950 text-cyan-300 border-cyan-700'
+                  }`}
+                  title={`Rankeamento #${item.ranking_posicao} de Urgência (Alto Giro + Risco de Ruptura • Score: ${item.score_ranking || 0})`}
+                >
+                  {item.ranking_posicao <= 3 ? '🔥 ' : ''}#{item.ranking_posicao}
+                </span>
+              )}
               <span className={`px-2 py-0.5 rounded text-[11px] font-black border ${
                 item.curva_abc === 'A'
                   ? 'bg-emerald-950 text-emerald-300 border-emerald-600'
@@ -2633,6 +2967,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             </div>
 
             <div className="flex items-center gap-1">
+              {item.repassado_de && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-600 whitespace-nowrap"
+                  title={`Repassado automaticamente da ${item.repassado_de} (não atingiu o pedido mínimo)`}
+                >
+                  🔄 Ex-{item.repassado_de.split(' ')[0]}
+                </span>
+              )}
               {item.prioridade && (
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-black border whitespace-nowrap ${
                   item.prioridade === 'P1'
@@ -4097,426 +4439,350 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               </div>
             </div>
 
-            {/* Controles de Filtros e Disparo de Cotação */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md">
-              <div className="flex flex-wrap items-center gap-2">
-                
-                {/* Campo de Busca Rápida */}
-                <div className="relative min-w-[240px]">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar medicamento ou EAN..."
-                    value={buscaFalta}
-                    onChange={(e) => setBuscaFalta(e.target.value)}
-                    className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-700 bg-[#080d18] text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                  />
-                </div>
-
-                {/* Filtro Curva ABC + Esquecidos 6 Meses */}
-                <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
-                  <button
-                    onClick={() => setFiltroCurva('TODAS')}
-                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Todas ({faltas.length})
-                  </button>
-                  <button
-                    onClick={() => setFiltroCurva('A')}
-                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
-                  </button>
-                  <button
-                    onClick={() => setFiltroCurva('B')}
-                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
-                  </button>
-                  <button
-                    onClick={() => setFiltroCurva('C')}
-                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
-                  >
-                    Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
-                  </button>
-                  <button
-                    onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
-                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
-                    title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
-                  >
-                    ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
-                  </button>
-                </div>
-
-                {/* Filtro Tipo Categoria */}
-                <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
-                  <button
-                    onClick={() => setFiltroCategoria('TODAS')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Todos Tipos
-                  </button>
-                  <button
-                    onClick={() => setFiltroCategoria('MEDICAMENTO')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'MEDICAMENTO' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Medicamentos
-                  </button>
-                  <button
-                    onClick={() => setFiltroCategoria('PERFUMARIA')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'PERFUMARIA' ? 'bg-purple-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Perfumaria
-                  </button>
-                </div>
-
-                {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
-                <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
-                  <button
-                    onClick={() => setFiltroPrioridade('TODAS')}
-                    className={`px-2.5 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Todas Prio
-                  </button>
-                  <button
-                    onClick={() => setFiltroPrioridade('P1')}
-                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
-                    title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
-                  >
-                    <span>🚨 P1</span>
-                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
-                  </button>
-                  <button
-                    onClick={() => setFiltroPrioridade('P2')}
-                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
-                    title="⚠️ P2: Risco Iminente (&lt; 3 dias de giro + Curva A/B)"
-                  >
-                    <span>⚠️ P2</span>
-                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
-                  </button>
-                  <button
-                    onClick={() => setFiltroPrioridade('P3')}
-                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
-                    title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
-                  >
-                    <span>💼 P3</span>
-                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
-                  </button>
-                  <button
-                    onClick={() => setFiltroPrioridade('P4')}
-                    className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
-                    title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
-                  >
-                    <span>📦 P4</span>
-                    <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Ações: Planilhas de Pedido, Robôs de Cotação ao Vivo e Otimização */}
-              <div className="flex flex-wrap items-center gap-2">
-                
-                {/* Robôs de Montagem de Carrinho (Item por Item / Automático nos Portais) */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {/* Robô Profarma */}
-                  <button
-                    onClick={handleMontarCarrinhoProfarma}
-                    disabled={montandoCarrinhoProfarma}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-100 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login na Profarma e adicionará produto a produto no carrinho"
-                  >
-                    {montandoCarrinhoProfarma ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                        <span>Montando Profarma ({statusCarrinhoProfarma?.atual || 0}/{statusCarrinhoProfarma?.total || 0})...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Montar Profarma (Robô)</span>
-                      </>
+            {/* Controles Limpos: Busca no Estoque Real + Filtros + Ações Unificadas */}
+            <div className="bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-3">
+              {/* Linha 1: Barra de Busca Unificada (Cotação + Estoque Real) e Filtros Compactos */}
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2 flex-1">
+                  {/* Campo de Busca Rápida + Estoque Real */}
+                  <div className="relative min-w-[280px] flex-1 max-w-md">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar na cotação ou pesquisar no Estoque Real da farmácia..."
+                      value={buscaFalta}
+                      onChange={(e) => setBuscaFalta(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2 text-xs font-semibold rounded-xl border border-cyan-800/70 bg-[#080d18] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                    {buscaFalta && (
+                      <button
+                        type="button"
+                        onClick={() => setBuscaFalta('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Limpar busca"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     )}
-                  </button>
+                  </div>
 
-                  {/* Robô DPC */}
+                  {/* Botão Ordenar por Rankeamento (#1 Alto Giro + Risco de Ruptura) */}
                   <button
-                    onClick={handleMontarCarrinhoDpc}
-                    disabled={montandoCarrinhoDpc}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login na DPC e adicionará produto a produto no carrinho"
-                  >
-                    {montandoCarrinhoDpc ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                        <span>Montando DPC ({statusCarrinhoDpc?.atual || 0}/{statusCarrinhoDpc?.total || 0})...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Montar DPC (Robô)</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* Robô Soton */}
-                  <button
-                    onClick={handleMontarCarrinhoSoton}
-                    disabled={montandoCarrinhoSoton}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login na Soton e adicionará item por item os produtos no carrinho"
-                  >
-                    {montandoCarrinhoSoton ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                        <span>Montando Soton ({statusCarrinhoSoton?.atual || 0}/{statusCarrinhoSoton?.total || 0})...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Montar Soton (Robô)</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* Robô Distrimed */}
-                  <button
-                    onClick={handleImportarCarrinhoDistrimed}
-                    disabled={importandoDistrimed}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-100 border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login na Distrimed, abrirá a modal de importação e subirá o pedido automaticamente"
-                  >
-                    {importandoDistrimed ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                        <span>Importando Distrimed...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Importar Distrimed (Robô)</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* Robô Divimed */}
-                  <button
-                    onClick={handleMontarCarrinhoDivimed}
-                    disabled={montandoCarrinhoDivimed}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login na Divimed e adicionará produto a produto no carrinho buscando pelo nome (Mínimo R$ 400)"
-                  >
-                    {montandoCarrinhoDivimed ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                        <span>Montando Divimed ({statusCarrinhoDivimed?.atual || 0}/{statusCarrinhoDivimed?.total || 0})...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-3.5 h-3.5 text-rose-400" />
-                        <span>Montar Divimed (Robô)</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* Robô Martins */}
-                  <button
-                    onClick={handleMontarCarrinhoMartins}
-                    disabled={montandoCarrinhoMartins}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 hover:text-sky-100 border border-sky-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login no Martins e adicionará produto a produto no carrinho (faturado em MG)"
-                  >
-                    {montandoCarrinhoMartins ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
-                        <span>Montando Martins ({statusCarrinhoMartins?.atual || 0}/{statusCarrinhoMartins?.total || 0})...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-3.5 h-3.5 text-sky-400" />
-                        <span>Montar Martins (Robô)</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* Robô Oriente Farma */}
-                  <button
-                    onClick={handleMontarCarrinhoOriente}
-                    disabled={montandoCarrinhoOriente}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-100 border border-indigo-500/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                    title="O robô fará login na Oriente Farma e adicionará produto a produto no carrinho na condição comercial ideal"
-                  >
-                    {montandoCarrinhoOriente ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                        <span>Montando Oriente ({statusCarrinhoOriente?.atual || 0}/{statusCarrinhoOriente?.total || 0})...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Montar Oriente (Robô)</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Exportar Planilhas de Pedido (Backup CSV sem abrir nova aba) */}
-                <div className="flex items-center rounded-xl border border-slate-700/80 p-0.5 bg-[#080d18] text-xs font-bold">
-                  <span className="text-[10px] text-slate-500 px-2 uppercase tracking-wider font-extrabold">Planilhas:</span>
-                  <button
-                    onClick={handleExportarPlanilhaProfarma}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-emerald-400 hover:text-white hover:bg-emerald-950/60 transition-all cursor-pointer text-[11px]"
-                    title="Baixar planilha modelo CSV da Profarma"
-                  >
-                    <FileSpreadsheet className="w-3 h-3 text-emerald-400" />
-                    <span>Profarma</span>
-                  </button>
-                  <button
-                    onClick={handleExportarPlanilhaDpc}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-cyan-400 hover:text-white hover:bg-cyan-950/60 transition-all cursor-pointer text-[11px]"
-                    title="Baixar planilha modelo CSV da DPC"
-                  >
-                    <FileSpreadsheet className="w-3 h-3 text-cyan-400" />
-                    <span>DPC</span>
-                  </button>
-                  <button
-                    onClick={handleExportarPlanilhaDistrimed}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-indigo-400 hover:text-white hover:bg-indigo-950/60 transition-all cursor-pointer text-[11px]"
-                    title="Baixar planilha modelo CSV da Distrimed"
-                  >
-                    <FileSpreadsheet className="w-3 h-3 text-indigo-400" />
-                    <span>Distrimed</span>
-                  </button>
-                </div>
-
-                {/* BOTÃO: ABRIR RELATÓRIO DO ROBÔ & AUDITORIA DE REPASSE */}
-                {ultimoRelatorioAuditoria && (
-                  <button
-                    onClick={() => setModalRelatorioAberto(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-100 border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer shadow-sm animate-in fade-in"
-                    title={`Ver o relatório completo do robô com repasse do 2º colocado (${ultimoRelatorioAuditoria.distribuidora})`}
-                  >
-                    <ClipboardList className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Relatório Robô ({ultimoRelatorioAuditoria.distribuidora})</span>
-                  </button>
-                )}
-
-                {/* BOTÃO: RE-COTAR DIVERGENTES (>40% OU >60% VS ÚLTIMA COMPRA) */}
-                {itensDivergentes.length > 0 && (
-                  <button
+                    type="button"
                     onClick={() => {
-                      const eansDivergentes = Array.from(new Set(itensDivergentes.map(i => i.ean).filter(Boolean)));
-                      handleIniciarCotacaoAoVivo('TODOS', eansDivergentes.length, undefined, eansDivergentes);
+                      setOrdenarColuna('ranking_posicao');
+                      setOrdenarDirecao('asc');
+                      setPaginaAtual(1);
                     }}
-                    disabled={cotandoAoVivo}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-lg shadow-rose-950/50 transition-all cursor-pointer animate-pulse active:scale-95"
-                    title={`${itensDivergentes.length} itens têm cotação do 1º colocado muito distante da última compra (>= 40% mais barato ou >= 60% mais caro). Clique para rodar o robô novamente em todos eles.`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      ordenarColuna === 'ranking_posicao' || !ordenarColuna
+                        ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400 shadow-sm'
+                        : 'bg-[#080d18] text-amber-300 border-slate-700 hover:border-amber-500'
+                    }`}
+                    title="Ordenar pelo Sistema de Rankeamento (#1, #2, #3...): primeiras posições para produtos de Alto Giro e Risco de Ruptura"
                   >
-                    <RotateCcw className="w-3.5 h-3.5 text-rose-300" />
-                    <span>Re-cotar Divergentes ({itensDivergentes.length})</span>
+                    <span>🔥 Ranking Giro/Ruptura</span>
                   </button>
-                )}
 
-                {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO EM 6 PORTAIS) */}
-                <button
-                  onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
-                  disabled={cotandoAoVivo}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 hover:shadow-cyan-900/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
-                  title="Disparar os robôs agora para consultar preços ao vivo na Profarma, DPC, Soton Farma, Distrimed, Divimed e Martins Atacado"
-                >
-                  {cotandoAoVivo ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>Cotando nos 6 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Bot className="w-4 h-4 text-emerald-200 animate-pulse" />
-                      <span>Recarregar Cotação (Robôs)</span>
-                    </>
+                  {/* Filtro Curva ABC + Esquecidos 6 Meses */}
+                  <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                    <button
+                      onClick={() => setFiltroCurva('TODAS')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Todas ({faltas.length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('A')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('B')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('C')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
+                    >
+                      Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
+                      title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
+                    >
+                      ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
+                    </button>
+                  </div>
+
+                  {/* Filtro Tipo Categoria */}
+                  <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                    <button
+                      onClick={() => setFiltroCategoria('TODAS')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      onClick={() => setFiltroCategoria('MEDICAMENTO')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'MEDICAMENTO' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Med
+                    </button>
+                    <button
+                      onClick={() => setFiltroCategoria('PERFUMARIA')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'PERFUMARIA' ? 'bg-purple-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Perf
+                    </button>
+                  </div>
+
+                  {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
+                  <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
+                    <button
+                      onClick={() => setFiltroPrioridade('TODAS')}
+                      className={`px-2 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Prio
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P1')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
+                      title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
+                    >
+                      <span>🚨 P1</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P2')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
+                      title="⚠️ P2: Risco Iminente (< 3 dias de giro + Curva A/B)"
+                    >
+                      <span>⚠️ P2</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P3')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
+                      title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
+                    >
+                      <span>💼 P3</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P4')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
+                      title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
+                    >
+                      <span>📦 P4</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Ações Principais Enxutas (Sem botões individuais espalhados) */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* BOTÃO: RE-COTAR DIVERGENTES (>40% OU >60% VS ÚLTIMA COMPRA) */}
+                  {itensDivergentes.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const eansDivergentes = Array.from(new Set(itensDivergentes.map(i => i.ean).filter(Boolean)));
+                        handleIniciarCotacaoAoVivo('TODOS', eansDivergentes.length, undefined, eansDivergentes);
+                      }}
+                      disabled={cotandoAoVivo}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-md transition-all cursor-pointer animate-pulse"
+                      title={`${itensDivergentes.length} itens têm cotação do 1º colocado muito distante da última compra. Clique para rodar o robô novamente neles.`}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-rose-300" />
+                      <span>Divergentes ({itensDivergentes.length})</span>
+                    </button>
                   )}
-                </button>
 
-                {/* BOTÃO SECUNDÁRIO: ATUALIZAR TABELA (SINCRONIZAR BANCO) */}
-                <button
-                  onClick={handleSincronizarManual}
-                  disabled={refreshing}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-cyan-800/60 text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50 active:scale-95"
-                  title="Sincronizar dados e cotações da tabela com o banco de dados"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`} />
-                  <span>{refreshing ? 'Atualizando...' : 'Atualizar Tabela'}</span>
-                </button>
+                  {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO NOS 7 PORTAIS) */}
+                  <button
+                    onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
+                    disabled={cotandoAoVivo}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                    title="Disparar os robôs agora para consultar preços ao vivo nos 7 portais (Profarma, DPC, Soton Farma, Distrimed, Divimed, Martins Atacado e Oriente Farma)"
+                  >
+                    {cotandoAoVivo ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                        <span>Cotando nos 7 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="w-4 h-4 text-emerald-200" />
+                        <span>Cotar 7 Portais (Robôs)</span>
+                      </>
+                    )}
+                  </button>
 
-                {/* BOTÃO: AUDITORIA SEGURA DE PRAZOS E MÍNIMOS */}
-                <button
-                  onClick={() => setModalAuditoriaAberta(true)}
-                  disabled={auditandoPrazos}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-950 via-purple-950 to-indigo-900 hover:from-indigo-900 hover:to-purple-900 text-indigo-200 hover:text-white border border-indigo-700/80 text-xs font-black transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
-                  title="Auditoria segura dos prazos de boletos e pedidos mínimos vigentes em cada distribuidora (Risco Zero / Preservação Total de Carrinho)"
-                >
-                  <CreditCard className={`w-3.5 h-3.5 ${auditandoPrazos ? 'animate-spin text-indigo-300' : 'text-indigo-400'}`} />
-                  <span>{auditandoPrazos ? 'Auditando...' : '💳 Prazos de Boletos'}</span>
-                </button>
+                  {/* BOTÃO: OTIMIZAR CARRINHOS (DISSOLVE EMPRESAS ABAIXO DO MÍNIMO E REPASSA PRODUTOS) */}
+                  <button
+                    onClick={() => handleExecutarSimulacao(true)}
+                    disabled={simulando || totaisSelecionados.qtdItens === 0}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                    title="Pega os carrinhos das empresas que não atingiram o pedido mínimo, divide os produtos com as outras empresas cotadas e abre os carrinhos otimizados"
+                  >
+                    <Sparkles className={`w-4 h-4 text-cyan-200 ${simulando ? 'animate-spin' : ''}`} />
+                    <span>{simulando ? 'Otimizando Mínimos...' : `✨ Otimizar Carrinhos (${totaisSelecionados.qtdItens})`}</span>
+                  </button>
 
-                {/* BOTÃO: CAMPANHAS ESPECIAIS DA DISTRIMED */}
-                <button
-                  onClick={() => setModalCampanhasAberta(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#091528] hover:bg-cyan-950 text-amber-300 hover:text-amber-100 border border-amber-700/60 text-xs font-bold transition-all shadow-sm cursor-pointer active:scale-95"
-                  title="Gerenciar campanhas comerciais da Distrimed (Unilever, Nívea, Dapa, Nestlé, etc.)"
-                >
-                  <Tag className="w-3.5 h-3.5 text-amber-400" />
-                  <span>🏷️ Campanhas Distrimed</span>
-                </button>
+                  {/* BOTÃO NOVO SOLICITADO: VER CARRINHOS (ABRE MODAL UNIFICADA COM GUIAS DE CADA EMPRESA) */}
+                  <button
+                    onClick={() => handleAbrirModalVerCarrinhos()}
+                    disabled={simulando}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-lg shadow-indigo-950/50 border border-indigo-400/50 transition-all cursor-pointer active:scale-95"
+                    title="Abrir a modal unificada com guias (abas) de cada empresa cotada para ver/montar carrinhos, excluir itens, passar para o 2º colocado e confirmar compra"
+                  >
+                    <ShoppingCart className="w-4 h-4 text-indigo-200" />
+                    <span>🛒 Ver Carrinhos ({carrinhosOtimizados.length > 0 ? `${carrinhosOtimizados.length} empresas` : `${totaisPorDistribuidora.filter(g => g.isEmpresaReal).length} empresas`})</span>
+                  </button>
 
-                {/* Badge com Horário da Última Sincronização */}
-                {ultimaAtualizacao && (
-                  <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap hidden xl:inline-block">
-                    Atualizado às <b className="text-slate-200">{ultimaAtualizacao}</b>
-                  </span>
-                )}
+                  {/* Botões de Apoio Compactos */}
+                  <button
+                    onClick={() => setModalAuditoriaAberta(true)}
+                    disabled={auditandoPrazos}
+                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-indigo-950 text-indigo-200 border border-indigo-800/70 text-xs font-bold transition-all cursor-pointer"
+                    title="Ver e auditar prazos de boletos e pedidos mínimos dos 7 portais"
+                  >
+                    <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>💳 Prazos</span>
+                  </button>
 
-                {/* BOTÃO ULTRA PROEMINENTE: EXIBIR APENAS A TABELA */}
-                <button
-                  onClick={alternarModoApenasTabela}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border shadow-md active:scale-95 ${
-                    modoApenasTabela
-                      ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400 shadow-amber-950/50'
-                      : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:brightness-110 text-white border-cyan-300 shadow-cyan-950/50 ring-2 ring-cyan-400/40'
-                  }`}
-                  title={modoApenasTabela ? 'Exibir o menu lateral e painéis completos do topo' : 'Exibir apenas a tabela (oculta menus e painéis para 100% de visão)'}
-                >
-                  <Table className="w-3.5 h-3.5" />
-                  <span>{modoApenasTabela ? '← Exibir Painel Completo' : '📊 Exibir Apenas a Tabela'}</span>
-                </button>
+                  <button
+                    onClick={() => setModalCampanhasAberta(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-amber-950/60 text-amber-300 border border-amber-800/60 text-xs font-bold transition-all cursor-pointer"
+                    title="Gerenciar campanhas comerciais da Distrimed"
+                  >
+                    <Tag className="w-3.5 h-3.5 text-amber-400" />
+                    <span>🏷️ Campanhas</span>
+                  </button>
 
-                {/* BOTÃO DE EXPORTAÇÃO TXT POR FORNECEDOR */}
-                <button
-                  onClick={handleGerarRelatorioTxt}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-black transition-all cursor-pointer shadow-md active:scale-95"
-                  title="Gerar e baixar arquivo TXT organizado com produtos separados por fornecedor"
-                >
-                  <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>📄 Baixar TXT Fornecedores</span>
-                </button>
-
-                <button
-                  onClick={() => setAvulsoModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>+ Item Avulso</span>
-                </button>
-
-                <button
-                  onClick={handleExecutarSimulacao}
-                  disabled={simulando || totaisSelecionados.qtdItens === 0}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Sparkles className="w-4 h-4 text-cyan-200" />
-                  <span>Otimizar Carrinhos ({totaisSelecionados.qtdItens} itens • R$ {totaisSelecionados.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
-                </button>
+                  {ultimoRelatorioAuditoria && (
+                    <button
+                      onClick={() => setModalRelatorioAberto(true)}
+                      className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 text-xs font-bold transition-all cursor-pointer"
+                      title={`Relatório do robô (${ultimoRelatorioAuditoria.distribuidora})`}
+                    >
+                      <ClipboardList className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Relatório Robô</span>
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* ─── PAINEL DE RESULTADOS DO ESTOQUE REAL DA FARMÁCIA (QUANDO PESQUISANDO) ─── */}
+              {buscaFalta.trim().length >= 2 && (
+                <div className="pt-2.5 border-t border-slate-800/90 space-y-2 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-300 border border-cyan-700 text-[10px] font-black uppercase tracking-wider">
+                        📦 Estoque Real da Farmácia
+                      </span>
+                      <span className="text-xs font-bold text-slate-300">
+                        Pesquisa global por <b className="text-white">"{buscaFalta.trim()}"</b> (inclui produtos fora da lista e justificativa do sistema)
+                      </span>
+                    </div>
+                    {buscandoEstoqueReal && (
+                      <span className="text-xs text-cyan-400 font-bold flex items-center gap-1">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Consultando estoque real...
+                      </span>
+                    )}
+                  </div>
+
+                  {!buscandoEstoqueReal && resultadosEstoqueReal.length === 0 ? (
+                    <div className="p-3 rounded-xl bg-[#080d18] border border-slate-800 text-xs text-slate-400">
+                      Nenhum produto encontrado no cadastro do estoque real para "{buscaFalta.trim()}".
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                      {resultadosEstoqueReal.map((prod) => (
+                        <div
+                          key={prod.produto_id}
+                          className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 text-xs transition-all ${
+                            prod.ja_na_cotacao
+                              ? 'bg-emerald-950/25 border-emerald-700/70'
+                              : 'bg-[#080d18] border-slate-800 hover:border-cyan-700/60'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-bold text-white leading-tight line-clamp-1" title={prod.descricao}>
+                                {prod.descricao}
+                              </span>
+                              {prod.ja_na_cotacao ? (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600 text-[10px] font-black whitespace-nowrap shrink-0">
+                                  ✅ Já na Cotação
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold whitespace-nowrap shrink-0">
+                                  Fora da Cotação
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                              <span className="font-mono text-cyan-400">EAN: {prod.ean || 'S/N'}</span>
+                              <span>•</span>
+                              <span>Curva <b className="text-white">{prod.curva_abc}</b></span>
+                              <span>•</span>
+                              <span>Saldo: <b className={prod.saldo <= 0 ? 'text-rose-400' : 'text-emerald-300'}>{prod.saldo} un</b></span>
+                              <span>•</span>
+                              <span>30d: <b className="text-white">{prod.vendas_30d} un</b></span>
+                              <span>•</span>
+                              <span>Cobert: <b className="text-amber-300">{prod.dias_cobertura >= 999 ? 'Sem giro' : `${prod.dias_cobertura}d`}</b></span>
+                            </div>
+
+                            {/* Justificativa do Projeto sobre por que está ou não está indicado para compra */}
+                            <div className={`p-1.5 px-2 rounded-lg text-[11px] font-medium border ${
+                              prod.ja_na_cotacao
+                                ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-200'
+                                : 'bg-amber-950/40 border-amber-800/60 text-amber-200'
+                            }`}>
+                              <span className="font-black uppercase text-[10px] mr-1">
+                                {prod.ja_na_cotacao ? '📌 Status:' : '💡 Por que não comprar agora:'}
+                              </span>
+                              <span>{prod.justificativa_compra}</span>
+                            </div>
+                          </div>
+
+                          {/* Botão para incluir manualmente na cotação caso não esteja indicado */}
+                          {!prod.ja_na_cotacao && (
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400 font-bold">Qtd:</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={999}
+                                  value={qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2}
+                                  onChange={(e) => setQtdIncluirEstoque(prev => ({ ...prev, [prod.produto_id]: Math.max(1, Number(e.target.value) || 1) }))}
+                                  className="w-14 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-white text-xs font-bold text-center"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleIncluirDoEstoqueRealNaCotacao(prod)}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-black transition-all cursor-pointer shadow-sm"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Incluir na Cotação</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* BARRA DE PROGRESSO DA COTAÇÃO AO VIVO (SE ATIVA) */}
@@ -4880,6 +5146,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     <td className="py-2.5 px-3.5">
                                       <div className="flex flex-col">
                                         <div className="flex flex-wrap items-center gap-1.5">
+                                          {item.ranking_posicao && (
+                                            <span
+                                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black border whitespace-nowrap ${
+                                                item.ranking_posicao <= 10
+                                                  ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400'
+                                                  : 'bg-cyan-950 text-cyan-300 border-cyan-700'
+                                              }`}
+                                              title={`Rankeamento #${item.ranking_posicao} de Giro & Ruptura (Score: ${item.score_ranking || 0})`}
+                                            >
+                                              {item.ranking_posicao <= 3 ? '🔥 ' : ''}#{item.ranking_posicao}
+                                            </span>
+                                          )}
+                                          {item.repassado_de && (
+                                            <span
+                                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-600 whitespace-nowrap"
+                                              title={`Repassado da ${item.repassado_de} (não atingiu o mínimo)`}
+                                            >
+                                              🔄 Ex-{item.repassado_de.split(' ')[0]}
+                                            </span>
+                                          )}
                                           {item.prioridade && (
                                             <span
                                               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider whitespace-nowrap border ${
@@ -5076,7 +5362,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                         <div className="flex items-center gap-1.5">
                                           <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
                                           <span className="font-semibold text-amber-400/90 text-xs">
-                                            Sem Estoque (4 Portais)
+                                            Sem Estoque (7 Portais)
                                           </span>
                                         </div>
                                       ) : (
@@ -5257,6 +5543,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             <td className="py-2.5 px-3.5">
                               <div className="flex flex-col">
                                 <div className="flex flex-wrap items-center gap-1.5">
+                                  {item.ranking_posicao && (
+                                    <span
+                                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black border whitespace-nowrap ${
+                                        item.ranking_posicao <= 10
+                                          ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400'
+                                          : 'bg-cyan-950 text-cyan-300 border-cyan-700'
+                                      }`}
+                                      title={`Rankeamento #${item.ranking_posicao} de Giro & Ruptura (Score: ${item.score_ranking || 0})`}
+                                    >
+                                      {item.ranking_posicao <= 3 ? '🔥 ' : ''}#{item.ranking_posicao}
+                                    </span>
+                                  )}
+                                  {item.repassado_de && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-600 whitespace-nowrap"
+                                      title={`Repassado da ${item.repassado_de} (não atingiu o mínimo)`}
+                                    >
+                                      🔄 Ex-{item.repassado_de.split(' ')[0]}
+                                    </span>
+                                  )}
                                   <span className="text-sm font-bold text-white leading-snug">
                                     {item.descricao}
                                   </span>
@@ -5445,8 +5751,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               ) : semEstoquePortais ? (
                                 <div className="flex items-center gap-1.5">
                                   <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-                                  <span className="font-semibold text-amber-400/90 text-xs" title="Consultado nos 4 portais sem estoque disponível">
-                                    Sem Estoque (4 Portais)
+                                  <span className="font-semibold text-amber-400/90 text-xs" title="Consultado nos 7 portais sem estoque disponível">
+                                    Sem Estoque (7 Portais)
                                   </span>
                                 </div>
                               ) : (
@@ -7348,164 +7654,373 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         </div>
       )}
 
-      {/* ─── 1.1 MODAL DO CARRINHO POR DISTRIBUIDORA (BELINHA) ─── */}
-      {carrinhoModalAberto && carrinhoModalSelecionado && (() => {
-        const portalCad = portais.find(p => p.nome.toUpperCase() === carrinhoModalSelecionado.distribuidora.toUpperCase());
+      {/* ─── 1.1 MODAL UNIFICADA "VER CARRINHOS" COM GUIAS (ABAS) DE CADA EMPRESA COTADA ─── */}
+      {carrinhoModalAberto && carrinhosOtimizados.length > 0 && (() => {
+        const idxSeguro = Math.min(abaEmpresaModalIndex, carrinhosOtimizados.length - 1);
+        const carrinhoAtivo = carrinhosOtimizados[idxSeguro] || carrinhoModalSelecionado || carrinhosOtimizados[0];
+        if (!carrinhoAtivo) return null;
+
+        const portalCad = portais.find(p => p.nome.toUpperCase() === carrinhoAtivo.distribuidora.toUpperCase());
         const opcoesPrazos = portalCad?.prazos_boleto 
           ? portalCad.prazos_boleto.split(' | ') 
-          : [carrinhoModalSelecionado.boletoEleito || `${carrinhoModalSelecionado.prazoDias} DDL`];
-        const estaComprando = comprandoDireto && distribuidoraComprando === carrinhoModalSelecionado.distribuidora;
+          : [carrinhoAtivo.boletoEleito || `${carrinhoAtivo.prazoDias} DDL`];
+        const estaComprando = comprandoDireto && distribuidoraComprando === carrinhoAtivo.distribuidora;
+        const isDistrimed = carrinhoAtivo.distribuidora.toUpperCase().includes('DISTRIMED');
+        const totalGeralCarrinhos = carrinhosOtimizados.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
+        const totalItensGeral = carrinhosOtimizados.reduce((acc, c) => acc + (c.itens?.length || 0), 0);
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-[#0b1320] border-2 border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden ring-1 ring-cyan-500/20">
-              {/* Header */}
-              <div className="p-4 border-b border-slate-800 bg-[#070e1a] flex items-center justify-between">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-[#0b1320] border-2 border-slate-700/90 rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ring-1 ring-cyan-500/30">
+              {/* Top Header Global da Modal Unificada */}
+              <div className="p-3.5 sm:p-4 border-b border-slate-800 bg-[#070e1a] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-cyan-950/80 border border-cyan-700 text-cyan-300">
+                  <div className="p-2.5 rounded-xl bg-cyan-950/90 border border-cyan-600/80 text-cyan-300 shadow-md">
                     <ShoppingCart className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-black uppercase text-white tracking-wide">
-                        Carrinho {carrinhoModalSelecionado.distribuidora}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base sm:text-lg font-black uppercase text-white tracking-wide">
+                        🛒 Central de Carrinhos Otimizados ({carrinhosOtimizados.length} Empresas)
                       </h3>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                        carrinhoModalSelecionado.atingiuMinimo 
-                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
-                          : 'bg-amber-950 text-amber-300 border border-amber-800'
-                      }`}>
-                        {carrinhoModalSelecionado.atingiuMinimo ? 'Frete Grátis OK' : `Falta R$ ${carrinhoModalSelecionado.faltaParaMinimo?.toFixed(2)}`}
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-cyan-950 text-cyan-300 border border-cyan-700">
+                        {totalItensGeral} itens • Total: R$ {totalGeralCarrinhos.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                       </span>
+                      {itensRepassados.length > 0 && (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700">
+                          🔄 {itensRepassados.length} repassados p/ atingir mínimo
+                        </span>
+                      )}
                     </div>
-                    <p className="text-xs text-slate-400">
-                      {carrinhoModalSelecionado.itens?.length || 0} produtos • Pedido Mínimo: R$ {carrinhoModalSelecionado.pedidoMinimo?.toFixed(2)}
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Alterne entre as guias de cada distribuidora para montar o carrinho, passar itens para o 2º colocado, excluir produtos ou confirmar a compra lançando em Pedidos.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-lg font-black text-cyan-300">
-                    R$ {carrinhoModalSelecionado.total?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleMontarTodosCarrinhos}
+                    disabled={montandoTodosCarrinhos}
+                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    title="Limpar e montar automaticamente os carrinhos reais em todas as distribuidoras"
+                  >
+                    {montandoTodosCarrinhos ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Montando Todos...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                        <span>🤖 Montar Todos os Carrinhos</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExecutarSimulacao(false)}
+                    disabled={simulandoOtimizacao}
+                    className="px-3 py-1.5 rounded-xl bg-indigo-950/90 hover:bg-indigo-900 text-indigo-200 border border-indigo-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    title="Re-otimizar carrinhos dissolvendo empresas abaixo do pedido mínimo"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${simulandoOtimizacao ? 'animate-spin' : 'text-amber-300'}`} />
+                    <span>Re-otimizar Mínimos</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCarrinhoModalAberto(false);
+                      handleIniciarWizardComprarTodos();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-yellow-300" />
+                    <span>Comprar Todos (Passo a Passo)</span>
+                  </button>
+
                   <button 
                     onClick={() => setCarrinhoModalAberto(false)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer ml-1"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
 
-              {/* Seletor do Melhor Prazo Orçamentário */}
-              <div className="p-4 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <CreditCard className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <div>
-                    <span className="text-xs font-black uppercase tracking-wider text-white block">
-                      Prazo Eleito conforme Orçamento
+              {/* Barra de Guias (Abas) de Cada Empresa Cotada */}
+              <div className="bg-[#09101d] border-b border-slate-800 px-3 pt-2.5 flex items-center gap-1.5 overflow-x-auto">
+                {carrinhosOtimizados.map((car: any, idx: number) => {
+                  const isAtiva = idx === idxSeguro;
+                  const atingiu = car.atingiuMinimo;
+                  return (
+                    <button
+                      key={car.distribuidora}
+                      type="button"
+                      onClick={() => {
+                        setAbaEmpresaModalIndex(idx);
+                        setCarrinhoModalSelecionado(car);
+                        setPrazoSelecionadoModal(car.boletoEleito || `${car.prazoDias} DDL`);
+                      }}
+                      className={`px-3.5 py-2 rounded-t-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 border-t-2 border-x whitespace-nowrap ${
+                        isAtiva
+                          ? 'bg-[#0b1320] text-white border-t-cyan-400 border-x-slate-700 shadow-lg'
+                          : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:bg-slate-900 border-t-transparent border-x-slate-800/60'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${atingiu ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                      <span>{car.distribuidora}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-cyan-300 font-mono">
+                        {car.itens?.length || 0}
+                      </span>
+                      <span className={`text-[11px] font-extrabold ${atingiu ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        R$ {Number(car.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Sub-header da Empresa Selecionada: Status do Pedido Mínimo + Prazo Eleito + Regra Distrimed */}
+              <div className="p-3.5 bg-gradient-to-r from-slate-900 via-[#0d1726] to-slate-900 border-b border-slate-800 flex flex-col gap-3">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-black uppercase text-white tracking-wide flex items-center gap-1.5">
+                      🏢 {carrinhoAtivo.distribuidora}
                     </span>
-                    <span className="text-[11px] text-slate-400">
-                      Alinhado ao fluxo de caixa. Você pode selecionar outra opção de boleto cadastrada:
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
+                      carrinhoAtivo.atingiuMinimo 
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' 
+                        : 'bg-amber-950 text-amber-300 border border-amber-700'
+                    }`}>
+                      {carrinhoAtivo.atingiuMinimo 
+                        ? `✅ Mínimo Atingido (Mín: R$ ${Number(carrinhoAtivo.pedidoMinimo || 0).toFixed(2)})` 
+                        : `⚠️ Falta R$ ${Number(carrinhoAtivo.faltaParaMinimo || 0).toFixed(2)} p/ Mínimo de R$ ${Number(carrinhoAtivo.pedidoMinimo || 0).toFixed(2)}`}
                     </span>
+                    <span className="text-xs text-slate-300 font-bold">
+                      Total na {carrinhoAtivo.distribuidora}: <b className="text-cyan-300 text-sm">R$ {Number(carrinhoAtivo.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                    </span>
+                  </div>
+
+                  {/* Seletor de Prazo e Data do Boleto */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+                      <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+                      Prazo do Boleto:
+                    </span>
+                    <select
+                      value={prazoSelecionadoModal}
+                      onChange={(e) => setPrazoSelecionadoModal(e.target.value)}
+                      className="bg-slate-900 border-2 border-emerald-500/80 rounded-xl px-2.5 py-1 text-xs font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-md"
+                    >
+                      {opcoesPrazos.map((pOpt: string, pIdx: number) => {
+                        const dataVenc = formatarPrazoComDataVencimento(pOpt);
+                        return (
+                          <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
+                            💳 {pOpt} {dataVenc ? `• (Venc: ${dataVenc})` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {prazoSelecionadoModal && formatarPrazoComDataVencimento(prazoSelecionadoModal) && (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/80 border border-emerald-700/80 text-[11px] font-bold text-emerald-300 whitespace-nowrap">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>Vencimento: <b className="text-white">{formatarPrazoComDataVencimento(prazoSelecionadoModal)}</b></span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0">
-                  <select
-                    value={prazoSelecionadoModal}
-                    onChange={(e) => setPrazoSelecionadoModal(e.target.value)}
-                    className="bg-slate-900 border-2 border-emerald-500/80 rounded-xl px-3 py-1.5 text-xs font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-md"
-                  >
-                    {opcoesPrazos.map((pOpt: string, pIdx: number) => {
-                      const dataVenc = formatarPrazoComDataVencimento(pOpt);
-                      return (
-                        <option key={pIdx} value={pOpt} className="bg-slate-900 text-slate-200">
-                          💳 {pOpt} {dataVenc ? `• (Venc: ${dataVenc})` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-
-                  {prazoSelecionadoModal && formatarPrazoComDataVencimento(prazoSelecionadoModal) && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-700/80 text-[11px] font-bold text-emerald-300 whitespace-nowrap shadow-sm">
-                      <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Data do Boleto: <b className="text-white">{formatarPrazoComDataVencimento(prazoSelecionadoModal)}</b></span>
+                {/* Painel Especial Regra de Negócio DISTRIMED (Boletos até R$ 250 / Máx 60 Dias / Dias de Menor Despesa) */}
+                {isDistrimed && (carrinhoAtivo.distrimedPlanoInteligente || (carrinhoAtivo.parcelasCalculadas && carrinhoAtivo.parcelasCalculadas.length > 0)) && (
+                  <div className="p-2.5 rounded-xl bg-gradient-to-r from-indigo-950/80 via-slate-900 to-emerald-950/70 border border-indigo-600/60 flex flex-col gap-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-black uppercase">
+                          🎯 Regra Distrimed Ativa
+                        </span>
+                        <span className="text-xs font-bold text-indigo-200">
+                          Escolha de Vencimentos • Máx 60 Dias • Boletos até R$ 250,00 alocados nos dias úteis de menor despesa do caixa:
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-black text-emerald-300">
+                        {carrinhoAtivo.parcelasCalculadas?.length || 1}x boleto(s) planejado(s)
+                      </span>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Tabela de Produtos */}
-              <div className="p-4 overflow-y-auto flex-1">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-[11px] uppercase font-black text-slate-400">
-                      <th className="pb-2">EAN / Produto</th>
-                      <th className="pb-2 text-center">Quantidade</th>
-                      <th className="pb-2 text-right">Preço Un.</th>
-                      <th className="pb-2 text-right">Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {carrinhoModalSelecionado.itens?.map((it: any, iIdx: number) => (
-                      <tr key={iIdx} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-2.5 pr-2">
-                          <span className="font-bold text-white block">{it.descricao}</span>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="font-mono text-[10px] text-slate-400">{it.ean || '—'}</span>
-                            {it.repassado && (
-                              <span className="px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[9px] font-black" title={it.motivoRepasse}>
-                                🔄 Repassado de {it.repassadoDe}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {(carrinhoAtivo.parcelasCalculadas || []).map((parc: any, pIdx: number) => (
+                        <div key={pIdx} className="p-2 rounded-lg bg-slate-950/90 border border-indigo-800/70 flex flex-col justify-between text-[11px]">
+                          <div className="flex items-center justify-between">
+                            <span className="font-black text-indigo-300">{parc.numero || pIdx + 1}ª Parcela ({parc.prazoDias} DDL)</span>
+                            <span className="font-black text-emerald-400">R$ {Number(parc.valor || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-300 mt-1 flex items-center justify-between">
+                            <span>📅 Venc: <b className="text-white">{parc.dataVencimentoBR || parc.dataVencimento}</b></span>
+                            {parc.despesaExistenteNoDia !== undefined && (
+                              <span className="text-cyan-300" title="Total de boletos/despesas já existentes neste dia">
+                                Caixa dia: R$ {Number(parc.despesaExistenteNoDia || 0).toFixed(0)}
                               </span>
                             )}
                           </div>
-                        </td>
-                        <td className="py-2.5 px-2 text-center font-bold text-white">
-                          {it.quantidade} un
-                        </td>
-                        <td className="py-2.5 px-2 text-right font-medium text-slate-300">
-                          R$ {it.precoUnitario?.toFixed(2)}
-                        </td>
-                        <td className="py-2.5 pl-2 text-right font-black text-emerald-400">
-                          R$ {it.subtotal?.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Footer com Botão de Comprar */}
-              <div className="p-4 border-t border-slate-800 bg-[#070e1a] flex flex-col sm:flex-row items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCarrinhoModalAberto(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer w-full sm:w-auto"
-                >
-                  Fechar
-                </button>
+              {/* Tabela de Produtos da Guia Ativa com Ações de Passar p/ 2º Colocado e Excluir */}
+              <div className="p-3.5 overflow-y-auto flex-1">
+                {(!carrinhoAtivo.itens || carrinhoAtivo.itens.length === 0) ? (
+                  <div className="py-12 text-center text-slate-400 text-sm">
+                    Nenhum produto neste carrinho.
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-[11px] uppercase font-black text-slate-400">
+                        <th className="pb-2 whitespace-nowrap">EAN / Produto</th>
+                        <th className="pb-2 text-center whitespace-nowrap">Qtd</th>
+                        <th className="pb-2 text-right whitespace-nowrap">Preço Un.</th>
+                        <th className="pb-2 text-right whitespace-nowrap">Subtotal</th>
+                        <th className="pb-2 text-left pl-4 whitespace-nowrap">2º Colocado (Alternativa)</th>
+                        <th className="pb-2 text-right whitespace-nowrap">Ações no Item</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {carrinhoAtivo.itens.map((it: any, iIdx: number) => {
+                        const temSegundo = Boolean(it.segundoFornecedor && Number(it.segundoPreco) > 0);
+                        const diffSegundo = temSegundo ? (Number(it.segundoPreco) - Number(it.precoUnitario)) : 0;
+                        return (
+                          <tr key={it.ean || iIdx} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="py-2.5 pr-2">
+                              <span className="font-bold text-white block">{it.descricao}</span>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="font-mono text-[10px] text-slate-400">{it.ean || '—'}</span>
+                                {it.repassado && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[9px] font-black" title={it.motivoRepasse}>
+                                    🔄 Ex-{it.repassadoDe}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-bold text-white whitespace-nowrap">
+                              {it.quantidade} un
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-medium text-slate-300 whitespace-nowrap">
+                              R$ {Number(it.precoUnitario || 0).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-black text-emerald-400 whitespace-nowrap">
+                              R$ {Number(it.subtotal || 0).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 pl-4 pr-2 whitespace-nowrap">
+                              {temSegundo ? (
+                                <div className="flex flex-col">
+                                  <span className="text-[11px] font-bold text-cyan-300">
+                                    {it.segundoFornecedor} • R$ {Number(it.segundoPreco).toFixed(2)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {diffSegundo >= 0 ? `+R$ ${diffSegundo.toFixed(2)}/un` : `-R$ ${Math.abs(diffSegundo).toFixed(2)}/un`}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 italic">Sem 2º colocado cotado</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 pl-2 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePassarItemParaSegundoColocadoModal(carrinhoAtivo.distribuidora, it)}
+                                  className="px-2.5 py-1 rounded-lg bg-indigo-950/90 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/80 text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
+                                  title={temSegundo ? `Passar este produto para ${it.segundoFornecedor} (R$ ${Number(it.segundoPreco).toFixed(2)})` : 'Escolher outra distribuidora cotada para este item'}
+                                >
+                                  <ArrowRight className="w-3 h-3 text-cyan-300" />
+                                  <span>Passar p/ 2º</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleExcluirItemDoCarrinhoModal(carrinhoAtivo.distribuidora, it.ean, it.descricao)}
+                                  className="px-2 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-800 text-rose-300 border border-rose-800/80 text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
+                                  title="Excluir este item do carrinho"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Excluir</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* Footer da Guia Ativa: Montar Carrinho no Portal, Abrir Portal, Lançar em Pedidos ou Comprar Direto */}
+              <div className="p-3.5 sm:p-4 border-t border-slate-800 bg-[#070e1a] flex flex-col lg:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2 w-full lg:w-auto justify-between lg:justify-start">
                   <button
                     type="button"
-                    onClick={() => handleAbrirNavegadorCarrinho(carrinhoModalSelecionado)}
+                    onClick={() => setCarrinhoModalAberto(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                  <span className="text-[11px] text-slate-400 hidden sm:inline">
+                    Ao confirmar a compra, o pedido e os boletos são lançados automaticamente na guia <b className="text-cyan-300">Pedidos</b> do Belinha.
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2 w-full lg:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleMontarCarrinhoDaAbaModal(carrinhoAtivo)}
+                    disabled={montandoCarrinho}
+                    className="px-3.5 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-700 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    title="Enviar estes itens para o carrinho real do portal via robô"
+                  >
+                    <ShoppingCart className={`w-3.5 h-3.5 ${montandoCarrinho ? 'animate-bounce' : 'text-cyan-400'}`} />
+                    <span>{montandoCarrinho ? 'Montando...' : `Montar Carrinho (${carrinhoAtivo.distribuidora})`}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAbrirNavegadorCarrinho(carrinhoAtivo)}
                     className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                    title="Abrir a janela do portal com o carrinho para conferência"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Abrir no Portal</span>
+                    <span>Abrir Portal</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmarELancarPedidoModal(carrinhoAtivo, prazoSelecionadoModal)}
+                    disabled={lancandoPedidoBelinha === carrinhoAtivo.distribuidora}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    title="Confirmar que a compra foi realizada e lançar imediatamente na guia Pedidos do Belinha com os vencimentos calculados"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-indigo-200" />
+                    <span>
+                      {lancandoPedidoBelinha === carrinhoAtivo.distribuidora
+                        ? 'Lançando em Pedidos...'
+                        : 'Confirmar Compra & Lançar em Pedidos'}
+                    </span>
                   </button>
 
                   <button
                     type="button"
                     onClick={async () => {
-                      const res = await handleComprarCarrinhoDireto(carrinhoModalSelecionado, prazoSelecionadoModal);
-                      if (res && res.sucesso) {
-                        setCarrinhoModalAberto(false);
-                      }
+                      await handleComprarCarrinhoDireto(carrinhoAtivo, prazoSelecionadoModal);
                     }}
                     disabled={estaComprando}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-950/40 transition-all cursor-pointer flex items-center justify-center gap-2 flex-1 sm:flex-initial disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-lg shadow-emerald-950/40 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    title="Executar compra pelo robô no portal e lançar automaticamente na guia Pedidos"
                   >
                     {estaComprando ? (
                       <>
@@ -7515,7 +8030,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     ) : (
                       <>
                         <Zap className="w-4 h-4 text-yellow-300" />
-                        <span>Comprar na {carrinhoModalSelecionado.distribuidora} ({prazoSelecionadoModal})</span>
+                        <span>Comprar pelo Robô ({prazoSelecionadoModal})</span>
                       </>
                     )}
                   </button>

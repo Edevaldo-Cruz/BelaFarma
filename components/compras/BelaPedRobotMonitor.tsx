@@ -61,7 +61,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   onDispararRobo,
   onDadosAtualizados
 }) => {
-  const [minimizado, setMinimizado] = useState(false);
+  const [minimizado, setMinimizado] = useState(true);
   const [liveStatus, setLiveStatus] = useState<any>(statusCotacao);
   const [parando, setParando] = useState(false);
 
@@ -229,7 +229,10 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     'PROFARMA': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
     'DPC DISTRIBUIDORA': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
     'SOTON FARMA': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
-    'DISTRIMED': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 }
+    'DISTRIMED': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
+    'DIVIMED': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
+    'MARTINS ATACADO': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 },
+    'ORIENTE FARMA': { status: emAndamento ? 'COTANDO' : 'PRONTO', itemAtual: 'Aguardando disparo', avaliados: 0, encontrados: 0, semEstoque: 0 }
   };
 
   const logsRecentes: LogEntry[] = Array.isArray(liveStatus?.log)
