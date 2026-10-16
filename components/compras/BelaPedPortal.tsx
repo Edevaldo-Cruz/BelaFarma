@@ -132,6 +132,9 @@ interface FaltaItem7d {
   score_ranking?: number;
   todas_cotacoes_reais?: Array<{ distribuidora: string; preco: number }>;
   repassado_de?: string;
+  is_desejado?: boolean;
+  id_desejado?: string | null;
+  motivo_desejado?: string | null;
   falta_balcao_belinha?: {
     id: string;
     productName: string;
@@ -693,7 +696,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Faltas 7 Dias + Inteligência Anti-Ruptura e Equalizador de Volumes
   const [faltasRaw, setFaltasRaw] = useState<FaltaItem7d[]>([]);
   const [itensAvulsos, setItensAvulsos] = useState<any[]>([]);
-  const [filtroCurva, setFiltroCurva] = useState<'TODAS' | 'A' | 'B' | 'C' | 'ESQUECIDOS_6M'>('TODAS');
+  const [filtroCurva, setFiltroCurva] = useState<'TODAS' | 'A' | 'B' | 'C' | 'ESQUECIDOS_6M' | 'DESEJADOS'>('TODAS');
   const [filtroPrioridade, setFiltroPrioridade] = useState<'TODAS' | 'P1' | 'P2' | 'P3' | 'P4'>('TODAS');
   const [filtroCategoria, setFiltroCategoria] = useState<'TODAS' | 'MEDICAMENTO' | 'PERFUMARIA'>('TODAS');
   const [filtroDistribuidora, setFiltroDistribuidora] = useState<string>('TODAS');
@@ -868,12 +871,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         equalizada = Math.max(1, metaEnxuta);
       }
 
-      // REGRA DE OURO: Melhor Dia vs Estoque Zerado (Ruptura Emergencial)
+      // REGRA DE OURO: Produtos Desejados sempre têm status MELHOR_DIA e quantidade exata solicitada
       let statusDia: 'MELHOR_DIA' | 'EMERGENCIAL_RUPTURA' | 'RETIDO_OUTRO_DIA' = 'MELHOR_DIA';
       let qtdFinal = equalizada;
       let qtdEmergencial: number | undefined = undefined;
 
-      if (melhorDiaIdx === hojeDiaSemana) {
+      if (item.is_desejado) {
+        statusDia = 'MELHOR_DIA';
+        qtdFinal = bruta;
+      } else if (melhorDiaIdx === hojeDiaSemana) {
         // Hoje é o melhor dia histórico/estratégico deste produto!
         statusDia = 'MELHOR_DIA';
         qtdFinal = equalizarAtivo ? equalizada : bruta;
@@ -904,7 +910,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       let prioridadeFinal: 'P1' | 'P2' | 'P3' | 'P4' = (item.prioridade as any) || 'P4';
       let prioridadeRotuloFinal: string = item.prioridade_rotulo || 'Regular';
 
-      if (!item.prioridade || item.prioridade === 'P4') {
+      if (item.is_desejado) {
+        prioridadeFinal = 'P1';
+        prioridadeRotuloFinal = '⭐ Desejado';
+      } else if (!item.prioridade || item.prioridade === 'P4') {
         if (saldoFisico <= 0 && isCurvaAlta) {
           prioridadeFinal = 'P1';
           prioridadeRotuloFinal = 'Ruptura Crítica';
@@ -1099,9 +1108,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Pesquisa Global no Estoque Real da Farmácia com Justificativa do Sistema (em Modal ampla)
   const [resultadosEstoqueReal, setResultadosEstoqueReal] = useState<any[]>([]);
+  const [resumoPesquisaEstoqueReal, setResumoPesquisaEstoqueReal] = useState<any | null>(null);
+  const [filtroModalEstoque, setFiltroModalEstoque] = useState<'TODOS' | 'COM_VENDAS' | 'COM_ESTOQUE' | 'ZERADOS_GIRO' | 'SEM_GIRO'>('TODOS');
+  const [selecaoModalEstoque, setSelecaoModalEstoque] = useState<Record<number, boolean>>({});
   const [buscandoEstoqueReal, setBuscandoEstoqueReal] = useState<boolean>(false);
   const [qtdIncluirEstoque, setQtdIncluirEstoque] = useState<Record<number, number>>({});
   const [modalEstoqueRealAberto, setModalEstoqueRealAberto] = useState<boolean>(false);
+  const [modalDesejadosAberto, setModalDesejadosAberto] = useState<boolean>(false);
+  const [salvandoDesejadosLote, setSalvandoDesejadosLote] = useState<boolean>(false);
 
   // Compra Direta nos Portais
   const [comprandoDireto, setComprandoDireto] = useState(false);
@@ -1265,6 +1279,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Filtra itens base (por modo urgência vs compras regulares, modo hoje vs todos, curva, esquecidos 6m, categoria e busca)
   const faltasBaseFiltradas = useMemo(() => {
     return faltas.filter(f => {
+      // Se for produto desejado (belaped_itens_avulsos), ele tem prioridade máxima e nunca é ocultado por regras de dia
+      if (f.is_desejado) {
+        if (filtroCurva === 'DESEJADOS') {
+          // Mantém
+        } else if (filtroCurva !== 'TODAS') {
+          // Se selecionou Curva A, B, C ou Esquecidos, respeita se bater
+          if (filtroCurva === 'ESQUECIDOS_6M' && !f.is_esquecido_6m) return false;
+          if (['A', 'B', 'C'].includes(filtroCurva) && f.curva_abc !== filtroCurva) return false;
+        }
+        if (buscaFalta) {
+          const termo = buscaFalta.toLowerCase();
+          const bateNome = f.descricao.toLowerCase().includes(termo);
+          const bateEan = f.ean && f.ean.includes(termo);
+          if (!bateNome && !bateEan) return false;
+        }
+        return true;
+      }
+
+      if (filtroCurva === 'DESEJADOS') {
+        return false;
+      }
+
       // Se estiver forçado no modo de urgência estrita, exibe apenas os produtos que têm urgência real (saldo <= 0 ou dias <= 0)
       if (modoListaManual === 'URGENCIA' && f.saldo > 0 && f.dias_estoque_restante > 0) {
         return false;
@@ -1464,13 +1500,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           const data = await res.json();
           const lista = data.produtos || data.resultados || [];
           setResultadosEstoqueReal(lista);
+          setResumoPesquisaEstoqueReal(data.resumo_pesquisa || null);
           // Se o produto pesquisado não está na tabela de faltas atual (ou digitou um EAN), abre automaticamente a Modal ampla de leitura
           if (lista.length > 0 && faltasFiltradas.length === 0) {
             setModalEstoqueRealAberto(true);
           }
         }
       } catch (e) {
-        if (!cancelado) setResultadosEstoqueReal([]);
+        if (!cancelado) {
+          setResultadosEstoqueReal([]);
+          setResumoPesquisaEstoqueReal(null);
+        }
       } finally {
         if (!cancelado) setBuscandoEstoqueReal(false);
       }
@@ -1482,10 +1522,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     };
   }, [buscaFalta, faltasFiltradas.length]);
 
-  // Incluir produto do estoque real manualmente na cotação
-  const handleIncluirDoEstoqueRealNaCotacao = async (prod: any) => {
+  // Gravar produto individualmente em "Produtos Desejados" (e cotação prioritária P1)
+  const handleGravarProdutoDesejado = async (prod: any, qtdManual?: number) => {
     try {
-      const qtd = Math.max(1, Number(qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2) || 2);
+      const qtd = Math.max(1, Number(qtdManual ?? qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2) || 2);
       const precoRef = Number(prod.preco_ult_compra || prod.custo_unitario) > 0 ? Number(prod.preco_ult_compra || prod.custo_unitario) : 5.0;
       const res = await fetch('/api/belaped/itens-avulsos', {
         method: 'POST',
@@ -1495,22 +1535,111 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           ean: prod.ean || '',
           quantidade: qtd,
           preco_referencia: precoRef,
-          motivo: 'Incluído manualmente pela busca do Estoque Real',
+          motivo: '⭐ Gravado em Produtos Desejados',
           usuario: user.name || 'Comprador'
         })
       });
       const data = await res.json();
       if (data.success) {
-        addToast(`"${prod.descricao}" (${qtd} un) incluído na cotação do BelaPed!`, 'success');
-        setResultadosEstoqueReal(prev => prev.map(r => r.produto_id === prod.produto_id ? { ...r, ja_na_cotacao: true, justificativa_compra: `Incluído manualmente na cotação (${qtd} un).` } : r));
+        addToast(`⭐ "${prod.descricao}" (${qtd} un) salvo nos Produtos Desejados e adicionado na fila de cotação P1!`, 'success');
+        setResultadosEstoqueReal(prev => prev.map(r => r.produto_id === prod.produto_id ? {
+          ...r,
+          is_desejado: true,
+          ja_na_cotacao: true,
+          id_desejado: data.item?.id || r.id_desejado,
+          justificativa_compra: `⭐ Produto gravado na sua lista de Produtos Desejados (${qtd} un) — já está na fila de cotação dos robôs!`
+        } : r));
         carregarDados();
       } else {
-        addToast(data.error || 'Erro ao incluir produto na cotação', 'error');
+        addToast(data.error || 'Erro ao gravar produto desejado', 'error');
       }
     } catch (err: any) {
-      addToast('Erro ao incluir produto: ' + err.message, 'error');
+      addToast('Erro ao salvar produto desejado: ' + err.message, 'error');
     }
   };
+
+  // Gravar múltiplos produtos selecionados em lote nos "Produtos Desejados"
+  const handleGravarDesejadosLote = async () => {
+    const selecionados = resultadosEstoqueReal.filter(p => selecaoModalEstoque[p.produto_id]);
+    if (selecionados.length === 0) {
+      addToast('Selecione pelo menos um produto para gravar nos Desejados.', 'info');
+      return;
+    }
+    try {
+      setSalvandoDesejadosLote(true);
+      const itensPayload = selecionados.map(p => ({
+        descricao: p.descricao,
+        ean: p.ean || '',
+        quantidade: Math.max(1, Number(qtdIncluirEstoque[p.produto_id] ?? p.qtd_sugerida ?? 2) || 2),
+        preco_referencia: Number(p.preco_ult_compra || p.custo_unitario || 5.0),
+        motivo: `⭐ Lote de Produtos Desejados (${buscaFalta.trim()})`,
+        usuario: user.name || 'Comprador'
+      }));
+
+      const res = await fetch('/api/belaped/itens-avulsos/lote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: itensPayload })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`⭐ ${selecionados.length} produto(s) gravado(s) com sucesso nos Produtos Desejados!`, 'success');
+        setSelecaoModalEstoque({});
+        setResultadosEstoqueReal(prev => prev.map(r => selecaoModalEstoque[r.produto_id] ? {
+          ...r,
+          is_desejado: true,
+          ja_na_cotacao: true,
+          justificativa_compra: `⭐ Produto gravado na sua lista de Produtos Desejados — já está na fila de cotação dos robôs!`
+        } : r));
+        carregarDados();
+      } else {
+        addToast(data.error || 'Erro ao salvar produtos em lote', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro ao salvar lote: ' + err.message, 'error');
+    } finally {
+      setSalvandoDesejadosLote(false);
+    }
+  };
+
+  // Remover produto dos "Produtos Desejados"
+  const handleRemoverDesejado = async (id: string | number, desc?: string) => {
+    try {
+      const res = await fetch(`/api/belaped/itens-avulsos/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`"${desc || 'Produto'}" removido dos Produtos Desejados.`, 'info');
+        setResultadosEstoqueReal(prev => prev.map(r => r.id_desejado === id ? { ...r, is_desejado: false } : r));
+        carregarDados();
+      } else {
+        addToast(data.error || 'Erro ao remover dos desejados', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro ao remover dos desejados: ' + err.message, 'error');
+    }
+  };
+
+  // Atualizar quantidade de um item nos "Produtos Desejados"
+  const handleAtualizarQtdDesejado = async (id: string | number, novaQtd: number) => {
+    if (novaQtd < 1) return;
+    try {
+      const res = await fetch(`/api/belaped/itens-avulsos/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantidade: novaQtd })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Quantidade atualizada para ${novaQtd} un.`, 'success');
+        carregarDados();
+      }
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  // Alias para incluir na cotação diretamente (grava nos desejados)
+  const handleIncluirDoEstoqueRealNaCotacao = (prod: any) => handleGravarProdutoDesejado(prod);
 
   const totalPaginas = Math.max(1, Math.ceil(faltasFiltradas.length / itensPorPagina));
 
@@ -2950,6 +3079,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 title={isBloqueadoCarrinho ? 'Produto bloqueado para não entrar no carrinho' : 'Selecionar item'}
               />
+              {item.is_desejado && (
+                <span
+                  className="px-2 py-0.5 rounded text-[11px] font-black bg-amber-500/20 text-amber-300 border border-amber-400 shadow-sm whitespace-nowrap animate-pulse"
+                  title="⭐ Produto Desejado adicionado manualmente para cotação e compra"
+                >
+                  ⭐ Desejado
+                </span>
+              )}
               {item.ranking_posicao && (
                 <span
                   className={`px-1.5 py-0.5 rounded text-[11px] font-black border ${
@@ -4544,6 +4681,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     >
                       ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
                     </button>
+                    <button
+                      onClick={() => setFiltroCurva('DESEJADOS')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'DESEJADOS' ? 'bg-amber-500 text-slate-950 shadow-xs font-black' : 'text-amber-300 hover:text-white'}`}
+                      title="Exibir somente os Produtos Desejados gravados para cotação prioritária e compra"
+                    >
+                      ⭐ Desejados ({faltas.filter(f => f.is_desejado).length || itensAvulsos.length})
+                    </button>
                   </div>
 
                   {/* Filtro Tipo Categoria */}
@@ -4671,6 +4815,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <span>🛒 Ver Carrinhos ({carrinhosOtimizados.length > 0 ? `${carrinhosOtimizados.length} empresas` : `${totaisPorDistribuidora.filter(g => g.isEmpresaReal).length} empresas`})</span>
                   </button>
 
+                  {/* BOTÃO: ESPAÇO DE PRODUTOS DESEJADOS */}
+                  <button
+                    onClick={() => setModalDesejadosAberto(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-950/50 border border-amber-400/50 transition-all cursor-pointer active:scale-95"
+                    title="Espaço de Produtos Desejados: lista de produtos gravados para cotação prioritária nos 7 portais e compra"
+                  >
+                    <Tag className="w-4 h-4 text-amber-200" />
+                    <span>⭐ Produtos Desejados ({itensAvulsos.length})</span>
+                  </button>
+
                   {/* Botões de Apoio Compactos */}
                   <button
                     onClick={() => setModalAuditoriaAberta(true)}
@@ -4737,10 +4891,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               )}
 
-              {/* ─── MODAL AMPLA DE PESQUISA NO ESTOQUE REAL COM FONTE GRANDE E ALTA LEGIBILIDADE ─── */}
+              {/* ─── MODAL AMPLA DE PESQUISA NO ESTOQUE REAL COM DESEMPENHO COMPLETO & GRAVAÇÃO EM LOTE ─── */}
               {modalEstoqueRealAberto && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-                  <div className="bg-[#0b1320] border-2 border-cyan-600/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden ring-2 ring-cyan-500/20">
+                  <div className="bg-[#0b1320] border-2 border-cyan-600/80 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ring-2 ring-cyan-500/20">
                     {/* Header da Modal com Barra de Pesquisa Grande */}
                     <div className="p-4 sm:p-5 border-b border-slate-800 bg-[#070e1a] space-y-3.5">
                       <div className="flex items-center justify-between gap-3">
@@ -4749,11 +4903,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             <Search className="w-6 h-6" />
                           </div>
                           <div>
-                            <h3 className="text-lg sm:text-xl font-black uppercase text-white tracking-wide">
-                              📦 Consulta no Estoque Real & Justificativa de Compra
+                            <h3 className="text-lg sm:text-xl font-black uppercase text-white tracking-wide flex items-center gap-2">
+                              <span>📦 Consulta no Estoque Real & Histórico de Desempenho</span>
+                              {resumoPesquisaEstoqueReal && (
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-cyan-950 text-cyan-300 border border-cyan-600">
+                                  {resumoPesquisaEstoqueReal.total_encontrados} encontrados
+                                </span>
+                              )}
                             </h3>
                             <p className="text-xs sm:text-sm text-slate-300">
-                              Veja o saldo atual da loja, o giro de vendas, por que o produto está ou não na cotação e inclua manualmente se desejar.
+                              Pesquise qualquer palavra-chave (ex: 'maxton') para ver todo o catálogo, vendas dos últimos 10 meses e gravar nos <b>⭐ Produtos Desejados</b>.
                             </p>
                           </div>
                         </div>
@@ -4773,7 +4932,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         <input
                           type="text"
                           autoFocus
-                          placeholder="Digite o EAN (código de barras) ou nome do produto para consultar no estoque real..."
+                          placeholder="Digite qualquer palavra-chave (ex: maxton, tinta, dipirona) ou bipe o EAN..."
                           value={buscaFalta}
                           onChange={(e) => setBuscaFalta(e.target.value)}
                           className="w-full pl-12 pr-12 py-3 text-base sm:text-lg font-bold rounded-xl border-2 border-cyan-600/80 bg-[#050a14] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 shadow-inner"
@@ -4782,24 +4941,143 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           <button
                             type="button"
                             onClick={() => setBuscaFalta('')}
-                            className="absolute right-3.5 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
                           >
                             Limpar
                           </button>
                         )}
                       </div>
+
+                      {/* Resumo Consolidado da Palavra-Chave (Total, Com Vendas 10m, Com Estoque, Soma de Unidades) */}
+                      {resumoPesquisaEstoqueReal && resumoPesquisaEstoqueReal.total_encontrados > 0 && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 bg-[#050d18] p-2.5 rounded-xl border border-cyan-900/60 text-xs">
+                          <div className="bg-[#081326] p-2 rounded-lg border border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase">Encontrados</span>
+                            <span className="text-sm font-black text-white">{resumoPesquisaEstoqueReal.total_encontrados} produtos</span>
+                          </div>
+                          <div className="bg-[#081326] p-2 rounded-lg border border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase">Com Vendas 10m</span>
+                            <span className="text-sm font-black text-emerald-400">{resumoPesquisaEstoqueReal.com_vendas_historico} produtos</span>
+                          </div>
+                          <div className="bg-[#081326] p-2 rounded-lg border border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase">Com Estoque</span>
+                            <span className="text-sm font-black text-cyan-400">{resumoPesquisaEstoqueReal.com_estoque} produtos</span>
+                          </div>
+                          <div className="bg-[#081326] p-2 rounded-lg border border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase">Zerados c/ Giro</span>
+                            <span className="text-sm font-black text-rose-400">{resumoPesquisaEstoqueReal.zerados_com_giro} produtos</span>
+                          </div>
+                          <div className="bg-[#081326] p-2 rounded-lg border border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase">Total Vendido 10m</span>
+                            <span className="text-sm font-black text-amber-300">{resumoPesquisaEstoqueReal.soma_vendas_10m} un</span>
+                          </div>
+                          <div className="bg-[#081326] p-2 rounded-lg border border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase">Estoque Físico Total</span>
+                            <span className="text-sm font-black text-slate-200">{resumoPesquisaEstoqueReal.soma_estoque_atual} un</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Filtros Rápidos Dentro da Modal + Barra de Ação em Lote */}
+                      {resultadosEstoqueReal.length > 0 && (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                            <button
+                              type="button"
+                              onClick={() => setFiltroModalEstoque('TODOS')}
+                              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                                filtroModalEstoque === 'TODOS' ? 'bg-cyan-600 text-white font-black shadow-sm' : 'bg-slate-900 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              Todos ({resultadosEstoqueReal.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFiltroModalEstoque('COM_VENDAS')}
+                              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                                filtroModalEstoque === 'COM_VENDAS' ? 'bg-emerald-600 text-white font-black shadow-sm' : 'bg-slate-900 text-emerald-400 hover:text-white'
+                              }`}
+                            >
+                              🔥 Com Vendas 10m ({resultadosEstoqueReal.filter(p => (Number(p.vendas_10m) || 0) > 0).length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFiltroModalEstoque('COM_ESTOQUE')}
+                              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                                filtroModalEstoque === 'COM_ESTOQUE' ? 'bg-blue-600 text-white font-black shadow-sm' : 'bg-slate-900 text-blue-400 hover:text-white'
+                              }`}
+                            >
+                              📦 Com Estoque ({resultadosEstoqueReal.filter(p => Number(p.saldo) > 0).length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFiltroModalEstoque('ZERADOS_GIRO')}
+                              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                                filtroModalEstoque === 'ZERADOS_GIRO' ? 'bg-rose-600 text-white font-black shadow-sm' : 'bg-slate-900 text-rose-400 hover:text-white'
+                              }`}
+                            >
+                              🚨 Zerados c/ Giro ({resultadosEstoqueReal.filter(p => Number(p.saldo) <= 0 && (Number(p.vendas_10m) || 0) > 0).length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFiltroModalEstoque('SEM_GIRO')}
+                              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                                filtroModalEstoque === 'SEM_GIRO' ? 'bg-slate-700 text-white font-black shadow-sm' : 'bg-slate-900 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              ❄️ Sem Vendas / Zerados ({resultadosEstoqueReal.filter(p => Number(p.saldo) <= 0 && (Number(p.vendas_10m) || 0) === 0).length})
+                            </button>
+                          </div>
+
+                          {/* Ações em Lote */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const visiveis = resultadosEstoqueReal.filter(p => {
+                                  if (filtroModalEstoque === 'COM_VENDAS') return (Number(p.vendas_10m) || 0) > 0;
+                                  if (filtroModalEstoque === 'COM_ESTOQUE') return Number(p.saldo) > 0;
+                                  if (filtroModalEstoque === 'ZERADOS_GIRO') return Number(p.saldo) <= 0 && (Number(p.vendas_10m) || 0) > 0;
+                                  if (filtroModalEstoque === 'SEM_GIRO') return Number(p.saldo) <= 0 && (Number(p.vendas_10m) || 0) === 0;
+                                  return true;
+                                });
+                                const todosMarcados = visiveis.every(p => selecaoModalEstoque[p.produto_id]);
+                                const novaSel = { ...selecaoModalEstoque };
+                                visiveis.forEach(p => {
+                                  novaSel[p.produto_id] = !todosMarcados;
+                                });
+                                setSelecaoModalEstoque(novaSel);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
+                            >
+                              Selecionar Visíveis
+                            </button>
+
+                            {Object.values(selecaoModalEstoque).filter(Boolean).length > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleGravarDesejadosLote}
+                                disabled={salvandoDesejadosLote}
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg transition-all cursor-pointer animate-pulse"
+                              >
+                                <span>⭐ Gravar {Object.values(selecaoModalEstoque).filter(Boolean).length} nos Desejados</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Corpo da Modal com Cards Amplos e Letras Grandes */}
                     <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
                       {buscaFalta.trim().length < 2 ? (
                         <div className="py-12 text-center text-slate-400 text-base font-medium">
-                          Digite pelo menos 2 caracteres ou bipe o código de barras (EAN) acima para consultar o estoque real.
+                          Digite pelo menos 2 caracteres ou uma palavra-chave como <b>"maxton"</b> acima para consultar todo o histórico.
                         </div>
                       ) : buscandoEstoqueReal ? (
                         <div className="py-12 flex flex-col items-center justify-center gap-3 text-cyan-300 text-base font-bold">
                           <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
-                          <span>Consultando o cadastro do estoque real da farmácia...</span>
+                          <span>Consultando o catálogo completo do estoque real e histórico de vendas...</span>
                         </div>
                       ) : resultadosEstoqueReal.length === 0 ? (
                         <div className="p-6 rounded-2xl bg-[#080d18] border border-slate-700 text-center space-y-2">
@@ -4807,89 +5085,159 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             Nenhum produto encontrado no cadastro do estoque real para "{buscaFalta.trim()}".
                           </p>
                           <p className="text-sm text-slate-400">
-                            Verifique se o código de barras (EAN) ou nome foi digitado corretamente.
+                            Verifique se a palavra-chave ou o código de barras (EAN) foi digitado corretamente.
                           </p>
                         </div>
                       ) : (
-                        resultadosEstoqueReal.map((prod) => {
-                          const jaNaListaAtiva = Boolean(
-                            prod.ja_na_cotacao ||
-                            faltas.some(f => f.produto_id === prod.produto_id || (f.ean && prod.ean && f.ean === prod.ean))
-                          );
-                          return (
-                            <div
-                              key={prod.produto_id}
-                              className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col gap-4 transition-all shadow-lg ${
-                                jaNaListaAtiva
-                                  ? 'bg-emerald-950/30 border-emerald-500/80'
-                                  : 'bg-[#081121] border-amber-500/80'
-                              }`}
-                            >
-                              {/* Cabeçalho do Produto */}
-                              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                                <div className="space-y-1">
-                                  <h4 className="text-lg sm:text-xl font-black text-white leading-snug">
-                                    {prod.descricao}
-                                  </h4>
-                                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 font-mono text-sm font-black text-cyan-300">
-                                      EAN: {prod.ean || 'S/N'}
-                                    </span>
-                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-slate-200">
-                                      Curva ABC: <b className="text-white font-black">{prod.curva_abc}</b>
-                                    </span>
-                                    <span className={`px-3.5 py-1 rounded-lg border text-sm sm:text-base font-black ${
-                                      prod.saldo <= 0
-                                        ? 'bg-rose-950/90 border-rose-600 text-rose-300'
-                                        : 'bg-emerald-950/90 border-emerald-600 text-emerald-300'
-                                    }`}>
-                                      📦 Estoque Atual: {prod.saldo} {prod.saldo === 1 ? 'unidade' : 'unidades'}
-                                    </span>
-                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-slate-200">
-                                      Vendas 30 dias: <b className="text-white font-black">{prod.vendas_30d} un</b>
-                                    </span>
-                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-amber-300">
-                                      Duração do Estoque: <b className="text-white font-black">{prod.dias_cobertura >= 999 ? 'Sem giro recente' : `~${prod.dias_cobertura} dias`}</b>
-                                    </span>
-                                    {prod.preco_ult_compra > 0 && (
-                                      <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-slate-200">
-                                        Últ. Custo: <b className="text-emerald-300 font-black">R$ {Number(prod.preco_ult_compra).toFixed(2)}</b>
+                        resultadosEstoqueReal
+                          .filter(prod => {
+                            if (filtroModalEstoque === 'COM_VENDAS') return (Number(prod.vendas_10m) || 0) > 0;
+                            if (filtroModalEstoque === 'COM_ESTOQUE') return Number(prod.saldo) > 0;
+                            if (filtroModalEstoque === 'ZERADOS_GIRO') return Number(prod.saldo) <= 0 && (Number(prod.vendas_10m) || 0) > 0;
+                            if (filtroModalEstoque === 'SEM_GIRO') return Number(prod.saldo) <= 0 && (Number(prod.vendas_10m) || 0) === 0;
+                            return true;
+                          })
+                          .map((prod) => {
+                            const jaDesejado = Boolean(prod.is_desejado);
+                            const jaNaListaAtiva = Boolean(
+                              jaDesejado ||
+                              prod.ja_na_cotacao ||
+                              faltas.some(f => f.produto_id === prod.produto_id || (f.ean && prod.ean && f.ean === prod.ean))
+                            );
+                            const isMarcadoLote = Boolean(selecaoModalEstoque[prod.produto_id]);
+
+                            return (
+                              <div
+                                key={prod.produto_id}
+                                className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col gap-3.5 transition-all shadow-lg ${
+                                  jaDesejado
+                                    ? 'bg-[#1a1205] border-amber-500 ring-2 ring-amber-500/20'
+                                    : jaNaListaAtiva
+                                    ? 'bg-emerald-950/25 border-emerald-500/70'
+                                    : 'bg-[#081121] border-slate-800 hover:border-slate-700'
+                                }`}
+                              >
+                                {/* Topo: Checkbox + Título + Badges */}
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                  <div className="flex items-start gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={isMarcadoLote}
+                                      onChange={() => setSelecaoModalEstoque(prev => ({ ...prev, [prod.produto_id]: !prev[prod.produto_id] }))}
+                                      className="w-5 h-5 mt-1 rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500 cursor-pointer shrink-0"
+                                      title="Selecionar para gravação em lote nos Produtos Desejados"
+                                    />
+                                    <div className="space-y-1">
+                                      <h4 className="text-base sm:text-lg font-black text-white leading-snug flex items-center gap-2 flex-wrap">
+                                        <span>{prod.descricao}</span>
+                                        {jaDesejado && (
+                                          <span className="px-2 py-0.5 rounded text-[11px] font-black bg-amber-500/20 text-amber-300 border border-amber-400">
+                                            ⭐ PRODUTO DESEJADO
+                                          </span>
+                                        )}
+                                      </h4>
+                                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 border border-slate-700 font-mono font-bold text-cyan-300">
+                                          EAN: {prod.ean || 'SEM EAN'}
+                                        </span>
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 border border-slate-700 font-bold text-slate-300">
+                                          Curva {prod.curva_abc}
+                                        </span>
+                                        <span className={`px-2.5 py-0.5 rounded-lg font-black border ${
+                                          prod.saldo <= 0
+                                            ? 'bg-rose-950/80 border-rose-600 text-rose-300'
+                                            : 'bg-emerald-950/80 border-emerald-600 text-emerald-300'
+                                        }`}>
+                                          Estoque: {prod.saldo} un
+                                        </span>
+                                        {prod.preco_ult_compra > 0 && (
+                                          <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300">
+                                            Últ. Custo: <b className="text-amber-300 font-black">R$ {Number(prod.preco_ult_compra).toFixed(2)}</b>
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0 self-start">
+                                    {jaDesejado ? (
+                                      <span className="px-3 py-1 rounded-xl bg-amber-950 text-amber-300 border border-amber-500 text-xs font-black whitespace-nowrap">
+                                        ⭐ NA FILA P1 (DESEJADO)
+                                      </span>
+                                    ) : jaNaListaAtiva ? (
+                                      <span className="px-3 py-1 rounded-xl bg-emerald-950 text-emerald-300 border border-emerald-500 text-xs font-black whitespace-nowrap">
+                                        ✅ NA COTAÇÃO AUTOMÁTICA
+                                      </span>
+                                    ) : (
+                                      <span className="px-3 py-1 rounded-xl bg-slate-900 text-slate-400 border border-slate-700 text-xs font-bold whitespace-nowrap">
+                                        FORA DA COTAÇÃO
                                       </span>
                                     )}
                                   </div>
                                 </div>
 
-                                {jaNaListaAtiva ? (
-                                  <span className="px-3.5 py-1.5 rounded-xl bg-emerald-950 text-emerald-300 border-2 border-emerald-500 text-xs sm:text-sm font-black whitespace-nowrap shrink-0 self-start">
-                                    ✅ JÁ ESTÁ NA COTAÇÃO
-                                  </span>
-                                ) : (
-                                  <span className="px-3.5 py-1.5 rounded-xl bg-amber-950 text-amber-300 border-2 border-amber-500 text-xs sm:text-sm font-black whitespace-nowrap shrink-0 self-start">
-                                    ⏸️ FORA DA COTAÇÃO NESTA SEMANA
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Box de Justificativa com Fonte Grande e Destaque */}
-                              <div className={`p-4 rounded-xl border-2 leading-relaxed ${
-                                jaNaListaAtiva
-                                  ? 'bg-emerald-950/60 border-emerald-600/80 text-emerald-100'
-                                  : 'bg-amber-950/60 border-amber-500/90 text-amber-100'
-                              }`}>
-                                <div className="text-xs sm:text-sm font-black uppercase tracking-wider mb-1 text-amber-300 flex items-center gap-1.5">
-                                  <span>{jaNaListaAtiva ? '📌 STATUS DO PRODUTO NA COTAÇÃO:' : '💡 JUSTIFICATIVA DO SISTEMA (POR QUE NÃO COMPRAR AGORA):'}</span>
+                                {/* Grade Completa de Desempenho Histórico de Vendas (30d, 60d, 90d, 10 Meses, Entradas) */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 bg-[#050b14] p-3 rounded-xl border border-slate-800 text-center">
+                                  <div className="bg-[#081224] p-2 rounded-lg border border-slate-800">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Vendas 30d</span>
+                                    <span className="text-sm font-black text-cyan-300">{prod.vendas_30d || 0} un</span>
+                                  </div>
+                                  <div className="bg-[#081224] p-2 rounded-lg border border-slate-800">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">31 a 60d</span>
+                                    <span className="text-sm font-black text-slate-300">{prod.vendas_31_60d || 0} un</span>
+                                  </div>
+                                  <div className="bg-[#081224] p-2 rounded-lg border border-slate-800">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">61 a 90d</span>
+                                    <span className="text-sm font-black text-slate-300">{prod.vendas_61_90d || 0} un</span>
+                                  </div>
+                                  <div className="bg-[#081224] p-2 rounded-lg border border-emerald-700/60 bg-emerald-950/20">
+                                    <span className="text-[10px] text-emerald-300 uppercase font-black block">Total 10 Meses</span>
+                                    <span className="text-sm font-black text-emerald-400">{prod.vendas_10m || 0} un</span>
+                                  </div>
+                                  <div className="bg-[#081224] p-2 rounded-lg border border-slate-800">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Entradas 10m</span>
+                                    <span className="text-sm font-black text-purple-300">{prod.entradas_10m || 0} un</span>
+                                  </div>
+                                  <div className="bg-[#081224] p-2 rounded-lg border border-slate-800">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Cobertura</span>
+                                    <span className={`text-sm font-black ${prod.dias_cobertura <= 0 ? 'text-rose-400' : 'text-amber-300'}`}>
+                                      {prod.dias_cobertura >= 999 ? 'Sem giro' : `~${prod.dias_cobertura}d`}
+                                    </span>
+                                  </div>
                                 </div>
-                                <p className="text-base sm:text-lg font-bold text-white leading-snug">
-                                  "{prod.justificativa_compra}"
-                                </p>
-                              </div>
 
-                              {/* Rodapé do Card: Incluir Mesmo Assim na Cotação */}
-                              {!jaNaListaAtiva && (
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
-                                  <div className="flex items-center gap-2.5">
-                                    <span className="text-sm font-bold text-slate-200">
-                                      Deseja comprar mesmo assim? Informe a quantidade:
+                                {/* Preço Cotado Atual nos Portais (se já houver cotação recente) */}
+                                {(prod.fornecedor_1 && prod.preco_1 > 0) && (
+                                  <div className="flex items-center gap-3 bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-600/50 text-xs font-bold text-emerald-200">
+                                    <span>💰 Cotação Atual nos Portais:</span>
+                                    <span className="text-white">1º: <b className="text-emerald-300">{prod.fornecedor_1}</b> (R$ {Number(prod.preco_1).toFixed(2)})</span>
+                                    {prod.fornecedor_2 && (
+                                      <span className="text-slate-300">2º: <b>{prod.fornecedor_2}</b> (R$ {Number(prod.preco_2).toFixed(2)})</span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Caixa de Justificativa com Alta Legibilidade */}
+                                <div className={`p-3.5 rounded-xl border leading-relaxed ${
+                                  jaDesejado
+                                    ? 'bg-amber-950/40 border-amber-600/70 text-amber-100'
+                                    : jaNaListaAtiva
+                                    ? 'bg-emerald-950/40 border-emerald-600/70 text-emerald-100'
+                                    : 'bg-[#060e1c] border-slate-700/80 text-slate-200'
+                                }`}>
+                                  <div className="text-[11px] font-black uppercase tracking-wider mb-1 text-amber-300 flex items-center gap-1.5">
+                                    <span>💡 JUSTIFICATIVA DO SISTEMA:</span>
+                                  </div>
+                                  <p className="text-sm sm:text-base font-bold leading-snug">
+                                    "{prod.justificativa_compra}"
+                                  </p>
+                                </div>
+
+                                {/* Ações do Produto: Gravar nos Desejados ou Remover */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-800">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs sm:text-sm font-bold text-slate-300">
+                                      Quantidade para compra:
                                     </span>
                                     <input
                                       type="number"
@@ -4897,37 +5245,232 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       max={999}
                                       value={qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2}
                                       onChange={(e) => setQtdIncluirEstoque(prev => ({ ...prev, [prod.produto_id]: Math.max(1, Number(e.target.value) || 1) }))}
-                                      className="w-20 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-cyan-600 text-white text-base font-black text-center"
+                                      className="w-20 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-cyan-600 text-white text-sm font-black text-center"
                                     />
                                     <span className="text-xs font-bold text-slate-400">un</span>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleIncluirDoEstoqueRealNaCotacao(prod)}
-                                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm sm:text-base font-black transition-all cursor-pointer shadow-lg"
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                    <span>Incluir na Cotação Agora</span>
-                                  </button>
+
+                                  <div className="flex items-center gap-2">
+                                    {jaDesejado ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoverDesejado(prod.id_desejado, prod.descricao)}
+                                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-600 text-xs sm:text-sm font-black cursor-pointer transition-colors"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                        <span>Remover dos Desejados</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleGravarProdutoDesejado(prod)}
+                                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs sm:text-sm font-black transition-all cursor-pointer shadow-lg active:scale-95"
+                                      >
+                                        <span>⭐ Gravar nos Produtos Desejados</span>
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })
+                              </div>
+                            );
+                          })
                       )}
                     </div>
 
                     {/* Footer da Modal */}
-                    <div className="p-4 border-t border-slate-800 bg-[#070e1a] flex items-center justify-between">
-                      <span className="text-xs sm:text-sm text-slate-400">
-                        Dica: você pode bipar ou digitar outro EAN diretamente no campo acima.
+                    <div className="p-4 border-t border-slate-800 bg-[#070e1a] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-400">
+                        <span>Produtos gravados em <b>⭐ Produtos Desejados</b> entram na fila prioritária P1 dos 7 robôs.</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalEstoqueRealAberto(false);
+                            setModalDesejadosAberto(true);
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-amber-950 hover:bg-amber-900 text-amber-200 border border-amber-600 text-xs sm:text-sm font-black transition-colors cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>⭐ Ver Produtos Desejados ({itensAvulsos.length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModalEstoqueRealAberto(false)}
+                          className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black transition-colors cursor-pointer"
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── MODAL DEDICADA: ESPAÇO DE PRODUTOS DESEJADOS ─── */}
+              {modalDesejadosAberto && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-[#0d1422] border-2 border-amber-500/80 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden ring-2 ring-amber-500/20">
+                    {/* Header */}
+                    <div className="p-4 sm:p-5 border-b border-slate-800 bg-[#070d18] flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-amber-950 border border-amber-500/80 text-amber-300">
+                          <Tag className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg sm:text-xl font-black uppercase text-white tracking-wide flex items-center gap-2">
+                            <span>⭐ Espaço de Produtos Desejados ({itensAvulsos.length})</span>
+                          </h3>
+                          <p className="text-xs sm:text-sm text-slate-300">
+                            Estes produtos entram automaticamente na cotação ao vivo dos 7 robôs com prioridade máxima (<b>P1</b>) e permanecem na lista até a confirmação da compra.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setModalDesejadosAberto(false)}
+                        className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition-colors"
+                      >
+                        <X className="w-6 h-6" />
+                      </button>
+                    </div>
+
+                    {/* Toolbar de Ações dos Desejados */}
+                    <div className="p-3.5 bg-[#0a1120] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalDesejadosAberto(false);
+                            setModalEstoqueRealAberto(true);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600 text-xs sm:text-sm font-black cursor-pointer transition-all shadow-sm"
+                        >
+                          <Search className="w-4 h-4 text-cyan-300" />
+                          <span>+ Pesquisar e Adicionar Produtos</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const eansDesejados = itensAvulsos.map(i => i.ean).filter(e => e && String(e).trim().length >= 7);
+                            if (eansDesejados.length === 0) {
+                              addToast('Nenhum EAN válido cadastrado nos produtos desejados.', 'warning');
+                              return;
+                            }
+                            handleIniciarCotacaoAoVivo('TODOS', eansDesejados.length, undefined, eansDesejados);
+                            setModalDesejadosAberto(false);
+                          }}
+                          disabled={cotandoAoVivo || itensAvulsos.length === 0}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-black shadow-md transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Bot className="w-4 h-4 text-emerald-200" />
+                          <span>🤖 Cotar Desejados nos 7 Portais ({itensAvulsos.length})</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Lista dos Produtos Desejados */}
+                    <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-3 custom-scrollbar">
+                      {itensAvulsos.length === 0 ? (
+                        <div className="py-16 text-center space-y-3">
+                          <p className="text-base sm:text-lg font-black text-white">
+                            Você ainda não tem nenhum produto salvo nos Produtos Desejados.
+                          </p>
+                          <p className="text-sm text-slate-400 max-w-md mx-auto">
+                            Pesquise qualquer produto no Estoque Real (ex: 'maxton') e clique em <b>⭐ Gravar nos Desejados</b> para incluí-lo na cotação prioritária dos robôs.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setModalDesejadosAberto(false);
+                              setModalEstoqueRealAberto(true);
+                            }}
+                            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-black cursor-pointer shadow-lg"
+                          >
+                            Pesquisar Estoque Real Agora
+                          </button>
+                        </div>
+                      ) : (
+                        itensAvulsos.map((av) => (
+                          <div
+                            key={av.id}
+                            className="p-4 rounded-xl bg-[#091122] border border-amber-600/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md hover:border-amber-500 transition-colors"
+                          >
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-base font-black text-white">{av.descricao}</h4>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-400">
+                                  ⭐ DESEJADO
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-cyan-300">
+                                  EAN: {av.ean || 'SEM EAN'}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">
+                                  Estoque: <b className="text-white">{av.saldo_atual || 0} un</b>
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">
+                                  Vendas 30d: <b className="text-white">{av.vendas_30d || 0} un</b>
+                                </span>
+                                {(av.fornecedor_1 && Number(av.preco_1) > 0) ? (
+                                  <span className="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-600 text-emerald-300 font-bold">
+                                    Melhor Preço: {av.fornecedor_1} (R$ {Number(av.preco_1).toFixed(2)})
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-500">
+                                    Aguardando Cotação dos Robôs
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-slate-400 font-bold">Qtd:</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={999}
+                                  defaultValue={av.quantidade || 1}
+                                  onBlur={(e) => {
+                                    const val = Math.max(1, Number(e.target.value) || 1);
+                                    if (val !== av.quantidade) {
+                                      handleAtualizarQtdDesejado(av.id, val);
+                                    }
+                                  }}
+                                  className="w-16 px-2 py-1 rounded-lg bg-slate-900 border border-amber-500 text-white text-sm font-black text-center"
+                                />
+                                <span className="text-xs text-slate-400">un</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoverDesejado(av.id, av.descricao)}
+                                className="p-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700 cursor-pointer transition-colors"
+                                title="Remover da lista de desejados"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-4 border-t border-slate-800 bg-[#070d18] flex items-center justify-between">
+                      <span className="text-xs text-slate-400">
+                        Quando você confirma a compra do carrinho, os produtos desejados comprados saem automaticamente desta lista.
                       </span>
                       <button
                         type="button"
-                        onClick={() => setModalEstoqueRealAberto(false)}
-                        className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-black transition-colors cursor-pointer"
+                        onClick={() => setModalDesejadosAberto(false)}
+                        className="px-6 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-black transition-colors cursor-pointer"
                       >
-                        Fechar Modal
+                        Fechar
                       </button>
                     </div>
                   </div>
@@ -5329,6 +5872,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     <td className="py-2.5 px-3.5">
                                       <div className="flex flex-col">
                                         <div className="flex flex-wrap items-center gap-1.5">
+                                          {item.is_desejado && (
+                                            <span
+                                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-400 whitespace-nowrap shadow-sm animate-pulse"
+                                              title="⭐ Produto Desejado adicionado manualmente para cotação e compra"
+                                            >
+                                              ⭐ Desejado
+                                            </span>
+                                          )}
                                           {item.ranking_posicao && (
                                             <span
                                               className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black border whitespace-nowrap ${
@@ -5726,6 +6277,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                             <td className="py-2.5 px-3.5">
                               <div className="flex flex-col">
                                 <div className="flex flex-wrap items-center gap-1.5">
+                                  {item.is_desejado && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-400 whitespace-nowrap shadow-sm animate-pulse"
+                                      title="⭐ Produto Desejado adicionado manualmente para cotação e compra"
+                                    >
+                                      ⭐ Desejado
+                                    </span>
+                                  )}
                                   {item.ranking_posicao && (
                                     <span
                                       className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black border whitespace-nowrap ${

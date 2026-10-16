@@ -619,6 +619,75 @@ function belapedEndpoints(db) {
         });
       }
 
+      // Injeta os "Produtos Desejados" (belaped_itens_avulsos) diretamente nos candidatosFinais para que sejam cotados pelos 7 robôs e entrem nos carrinhos!
+      for (let idxAv = 0; idxAv < avulsos.length; idxAv++) {
+        const av = avulsos[idxAv];
+        const eanAv = String(av.ean || '').trim();
+        const descAv = String(av.descricao || '').toUpperCase().trim();
+        const prodIdAv = av.produto_id ? Number(av.produto_id) : null;
+
+        const existente = candidatosFinais.find(c =>
+          (prodIdAv && Number(c.raw.produto_id) === prodIdAv) ||
+          (eanAv && String(c.raw.ean || '').trim() === eanAv) ||
+          (descAv && String(c.raw.descricao || '').toUpperCase().trim() === descAv)
+        );
+
+        if (existente) {
+          existente.avulsoInfo = av;
+        } else {
+          // Busca dados reais no compras_estoque_cache para enriquecer o Produto Desejado
+          let rowCache = null;
+          try {
+            if (prodIdAv) {
+              rowCache = db.prepare('SELECT * FROM compras_estoque_cache WHERE produto_id = ?').get(prodIdAv);
+            }
+            if (!rowCache && eanAv) {
+              rowCache = db.prepare('SELECT * FROM compras_estoque_cache WHERE ean = ?').get(eanAv);
+            }
+            if (!rowCache && descAv) {
+              rowCache = db.prepare('SELECT * FROM compras_estoque_cache WHERE UPPER(descricao) = ?').get(descAv);
+            }
+          } catch (eCacheAv) {}
+
+          const rawSintetico = rowCache || {
+            produto_id: prodIdAv || (950000 + idxAv),
+            descricao: descAv || 'PRODUTO DESEJADO',
+            apresentacao: '',
+            ean: eanAv,
+            curva_abc: 'A',
+            saldo: 0,
+            vmd_ponderado: 0.2,
+            vendas_30d: 0,
+            vendas_31_60d: 0,
+            vendas_61_90d: 0,
+            vendas_10m: 0,
+            custo_unitario: Number(av.preco_referencia) || 5.0,
+            preco_unitario_ult_compra: Number(av.preco_referencia) || 5.0,
+            preco_venda_vigente: 0,
+            ultima_compra_fornecedor: 'Produto Desejado',
+            categoria_id: 7
+          };
+
+          const sAv = Number(rawSintetico.saldo) || 0;
+          const vmdAv = Number(rawSintetico.vmd_ponderado) || 0;
+          const v30Av = Number(rawSintetico.vendas_30d) || 0;
+          const v10mAv = Number(rawSintetico.vendas_10m) || 0;
+
+          candidatosFinais.unshift({
+            raw: rawSintetico,
+            vmd: vmdAv,
+            saldo: sAv,
+            vendas30d: v30Av,
+            vendasHistorico6m: v10mAv,
+            isEsquecido6m: false,
+            diasCobertura: vmdAv > 0 && sAv > 0 ? Number((sAv / vmdAv).toFixed(1)) : (sAv <= 0 ? 0 : 99),
+            chaveEq: null,
+            equivalentesAgrupados: [],
+            avulsoInfo: av
+          });
+        }
+      }
+
       // Busca todas as faltas ativas da Guia de Faltas do Belinha (balcão/WhatsApp)
       let todasFaltasBelinha = [];
       const faltasBelinhaMap = new Map();
@@ -648,8 +717,8 @@ function belapedEndpoints(db) {
       let economiaEqualizadorReais = 0;
 
       const items = candidatosFinais.map(cand => {
-        const { raw: r, vmd, saldo, vendas30d, vendasHistorico6m, isEsquecido6m, diasCobertura, chaveEq, equivalentesAgrupados } = cand;
-        const custo = Number(r.preco_unitario_ult_compra) || Number(r.custo_unitario) || 0;
+        const { raw: r, vmd, saldo, vendas30d, vendasHistorico6m, isEsquecido6m, diasCobertura, chaveEq, equivalentesAgrupados, avulsoInfo } = cand;
+        const custo = Number(r.preco_unitario_ult_compra) || Number(r.custo_unitario) || Number(avulsoInfo?.preco_referencia) || 0;
 
         // Cruzamento com a Guia de Faltas do Belinha
         let faltaBelinhaMatch = null;
@@ -740,8 +809,10 @@ function belapedEndpoints(db) {
           qtdEqualizada7d = Math.max(1, metaEnxuta);
         }
 
-        const qtdSugerida7d = equalizarAtivo ? qtdEqualizada7d : qtdBruta7d;
-        if (qtdBruta7d > qtdEqualizada7d) {
+        const qtdSugerida7d = avulsoInfo
+          ? Math.max(1, Number(avulsoInfo.quantidade) || 1)
+          : (equalizarAtivo ? qtdEqualizada7d : qtdBruta7d);
+        if (!avulsoInfo && qtdBruta7d > qtdEqualizada7d) {
           const diffUn = qtdBruta7d - qtdEqualizada7d;
           unidadesCortadasEqualizador += diffUn;
           economiaEqualizadorReais += diffUn * preco1;
@@ -766,7 +837,10 @@ function belapedEndpoints(db) {
         const isCurvaAlta = r.curva_abc === 'A' || r.curva_abc === 'B';
         let prioridade = 'P4';
         let prioridadeRotulo = 'Regular';
-        if (saldo <= 0 && isCurvaAlta) {
+        if (avulsoInfo) {
+          prioridade = 'P1';
+          prioridadeRotulo = '⭐ Produto Desejado';
+        } else if (saldo <= 0 && isCurvaAlta) {
           prioridade = 'P1';
           prioridadeRotulo = 'Ruptura Crítica';
         } else if (saldo <= 0 && !isCurvaAlta) {
@@ -795,6 +869,9 @@ function belapedEndpoints(db) {
           curva_abc: r.curva_abc || 'C',
           prioridade: prioridade,
           prioridade_rotulo: prioridadeRotulo,
+          is_desejado: Boolean(avulsoInfo),
+          id_desejado: avulsoInfo ? avulsoInfo.id : null,
+          motivo_desejado: avulsoInfo ? (avulsoInfo.motivo || 'Produto Desejado') : null,
           saldo: saldo,
           vmd_ponderado: Number(vmd.toFixed(2)),
           vendas_30d: vendas30d,
@@ -858,17 +935,20 @@ function belapedEndpoints(db) {
         };
       }).filter(Boolean);
 
-      // Sistema de Rankeamento Estratégico: Primeiras posições para Alto Giro + Risco de Ruptura
+      // Sistema de Rankeamento Estratégico: Primeiras posições para Produtos Desejados e Alto Giro + Risco de Ruptura
       const pesoPrioridade = { P1: 1, P2: 2, P3: 3, P4: 4 };
       items.forEach(it => {
+        const bonusDesejado = it.is_desejado ? 2500 : 0;
         const bonusCurva = it.curva_abc === 'A' ? 400 : it.curva_abc === 'B' ? 200 : 50;
         const bonusRuptura = it.saldo <= 0 ? 500 : Math.max(0, 300 - (Number(it.dias_estoque_restante || 0) * 35));
         const bonusGiro = (Number(it.vmd_ponderado || 0) * 120) + (Number(it.vendas_30d || 0) * 6);
         const bonusBalcao = it.falta_balcao_belinha ? 250 : 0;
-        it.score_ranking = Math.round(bonusCurva + bonusRuptura + bonusGiro + bonusBalcao);
+        it.score_ranking = Math.round(bonusDesejado + bonusCurva + bonusRuptura + bonusGiro + bonusBalcao);
       });
 
       items.sort((a, b) => {
+        if (a.is_desejado && !b.is_desejado) return -1;
+        if (!a.is_desejado && b.is_desejado) return 1;
         const pa = pesoPrioridade[a.prioridade] || 4;
         const pb = pesoPrioridade[b.prioridade] || 4;
         if (pa !== pb) return pa - pb;
@@ -923,6 +1003,22 @@ function belapedEndpoints(db) {
         };
       });
 
+      // Enriquecer lista de avulsos (Produtos Desejados) com as cotações e estoque atuais
+      const avulsosEnriquecidos = avulsos.map(av => {
+        const itemCorrespondente = items.find(it => it.id_desejado === av.id || (av.ean && it.ean === av.ean));
+        return {
+          ...av,
+          saldo: itemCorrespondente ? itemCorrespondente.saldo : 0,
+          vendas_30d: itemCorrespondente ? itemCorrespondente.vendas_30d : 0,
+          vendas_10m: itemCorrespondente ? itemCorrespondente.vendas_historico_6m : 0,
+          fornecedor_1: itemCorrespondente ? itemCorrespondente.fornecedor_1 : 'Não Cotado',
+          preco_1: itemCorrespondente ? itemCorrespondente.preco_1 : Number(av.preco_referencia) || 0,
+          fornecedor_2: itemCorrespondente ? itemCorrespondente.fornecedor_2 : '—',
+          preco_2: itemCorrespondente ? itemCorrespondente.preco_2 : 0,
+          produto_id_tabela: itemCorrespondente ? itemCorrespondente.produto_id : av.produto_id
+        };
+      });
+
       res.json({
         success: true,
         meta_cobertura: 'Equalização Anti-Ruptura: Curvas A, B e Resgate 6m sem duplicar equivalentes',
@@ -939,7 +1035,7 @@ function belapedEndpoints(db) {
         total_orcado_7d: Number(totalOrcado7d.toFixed(2)),
         resumo_distribuidoras: resumoDistribuidoras,
         items,
-        itens_avulsos: avulsos,
+        itens_avulsos: avulsosEnriquecidos,
         total_faltas_balcao_belinha: todasFaltasBelinha.length,
         faltas_balcao_belinha_lista: todasFaltasBelinha
       });
@@ -951,7 +1047,7 @@ function belapedEndpoints(db) {
 
   /**
    * POST /api/belaped/itens-avulsos
-   * Permite incluir produtos avulsos na cotação
+   * Permite gravar ou atualizar 1 Produto Desejado na cotação (evita duplicatas por EAN/produto_id)
    */
   router.post('/itens-avulsos', (req, res) => {
     try {
@@ -961,6 +1057,26 @@ function belapedEndpoints(db) {
         return res.status(400).json({ success: false, error: 'Descrição e quantidade são obrigatórios.' });
       }
 
+      const eanClean = ean ? String(ean).trim() : null;
+      const descClean = String(descricao).toUpperCase().trim();
+      const qtdNum = Math.max(1, Number(quantidade) || 1);
+
+      const existente = db.prepare(`
+        SELECT id FROM belaped_itens_avulsos
+        WHERE (ean IS NOT NULL AND ean != '' AND ean = ?)
+           OR (produto_id IS NOT NULL AND produto_id = ?)
+           OR UPPER(descricao) = ?
+      `).get(eanClean || '__NONE__', produto_id || -999999, descClean);
+
+      if (existente) {
+        db.prepare(`
+          UPDATE belaped_itens_avulsos
+          SET quantidade = ?, preco_referencia = COALESCE(?, preco_referencia), motivo = COALESCE(?, motivo)
+          WHERE id = ?
+        `).run(qtdNum, Number(preco_referencia) || null, motivo || 'Produto Desejado', existente.id);
+        return res.json({ success: true, id: existente.id, updated: true, message: 'Quantidade do Produto Desejado atualizada na cotação!' });
+      }
+
       const id = crypto.randomUUID();
       db.prepare(`
         INSERT INTO belaped_itens_avulsos (id, produto_id, descricao, ean, quantidade, preco_referencia, motivo, adicionado_por)
@@ -968,15 +1084,103 @@ function belapedEndpoints(db) {
       `).run(
         id,
         produto_id || null,
-        descricao.toUpperCase().trim(),
-        ean || null,
-        Number(quantidade) || 1,
+        descClean,
+        eanClean,
+        qtdNum,
         Number(preco_referencia) || 0,
-        motivo || 'Demanda de balcão',
+        motivo || 'Produto Desejado',
         usuario || 'Operador'
       );
 
-      res.json({ success: true, id, message: 'Item adicionado à cotação com sucesso.' });
+      res.json({ success: true, id, message: 'Produto gravado nos Produtos Desejados e incluído na cotação!' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/itens-avulsos/lote
+   * Permite gravar vários Produtos Desejados de uma só vez (ex: selecionando várias tintas Maxton na pesquisa)
+   */
+  router.post('/itens-avulsos/lote', (req, res) => {
+    try {
+      const { itens, usuario } = req.body || {};
+      if (!Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ success: false, error: 'Envie ao menos 1 produto para gravar.' });
+      }
+
+      let adicionados = 0;
+      let atualizados = 0;
+
+      const tx = db.transaction(() => {
+        for (const it of itens) {
+          if (!it.descricao) continue;
+          const eanClean = it.ean ? String(it.ean).trim() : null;
+          const descClean = String(it.descricao).toUpperCase().trim();
+          const qtdNum = Math.max(1, Number(it.quantidade) || 1);
+          const precoRef = Number(it.preco_referencia || it.preco_ult_compra || it.custo_unitario || 5.0);
+
+          const existente = db.prepare(`
+            SELECT id FROM belaped_itens_avulsos
+            WHERE (ean IS NOT NULL AND ean != '' AND ean = ?)
+               OR (produto_id IS NOT NULL AND produto_id = ?)
+               OR UPPER(descricao) = ?
+          `).get(eanClean || '__NONE__', it.produto_id || -999999, descClean);
+
+          if (existente) {
+            db.prepare(`
+              UPDATE belaped_itens_avulsos
+              SET quantidade = ?, preco_referencia = ?
+              WHERE id = ?
+            `).run(qtdNum, precoRef, existente.id);
+            atualizados++;
+          } else {
+            db.prepare(`
+              INSERT INTO belaped_itens_avulsos (id, produto_id, descricao, ean, quantidade, preco_referencia, motivo, adicionado_por)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              crypto.randomUUID(),
+              it.produto_id || null,
+              descClean,
+              eanClean,
+              qtdNum,
+              precoRef,
+              it.motivo || 'Produto Desejado (Seleção em Lote)',
+              usuario || 'Comprador'
+            );
+            adicionados++;
+          }
+        }
+      });
+      tx();
+
+      res.json({
+        success: true,
+        adicionados,
+        atualizados,
+        total: adicionados + atualizados,
+        message: `${adicionados + atualizados} produto(s) gravado(s) nos Produtos Desejados e incluído(s) na cotação!`
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/belaped/itens-avulsos/:id
+   * Atualiza a quantidade desejada de um Produto Desejado
+   */
+  router.put('/itens-avulsos/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { quantidade, motivo } = req.body || {};
+      const qtdNum = Math.max(1, Number(quantidade) || 1);
+      db.prepare(`
+        UPDATE belaped_itens_avulsos
+        SET quantidade = ?, motivo = COALESCE(?, motivo)
+        WHERE id = ?
+      `).run(qtdNum, motivo || null, id);
+      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -2349,6 +2553,22 @@ function belapedEndpoints(db) {
     const p4List = [];
 
     const mapaPrioridadeEan = {};
+    const setDesejadosP1 = new Set();
+    try {
+      const avulsosDesejados = db.prepare('SELECT ean, descricao, preco_referencia FROM belaped_itens_avulsos WHERE ean IS NOT NULL AND length(TRIM(ean)) >= 7').all();
+      for (const av of avulsosDesejados) {
+        const eanAv = String(av.ean).trim();
+        if (!eanAv || eansNaoCotar.has(eanAv)) continue;
+        if (!mapaDescricoes[eanAv] && av.descricao) mapaDescricoes[eanAv] = av.descricao;
+        if (!mapaUltimoCusto[eanAv] && Number(av.preco_referencia) > 0) mapaUltimoCusto[eanAv] = Number(av.preco_referencia);
+        mapaPrioridadeEan[eanAv] = 'P1';
+        if (!eansComPrecoHoje.has(eanAv) && !setDesejadosP1.has(eanAv)) {
+          p1List.push(eanAv);
+          setDesejadosP1.add(eanAv);
+        }
+      }
+    } catch (eAv) {}
+
     for (const p of todosCache) {
       const ean = String(p.ean).trim();
       const saldo = Number(p.saldo) || 0;
@@ -2359,22 +2579,24 @@ function belapedEndpoints(db) {
       const vendas30 = Number(p.vendas_30d) || 0;
       const estMin = Number(p.est_minimo_calculado) || 0;
 
-      let prio = 'P4';
-      if (saldo <= 0 && isCurvaAlta) {
-        prio = 'P1';
-      } else if (saldo <= 0 && !isCurvaAlta) {
-        prio = vendas30 > 0 ? 'P2' : 'P4';
-      } else if (isCurvaAlta && (diasCob <= 3 || saldo <= Math.max(1, vmd * 3))) {
-        prio = 'P2';
-      } else if (saldo < estMin && (isCurvaAlta || vendas30 > 0)) {
-        prio = 'P3';
-      } else {
-        prio = 'P4';
+      let prio = setDesejadosP1.has(ean) ? 'P1' : 'P4';
+      if (!setDesejadosP1.has(ean)) {
+        if (saldo <= 0 && isCurvaAlta) {
+          prio = 'P1';
+        } else if (saldo <= 0 && !isCurvaAlta) {
+          prio = vendas30 > 0 ? 'P2' : 'P4';
+        } else if (isCurvaAlta && (diasCob <= 3 || saldo <= Math.max(1, vmd * 3))) {
+          prio = 'P2';
+        } else if (saldo < estMin && (isCurvaAlta || vendas30 > 0)) {
+          prio = 'P3';
+        } else {
+          prio = 'P4';
+        }
       }
       mapaPrioridadeEan[ean] = prio;
 
       // Só entra na fila pendente se estiver em falta/ruptura E NÃO tiver sido cotado nas últimas 24h E NÃO estiver marcado para não cotar
-      if ((saldo <= 0 || saldo < estMin) && !eansComPrecoHoje.has(ean) && !eansNaoCotar.has(ean)) {
+      if (!setDesejadosP1.has(ean) && (saldo <= 0 || saldo < estMin) && !eansComPrecoHoje.has(ean) && !eansNaoCotar.has(ean)) {
         if (prio === 'P1') p1List.push(ean);
         else if (prio === 'P2') p2List.push(ean);
         else if (prio === 'P3') p3List.push(ean);
@@ -5198,6 +5420,21 @@ function belapedEndpoints(db) {
           invoice_number: numeroPedido || null
         });
       });
+
+      // Remove automaticamente da lista de Produtos Desejados (belaped_itens_avulsos) os itens cuja compra foi confirmada
+      if (Array.isArray(itens) && itens.length > 0) {
+        const delByEan = db.prepare('DELETE FROM belaped_itens_avulsos WHERE TRIM(ean) = ?');
+        const delByProdId = db.prepare('DELETE FROM belaped_itens_avulsos WHERE produto_id = ?');
+        const delByDesc = db.prepare('DELETE FROM belaped_itens_avulsos WHERE UPPER(TRIM(descricao)) = ?');
+        for (const it of itens) {
+          const eanIt = String(it.ean || '').trim();
+          const pidIt = Number(it.produto_id) || 0;
+          const descIt = String(it.descricao || '').toUpperCase().trim();
+          if (eanIt && eanIt.length >= 7) delByEan.run(eanIt);
+          if (pidIt > 0) delByProdId.run(pidIt);
+          if (descIt) delByDesc.run(descIt);
+        }
+      }
     })();
 
     console.log(`[BelaPed -> Guia Pedidos] ✅ Pedido ${orderId} (${distribuidora} - R$ ${total.toFixed(2)}) e ${installments.length} boleto(s) lançados na guia Pedidos do Belinha!`);
@@ -5231,62 +5468,91 @@ function belapedEndpoints(db) {
 
   /**
    * GET /api/belaped/buscar-estoque-real?q=...
-   * Pesquisa produtos no estoque real completo da farmácia (compras_estoque_cache),
-   * indicando se o produto já está na cotação ou gerando a justificativa exata de por que não é o momento de comprá-lo.
+   * Pesquisa TODOS os produtos que contenham a palavra-chave no estoque real completo da farmácia (compras_estoque_cache),
+   * ordenando pelo histórico completo de vendas (10m / 90d / 30d), exibindo o desempenho detalhado e permitindo gravar nos Produtos Desejados.
    */
   router.get('/buscar-estoque-real', (req, res) => {
     try {
       const q = String(req.query.q || '').trim();
       if (q.length < 2) {
-        return res.json({ success: true, produtos: [], resultados: [] });
+        return res.json({ success: true, produtos: [], resultados: [], resumo_pesquisa: null });
       }
 
-      const termoLike = `%${q}%`;
+      // Suporta busca por uma ou múltiplas palavras-chave (ex: "maxton", "maxton 7.0", "dipirona 1g")
+      const palavras = q.split(/\s+/).filter(Boolean);
+      const condicoesLike = palavras.map(() => '(descricao LIKE ? OR apresentacao LIKE ?)').join(' AND ');
+      const paramsLike = [];
+      for (const p of palavras) {
+        paramsLike.push(`%${p}%`, `%${p}%`);
+      }
+
       let rows = db.prepare(`
         SELECT 
           produto_id, descricao, apresentacao, ean, curva_abc, saldo,
           est_minimo_calculado, vmd_ponderado, vendas_30d, vendas_31_60d,
           COALESCE(vendas_61_90d, 0) as vendas_61_90d,
           COALESCE(vendas_10m, 0) as vendas_10m,
+          COALESCE(entradas_10m, 0) as entradas_10m,
           custo_unitario, preco_unitario_ult_compra, preco_venda_vigente,
           ultima_compra_fornecedor, ultima_compra_data, categoria_id
         FROM compras_estoque_cache
-        WHERE descricao LIKE ? OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
+        WHERE (${condicoesLike}) OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
         ORDER BY 
           CASE WHEN ean = ? THEN 0 ELSE 1 END ASC,
-          CASE WHEN curva_abc = 'A' THEN 1 WHEN curva_abc = 'B' THEN 2 ELSE 3 END ASC,
+          COALESCE(vendas_10m, 0) DESC,
+          (COALESCE(vendas_30d, 0) + COALESCE(vendas_31_60d, 0) + COALESCE(vendas_61_90d, 0)) DESC,
           vmd_ponderado DESC,
-          vendas_30d DESC
-        LIMIT 30
-      `).all(termoLike, termoLike, q, q);
+          saldo DESC,
+          descricao ASC
+        LIMIT 1000
+      `).all(...paramsLike, `%${q}%`, q, q);
 
       // Fallback para digifarma_cache caso não esteja no compras_estoque_cache
       if (rows.length === 0) {
         try {
+          const condicoesDf = palavras.map(() => '(descricao LIKE ? OR apresentacao LIKE ?)').join(' AND ');
           const rowsDf = db.prepare(`
             SELECT 
               produto_id, descricao, apresentacao, ean, 'C' as curva_abc, saldo,
               1 as est_minimo_calculado, 0 as vmd_ponderado, 0 as vendas_30d, 0 as vendas_31_60d,
-              0 as vendas_61_90d, 0 as vendas_10m,
+              0 as vendas_61_90d, 0 as vendas_10m, 0 as entradas_10m,
               custo as custo_unitario, custo as preco_unitario_ult_compra, preco_venda as preco_venda_vigente,
               null as ultima_compra_fornecedor, null as ultima_compra_data, 1 as categoria_id
             FROM digifarma_cache
-            WHERE descricao LIKE ? OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
-            LIMIT 20
-          `).all(termoLike, termoLike, q);
+            WHERE (${condicoesDf}) OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
+            ORDER BY saldo DESC, descricao ASC
+            LIMIT 500
+          `).all(...paramsLike, `%${q}%`, q);
           if (rowsDf.length > 0) rows = rowsDf;
         } catch (eDf) {}
       }
 
-      // Carrega avulsos e regras para saber o que já está incluído manualmente ou bloqueado
-      const avulsosSet = new Set();
+      // Carrega Produtos Desejados (belaped_itens_avulsos) e regras
+      const avulsosMap = {};
       try {
-        db.prepare('SELECT ean, descricao, produto_id FROM belaped_itens_avulsos').all().forEach(a => {
-          if (a.ean) avulsosSet.add(String(a.ean).trim());
-          if (a.produto_id) avulsosSet.add(`ID_${a.produto_id}`);
-          if (a.descricao) avulsosSet.add(String(a.descricao).toUpperCase().trim());
+        db.prepare('SELECT * FROM belaped_itens_avulsos').all().forEach(a => {
+          if (a.ean) avulsosMap[String(a.ean).trim()] = a;
+          if (a.produto_id) avulsosMap[`ID_${a.produto_id}`] = a;
+          if (a.descricao) avulsosMap[String(a.descricao).toUpperCase().trim()] = a;
         });
       } catch (e) {}
+
+      // Carrega cotações reais para mostrar preços já cotados nos portais
+      const cotacoesPorEan = {};
+      try {
+        const cots = db.prepare(`
+          SELECT ean, fornecedor, preco, disponivel, updated_at
+          FROM belaped_cotacoes_reais
+          WHERE disponivel = 1 AND preco > 0
+          ORDER BY preco ASC
+        `).all();
+        for (const c of cots) {
+          const e = String(c.ean || '').trim();
+          if (!e) continue;
+          if (!cotacoesPorEan[e]) cotacoesPorEan[e] = [];
+          cotacoesPorEan[e].push(c);
+        }
+      } catch (eCot) {}
 
       const regrasMap = {};
       try {
@@ -5296,21 +5562,43 @@ function belapedEndpoints(db) {
         });
       } catch (e) {}
 
+      let comVendasHistorico = 0;
+      let comEstoque = 0;
+      let zeradosComGiro = 0;
+      let semGiroZerados = 0;
+      let somaVendas30d = 0;
+      let somaVendas90d = 0;
+      let somaVendas10m = 0;
+      let somaEstoqueAtual = 0;
+
       const produtosAnalisados = rows.map(r => {
         const saldo = Math.max(0, Number(r.saldo) || 0);
         const vmd = Number(r.vmd_ponderado) || 0;
         const vendas30d = Number(r.vendas_30d) || 0;
         const vendas60d = Number(r.vendas_31_60d) || 0;
-        const vendas90d = Number(r.vendas_61_90d) || 0;
-        const vendas10m = Math.max(Number(r.vendas_10m) || 0, vendas30d + vendas60d + vendas90d);
-        const vendas6m = vendas60d + vendas90d + Math.max(0, vendas10m - vendas30d);
+        const vendas90dIsolado = Number(r.vendas_61_90d) || 0;
+        const vendas90dTotal = vendas30d + vendas60d + vendas90dIsolado;
+        const vendas10m = Math.max(Number(r.vendas_10m) || 0, vendas90dTotal);
+        const entradas10m = Number(r.entradas_10m) || 0;
+        const vendas6m = vendas60d + vendas90dIsolado + Math.max(0, vendas10m - vendas30d);
         const diasCobertura = vmd > 0 ? Math.round(saldo / vmd) : (saldo > 0 ? 999 : 0);
         const metaUnidades7d = Math.max(1, Math.ceil(vmd * 7));
         const eanTrim = String(r.ean || '').trim();
         const reg = (eanTrim && regrasMap[eanTrim]) || regrasMap[`ID_${r.produto_id}`] || null;
-        const isAvulso = (eanTrim && avulsosSet.has(eanTrim)) || avulsosSet.has(`ID_${r.produto_id}`) || avulsosSet.has(String(r.descricao || '').toUpperCase().trim());
+        const regDesejado = (eanTrim && avulsosMap[eanTrim]) || avulsosMap[`ID_${r.produto_id}`] || avulsosMap[String(r.descricao || '').toUpperCase().trim()] || null;
+        const isAvulso = Boolean(regDesejado);
 
-        // Verifica se existe equivalente da mesma molécula/dosagem com estoque na loja
+        if (vendas10m > 0 || vendas90dTotal > 0) comVendasHistorico++;
+        if (saldo > 0) comEstoque++;
+        if (saldo <= 0 && (vendas10m > 0 || vendas90dTotal > 0)) zeradosComGiro++;
+        if (saldo <= 0 && vendas10m === 0 && vendas90dTotal === 0) semGiroZerados++;
+
+        somaVendas30d += vendas30d;
+        somaVendas90d += vendas90dTotal;
+        somaVendas10m += vendas10m;
+        somaEstoqueAtual += saldo;
+
+        // Verifica se existe equivalente da mesma molécula/dosagem com estoque na loja (apenas para medicamentos)
         let equivComSaldo = null;
         if (saldo <= 0 && r.categoria_id !== 5 && r.categoria_id !== 7 && comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
           try {
@@ -5342,28 +5630,29 @@ function belapedEndpoints(db) {
 
         // Constrói a justificativa direta e amigável de por que está ou não está indicado para compra nesta semana
         let justificativaNaoComprar = '';
-        if (jaNaCotacao) {
-          justificativaNaoComprar = isAvulso
-            ? `Incluído manualmente na cotação (consta com ${labelUnidades} em estoque).`
-            : (saldo <= 0
-              ? `Em ruptura (0 unidades em estoque) com giro de ${vendas30d} un nos últimos 30 dias (Curva ${r.curva_abc}) — já está indicado na cotação!`
-              : `Cobertura baixa: consta com ${labelUnidades} em estoque (dura apenas ${diasCobertura} dias para meta semanal de ${metaUnidades7d} un) — já está indicado na cotação!`);
+        if (isAvulso) {
+          justificativaNaoComprar = `⭐ Produto gravado na sua lista de Produtos Desejados (${regDesejado.qtd_sugerida || 1} un) — já está na fila de cotação dos robôs! (Estoque atual: ${labelUnidades} • Vendas 10m: ${vendas10m} un)`;
+        } else if (jaNaCotacao) {
+          justificativaNaoComprar = saldo <= 0
+            ? `Em ruptura (0 unidades em estoque) com histórico de ${vendas10m} un vendidas nos últimos 10 meses (${vendas30d} un em 30d • Curva ${r.curva_abc}) — já está indicado na cotação!`
+            : `Cobertura baixa: consta com ${labelUnidades} em estoque (dura apenas ${diasCobertura} dias para meta semanal de ${metaUnidades7d} un • Vendas 10m: ${vendas10m} un) — já está indicado na cotação!`;
         } else if (reg && reg.nao_cotar) {
           justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, mas está bloqueado manualmente pela regra "Não Cotar"${reg.motivo_justificativa ? `: ${reg.motivo_justificativa}` : ''}.`;
         } else if (equivComSaldo) {
           justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque, porém a loja já possui equivalente da mesma molécula/dosagem em estoque (${equivComSaldo.descricao} com ${equivComSaldo.saldo} un) — saldo suficiente para essa semana.`;
-        } else if (saldo > 0 && (diasCobertura > 7 || saldo >= metaUnidades7d) && (vmd > 0 || vendas30d > 0)) {
-          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (cobre ~${diasCobertura} dias • meta semanal: ${metaUnidades7d} un • vendeu ${vendas30d} un nos últimos 30 dias).`;
+        } else if (saldo > 0 && (diasCobertura > 7 || saldo >= metaUnidades7d) && (vmd > 0 || vendas30d > 0 || vendas10m > 0)) {
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (cobre ~${diasCobertura} dias • meta semanal: ${metaUnidades7d} un • vendeu ${vendas30d} un em 30d e ${vendas10m} un em 10 meses).`;
         } else if (saldo > 0 && vmd <= 0 && vendas30d === 0) {
-          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (0 vendas nos últimos 30 dias • Curva ${r.curva_abc}).`;
-        } else if (saldo <= 0 && vendas30d === 0 && vendas6m === 0) {
-          justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque, porém não teve nenhuma venda registrada nos últimos 6 meses (Curva ${r.curva_abc}) — sem giro recente para compra automática.`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (0 vendas nos últimos 30 dias • ${vendas10m} un vendidas em 10 meses • Curva ${r.curva_abc}).`;
+        } else if (saldo <= 0 && vendas30d === 0 && vendas10m === 0) {
+          justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque e não teve vendas registradas nos últimos 10 meses (Curva ${r.curva_abc}) — se desejar reativar na loja, grave em "⭐ Produtos Desejados".`;
         } else {
-          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (Vendas 30d: ${vendas30d} un • Curva ${r.curva_abc}).`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (Vendas 30d: ${vendas30d} un • Vendas 10m: ${vendas10m} un • Curva ${r.curva_abc}).`;
         }
 
         const precoRef = Number(r.preco_unitario_ult_compra || r.custo_unitario || 5.0);
-        const qtdSugeridaInclusao = Math.max(1, metaUnidades7d - saldo);
+        const qtdSugeridaInclusao = regDesejado ? (Number(regDesejado.qtd_sugerida) || 1) : Math.max(1, metaUnidades7d - saldo);
+        const cotsEan = (eanTrim && cotacoesPorEan[eanTrim]) || [];
 
         return {
           produto_id: r.produto_id,
@@ -5374,18 +5663,49 @@ function belapedEndpoints(db) {
           saldo,
           vmd_ponderado: Number(vmd.toFixed(2)),
           vendas_30d: vendas30d,
+          vendas_31_60d: vendas60d,
+          vendas_61_90d: vendas90dIsolado,
+          vendas_90d: vendas90dTotal,
           vendas_6m: vendas6m,
+          vendas_10m: vendas10m,
+          entradas_10m: entradas10m,
           dias_cobertura: diasCobertura,
           preco_ult_compra: Number(precoRef.toFixed(2)),
           preco_venda: Number((Number(r.preco_venda_vigente) || 0).toFixed(2)),
           fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
+          ultima_compra_data: r.ultima_compra_data || null,
+          fornecedor_1: cotsEan[0] ? cotsEan[0].fornecedor : null,
+          preco_1: cotsEan[0] ? Number(cotsEan[0].preco) : null,
+          fornecedor_2: cotsEan[1] ? cotsEan[1].fornecedor : null,
+          preco_2: cotsEan[1] ? Number(cotsEan[1].preco) : null,
           qtd_sugerida: qtdSugeridaInclusao,
           ja_na_cotacao: jaNaCotacao,
+          is_desejado: isAvulso,
+          id_desejado: regDesejado ? regDesejado.id : null,
+          motivo_desejado: regDesejado ? regDesejado.motivo : null,
           justificativa_compra: justificativaNaoComprar
         };
       });
 
-      res.json({ success: true, produtos: produtosAnalisados, resultados: produtosAnalisados });
+      const resumoPesquisa = {
+        termo: q,
+        total_encontrados: produtosAnalisados.length,
+        com_vendas_historico: comVendasHistorico,
+        com_estoque: comEstoque,
+        zerados_com_giro: zeradosComGiro,
+        sem_giro_zerados: semGiroZerados,
+        soma_vendas_30d: somaVendas30d,
+        soma_vendas_90d: somaVendas90d,
+        soma_vendas_10m: somaVendas10m,
+        soma_estoque_atual: somaEstoqueAtual
+      };
+
+      res.json({
+        success: true,
+        produtos: produtosAnalisados,
+        resultados: produtosAnalisados,
+        resumo_pesquisa: resumoPesquisa
+      });
     } catch (err) {
       console.error('[BelaPed] Erro em buscar-estoque-real:', err.message);
       res.status(500).json({ success: false, error: err.message });
