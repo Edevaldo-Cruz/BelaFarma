@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "1e6d2da",
-  "commitMessage": "fix(belaped): retorno e justificativa amigavel na busca do estoque real",
-  "buildTime": "16/10/2026, 13:32:04"
+  "commitHash": "1a433f9",
+  "commitMessage": "fix(belaped): corrigir ReferenceError simulandoOtimizacao e montandoCarrinho na modal de carrinhos",
+  "buildTime": "16/10/2026, 13:43:15"
 }

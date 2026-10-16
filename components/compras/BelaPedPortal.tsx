@@ -1097,10 +1097,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [prazoSelecionadoModal, setPrazoSelecionadoModal] = useState<string>('');
   const [lancandoPedidoBelinha, setLancandoPedidoBelinha] = useState<boolean>(false);
 
-  // Pesquisa Global no Estoque Real da Farmácia com Justificativa do Sistema
+  // Pesquisa Global no Estoque Real da Farmácia com Justificativa do Sistema (em Modal ampla)
   const [resultadosEstoqueReal, setResultadosEstoqueReal] = useState<any[]>([]);
   const [buscandoEstoqueReal, setBuscandoEstoqueReal] = useState<boolean>(false);
   const [qtdIncluirEstoque, setQtdIncluirEstoque] = useState<Record<number, number>>({});
+  const [modalEstoqueRealAberto, setModalEstoqueRealAberto] = useState<boolean>(false);
 
   // Compra Direta nos Portais
   const [comprandoDireto, setComprandoDireto] = useState(false);
@@ -1461,20 +1462,25 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         const res = await fetch(`/api/belaped/buscar-estoque-real?q=${encodeURIComponent(termo)}`);
         if (res.ok && !cancelado) {
           const data = await res.json();
-          setResultadosEstoqueReal(data.produtos || data.resultados || []);
+          const lista = data.produtos || data.resultados || [];
+          setResultadosEstoqueReal(lista);
+          // Se o produto pesquisado não está na tabela de faltas atual (ou digitou um EAN), abre automaticamente a Modal ampla de leitura
+          if (lista.length > 0 && faltasFiltradas.length === 0) {
+            setModalEstoqueRealAberto(true);
+          }
         }
       } catch (e) {
         if (!cancelado) setResultadosEstoqueReal([]);
       } finally {
         if (!cancelado) setBuscandoEstoqueReal(false);
       }
-    }, 250);
+    }, 350);
 
     return () => {
       cancelado = true;
       clearTimeout(timer);
     };
-  }, [buscaFalta]);
+  }, [buscaFalta, faltasFiltradas.length]);
 
   // Incluir produto do estoque real manualmente na cotação
   const handleIncluirDoEstoqueRealNaCotacao = async (prod: any) => {
@@ -4448,26 +4454,42 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               {/* Linha 1: Barra de Busca Unificada (Cotação + Estoque Real) e Filtros Compactos */}
               <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
                 <div className="flex flex-wrap items-center gap-2 flex-1">
-                  {/* Campo de Busca Rápida + Estoque Real */}
-                  <div className="relative min-w-[280px] flex-1 max-w-md">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400" />
-                    <input
-                      type="text"
-                      placeholder="Buscar na cotação ou pesquisar no Estoque Real da farmácia..."
-                      value={buscaFalta}
-                      onChange={(e) => setBuscaFalta(e.target.value)}
-                      className="w-full pl-9 pr-8 py-2 text-xs font-semibold rounded-xl border border-cyan-800/70 bg-[#080d18] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
-                    {buscaFalta && (
-                      <button
-                        type="button"
-                        onClick={() => setBuscaFalta('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
-                        title="Limpar busca"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                  {/* Campo de Busca Rápida + Botão Modal Estoque Real */}
+                  <div className="relative min-w-[280px] flex-1 max-w-md flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar na cotação ou pesquisar no Estoque Real (Enter p/ Modal)..."
+                        value={buscaFalta}
+                        onChange={(e) => setBuscaFalta(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && buscaFalta.trim().length >= 2) {
+                            setModalEstoqueRealAberto(true);
+                          }
+                        }}
+                        className="w-full pl-9 pr-8 py-2 text-xs font-semibold rounded-xl border border-cyan-800/70 bg-[#080d18] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      />
+                      {buscaFalta && (
+                        <button
+                          type="button"
+                          onClick={() => setBuscaFalta('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                          title="Limpar busca"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setModalEstoqueRealAberto(true)}
+                      className="px-3 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/80 text-xs font-black whitespace-nowrap cursor-pointer flex items-center gap-1.5 shadow-sm transition-all"
+                      title="Abrir Modal ampla de Pesquisa no Estoque Real da Farmácia com justificativa detalhada e letras grandes"
+                    >
+                      <Search className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>📦 Estoque Real {buscaFalta.trim().length >= 2 ? `(${resultadosEstoqueReal.length})` : ''}</span>
+                    </button>
                   </div>
 
                   {/* Botão Ordenar por Rankeamento (#1 Alto Giro + Risco de Ruptura) */}
@@ -4682,127 +4704,233 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </div>
               </div>
 
-              {/* ─── PAINEL DE RESULTADOS DO ESTOQUE REAL DA FARMÁCIA (QUANDO PESQUISANDO) ─── */}
+              {/* ─── BARRA DE ACESSO RÁPIDO À MODAL DO ESTOQUE REAL (QUANDO PESQUISANDO) ─── */}
               {buscaFalta.trim().length >= 2 && (
-                <div className="pt-2.5 border-t border-slate-800/90 space-y-2 animate-in fade-in">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md bg-cyan-950 text-cyan-300 border border-cyan-700 text-[10px] font-black uppercase tracking-wider">
-                        📦 Estoque Real da Farmácia
+                <div className="pt-2.5 border-t border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-in fade-in">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="px-2.5 py-1 rounded-lg bg-cyan-950 text-cyan-300 border border-cyan-600 text-xs font-black uppercase tracking-wider">
+                      📦 Estoque Real da Farmácia
+                    </span>
+                    {buscandoEstoqueReal ? (
+                      <span className="text-sm text-cyan-300 font-bold flex items-center gap-1.5">
+                        <RefreshCw className="w-4 h-4 animate-spin" /> Consultando estoque real para "{buscaFalta.trim()}"...
                       </span>
-                      <span className="text-xs font-bold text-slate-300">
-                        Pesquisa global por <b className="text-white">"{buscaFalta.trim()}"</b> (inclui produtos fora da lista e justificativa do sistema)
+                    ) : resultadosEstoqueReal.length === 0 ? (
+                      <span className="text-sm text-slate-300 font-semibold">
+                        Nenhum produto localizado no cadastro do estoque real para <b className="text-white">"{buscaFalta.trim()}"</b>.
                       </span>
-                    </div>
-                    {buscandoEstoqueReal && (
-                      <span className="text-xs text-cyan-400 font-bold flex items-center gap-1">
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Consultando estoque real...
+                    ) : (
+                      <span className="text-sm text-slate-200 font-semibold">
+                        Localizado(s) <b className="text-cyan-300 font-black">{resultadosEstoqueReal.length} produto(s)</b> no estoque real para <b className="text-white">"{buscaFalta.trim()}"</b> — clique ao lado para ler a justificativa completa.
                       </span>
                     )}
                   </div>
 
-                  {!buscandoEstoqueReal && resultadosEstoqueReal.length === 0 ? (
-                    <div className="p-3 rounded-xl bg-[#080d18] border border-slate-800 text-xs text-slate-400">
-                      Nenhum produto encontrado no cadastro do estoque real para "{buscaFalta.trim()}".
-                    </div>
-                  ) : (
-                    <div className={`grid gap-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar ${
-                      resultadosEstoqueReal.length === 1
-                        ? 'grid-cols-1'
-                        : resultadosEstoqueReal.length === 2
-                        ? 'grid-cols-1 md:grid-cols-2'
-                        : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
-                    }`}>
-                      {resultadosEstoqueReal.map((prod) => {
-                        const jaNaListaAtiva = Boolean(
-                          prod.ja_na_cotacao ||
-                          faltas.some(f => f.produto_id === prod.produto_id || (f.ean && prod.ean && f.ean === prod.ean))
-                        );
-                        return (
-                          <div
-                            key={prod.produto_id}
-                            className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 text-xs transition-all shadow-md ${
-                              jaNaListaAtiva
-                                ? 'bg-emerald-950/30 border-emerald-600/80'
-                                : 'bg-[#08101f] border-amber-600/70 hover:border-cyan-500'
-                            }`}
+                  <button
+                    type="button"
+                    onClick={() => setModalEstoqueRealAberto(true)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-cyan-600 hover:from-amber-500 hover:to-cyan-500 text-white text-xs sm:text-sm font-black shadow-lg transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                    <span>Abrir Resultado & Justificativa em Modal ({resultadosEstoqueReal.length})</span>
+                  </button>
+                </div>
+              )}
+
+              {/* ─── MODAL AMPLA DE PESQUISA NO ESTOQUE REAL COM FONTE GRANDE E ALTA LEGIBILIDADE ─── */}
+              {modalEstoqueRealAberto && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-[#0b1320] border-2 border-cyan-600/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden ring-2 ring-cyan-500/20">
+                    {/* Header da Modal com Barra de Pesquisa Grande */}
+                    <div className="p-4 sm:p-5 border-b border-slate-800 bg-[#070e1a] space-y-3.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-cyan-950 border border-cyan-500/80 text-cyan-300">
+                            <Search className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg sm:text-xl font-black uppercase text-white tracking-wide">
+                              📦 Consulta no Estoque Real & Justificativa de Compra
+                            </h3>
+                            <p className="text-xs sm:text-sm text-slate-300">
+                              Veja o saldo atual da loja, o giro de vendas, por que o produto está ou não na cotação e inclua manualmente se desejar.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setModalEstoqueRealAberto(false)}
+                          className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition-colors"
+                          title="Fechar modal"
+                        >
+                          <X className="w-6 h-6" />
+                        </button>
+                      </div>
+
+                      {/* Campo de busca amplo dentro da própria modal */}
+                      <div className="relative">
+                        <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-cyan-400" />
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="Digite o EAN (código de barras) ou nome do produto para consultar no estoque real..."
+                          value={buscaFalta}
+                          onChange={(e) => setBuscaFalta(e.target.value)}
+                          className="w-full pl-12 pr-12 py-3 text-base sm:text-lg font-bold rounded-xl border-2 border-cyan-600/80 bg-[#050a14] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-400 shadow-inner"
+                        />
+                        {buscaFalta && (
+                          <button
+                            type="button"
+                            onClick={() => setBuscaFalta('')}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
                           >
-                            <div className="space-y-1.5">
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="font-black text-white text-sm leading-tight" title={prod.descricao}>
-                                  {prod.descricao}
-                                </span>
+                            Limpar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Corpo da Modal com Cards Amplos e Letras Grandes */}
+                    <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
+                      {buscaFalta.trim().length < 2 ? (
+                        <div className="py-12 text-center text-slate-400 text-base font-medium">
+                          Digite pelo menos 2 caracteres ou bipe o código de barras (EAN) acima para consultar o estoque real.
+                        </div>
+                      ) : buscandoEstoqueReal ? (
+                        <div className="py-12 flex flex-col items-center justify-center gap-3 text-cyan-300 text-base font-bold">
+                          <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+                          <span>Consultando o cadastro do estoque real da farmácia...</span>
+                        </div>
+                      ) : resultadosEstoqueReal.length === 0 ? (
+                        <div className="p-6 rounded-2xl bg-[#080d18] border border-slate-700 text-center space-y-2">
+                          <p className="text-base sm:text-lg font-black text-white">
+                            Nenhum produto encontrado no cadastro do estoque real para "{buscaFalta.trim()}".
+                          </p>
+                          <p className="text-sm text-slate-400">
+                            Verifique se o código de barras (EAN) ou nome foi digitado corretamente.
+                          </p>
+                        </div>
+                      ) : (
+                        resultadosEstoqueReal.map((prod) => {
+                          const jaNaListaAtiva = Boolean(
+                            prod.ja_na_cotacao ||
+                            faltas.some(f => f.produto_id === prod.produto_id || (f.ean && prod.ean && f.ean === prod.ean))
+                          );
+                          return (
+                            <div
+                              key={prod.produto_id}
+                              className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col gap-4 transition-all shadow-lg ${
+                                jaNaListaAtiva
+                                  ? 'bg-emerald-950/30 border-emerald-500/80'
+                                  : 'bg-[#081121] border-amber-500/80'
+                              }`}
+                            >
+                              {/* Cabeçalho do Produto */}
+                              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                <div className="space-y-1">
+                                  <h4 className="text-lg sm:text-xl font-black text-white leading-snug">
+                                    {prod.descricao}
+                                  </h4>
+                                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 font-mono text-sm font-black text-cyan-300">
+                                      EAN: {prod.ean || 'S/N'}
+                                    </span>
+                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-slate-200">
+                                      Curva ABC: <b className="text-white font-black">{prod.curva_abc}</b>
+                                    </span>
+                                    <span className={`px-3.5 py-1 rounded-lg border text-sm sm:text-base font-black ${
+                                      prod.saldo <= 0
+                                        ? 'bg-rose-950/90 border-rose-600 text-rose-300'
+                                        : 'bg-emerald-950/90 border-emerald-600 text-emerald-300'
+                                    }`}>
+                                      📦 Estoque Atual: {prod.saldo} {prod.saldo === 1 ? 'unidade' : 'unidades'}
+                                    </span>
+                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-slate-200">
+                                      Vendas 30 dias: <b className="text-white font-black">{prod.vendas_30d} un</b>
+                                    </span>
+                                    <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-amber-300">
+                                      Duração do Estoque: <b className="text-white font-black">{prod.dias_cobertura >= 999 ? 'Sem giro recente' : `~${prod.dias_cobertura} dias`}</b>
+                                    </span>
+                                    {prod.preco_ult_compra > 0 && (
+                                      <span className="px-3 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-slate-200">
+                                        Últ. Custo: <b className="text-emerald-300 font-black">R$ {Number(prod.preco_ult_compra).toFixed(2)}</b>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
                                 {jaNaListaAtiva ? (
-                                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500 text-[10px] font-black whitespace-nowrap shrink-0">
-                                    ✅ Já na Cotação
+                                  <span className="px-3.5 py-1.5 rounded-xl bg-emerald-950 text-emerald-300 border-2 border-emerald-500 text-xs sm:text-sm font-black whitespace-nowrap shrink-0 self-start">
+                                    ✅ JÁ ESTÁ NA COTAÇÃO
                                   </span>
                                 ) : (
-                                  <span className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-600 text-[10px] font-black whitespace-nowrap shrink-0">
-                                    ⏸️ Não Indicado Nesta Semana
+                                  <span className="px-3.5 py-1.5 rounded-xl bg-amber-950 text-amber-300 border-2 border-amber-500 text-xs sm:text-sm font-black whitespace-nowrap shrink-0 self-start">
+                                    ⏸️ FORA DA COTAÇÃO NESTA SEMANA
                                   </span>
                                 )}
                               </div>
 
-                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
-                                <span className="font-mono text-cyan-300 font-bold">EAN: {prod.ean || 'S/N'}</span>
-                                <span>•</span>
-                                <span>Curva <b className="text-white">{prod.curva_abc}</b></span>
-                                <span>•</span>
-                                <span>Estoque Atual: <b className={prod.saldo <= 0 ? 'text-rose-400' : 'text-emerald-300 text-xs'}>{prod.saldo} {prod.saldo === 1 ? 'unidade' : 'unidades'}</b></span>
-                                <span>•</span>
-                                <span>Vendas 30d: <b className="text-white">{prod.vendas_30d} un</b></span>
-                                <span>•</span>
-                                <span>Cobertura: <b className="text-amber-300">{prod.dias_cobertura >= 999 ? 'Sem giro recente' : `${prod.dias_cobertura} dias`}</b></span>
-                                {prod.preco_ult_compra > 0 && (
-                                  <>
-                                    <span>•</span>
-                                    <span>Últ. Custo: <b className="text-slate-200">R$ {Number(prod.preco_ult_compra).toFixed(2)}</b></span>
-                                  </>
-                                )}
-                              </div>
-
-                              {/* Justificativa do Projeto sobre por que está ou não está indicado para compra */}
-                              <div className={`p-2 px-2.5 rounded-lg text-xs font-semibold border leading-relaxed ${
+                              {/* Box de Justificativa com Fonte Grande e Destaque */}
+                              <div className={`p-4 rounded-xl border-2 leading-relaxed ${
                                 jaNaListaAtiva
-                                  ? 'bg-emerald-950/50 border-emerald-700/80 text-emerald-200'
-                                  : 'bg-amber-950/50 border-amber-600/80 text-amber-100'
+                                  ? 'bg-emerald-950/60 border-emerald-600/80 text-emerald-100'
+                                  : 'bg-amber-950/60 border-amber-500/90 text-amber-100'
                               }`}>
-                                <span className="font-black uppercase text-[10px] tracking-wide mr-1.5 px-1.5 py-0.5 rounded bg-black/40 text-amber-300">
-                                  {jaNaListaAtiva ? '📌 Status na Cotação:' : '💡 Justificativa do Sistema:'}
-                                </span>
-                                <span>"{prod.justificativa_compra}"</span>
-                              </div>
-                            </div>
-
-                            {/* Botão para incluir manualmente na cotação caso não esteja indicado */}
-                            {!jaNaListaAtiva && (
-                              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/90">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[11px] text-slate-300 font-bold">Qtd para incluir:</span>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={999}
-                                    value={qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2}
-                                    onChange={(e) => setQtdIncluirEstoque(prev => ({ ...prev, [prod.produto_id]: Math.max(1, Number(e.target.value) || 1) }))}
-                                    className="w-16 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-black text-center"
-                                  />
+                                <div className="text-xs sm:text-sm font-black uppercase tracking-wider mb-1 text-amber-300 flex items-center gap-1.5">
+                                  <span>{jaNaListaAtiva ? '📌 STATUS DO PRODUTO NA COTAÇÃO:' : '💡 JUSTIFICATIVA DO SISTEMA (POR QUE NÃO COMPRAR AGORA):'}</span>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleIncluirDoEstoqueRealNaCotacao(prod)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                  <span>Incluir Mesmo Assim na Cotação</span>
-                                </button>
+                                <p className="text-base sm:text-lg font-bold text-white leading-snug">
+                                  "{prod.justificativa_compra}"
+                                </p>
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
+
+                              {/* Rodapé do Card: Incluir Mesmo Assim na Cotação */}
+                              {!jaNaListaAtiva && (
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-sm font-bold text-slate-200">
+                                      Deseja comprar mesmo assim? Informe a quantidade:
+                                    </span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={999}
+                                      value={qtdIncluirEstoque[prod.produto_id] ?? prod.qtd_sugerida ?? 2}
+                                      onChange={(e) => setQtdIncluirEstoque(prev => ({ ...prev, [prod.produto_id]: Math.max(1, Number(e.target.value) || 1) }))}
+                                      className="w-20 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-cyan-600 text-white text-base font-black text-center"
+                                    />
+                                    <span className="text-xs font-bold text-slate-400">un</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleIncluirDoEstoqueRealNaCotacao(prod)}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm sm:text-base font-black transition-all cursor-pointer shadow-lg"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    <span>Incluir na Cotação Agora</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
-                  )}
+
+                    {/* Footer da Modal */}
+                    <div className="p-4 border-t border-slate-800 bg-[#070e1a] flex items-center justify-between">
+                      <span className="text-xs sm:text-sm text-slate-400">
+                        Dica: você pode bipar ou digitar outro EAN diretamente no campo acima.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setModalEstoqueRealAberto(false)}
+                        className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-black transition-colors cursor-pointer"
+                      >
+                        Fechar Modal
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
