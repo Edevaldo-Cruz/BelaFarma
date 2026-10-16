@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "ca4caff",
-  "commitMessage": "feat(belaped): exibir data de vencimento real do boleto nos seletores e cards",
-  "buildTime": "16/10/2026, 11:59:48"
+  "commitHash": "545e5e4",
+  "commitMessage": "feat(belaped): modal unificada ver carrinhos em abas, otimizacao real de minimo, busca estoque real com justificativa, regra distrimed 60d e lancamento em pedidos",
+  "buildTime": "16/10/2026, 13:25:10"
 }

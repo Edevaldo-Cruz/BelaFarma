@@ -5238,11 +5238,11 @@ function belapedEndpoints(db) {
     try {
       const q = String(req.query.q || '').trim();
       if (q.length < 2) {
-        return res.json({ success: true, produtos: [] });
+        return res.json({ success: true, produtos: [], resultados: [] });
       }
 
       const termoLike = `%${q}%`;
-      const rows = db.prepare(`
+      let rows = db.prepare(`
         SELECT 
           produto_id, descricao, apresentacao, ean, curva_abc, saldo,
           est_minimo_calculado, vmd_ponderado, vendas_30d, vendas_31_60d,
@@ -5251,13 +5251,32 @@ function belapedEndpoints(db) {
           custo_unitario, preco_unitario_ult_compra, preco_venda_vigente,
           ultima_compra_fornecedor, ultima_compra_data, categoria_id
         FROM compras_estoque_cache
-        WHERE descricao LIKE ? OR ean LIKE ?
+        WHERE descricao LIKE ? OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
         ORDER BY 
+          CASE WHEN ean = ? THEN 0 ELSE 1 END ASC,
           CASE WHEN curva_abc = 'A' THEN 1 WHEN curva_abc = 'B' THEN 2 ELSE 3 END ASC,
           vmd_ponderado DESC,
           vendas_30d DESC
         LIMIT 30
-      `).all(termoLike, termoLike);
+      `).all(termoLike, termoLike, q, q);
+
+      // Fallback para digifarma_cache caso não esteja no compras_estoque_cache
+      if (rows.length === 0) {
+        try {
+          const rowsDf = db.prepare(`
+            SELECT 
+              produto_id, descricao, apresentacao, ean, 'C' as curva_abc, saldo,
+              1 as est_minimo_calculado, 0 as vmd_ponderado, 0 as vendas_30d, 0 as vendas_31_60d,
+              0 as vendas_61_90d, 0 as vendas_10m,
+              custo as custo_unitario, custo as preco_unitario_ult_compra, preco_venda as preco_venda_vigente,
+              null as ultima_compra_fornecedor, null as ultima_compra_data, 1 as categoria_id
+            FROM digifarma_cache
+            WHERE descricao LIKE ? OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
+            LIMIT 20
+          `).all(termoLike, termoLike, q);
+          if (rowsDf.length > 0) rows = rowsDf;
+        } catch (eDf) {}
+      }
 
       // Carrega avulsos e regras para saber o que já está incluído manualmente ou bloqueado
       const avulsosSet = new Set();
@@ -5291,33 +5310,56 @@ function belapedEndpoints(db) {
         const reg = (eanTrim && regrasMap[eanTrim]) || regrasMap[`ID_${r.produto_id}`] || null;
         const isAvulso = (eanTrim && avulsosSet.has(eanTrim)) || avulsosSet.has(`ID_${r.produto_id}`) || avulsosSet.has(String(r.descricao || '').toUpperCase().trim());
 
+        // Verifica se existe equivalente da mesma molécula/dosagem com estoque na loja
+        let equivComSaldo = null;
+        if (saldo <= 0 && r.categoria_id !== 5 && r.categoria_id !== 7 && comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
+          try {
+            const attr = comprasEquivalentesService.extrairAtributosProduto(r.descricao || '');
+            if (attr && attr.dosagem && attr.principio && attr.principio !== 'OUTROS' && attr.principio.length >= 4) {
+              const prefixo = attr.principio.split(' ')[0];
+              const cands = db.prepare(`
+                SELECT produto_id, descricao, saldo FROM compras_estoque_cache
+                WHERE produto_id <> ? AND saldo > 0 AND descricao LIKE ?
+              `).all(Number(r.produto_id), `%${prefixo}%`);
+              equivComSaldo = cands.find(c => {
+                const a2 = comprasEquivalentesService.extrairAtributosProduto(c.descricao || '');
+                return a2 && a2.chave === attr.chave;
+              }) || null;
+            }
+          } catch (eEq) {}
+        }
+
         const isCurvaAB = r.curva_abc === 'A' || r.curva_abc === 'B';
         const isEsquecido6m = saldo <= 0 && vendas30d === 0 && vendas6m >= 1;
         const isCurvaCRupturaAtiva = r.curva_abc === 'C' && saldo <= 0 && (vendas30d >= 1 || isEsquecido6m);
-        const precisaComprarPelaRegra = (isCurvaAB || isCurvaCRupturaAtiva || isEsquecido6m) &&
+        const precisaComprarPelaRegra = !equivComSaldo &&
+          (isCurvaAB || isCurvaCRupturaAtiva || isEsquecido6m) &&
           (saldo <= 0 || diasCobertura <= 7 || saldo < metaUnidades7d) &&
           !(reg && reg.nao_cotar);
 
         const jaNaCotacao = Boolean(precisaComprarPelaRegra || isAvulso);
+        const labelUnidades = saldo === 1 ? '1 unidade' : `${saldo} unidades`;
 
-        // Constrói a justificativa exata de por que não é o momento de comprar (se não estiver na cotação)
+        // Constrói a justificativa direta e amigável de por que está ou não está indicado para compra nesta semana
         let justificativaNaoComprar = '';
         if (jaNaCotacao) {
           justificativaNaoComprar = isAvulso
-            ? 'Incluído manualmente na cotação.'
+            ? `Incluído manualmente na cotação (consta com ${labelUnidades} em estoque).`
             : (saldo <= 0
-              ? `Em ruptura (Saldo 0) • Giro de ${vendas30d} un/30d (Curva ${r.curva_abc}) — já está indicado na cotação!`
-              : `Cobertura baixa (${diasCobertura}d restantes para Saldo ${saldo} un) — já está indicado na cotação!`);
+              ? `Em ruptura (0 unidades em estoque) com giro de ${vendas30d} un nos últimos 30 dias (Curva ${r.curva_abc}) — já está indicado na cotação!`
+              : `Cobertura baixa: consta com ${labelUnidades} em estoque (dura apenas ${diasCobertura} dias para meta semanal de ${metaUnidades7d} un) — já está indicado na cotação!`);
         } else if (reg && reg.nao_cotar) {
-          justificativaNaoComprar = `Bloqueado manualmente pela regra "Não Cotar"${reg.motivo_justificativa ? `: ${reg.motivo_justificativa}` : ''}.`;
-        } else if (saldo > 0 && diasCobertura > 7 && vmd > 0) {
-          justificativaNaoComprar = `Estoque Suficiente: Saldo atual de ${saldo} un cobre ${diasCobertura} dias de venda (VMD ${vmd.toFixed(2)}/dia • Meta semanal: 7 dias / ${metaUnidades7d} un).`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, mas está bloqueado manualmente pela regra "Não Cotar"${reg.motivo_justificativa ? `: ${reg.motivo_justificativa}` : ''}.`;
+        } else if (equivComSaldo) {
+          justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque, porém a loja já possui equivalente da mesma molécula/dosagem em estoque (${equivComSaldo.descricao} com ${equivComSaldo.saldo} un) — saldo suficiente para essa semana.`;
+        } else if (saldo > 0 && (diasCobertura > 7 || saldo >= metaUnidades7d) && (vmd > 0 || vendas30d > 0)) {
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (cobre ~${diasCobertura} dias • meta semanal: ${metaUnidades7d} un • vendeu ${vendas30d} un nos últimos 30 dias).`;
         } else if (saldo > 0 && vmd <= 0 && vendas30d === 0) {
-          justificativaNaoComprar = `Estoque Parado: Loja já possui ${saldo} un em estoque e o produto teve 0 vendas nos últimos 30 dias (Curva ${r.curva_abc}).`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (0 vendas nos últimos 30 dias • Curva ${r.curva_abc}).`;
         } else if (saldo <= 0 && vendas30d === 0 && vendas6m === 0) {
-          justificativaNaoComprar = `Sem Giro Histórico: Produto zerado, porém sem nenhuma venda registrada nos últimos 6 meses (Curva ${r.curva_abc}) — risco de capital parado.`;
+          justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque, porém não teve nenhuma venda registrada nos últimos 6 meses (Curva ${r.curva_abc}) — sem giro recente para compra automática.`;
         } else {
-          justificativaNaoComprar = `Abaixo dos critérios de prioridade semanal (Saldo: ${saldo} un • Vendas 30d: ${vendas30d} un • Curva ${r.curva_abc}).`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (Vendas 30d: ${vendas30d} un • Curva ${r.curva_abc}).`;
         }
 
         const precoRef = Number(r.preco_unitario_ult_compra || r.custo_unitario || 5.0);
@@ -5343,7 +5385,7 @@ function belapedEndpoints(db) {
         };
       });
 
-      res.json({ success: true, produtos: produtosAnalisados });
+      res.json({ success: true, produtos: produtosAnalisados, resultados: produtosAnalisados });
     } catch (err) {
       console.error('[BelaPed] Erro em buscar-estoque-real:', err.message);
       res.status(500).json({ success: false, error: err.message });
