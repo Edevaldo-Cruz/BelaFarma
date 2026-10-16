@@ -1899,8 +1899,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     const itemTabela = faltasRaw.find(
       f => (itemMover.produto_id && f.produto_id === itemMover.produto_id) || (itemMover.ean && f.ean === itemMover.ean)
     );
-    const segDist = (itemMover.segundoColocado || itemTabela?.fornecedor_2 || '').trim().toUpperCase();
-    const segPreco = Number(itemMover.precoSegundoColocado || itemTabela?.preco_2 || 0);
+    const segDist = (itemMover.segundoFornecedor || itemMover.segundoColocado || itemTabela?.fornecedor_2 || '').trim().toUpperCase();
+    const segPreco = Number(itemMover.segundoPreco || itemMover.precoSegundoColocado || itemTabela?.preco_2 || 0);
 
     if (!segDist || segDist === '—' || segPreco <= 0) {
       addToast(`Não há 2º colocado com preço cotado disponível para "${itemMover.descricao}".`, 'warning');
@@ -2005,8 +2005,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       quantidade: Number(it.quantidade) || 1,
       preco_1: Number(it.precoUnitario) || 0,
       fornecedor_1: dist,
-      fornecedor_2: it.segundoColocado || null,
-      preco_2: Number(it.precoSegundoColocado) || 0,
+      fornecedor_2: it.segundoFornecedor || it.segundoColocado || null,
+      preco_2: Number(it.segundoPreco || it.precoSegundoColocado) || 0,
       preco_ult_compra: Number(it.precoUnitario) || 0
     }));
 
@@ -2053,6 +2053,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           distribuidora: carrinho.distribuidora,
+          valorTotal: Number(carrinho.total) || 0,
+          itens: carrinho.itens || [],
+          parcelasCustomizadas: carrinho.parcelasCalculadas || null,
           carrinho,
           prazoEscolhido: prazoFinal,
           numeroPedido: `PED-${Date.now().toString().slice(-6)}`
@@ -2060,7 +2063,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        const qtdBol = data.lancamento?.boletosCriados?.length || 1;
+        const qtdBol = data.lancamento?.installments?.length || data.lancamento?.boletosCriados?.length || 1;
         addToast(
           `✅ Compra confirmada e lançada na guia "Pedidos" do Belinha! (${carrinho.distribuidora} • R$ ${Number(carrinho.total || 0).toFixed(2)} • ${qtdBol} boleto(s) agendado(s))`,
           'success'
@@ -7774,11 +7777,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     type="button"
                     onClick={() => handleExecutarSimulacao(false)}
-                    disabled={simulandoOtimizacao}
+                    disabled={simulando}
                     className="px-3 py-1.5 rounded-xl bg-indigo-950/90 hover:bg-indigo-900 text-indigo-200 border border-indigo-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                     title="Re-otimizar carrinhos dissolvendo empresas abaixo do pedido mínimo"
                   >
-                    <Sparkles className={`w-3.5 h-3.5 ${simulandoOtimizacao ? 'animate-spin' : 'text-amber-300'}`} />
+                    <Sparkles className={`w-3.5 h-3.5 ${simulando ? 'animate-spin' : 'text-amber-300'}`} />
                     <span>Re-otimizar Mínimos</span>
                   </button>
 
@@ -7945,8 +7948,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
                       {carrinhoAtivo.itens.map((it: any, iIdx: number) => {
-                        const temSegundo = Boolean(it.segundoFornecedor && Number(it.segundoPreco) > 0);
-                        const diffSegundo = temSegundo ? (Number(it.segundoPreco) - Number(it.precoUnitario)) : 0;
+                        const segForn = it.segundoFornecedor || it.segundoColocado || '';
+                        const segPreco = Number(it.segundoPreco || it.precoSegundoColocado || 0);
+                        const temSegundo = Boolean(segForn && segForn !== '—' && segPreco > 0);
+                        const diffSegundo = temSegundo ? (segPreco - Number(it.precoUnitario)) : 0;
                         return (
                           <tr key={it.ean || iIdx} className="hover:bg-slate-800/40 transition-colors">
                             <td className="py-2.5 pr-2">
@@ -7973,7 +7978,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               {temSegundo ? (
                                 <div className="flex flex-col">
                                   <span className="text-[11px] font-bold text-cyan-300">
-                                    {it.segundoFornecedor} • R$ {Number(it.segundoPreco).toFixed(2)}
+                                    {segForn} • R$ {segPreco.toFixed(2)}
                                   </span>
                                   <span className="text-[10px] text-slate-400">
                                     {diffSegundo >= 0 ? `+R$ ${diffSegundo.toFixed(2)}/un` : `-R$ ${Math.abs(diffSegundo).toFixed(2)}/un`}
@@ -7989,14 +7994,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                   type="button"
                                   onClick={() => handlePassarItemParaSegundoColocadoModal(carrinhoAtivo.distribuidora, it)}
                                   className="px-2.5 py-1 rounded-lg bg-indigo-950/90 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/80 text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
-                                  title={temSegundo ? `Passar este produto para ${it.segundoFornecedor} (R$ ${Number(it.segundoPreco).toFixed(2)})` : 'Escolher outra distribuidora cotada para este item'}
+                                  title={temSegundo ? `Passar este produto para ${segForn} (R$ ${segPreco.toFixed(2)})` : 'Escolher outra distribuidora cotada para este item'}
                                 >
                                   <ArrowRight className="w-3 h-3 text-cyan-300" />
                                   <span>Passar p/ 2º</span>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleExcluirItemDoCarrinhoModal(carrinhoAtivo.distribuidora, it.ean, it.descricao)}
+                                  onClick={() => handleExcluirItemDoCarrinhoModal(carrinhoAtivo.distribuidora, it)}
                                   className="px-2 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-800 text-rose-300 border border-rose-800/80 text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
                                   title="Excluir este item do carrinho"
                                 >
@@ -8032,12 +8037,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     type="button"
                     onClick={() => handleMontarCarrinhoDaAbaModal(carrinhoAtivo)}
-                    disabled={montandoCarrinho}
+                    disabled={montandoTodosCarrinhos}
                     className="px-3.5 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-700 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                     title="Enviar estes itens para o carrinho real do portal via robô"
                   >
-                    <ShoppingCart className={`w-3.5 h-3.5 ${montandoCarrinho ? 'animate-bounce' : 'text-cyan-400'}`} />
-                    <span>{montandoCarrinho ? 'Montando...' : `Montar Carrinho (${carrinhoAtivo.distribuidora})`}</span>
+                    <ShoppingCart className={`w-3.5 h-3.5 ${montandoTodosCarrinhos ? 'animate-bounce' : 'text-cyan-400'}`} />
+                    <span>{montandoTodosCarrinhos ? 'Montando...' : `Montar Carrinho (${carrinhoAtivo.distribuidora})`}</span>
                   </button>
 
                   <button
@@ -8053,13 +8058,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     type="button"
                     onClick={() => handleConfirmarELancarPedidoModal(carrinhoAtivo, prazoSelecionadoModal)}
-                    disabled={lancandoPedidoBelinha === carrinhoAtivo.distribuidora}
+                    disabled={lancandoPedidoBelinha}
                     className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                     title="Confirmar que a compra foi realizada e lançar imediatamente na guia Pedidos do Belinha com os vencimentos calculados"
                   >
                     <CheckCircle2 className="w-4 h-4 text-indigo-200" />
                     <span>
-                      {lancandoPedidoBelinha === carrinhoAtivo.distribuidora
+                      {lancandoPedidoBelinha
                         ? 'Lançando em Pedidos...'
                         : 'Confirmar Compra & Lançar em Pedidos'}
                     </span>

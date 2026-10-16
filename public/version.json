@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "545e5e4",
-  "commitMessage": "feat(belaped): modal unificada ver carrinhos em abas, otimizacao real de minimo, busca estoque real com justificativa, regra distrimed 60d e lancamento em pedidos",
-  "buildTime": "16/10/2026, 13:25:10"
+  "commitHash": "1e6d2da",
+  "commitMessage": "fix(belaped): retorno e justificativa amigavel na busca do estoque real",
+  "buildTime": "16/10/2026, 13:32:04"
 }
