@@ -59,7 +59,8 @@ import {
   Plus,
   Trash2,
   Check,
-  Copy
+  Copy,
+  Menu
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -241,6 +242,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       localStorage.setItem('belaped_tabela_expandida', String(novo));
     } catch {}
   };
+
+  // Gaveta de Navegação e Filtros em Telas Móveis (ex: Galaxy S21)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   // Modo de visualização dos produtos a cotar/comprar: CARDS por padrão (conforme solicitado pelo usuário)
   const [modoVisualizacao, setModoVisualizacao] = useState<'cards' | 'tabela'>(() => {
@@ -3057,7 +3061,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     return (
       <div
         key={item.produto_id}
-        className={`flex flex-col justify-between rounded-2xl border transition-all duration-200 p-4 shadow-lg relative ${
+        className={`flex flex-col justify-between rounded-2xl border transition-all duration-200 p-3 sm:p-4 shadow-lg relative ${
           isBloqueadoCarrinho
             ? 'bg-[#151016] border-amber-600/70 shadow-amber-950/20 ring-1 ring-amber-500/30'
             : isNaoCotar
@@ -3151,11 +3155,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
 
           {/* Nome do Produto e Apresentação */}
-          <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug hover:text-cyan-300 transition-colors" title={item.descricao}>
+          <h3 className="text-xs sm:text-sm font-bold text-white line-clamp-2 leading-snug hover:text-cyan-300 transition-colors" title={item.descricao}>
             {item.descricao}
           </h3>
 
-          <div className="flex items-center justify-between text-xs text-slate-400 mt-1 mb-3">
+          <div className="flex items-center justify-between text-xs text-slate-400 mt-1 mb-2.5">
             <span className="truncate max-w-[150px]">{item.apresentacao || 'Sem apresentação'}</span>
             {item.ean && (
               <button
@@ -3171,27 +3175,27 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
 
           {/* Grade de Estoque e Vendas (4 Blocos) */}
-          <div className="grid grid-cols-4 gap-1.5 bg-[#070e1c] p-2 rounded-xl border border-slate-800/80 mb-3 text-center">
+          <div className="grid grid-cols-4 gap-1 sm:gap-1.5 bg-[#070e1c] p-1.5 sm:p-2 rounded-xl border border-slate-800/80 mb-3 text-center">
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Saldo</span>
+              <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400 block">Saldo</span>
               <span className={`text-xs font-black ${isRuptura ? 'text-rose-400 animate-pulse' : 'text-amber-300'}`}>
                 {item.saldo} un
               </span>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Cobert.</span>
+              <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400 block">Cobert.</span>
               <span className={`text-xs font-bold ${item.dias_estoque_restante <= 0 ? 'text-rose-400' : 'text-slate-200'}`}>
                 {item.dias_estoque_restante <= 0 ? '0d' : `${item.dias_estoque_restante}d`}
               </span>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">VMD</span>
+              <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400 block">VMD</span>
               <span className="text-xs font-bold text-slate-200">
                 {item.vmd_ponderado}
               </span>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">30 Dias</span>
+              <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400 block">30 Dias</span>
               <span className="text-xs font-bold text-slate-200">
                 {item.vendas_30d} un
               </span>
@@ -3477,38 +3481,59 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     );
   };
 
+  // Lista unificada de Módulos para Navegação Desktop e Mobile
+  const modulosNav = useMemo(() => [
+    { id: 'faltas' as const, label: '1. Reposição 1 Semana', shortLabel: 'Reposição', icon: <Layers className="w-4 h-4 text-cyan-300" />, badge: faltas.length },
+    { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
+    { id: 'pedidos' as const, label: '3. Meus Pedidos & NF', shortLabel: 'Pedidos', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
+    { id: 'orcamento' as const, label: '4. Radar de Orçamento', shortLabel: 'Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
+    { id: 'relatorios' as const, label: '5. Relatórios & Preços', shortLabel: 'Relatórios', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 },
+    { id: 'simulador' as const, label: '6. Simulador de Giro', shortLabel: 'Giro', icon: <Calendar className="w-4 h-4 text-teal-400" />, badge: 0 }
+  ], [faltas.length, carrinhosOtimizados.length]);
+
   return (
     <div className="flex-1 flex flex-col h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       
       {/* ─── TOPO STANDALONE EXECUTIVO DO BELAPED ───────────────────────────── */}
-      <header className="h-16 px-4 md:px-8 bg-[#0b1222] border-b border-cyan-900/40 flex items-center justify-between shrink-0 shadow-lg relative z-20">
+      <header className="h-14 sm:h-16 px-2.5 sm:px-4 md:px-8 bg-[#0b1222] border-b border-cyan-900/40 flex items-center justify-between shrink-0 shadow-lg relative z-20">
         
-        {/* Esquerda: Botão Voltar ao BelaFarma e Marca BelaPed */}
-        <div className="flex items-center gap-4">
+        {/* Esquerda: Botão Menu Mobile, Botão Voltar ao BelaFarma e Marca BelaPed */}
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          {/* Botão Hambúrguer Mobile (Abre Drawer de Módulos e Filtros) */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-cyan-400 hover:text-white border border-slate-700/60 transition-all cursor-pointer shadow-sm"
+            title="Abrir Menu de Módulos e Filtros"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+
           {onNavigate && (
             <button
               onClick={() => onNavigate('dashboard')}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60 text-xs font-bold transition-all shadow-sm cursor-pointer group"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60 text-xs font-bold transition-all shadow-sm cursor-pointer group"
               title="Voltar para a operação do BelaFarma"
             >
-              <ArrowLeft className="w-4 h-4 text-cyan-400 group-hover:-translate-x-1 transition-transform" />
-              <span>Voltar ao BelaFarma</span>
+              <ArrowLeft className="w-4 h-4 text-cyan-400 group-hover:-translate-x-1 transition-transform shrink-0" />
+              <span className="hidden sm:inline">Voltar ao BelaFarma</span>
+              <span className="sm:hidden text-[11px]">Voltar</span>
             </button>
           )}
 
-          <div className="h-6 w-px bg-slate-800 hidden sm:block"></div>
+          <div className="h-6 w-px bg-slate-800 hidden md:block"></div>
 
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-gradient-to-tr from-cyan-600 to-blue-600 rounded-xl shadow-md text-white">
-              <ShoppingBag className="w-5 h-5" />
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 sm:p-2 bg-gradient-to-tr from-cyan-600 to-blue-600 rounded-xl shadow-md text-white shrink-0">
+              <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-black tracking-tight bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-300 bg-clip-text text-transparent uppercase">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-base sm:text-lg font-black tracking-tight bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-300 bg-clip-text text-transparent uppercase">
                   BelaPed
                 </span>
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/80 tracking-wider">
-                  B2B Procurement Suite
+                <span className="hidden sm:inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/80 tracking-wider">
+                  B2B Procurement
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-medium hidden md:block">
@@ -3518,8 +3543,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         </div>
 
-        {/* Direita: Status dos Portais, Usuário e Botão Atualizar */}
-        <div className="flex items-center gap-3">
+        {/* Direita: Status dos Portais, Usuário e Botões Rápidos */}
+        <div className="flex items-center gap-1.5 sm:gap-3">
           <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] font-bold text-slate-300">
             <Globe className="w-3.5 h-3.5 text-cyan-400" />
             <span>Portais Ativos: <b>{portais.filter(p => p.is_ativo).length}</b></span>
@@ -3539,7 +3564,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           {/* Botão de Exibir Apenas a Tabela no Header */}
           <button
             onClick={alternarModoApenasTabela}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-md cursor-pointer border ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-md cursor-pointer border ${
               modoApenasTabela
                 ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400'
                 : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-800/60'
@@ -3553,7 +3578,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           {/* Botão de Exportar TXT no Header */}
           <button
             onClick={() => setModalExportarTxtOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition-all shadow-md cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition-all shadow-md cursor-pointer"
             title="Exportar produtos em arquivo TXT separado por categorias e fornecedor"
           >
             <FileText className="w-3.5 h-3.5 text-cyan-400" />
@@ -3563,7 +3588,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           <button
             onClick={handleSincronizarManual}
             disabled={refreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black transition-all shadow-md cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black transition-all shadow-md cursor-pointer disabled:opacity-50"
             title="Forçar sincronização imediata de estoque, correções e compras com o ERP Digifarma"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
@@ -3574,126 +3599,305 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
       {/* ─── CORPO PRINCIPAL COM SCROLL INTERNO ──────────────────────────────── */}
       {/* ─── MENU LATERAL EXCLUSIVO DO BELAPED + CORPO ───────────────────────── */}
-      <div className="flex-1 flex overflow-hidden">
-      {!modoApenasTabela && (
-      <aside className="w-64 shrink-0 bg-[#0b1222] border-r border-slate-800/80 flex flex-col overflow-y-auto custom-scrollbar">
-        <nav className="p-3 space-y-1.5">
-          <span className="px-2 text-[10px] font-black uppercase tracking-widest text-cyan-400/80 block mb-1">
-            Módulos Exclusivos BelaPed
-          </span>
-          {([
-            { id: 'faltas', label: '1. Reposição 1 Semana', icon: <Layers className="w-4 h-4 text-cyan-300" />, badge: faltas.length },
-            { id: 'cotacao', label: '2. Portais & Carrinho', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
-            { id: 'pedidos', label: '3. Meus Pedidos & NF', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
-            { id: 'orcamento', label: '4. Radar de Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
-            { id: 'relatorios', label: '5. Relatórios & Preços', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 },
-            { id: 'simulador', label: '6. Simulador de Giro', icon: <Calendar className="w-4 h-4 text-teal-400" />, badge: 0 }
-          ] as const).map(item => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === item.id
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 border border-cyan-400/40'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
-              }`}
-            >
-              {item.icon}
-              <span className="flex-1 truncate">{item.label}</span>
-              {item.badge > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">{item.badge}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        {/* Filtro Rápido no Menu Lateral: Melhor Preço por Distribuidora */}
-        <div className="p-3 border-t border-slate-800/80 space-y-1.5">
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
-              Melhor Preço por Empresa
-            </span>
-            <Filter className="w-3 h-3 text-emerald-400" />
-          </div>
-          <button
-            onClick={() => {
-              setActiveTab('faltas');
-              setFiltroDistribuidora('TODAS');
-            }}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black cursor-pointer border transition-all ${
-              activeTab === 'faltas' && filtroDistribuidora === 'TODAS'
-                ? 'bg-cyan-950/70 border-cyan-500 text-cyan-200 shadow-sm'
-                : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-slate-600'
-            }`}
-          >
-            <span>Todas Distribuidoras</span>
-            <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-[10px] text-cyan-200">{faltasBaseFiltradas.length} it.</span>
-          </button>
-
-          {totaisPorDistribuidora
-            .filter(grp => grp.isEmpresaReal && grp.qtdProdutos > 0)
-            .map(grp => {
-              const nomeDist = grp.distribuidora;
-              const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
-              return (
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* SIDEBAR DESKTOP */}
+        {!modoApenasTabela && (
+          <aside className="hidden md:flex w-64 shrink-0 bg-[#0b1222] border-r border-slate-800/80 flex-col overflow-y-auto custom-scrollbar">
+            <nav className="p-3 space-y-1.5">
+              <span className="px-2 text-[10px] font-black uppercase tracking-widest text-cyan-400/80 block mb-1">
+                Módulos Exclusivos BelaPed
+              </span>
+              {modulosNav.map(item => (
                 <button
-                  key={nomeDist}
-                  onClick={() => {
-                    setActiveTab('faltas');
-                    setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
-                  }}
-                  title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
-                  className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
-                    ativo
-                      ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
-                      : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
+                    activeTab === item.id
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 border border-cyan-400/40'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center justify-between w-full gap-1">
-                    <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
-                    <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
-                      {grp.qtdProdutos} it.
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">
-                    Total: <b className="text-white">R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                  </span>
+                  {item.icon}
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.badge > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">{item.badge}</span>
+                  )}
                 </button>
-              );
-            })}
+              ))}
+            </nav>
+
+            {/* Filtro Rápido no Menu Lateral: Melhor Preço por Distribuidora */}
+            <div className="p-3 border-t border-slate-800/80 space-y-1.5">
+              <div className="flex items-center justify-between px-2 mb-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                  Melhor Preço por Empresa
+                </span>
+                <Filter className="w-3 h-3 text-emerald-400" />
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('faltas');
+                  setFiltroDistribuidora('TODAS');
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black cursor-pointer border transition-all ${
+                  activeTab === 'faltas' && filtroDistribuidora === 'TODAS'
+                    ? 'bg-cyan-950/70 border-cyan-500 text-cyan-200 shadow-sm'
+                    : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-slate-600'
+                }`}
+              >
+                <span>Todas Distribuidoras</span>
+                <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-[10px] text-cyan-200">{faltasBaseFiltradas.length} it.</span>
+              </button>
+
+              {totaisPorDistribuidora
+                .filter(grp => grp.isEmpresaReal && grp.qtdProdutos > 0)
+                .map(grp => {
+                  const nomeDist = grp.distribuidora;
+                  const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
+                  return (
+                    <button
+                      key={nomeDist}
+                      onClick={() => {
+                        setActiveTab('faltas');
+                        setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
+                      }}
+                      title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
+                      className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
+                        ativo
+                          ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
+                          : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full gap-1">
+                        <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
+                        <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
+                          {grp.qtdProdutos} it.
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-400">
+                        Total: <b className="text-white">R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+
+            {/* Ações Rápidas Exclusivas do Ped no Menu Lateral */}
+            <div className="p-3 border-t border-slate-800/80 space-y-2 mt-auto">
+              <span className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 block">
+                Ações Rápidas do Ped
+              </span>
+              <button
+                onClick={() => {
+                  setActiveTab('faltas');
+                  setAgruparPorDistribuidora(prev => !prev);
+                }}
+                className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border transition-all ${
+                  agruparPorDistribuidora
+                    ? 'bg-cyan-600 text-white border-cyan-400'
+                    : 'bg-[#09101f] text-cyan-300 border-cyan-800/70 hover:border-cyan-500'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>{agruparPorDistribuidora ? '✓ Agrupado por Empresa' : 'Agrupar por Empresa'}</span>
+              </button>
+              <button
+                onClick={() => setAvulsoModalOpen(true)}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Adicionar Item Avulso</span>
+              </button>
+            </div>
+          </aside>
+        )}
+
+        {/* DRAWER LATERAL MOBILE (GAVETA DESLIZANTE PARA TELAS PEQUENAS / S21) */}
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 flex md:hidden animate-in fade-in duration-200">
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm cursor-pointer"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            {/* Drawer */}
+            <aside className="relative w-72 max-w-[85vw] h-full bg-[#0b1222] border-r border-slate-800 flex flex-col shadow-2xl z-10 overflow-y-auto custom-scrollbar">
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-gradient-to-tr from-cyan-600 to-blue-600 rounded-lg text-white">
+                    <ShoppingBag className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-black text-sm uppercase text-white tracking-wide block">Menu BelaPed</span>
+                    <span className="text-[10px] text-cyan-400 font-bold block">Navegação & Filtros</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-white bg-slate-900 border border-slate-700 cursor-pointer"
+                  title="Fechar menu"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Módulos do BelaPed */}
+              <nav className="p-3 space-y-1.5">
+                <span className="px-2 text-[10px] font-black uppercase tracking-widest text-cyan-400/80 block mb-1">
+                  Módulos Exclusivos BelaPed
+                </span>
+                {modulosNav.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
+                      activeTab === item.id
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 border border-cyan-400/40'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.badge > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">{item.badge}</span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+
+              {/* Filtro Rápido no Menu Lateral: Melhor Preço por Distribuidora */}
+              <div className="p-3 border-t border-slate-800/80 space-y-1.5">
+                <div className="flex items-center justify-between px-2 mb-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                    Melhor Preço por Empresa
+                  </span>
+                  <Filter className="w-3 h-3 text-emerald-400" />
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTab('faltas');
+                    setFiltroDistribuidora('TODAS');
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black cursor-pointer border transition-all ${
+                    activeTab === 'faltas' && filtroDistribuidora === 'TODAS'
+                      ? 'bg-cyan-950/70 border-cyan-500 text-cyan-200 shadow-sm'
+                      : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-slate-600'
+                  }`}
+                >
+                  <span>Todas Distribuidoras</span>
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-[10px] text-cyan-200">{faltasBaseFiltradas.length} it.</span>
+                </button>
+
+                {totaisPorDistribuidora
+                  .filter(grp => grp.isEmpresaReal && grp.qtdProdutos > 0)
+                  .map(grp => {
+                    const nomeDist = grp.distribuidora;
+                    const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
+                    return (
+                      <button
+                        key={nomeDist}
+                        onClick={() => {
+                          setActiveTab('faltas');
+                          setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
+                          setMobileMenuOpen(false);
+                        }}
+                        title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
+                        className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
+                          ativo
+                            ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
+                            : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full gap-1">
+                          <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
+                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
+                            {grp.qtdProdutos} it.
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-400">
+                          Total: <b className="text-white">R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {/* Ações Rápidas no Menu Lateral */}
+              <div className="p-3 border-t border-slate-800/80 space-y-2 mt-auto">
+                <span className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 block">
+                  Ações Rápidas
+                </span>
+                <button
+                  onClick={() => {
+                    setActiveTab('faltas');
+                    setAgruparPorDistribuidora(prev => !prev);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border transition-all ${
+                    agruparPorDistribuidora
+                      ? 'bg-cyan-600 text-white border-cyan-400'
+                      : 'bg-[#09101f] text-cyan-300 border-cyan-800/70 hover:border-cyan-500'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>{agruparPorDistribuidora ? '✓ Agrupado por Empresa' : 'Agrupar por Empresa'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setAvulsoModalOpen(true);
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Adicionar Item Avulso</span>
+                </button>
+              </div>
+            </aside>
+          </div>
+        )}
+
+        {/* BARRA FIXA INFERIOR DE NAVEGAÇÃO MOBILE (S21 / TOUCH FRIENDLY) */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0b1222]/95 backdrop-blur-md border-t border-cyan-900/50 px-1 py-1 flex items-center justify-around shadow-2xl belaped-no-print">
+          {modulosNav.slice(0, 5).map(item => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex-1 flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl transition-all relative ${
+                  isActive ? 'text-cyan-400 font-black' : 'text-slate-400 font-medium hover:text-slate-200'
+                }`}
+              >
+                <div className="relative">
+                  {item.icon}
+                  {item.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-2 px-1 py-0.2 rounded-full text-[9px] font-black bg-cyan-500 text-slate-950">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] mt-0.5 truncate max-w-[62px]">{item.shortLabel}</span>
+              </button>
+            );
+          })}
+          
+          {/* Botão Mais (Abre Drawer de Menu) */}
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl text-slate-400 hover:text-cyan-300 transition-all cursor-pointer"
+          >
+            <Menu className="w-4 h-4 text-cyan-400" />
+            <span className="text-[10px] mt-0.5 font-bold">Mais</span>
+          </button>
         </div>
 
-        {/* Ações Rápidas Exclusivas do Ped no Menu Lateral */}
-        <div className="p-3 border-t border-slate-800/80 space-y-2 mt-auto">
-          <span className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 block">
-            Ações Rápidas do Ped
-          </span>
-          <button
-            onClick={() => {
-              setActiveTab('faltas');
-              setAgruparPorDistribuidora(prev => !prev);
-            }}
-            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border transition-all ${
-              agruparPorDistribuidora
-                ? 'bg-cyan-600 text-white border-cyan-400'
-                : 'bg-[#09101f] text-cyan-300 border-cyan-800/70 hover:border-cyan-500'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>{agruparPorDistribuidora ? '✓ Agrupado por Empresa' : 'Agrupar por Empresa'}</span>
-          </button>
-          <button
-            onClick={() => setAvulsoModalOpen(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 transition-all"
-          >
-            <Plus className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Adicionar Item Avulso</span>
-          </button>
-        </div>
-      </aside>
-      )}
-
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 space-y-5 bg-gradient-to-b from-[#070b14] via-[#09101f] to-[#070b14]">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 sm:p-4 md:p-6 pb-20 md:pb-6 space-y-4 md:space-y-5 bg-gradient-to-b from-[#070b14] via-[#09101f] to-[#070b14]">
         
         {/* ─── BARRA DA REGRA MASTER: ORÇAMENTO & VENCIMENTO DE BOLETOS ─────────── */}
         {orcamentoInfo && !modoApenasTabela && (
@@ -4587,17 +4791,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             </div>
 
             {/* Controles Limpos: Busca no Estoque Real + Filtros + Ações Unificadas */}
-            <div className="bg-[#0e1626] p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-3">
+            <div className="bg-[#0e1626] p-3 sm:p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-3">
               {/* Linha 1: Barra de Busca Unificada (Cotação + Estoque Real) e Filtros Compactos */}
               <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-2 flex-1">
+                <div className="flex flex-wrap items-center gap-2 flex-1 w-full">
                   {/* Campo de Busca Rápida + Botão Modal Estoque Real */}
-                  <div className="relative min-w-[280px] flex-1 max-w-md flex items-center gap-1.5">
+                  <div className="relative w-full sm:min-w-[280px] sm:flex-1 sm:max-w-md flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5">
                     <div className="relative flex-1">
                       <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400" />
                       <input
                         type="text"
-                        placeholder="Buscar na cotação ou pesquisar no Estoque Real (Enter p/ Modal)..."
+                        placeholder="Buscar produto ou EAN (Enter p/ Modal)..."
                         value={buscaFalta}
                         onChange={(e) => setBuscaFalta(e.target.value)}
                         onKeyDown={(e) => {
@@ -4621,7 +4825,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     <button
                       type="button"
                       onClick={() => setModalEstoqueRealAberto(true)}
-                      className="px-3 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/80 text-xs font-black whitespace-nowrap cursor-pointer flex items-center gap-1.5 shadow-sm transition-all"
+                      className="px-3 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/80 text-xs font-black whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 shadow-sm transition-all"
                       title="Abrir Modal ampla de Pesquisa no Estoque Real da Farmácia com justificativa detalhada e letras grandes"
                     >
                       <Search className="w-3.5 h-3.5 text-cyan-400" />
@@ -4629,134 +4833,137 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     </button>
                   </div>
 
-                  {/* Botão Ordenar por Rankeamento (#1 Alto Giro + Risco de Ruptura) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOrdenarColuna('ranking_posicao');
-                      setOrdenarDirecao('asc');
-                      setPaginaAtual(1);
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                      ordenarColuna === 'ranking_posicao' || !ordenarColuna
-                        ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400 shadow-sm'
-                        : 'bg-[#080d18] text-amber-300 border-slate-700 hover:border-amber-500'
-                    }`}
-                    title="Ordenar pelo Sistema de Rankeamento (#1, #2, #3...): primeiras posições para produtos de Alto Giro e Risco de Ruptura"
-                  >
-                    <span>🔥 Ranking Giro/Ruptura</span>
-                  </button>
+                  {/* Wrapper deslizante para Filtros Rápidos no Mobile */}
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full xl:w-auto py-1">
+                    {/* Botão Ordenar por Rankeamento (#1 Alto Giro + Risco de Ruptura) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrdenarColuna('ranking_posicao');
+                        setOrdenarDirecao('asc');
+                        setPaginaAtual(1);
+                      }}
+                      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                        ordenarColuna === 'ranking_posicao' || !ordenarColuna
+                          ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400 shadow-sm'
+                          : 'bg-[#080d18] text-amber-300 border-slate-700 hover:border-amber-500'
+                      }`}
+                      title="Ordenar pelo Sistema de Rankeamento (#1, #2, #3...): primeiras posições para produtos de Alto Giro e Risco de Ruptura"
+                    >
+                      <span>🔥 Ranking Giro/Ruptura</span>
+                    </button>
 
-                  {/* Filtro Curva ABC + Esquecidos 6 Meses */}
-                  <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
-                    <button
-                      onClick={() => setFiltroCurva('TODAS')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Todas ({faltas.length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroCurva('A')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroCurva('B')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroCurva('C')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                      title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
-                    >
-                      Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
-                      title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
-                    >
-                      ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroCurva('DESEJADOS')}
-                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'DESEJADOS' ? 'bg-amber-500 text-slate-950 shadow-xs font-black' : 'text-amber-300 hover:text-white'}`}
-                      title="Exibir somente os Produtos Desejados gravados para cotação prioritária e compra"
-                    >
-                      ⭐ Desejados ({faltas.filter(f => f.is_desejado).length || itensAvulsos.length})
-                    </button>
-                  </div>
+                    {/* Filtro Curva ABC + Esquecidos 6 Meses */}
+                    <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                      <button
+                        onClick={() => setFiltroCurva('TODAS')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Todas ({faltas.length})
+                      </button>
+                      <button
+                        onClick={() => setFiltroCurva('A')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
+                      </button>
+                      <button
+                        onClick={() => setFiltroCurva('B')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
+                      </button>
+                      <button
+                        onClick={() => setFiltroCurva('C')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                        title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
+                      >
+                        Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
+                      </button>
+                      <button
+                        onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
+                        title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
+                      >
+                        ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
+                      </button>
+                      <button
+                        onClick={() => setFiltroCurva('DESEJADOS')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'DESEJADOS' ? 'bg-amber-500 text-slate-950 shadow-xs font-black' : 'text-amber-300 hover:text-white'}`}
+                        title="Exibir somente os Produtos Desejados gravados para cotação prioritária e compra"
+                      >
+                        ⭐ Desejados ({faltas.filter(f => f.is_desejado).length || itensAvulsos.length})
+                      </button>
+                    </div>
 
-                  {/* Filtro Tipo Categoria */}
-                  <div className="flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
-                    <button
-                      onClick={() => setFiltroCategoria('TODAS')}
-                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Todos
-                    </button>
-                    <button
-                      onClick={() => setFiltroCategoria('MEDICAMENTO')}
-                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'MEDICAMENTO' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Med
-                    </button>
-                    <button
-                      onClick={() => setFiltroCategoria('PERFUMARIA')}
-                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'PERFUMARIA' ? 'bg-purple-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Perf
-                    </button>
-                  </div>
+                    {/* Filtro Tipo Categoria */}
+                    <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                      <button
+                        onClick={() => setFiltroCategoria('TODAS')}
+                        className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        onClick={() => setFiltroCategoria('MEDICAMENTO')}
+                        className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'MEDICAMENTO' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Med
+                      </button>
+                      <button
+                        onClick={() => setFiltroCategoria('PERFUMARIA')}
+                        className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'PERFUMARIA' ? 'bg-purple-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Perf
+                      </button>
+                    </div>
 
-                  {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
-                  <div className="flex flex-wrap items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold">
-                    <button
-                      onClick={() => setFiltroPrioridade('TODAS')}
-                      className={`px-2 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Prio
-                    </button>
-                    <button
-                      onClick={() => setFiltroPrioridade('P1')}
-                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
-                      title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
-                    >
-                      <span>🚨 P1</span>
-                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
-                    </button>
-                    <button
-                      onClick={() => setFiltroPrioridade('P2')}
-                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
-                      title="⚠️ P2: Risco Iminente (< 3 dias de giro + Curva A/B)"
-                    >
-                      <span>⚠️ P2</span>
-                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
-                    </button>
-                    <button
-                      onClick={() => setFiltroPrioridade('P3')}
-                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
-                      title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
-                    >
-                      <span>💼 P3</span>
-                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
-                    </button>
-                    <button
-                      onClick={() => setFiltroPrioridade('P4')}
-                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
-                      title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
-                    >
-                      <span>📦 P4</span>
-                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
-                    </button>
+                    {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
+                    <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                      <button
+                        onClick={() => setFiltroPrioridade('TODAS')}
+                        className={`px-2 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Prio
+                      </button>
+                      <button
+                        onClick={() => setFiltroPrioridade('P1')}
+                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
+                        title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
+                      >
+                        <span>🚨 P1</span>
+                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
+                      </button>
+                      <button
+                        onClick={() => setFiltroPrioridade('P2')}
+                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
+                        title="⚠️ P2: Risco Iminente (< 3 dias de giro + Curva A/B)"
+                      >
+                        <span>⚠️ P2</span>
+                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
+                      </button>
+                      <button
+                        onClick={() => setFiltroPrioridade('P3')}
+                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
+                        title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
+                      >
+                        <span>💼 P3</span>
+                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
+                      </button>
+                      <button
+                        onClick={() => setFiltroPrioridade('P4')}
+                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
+                        title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
+                      >
+                        <span>📦 P4</span>
+                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* Ações Principais Enxutas (Sem botões individuais espalhados) */}
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Ações Principais Enxutas Touch-Friendly */}
+                <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 w-full xl:w-auto">
                   {/* BOTÃO: RE-COTAR DIVERGENTES (>40% OU >60% VS ÚLTIMA COMPRA) */}
                   {itensDivergentes.length > 0 && (
                     <button
@@ -4765,7 +4972,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         handleIniciarCotacaoAoVivo('TODOS', eansDivergentes.length, undefined, eansDivergentes);
                       }}
                       disabled={cotandoAoVivo}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-md transition-all cursor-pointer animate-pulse"
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-md transition-all cursor-pointer animate-pulse"
                       title={`${itensDivergentes.length} itens têm cotação do 1º colocado muito distante da última compra. Clique para rodar o robô novamente neles.`}
                     >
                       <RotateCcw className="w-3.5 h-3.5 text-rose-300" />
@@ -4777,7 +4984,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                     disabled={cotandoAoVivo}
-                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                    className="flex items-center justify-center gap-2 px-3.5 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                     title="Disparar os robôs agora para consultar preços ao vivo nos 7 portais (Profarma, DPC, Soton Farma, Distrimed, Divimed, Martins Atacado e Oriente Farma)"
                   >
                     {cotandoAoVivo ? (
@@ -4797,7 +5004,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={() => handleExecutarSimulacao(true)}
                     disabled={simulando || totaisSelecionados.qtdItens === 0}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                     title="Pega os carrinhos das empresas que não atingiram o pedido mínimo, divide os produtos com as outras empresas cotadas e abre os carrinhos otimizados"
                   >
                     <Sparkles className={`w-4 h-4 text-cyan-200 ${simulando ? 'animate-spin' : ''}`} />
@@ -4808,7 +5015,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={() => handleAbrirModalVerCarrinhos()}
                     disabled={simulando}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-lg shadow-indigo-950/50 border border-indigo-400/50 transition-all cursor-pointer active:scale-95"
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-lg shadow-indigo-950/50 border border-indigo-400/50 transition-all cursor-pointer active:scale-95"
                     title="Abrir a modal unificada com guias (abas) de cada empresa cotada para ver/montar carrinhos, excluir itens, passar para o 2º colocado e confirmar compra"
                   >
                     <ShoppingCart className="w-4 h-4 text-indigo-200" />
@@ -4818,7 +5025,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   {/* BOTÃO: ESPAÇO DE PRODUTOS DESEJADOS */}
                   <button
                     onClick={() => setModalDesejadosAberto(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-950/50 border border-amber-400/50 transition-all cursor-pointer active:scale-95"
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-950/50 border border-amber-400/50 transition-all cursor-pointer active:scale-95"
                     title="Espaço de Produtos Desejados: lista de produtos gravados para cotação prioritária nos 7 portais e compra"
                   >
                     <Tag className="w-4 h-4 text-amber-200" />

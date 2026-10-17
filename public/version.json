@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "860a0fa",
-  "commitMessage": "feat(belaped): modal ampla de pesquisa no estoque real com fonte grande e justificativa",
-  "buildTime": "16/10/2026, 15:28:13"
+  "commitHash": "9fca317",
+  "commitMessage": "feat(belaped): pesquisa completa por palavra-chave no estoque real e espaco de produtos desejados",
+  "buildTime": "17/10/2026, 08:50:01"
 }
