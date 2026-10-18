@@ -446,6 +446,15 @@ function belapedEndpoints(db) {
         }
       } catch (e) {}
 
+      // Mapeamento de Fotos dos Produtos (scraped_images + uploads físicos)
+      const fotoEanMap = new Map();
+      try {
+        const rowsFotos = db.prepare(`SELECT ean, image_url FROM scraped_images WHERE image_url IS NOT NULL AND image_url != ''`).all();
+        for (const f of rowsFotos) {
+          if (f.ean) fotoEanMap.set(String(f.ean).trim(), f.image_url);
+        }
+      } catch (e) {}
+
       // 2. Motor de Equivalentes (Princípio Ativo + Dosagem + Quantidade na caixa)
       // Mapeia vínculos manuais + equivalência farmacêutica automática em todo o estoque positivo da loja
       const vinculosManuaisMap = new Map();
@@ -861,11 +870,22 @@ function belapedEndpoints(db) {
         const isMedicamento = catUpper.includes('MED') || catUpper.includes('ETICO') || catUpper.includes('GEN') || catUpper.includes('SIM') ||
           /\b(\d+\s*(MG|ML|MCG|G)|CPR|COMP|CAPS|GOTAS|POMADA|CREME|XPE|SUSP)\b/i.test(descUpper);
 
+        let fotoUrl = (r.ean && fotoEanMap.get(String(r.ean).trim())) || r.imagem_url || null;
+        if (!fotoUrl && r.produto_id) {
+          try {
+            const localPath = path.join(__dirname, '../public/uploads/produtos', `${r.produto_id}.jpg`);
+            if (fs.existsSync(localPath)) {
+              fotoUrl = `/uploads/produtos/${r.produto_id}.jpg`;
+            }
+          } catch (e) {}
+        }
+
         return {
           produto_id: r.produto_id,
           descricao: r.descricao,
           apresentacao: r.apresentacao || '',
           ean: r.ean || '',
+          imagem_url: fotoUrl,
           curva_abc: r.curva_abc || 'C',
           prioridade: prioridade,
           prioridade_rotulo: prioridadeRotulo,

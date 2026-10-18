@@ -23,6 +23,7 @@ export interface FaltaItem7d {
   descricao: string;
   apresentacao: string;
   ean: string;
+  imagem_url?: string | null;
   curva_abc: string;
   saldo: number;
   vmd_ponderado: number;
@@ -75,47 +76,100 @@ interface Props {
   onNavegarTab: (tab: any) => void;
 }
 
-// Logo/Badge Minimalista e Limpo das Distribuidoras
+// Logo/Badge Visual das Distribuidoras (PROFARMA, DISTRIMED, DPC, SOTON, DIVIMED, MARTINS, ORIENTE)
 export const DistribuidoraLogoClean: React.FC<{ nome?: string; isWinner?: boolean }> = ({ nome, isWinner = false }) => {
   if (!nome || nome === '—' || /não cotado|aguardando/i.test(nome)) {
-    return <span className="text-xs text-slate-500 font-medium">Sem cotação</span>;
+    return <span className="text-xs text-slate-500 font-medium">— Sem cotação</span>;
   }
 
   const u = nome.toUpperCase();
-  let corBorda = 'border-slate-700 text-slate-300';
-  let dot = 'bg-slate-400';
+  let brandName = nome;
+  let bgIcon = 'bg-slate-700 text-white';
+  let badgeBorder = 'border-slate-700 bg-slate-900/60 text-slate-200';
+  let iconSvg = (
+    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+    </svg>
+  );
 
   if (u.includes('PROFARMA')) {
-    corBorda = 'border-blue-500/50 text-blue-300 bg-blue-950/20';
-    dot = 'bg-blue-400';
-  } else if (u.includes('DPC')) {
-    corBorda = 'border-sky-500/50 text-sky-300 bg-sky-950/20';
-    dot = 'bg-sky-400';
+    brandName = 'PROFARMA';
+    bgIcon = 'bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-emerald-950/60';
+    badgeBorder = 'border-emerald-500/50 bg-emerald-950/40 text-emerald-200';
+    iconSvg = (
+      <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+        <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3z" />
+      </svg>
+    );
   } else if (u.includes('DISTRIMED')) {
-    corBorda = 'border-teal-500/50 text-teal-300 bg-teal-950/20';
-    dot = 'bg-teal-400';
-  } else if (u.includes('DIVIMED')) {
-    corBorda = 'border-purple-500/50 text-purple-300 bg-purple-950/20';
-    dot = 'bg-purple-400';
+    brandName = 'DISTRIMED';
+    bgIcon = 'bg-gradient-to-br from-purple-500 to-indigo-700 text-white shadow-purple-950/60';
+    badgeBorder = 'border-purple-500/50 bg-purple-950/40 text-purple-200';
+    iconSvg = (
+      <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+        <path d="M4 3h8a9 9 0 0 1 9 9 9 9 0 0 1-9 9H4V3zm4 4v10h4a5 5 0 0 0 5-5 5 5 0 0 0-5-5H8z" />
+      </svg>
+    );
+  } else if (u.includes('DPC')) {
+    brandName = 'DPC DISTRIBUIDORA';
+    bgIcon = 'bg-gradient-to-br from-blue-500 to-cyan-700 text-white shadow-blue-950/60';
+    badgeBorder = 'border-blue-500/50 bg-blue-950/40 text-blue-200';
+    iconSvg = (
+      <svg className="w-3.5 h-3.5 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3.6 9h16.8M3.6 15h16.8" />
+      </svg>
+    );
   } else if (u.includes('SOTON')) {
-    corBorda = 'border-cyan-500/50 text-cyan-300 bg-cyan-950/20';
-    dot = 'bg-cyan-400';
+    brandName = 'SOTON FARMA';
+    bgIcon = 'bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black shadow-amber-950/60';
+    badgeBorder = 'border-amber-500/50 bg-amber-950/40 text-amber-200';
+    iconSvg = (
+      <span className="text-[11px] font-black leading-none tracking-tighter">S</span>
+    );
+  } else if (u.includes('DIVIMED')) {
+    brandName = 'DIVIMED';
+    bgIcon = 'bg-gradient-to-br from-cyan-500 to-teal-700 text-white shadow-cyan-950/60';
+    badgeBorder = 'border-cyan-500/50 bg-cyan-950/40 text-cyan-200';
+    iconSvg = (
+      <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+        <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm1 12h-2v-3H8V9h3V6h2v3h3v2h-3v3z" />
+      </svg>
+    );
   } else if (u.includes('MARTINS')) {
-    corBorda = 'border-rose-500/50 text-rose-300 bg-rose-950/20';
-    dot = 'bg-rose-400';
+    brandName = 'MARTINS ATACADO';
+    bgIcon = 'bg-gradient-to-br from-orange-500 to-rose-600 text-white font-black shadow-orange-950/60';
+    badgeBorder = 'border-orange-500/50 bg-orange-950/40 text-orange-200';
+    iconSvg = (
+      <span className="text-[10px] font-black leading-none tracking-tighter">M</span>
+    );
   } else if (u.includes('ORIENTE')) {
-    corBorda = 'border-emerald-500/50 text-emerald-300 bg-emerald-950/20';
-    dot = 'bg-emerald-400';
+    brandName = 'ORIENTE FARMA';
+    bgIcon = 'bg-gradient-to-br from-indigo-500 to-violet-700 text-white shadow-indigo-950/60';
+    badgeBorder = 'border-indigo-500/50 bg-indigo-950/40 text-indigo-200';
+    iconSvg = (
+      <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2" />
+      </svg>
+    );
   }
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold tracking-tight ${corBorda}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      <span className="uppercase">{nome}</span>
+    <div className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border ${badgeBorder} shadow-sm transition-all`}>
+      <div className={`w-5 h-5 rounded-lg ${bgIcon} flex items-center justify-center shrink-0 shadow-sm`}>
+        {iconSvg}
+      </div>
+      <span className="font-extrabold uppercase tracking-tight text-xs">
+        {brandName}
+      </span>
       {isWinner && (
-        <span className="ml-1 text-[10px] text-emerald-400 font-semibold">• 1º menor</span>
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+          <span>👑</span>
+          <span className="hidden sm:inline">1º Menor</span>
+        </span>
       )}
-    </span>
+    </div>
   );
 };
 
@@ -430,18 +484,32 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Bloco Produto: Ícone Minimalista + Informações */}
-        <div className="flex items-start gap-3 sm:gap-4">
-          <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center shrink-0 shadow-inner ${
-            item.tipo_categoria === 'MEDICAMENTO'
-              ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-400'
-              : 'bg-purple-950/20 border-purple-800/40 text-purple-400'
-          }`}>
-            {item.tipo_categoria === 'MEDICAMENTO' ? (
-              <Pill className="w-6 h-6 sm:w-7 sm:h-7 stroke-[1.75]" />
-            ) : (
-              <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 stroke-[1.75]" />
-            )}
+        {/* Bloco Produto: Foto Real do Produto + Informações */}
+        <div className="flex items-start gap-3.5 sm:gap-4">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-[#080d18] border border-slate-800 flex items-center justify-center p-2 shrink-0 overflow-hidden relative shadow-inner">
+            {item.imagem_url ? (
+              <img
+                src={item.imagem_url}
+                alt={item.descricao}
+                className="w-full h-full object-contain"
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                  const fb = e.currentTarget.nextElementSibling;
+                  if (fb) (fb as HTMLElement).style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div className={`${item.imagem_url ? 'hidden' : 'flex'} flex-col items-center justify-center w-full h-full text-slate-500`}>
+              {item.tipo_categoria === 'MEDICAMENTO' ? (
+                <Pill className="w-8 h-8 text-cyan-400 stroke-[1.75]" />
+              ) : (
+                <Sparkles className="w-8 h-8 text-purple-400 stroke-[1.75]" />
+              )}
+              <span className="text-[9px] uppercase font-bold tracking-wider mt-1 text-slate-500">
+                {item.tipo_categoria === 'MEDICAMENTO' ? 'Med' : 'Perf'}
+              </span>
+            </div>
           </div>
 
           <div className="flex-1 min-w-0 space-y-1">

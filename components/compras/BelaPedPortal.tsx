@@ -83,6 +83,7 @@ interface FaltaItem7d {
   descricao: string;
   apresentacao: string;
   ean: string;
+  imagem_url?: string | null;
   curva_abc: string;
   saldo: number;
   vmd_ponderado: number;

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "542e0ef",
-  "commitMessage": "refactor(belaped): layout limpo e minimalista para Decisao de Compras",
-  "buildTime": "18/10/2026, 11:38:53"
+  "commitHash": "fe0d388",
+  "commitMessage": "fix(belaped): remover requisicao especulativa de fotos 404 e aprimorar layout minimalista com swipe e progresso",
+  "buildTime": "18/10/2026, 11:52:28"
 }
