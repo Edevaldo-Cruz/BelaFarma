@@ -484,14 +484,14 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Bloco Produto: Foto Real do Produto + Informações */}
+        {/* Bloco Produto: Foto Real do Produto (25% do Card) + Informações */}
         <div className="flex items-start gap-3.5 sm:gap-4">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-[#080d18] border border-slate-800 flex items-center justify-center p-2 shrink-0 overflow-hidden relative shadow-inner">
+          <div className="w-[25%] aspect-square min-w-[95px] max-w-[160px] rounded-2xl bg-[#080d18] border border-slate-800/90 flex items-center justify-center p-2 shrink-0 overflow-hidden relative shadow-inner">
             {item.imagem_url ? (
               <img
                 src={item.imagem_url}
                 alt={item.descricao}
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain p-0.5 drop-shadow-md"
                 loading="lazy"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
@@ -502,12 +502,12 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             ) : null}
             <div className={`${item.imagem_url ? 'hidden' : 'flex'} flex-col items-center justify-center w-full h-full text-slate-500`}>
               {item.tipo_categoria === 'MEDICAMENTO' ? (
-                <Pill className="w-8 h-8 text-cyan-400 stroke-[1.75]" />
+                <Pill className="w-10 h-10 text-cyan-400 stroke-[1.75]" />
               ) : (
-                <Sparkles className="w-8 h-8 text-purple-400 stroke-[1.75]" />
+                <Sparkles className="w-10 h-10 text-purple-400 stroke-[1.75]" />
               )}
-              <span className="text-[9px] uppercase font-bold tracking-wider mt-1 text-slate-500">
-                {item.tipo_categoria === 'MEDICAMENTO' ? 'Med' : 'Perf'}
+              <span className="text-[10px] uppercase font-bold tracking-wider mt-1.5 text-slate-500">
+                {item.tipo_categoria === 'MEDICAMENTO' ? 'Medicamento' : 'Perfumaria'}
               </span>
             </div>
           </div>

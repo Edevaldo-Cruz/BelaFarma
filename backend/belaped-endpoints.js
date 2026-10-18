@@ -448,10 +448,17 @@ function belapedEndpoints(db) {
 
       // Mapeamento de Fotos dos Produtos (scraped_images + uploads físicos)
       const fotoEanMap = new Map();
+      const fotoNameList = [];
       try {
-        const rowsFotos = db.prepare(`SELECT ean, image_url FROM scraped_images WHERE image_url IS NOT NULL AND image_url != ''`).all();
+        const rowsFotos = db.prepare(`SELECT ean, name, image_url FROM scraped_images WHERE image_url IS NOT NULL AND image_url != ''`).all();
         for (const f of rowsFotos) {
           if (f.ean) fotoEanMap.set(String(f.ean).trim(), f.image_url);
+          if (f.name) {
+            fotoNameList.push({
+              key: String(f.name).toLowerCase().replace(/[^a-z0-9]/g, ' '),
+              url: f.image_url
+            });
+          }
         }
       } catch (e) {}
 
@@ -878,6 +885,13 @@ function belapedEndpoints(db) {
               fotoUrl = `/uploads/produtos/${r.produto_id}.jpg`;
             }
           } catch (e) {}
+        }
+        if (!fotoUrl && r.descricao) {
+          const words = r.descricao.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 2);
+          if (words.length >= 2) {
+            const match = fotoNameList.find(n => n.key.includes(words[0]) && n.key.includes(words[1]));
+            if (match) fotoUrl = match.url;
+          }
         }
 
         return {

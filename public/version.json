@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "fe0d388",
-  "commitMessage": "fix(belaped): remover requisicao especulativa de fotos 404 e aprimorar layout minimalista com swipe e progresso",
-  "buildTime": "18/10/2026, 11:52:28"
+  "commitHash": "5517c0d",
+  "commitMessage": "feat(belaped): vincular imagens reais de produtos via scraped_images e exibir logos oficiais das distribuidoras",
+  "buildTime": "18/10/2026, 12:07:59"
 }
