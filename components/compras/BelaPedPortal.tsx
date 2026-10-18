@@ -70,6 +70,7 @@ import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
 import { BelaPedRobotMonitor } from './BelaPedRobotMonitor';
 import { BelaPedPrecoHistoricoModal } from './BelaPedPrecoHistoricoModal';
 import { BelaPedOrcamentoSemanalModal } from './BelaPedOrcamentoSemanalModal';
+import BelaPedDecisaoTab from './BelaPedDecisaoTab';
 
 interface BelaPedPortalProps {
   user: User;
@@ -187,8 +188,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 }) => {
   const { addToast } = useToast();
   
-  // Abas de Navegação do BelaPed
-  const [activeTab, setActiveTab] = useState<'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('faltas');
+  // Abas de Navegação do BelaPed (Decisão de Compras como aba inicial prioritária)
+  const [activeTab, setActiveTab] = useState<'decisao' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
   const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
 
   // Estados de Dados
@@ -3481,15 +3482,55 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     );
   };
 
+  // Contagem de itens que possuem cotação e estão pendentes de decisão
+  const itensPendentesDecisaoCount = useMemo(() => {
+    return faltas.filter(f => {
+      if (f.nao_cotar || f.is_adiado_proxima_semana) return false;
+      const temCotacao = Boolean(f.preco_1 && f.preco_1 > 0 && f.fornecedor_1 && f.fornecedor_1 !== 'Sem Estoque (Portais)' && f.fornecedor_1 !== 'Não Cotado');
+      return temCotacao;
+    }).length;
+  }, [faltas]);
+
+  // Funções de manipulação para a aba de Decisão de Compras
+  const handleAlterarQtdDecisao = (produtoId: number, novaQtd: number) => {
+    setFaltas(prev => prev.map(f => {
+      if (f.produto_id !== produtoId) return f;
+      const preco = f.preco_1 || f.preco_ult_compra || f.custo_unitario || 0;
+      return {
+        ...f,
+        qtd_sugerida_7d: novaQtd,
+        subtotal_7d: Number((novaQtd * preco).toFixed(2))
+      };
+    }));
+  };
+
+  const handleEscolherFornecedorDecisao = (produtoId: number, posicao: 1 | 2) => {
+    setFaltas(prev => prev.map(f => {
+      if (f.produto_id !== produtoId) return f;
+      if (posicao === 2 && f.fornecedor_2 && f.preco_2) {
+        return {
+          ...f,
+          fornecedor_1: f.fornecedor_2,
+          preco_1: f.preco_2,
+          fornecedor_2: f.fornecedor_1,
+          preco_2: f.preco_1,
+          subtotal_7d: Number((f.qtd_sugerida_7d * f.preco_2).toFixed(2))
+        };
+      }
+      return f;
+    }));
+  };
+
   // Lista unificada de Módulos para Navegação Desktop e Mobile
   const modulosNav = useMemo(() => [
+    { id: 'decisao' as const, label: '🎯 Decisão de Compras', shortLabel: 'Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
     { id: 'faltas' as const, label: '1. Reposição 1 Semana', shortLabel: 'Reposição', icon: <Layers className="w-4 h-4 text-cyan-300" />, badge: faltas.length },
     { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
     { id: 'pedidos' as const, label: '3. Meus Pedidos & NF', shortLabel: 'Pedidos', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
     { id: 'orcamento' as const, label: '4. Radar de Orçamento', shortLabel: 'Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'relatorios' as const, label: '5. Relatórios & Preços', shortLabel: 'Relatórios', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 },
     { id: 'simulador' as const, label: '6. Simulador de Giro', shortLabel: 'Giro', icon: <Calendar className="w-4 h-4 text-teal-400" />, badge: 0 }
-  ], [faltas.length, carrinhosOtimizados.length]);
+  ], [itensPendentesDecisaoCount, faltas.length, carrinhosOtimizados.length]);
 
   return (
     <div className="flex-1 flex flex-col h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -3993,6 +4034,21 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         )}
 
+
+        {/* ─── ABA 0: DECISÃO DE COMPRAS (CARROSSEL FOCAL PRODUTO A PRODUTO) ─── */}
+        {activeTab === 'decisao' && (
+          <BelaPedDecisaoTab
+            faltas={faltas}
+            portais={portais}
+            itensSelecionados={itensSelecionados}
+            setItensSelecionados={setItensSelecionados}
+            onAlterarQtd={handleAlterarQtdDecisao}
+            onEscolherFornecedor={handleEscolherFornecedorDecisao}
+            onAtualizarRegra={handleAtualizarRegraProduto}
+            onAbrirVerCarrinhos={handleAbrirModalVerCarrinhos}
+            onNavegarTab={setActiveTab}
+          />
+        )}
 
         {activeTab === 'pedidos' && <PedidosTab />}
 
