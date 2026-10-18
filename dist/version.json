@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5d33b24",
-  "commitMessage": "feat(belaped): criar guia principal de Decisão de Compras em carrossel com fotos e logos",
-  "buildTime": "18/10/2026, 11:27:22"
+  "commitHash": "542e0ef",
+  "commitMessage": "refactor(belaped): layout limpo e minimalista para Decisao de Compras",
+  "buildTime": "18/10/2026, 11:38:53"
 }

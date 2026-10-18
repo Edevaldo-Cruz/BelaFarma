@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ShoppingCart, 
   Check, 
@@ -8,12 +8,13 @@ import {
   ChevronRight, 
   RotateCcw, 
   Copy, 
-  Package, 
   CheckCircle2, 
   Plus, 
   Minus, 
   ArrowRight,
-  TrendingDown
+  TrendingDown,
+  Pill,
+  Sparkles
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -245,6 +246,40 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     addToast('↩️ Ação desfeita', 'info');
   };
 
+  // Atalhos de teclado (Seta Esquerda / Seta Direita)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'ArrowRight') {
+        if (index < itens.length - 1) setIndexAtual(prev => Math.min(prev + 1, itens.length - 1));
+      } else if (e.key === 'ArrowLeft') {
+        if (index > 0) setIndexAtual(prev => Math.max(prev - 1, 0));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [index, itens.length]);
+
+  // Gestos de toque lateral (Swipe) para smartphones (ex: Galaxy S21)
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchStartX - touchEndX;
+    if (diff > 50) {
+      handleProximo();
+    } else if (diff < -50) {
+      handleAnterior();
+    }
+    setTouchStartX(null);
+  };
+
   if (itens.length === 0) {
     return (
       <div className="max-w-xl mx-auto py-12 px-6 text-center space-y-4 bg-[#0a0f1d] border border-slate-800 rounded-2xl">
@@ -344,10 +379,22 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Barra de Progresso Fina Minimalista */}
+      <div className="w-full h-1 bg-slate-800/80 rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-cyan-500 transition-all duration-300 ease-out"
+          style={{ width: `${itens.length > 0 ? Math.round(((index + 1) / itens.length) * 100) : 0}%` }}
+        />
+      </div>
+
       {/* ─── CARD CENTRAL LIMPO & MINIMALISTA ─────────────────────────────────── */}
-      <div className={`bg-[#0c1322] border rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl transition-colors ${
-        jaSelecionado ? 'border-cyan-500/60 ring-1 ring-cyan-500/30' : 'border-slate-800'
-      }`}>
+      <div 
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className={`bg-[#0c1322] border rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl transition-all ${
+          jaSelecionado ? 'border-cyan-500/60 ring-1 ring-cyan-500/30' : 'border-slate-800'
+        }`}
+      >
         
         {/* Bloco Superior: Tags discretas e Categoria */}
         <div className="flex items-center justify-between text-[11px] gap-2">
@@ -383,22 +430,18 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Bloco Produto: Foto + Descrição */}
-        <div className="flex items-start gap-4">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-[#080d18] border border-slate-800 flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
-            <img
-              src={`/uploads/produtos/${item.produto_id}.jpg`}
-              alt={item.descricao}
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-                const fb = e.currentTarget.nextElementSibling;
-                if (fb) (fb as HTMLElement).style.display = 'flex';
-              }}
-            />
-            <div className="hidden flex-col items-center justify-center text-slate-600 w-full h-full">
-              <Package className="w-7 h-7 text-slate-700" />
-            </div>
+        {/* Bloco Produto: Ícone Minimalista + Informações */}
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center shrink-0 shadow-inner ${
+            item.tipo_categoria === 'MEDICAMENTO'
+              ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-400'
+              : 'bg-purple-950/20 border-purple-800/40 text-purple-400'
+          }`}>
+            {item.tipo_categoria === 'MEDICAMENTO' ? (
+              <Pill className="w-6 h-6 sm:w-7 sm:h-7 stroke-[1.75]" />
+            ) : (
+              <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 stroke-[1.75]" />
+            )}
           </div>
 
           <div className="flex-1 min-w-0 space-y-1">
@@ -579,12 +622,14 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             onClick={handleAnterior}
             disabled={index === 0}
             className="flex items-center gap-1 py-1 px-2 rounded-lg hover:text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            title="Item anterior (ou tecla ←)"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Anterior</span>
+            <span className="hidden sm:inline text-[10px] text-slate-600 font-mono">←</span>
           </button>
 
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-slate-500 font-medium">
             {index + 1} de {itens.length}
           </span>
 
@@ -593,7 +638,9 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             onClick={handleProximo}
             disabled={index >= itens.length - 1}
             className="flex items-center gap-1 py-1 px-2 rounded-lg hover:text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            title="Próximo item (ou tecla →)"
           >
+            <span className="hidden sm:inline text-[10px] text-slate-600 font-mono">→</span>
             <span>Próximo</span>
             <ChevronRight className="w-4 h-4" />
           </button>
