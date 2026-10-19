@@ -1169,25 +1169,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           totalEsquecidos6m: Number(dataFaltas.total_esquecidos_6m) || 0
         });
         
-        // Preserva seleção anterior se já existir (desmarcando os já enviados ao carrinho na semana), ou seleciona os ativos inicialmente
+        // A lista começa vazia ({}) e só recebe os itens que o usuário aprovar nos cards ("Comprar" / "Optar pelo 2º") ou marcar manualmente.
+        // Em atualizações automáticas, preserva a seleção do usuário desmarcando apenas o que já foi enviado ao carrinho ou bloqueado.
         setItensSelecionados(prev => {
+          if (Object.keys(prev).length === 0) return prev;
           const itemsList: any[] = dataFaltas.items || [];
-          if (Object.keys(prev).length > 0) {
-            const atualizado = { ...prev };
-            itemsList.forEach((item: any) => {
-              if (item.is_enviado_carrinho_semana || item.nao_carrinho || item.nao_cotar || item.is_adiado_proxima_semana) {
-                atualizado[item.produto_id] = false;
-              }
-            });
-            return atualizado;
-          }
-          const selMap: Record<number, boolean> = {};
+          const atualizado = { ...prev };
           itemsList.forEach((item: any) => {
-            if (!item.is_enviado_carrinho_semana && !item.nao_carrinho && !item.nao_cotar && !item.is_adiado_proxima_semana) {
-              selMap[item.produto_id] = true;
+            if (item.is_enviado_carrinho_semana || item.nao_carrinho || item.nao_cotar || item.is_adiado_proxima_semana) {
+              delete atualizado[item.produto_id];
             }
           });
-          return selMap;
+          return atualizado;
         });
       }
 
@@ -1920,22 +1913,44 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   };
 
   // Executar Otimização Real de Carrinhos (Dissolve empresas abaixo do mínimo usando preços reais cotados nos 7 portais)
-  const handleExecutarSimulacao = async (abrirModalAutomatico: boolean = true) => {
+  const handleExecutarSimulacao = async (abrirModalAutomatico: boolean = true, distribuidoraFoco?: string) => {
     try {
       setSimulando(true);
-      const selecionadosBase = faltasFiltradas.filter(f => itensSelecionados[f.produto_id] && !f.nao_carrinho);
-      const selecionados = selecionadosBase.length > 0 ? selecionadosBase : faltasFiltradas.filter(f => !f.nao_carrinho);
+      const selecionados = faltas.filter(
+        f => itensSelecionados[f.produto_id] && !f.nao_carrinho && !f.nao_cotar && !f.is_adiado_proxima_semana && !f.is_enviado_carrinho_semana
+      );
 
       if (selecionados.length === 0) {
-        addToast('Selecione pelo menos um produto liberado para otimizar os carrinhos.', 'warning');
+        addToast('Sua lista está vazia. Clique em "Comprar" nos cards para adicionar produtos à lista.', 'warning');
         return;
       }
+
+      // Envia payload enxuto para evitar erro HTTP 413 (Payload Too Large) / 502 no proxy reverso
+      const itensEnxutos = selecionados.map(f => ({
+        produto_id: f.produto_id,
+        ean: f.ean,
+        descricao: f.descricao,
+        apresentacao: f.apresentacao,
+        curva_abc: f.curva_abc,
+        saldo: f.saldo,
+        qtd_sugerida_7d: f.qtd_sugerida_7d,
+        subtotal_7d: f.subtotal_7d,
+        fornecedor_1: f.fornecedor_1,
+        preco_1: f.preco_1,
+        url_produto_1: f.url_produto_1,
+        fornecedor_2: f.fornecedor_2,
+        preco_2: f.preco_2,
+        url_produto_2: f.url_produto_2,
+        preco_ult_compra: f.preco_ult_compra,
+        custo_unitario: f.custo_unitario,
+        fornecedor_ult_compra: f.fornecedor_ult_compra
+      }));
 
       const res = await fetch('/api/belaped/simular-otimizacao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          itens: selecionados,
+          itens: itensEnxutos,
           alvoVencimento
         })
       });
@@ -1976,18 +1991,25 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             'success'
           );
         } else {
-          addToast('✨ Carrinhos otimizados com sucesso usando as cotações reais!', 'success');
+          addToast('✨ Lista de carrinhos atualizada com sucesso!', 'success');
         }
 
         if (abrirModalAutomatico && listaCarrinhos.length > 0) {
-          setAbaEmpresaModalIndex(0);
-          setCarrinhoModalSelecionado(listaCarrinhos[0]);
-          setPrazoSelecionadoModal(listaCarrinhos[0].boletoEleito || `${listaCarrinhos[0].prazoDias || 28} DDL`);
+          let idx = 0;
+          if (distribuidoraFoco) {
+            const achou = listaCarrinhos.findIndex(
+              (c: any) => String(c.distribuidora).toUpperCase() === String(distribuidoraFoco).toUpperCase()
+            );
+            if (achou >= 0) idx = achou;
+          }
+          setAbaEmpresaModalIndex(idx);
+          setCarrinhoModalSelecionado(listaCarrinhos[idx]);
+          setPrazoSelecionadoModal(listaCarrinhos[idx].boletoEleito || `${listaCarrinhos[idx].prazoDias || 28} DDL`);
           setCarrinhoModalAberto(true);
         }
       } else {
         const errData = await res.json().catch(() => ({}));
-        addToast(errData.error || 'Erro ao otimizar carrinhos', 'error');
+        addToast(errData.error || `Erro ao abrir lista (HTTP ${res.status})`, 'error');
       }
     } catch (e: any) {
       addToast('Erro na otimização: ' + e.message, 'error');
@@ -1996,24 +2018,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Abrir a Modal Unificada "Ver Carrinhos" com Guias (Abas) de todas as empresas cotadas
+  // Abrir a Modal Unificada "Ver Carrinhos" sempre sincronizada com os itens selecionados atualmente
   const handleAbrirModalVerCarrinhos = async (distribuidoraFoco?: string) => {
-    if (carrinhosOtimizados.length > 0) {
-      let idx = 0;
-      if (distribuidoraFoco) {
-        const achou = carrinhosOtimizados.findIndex(
-          c => String(c.distribuidora).toUpperCase() === String(distribuidoraFoco).toUpperCase()
-        );
-        if (achou >= 0) idx = achou;
-      }
-      setAbaEmpresaModalIndex(idx);
-      const car = carrinhosOtimizados[idx];
-      setCarrinhoModalSelecionado(car);
-      setPrazoSelecionadoModal(car?.boletoEleito || `${car?.prazoDias || 28} DDL`);
-      setCarrinhoModalAberto(true);
-      return;
-    }
-    await handleExecutarSimulacao(true);
+    await handleExecutarSimulacao(true, distribuidoraFoco);
   };
 
   // Excluir item de um carrinho dentro da Modal Unificada "Ver Carrinhos"

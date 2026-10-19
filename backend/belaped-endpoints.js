@@ -2291,7 +2291,12 @@ function belapedEndpoints(db) {
         // Todas as opções reais ordenadas por preço
         const todosOrdenados = Array.from(mapaOpcoes.values()).filter(p => p.preco > 0).sort((a, b) => a.preco - b.preco);
         if (todosOrdenados.length === 0) {
-          return; // Ignora itens que ainda não foram cotados em nenhum portal
+          const precoRef = Number(item.preco_1 || item.preco_ult_compra || item.custo_unitario || 0);
+          if (precoRef <= 0) return;
+          const distRef = (item.fornecedor_1 && item.fornecedor_1 !== 'Não Cotado' && !String(item.fornecedor_1).includes('Sem Estoque'))
+            ? String(item.fornecedor_1).toUpperCase()
+            : (item.fornecedor_ult_compra && item.fornecedor_ult_compra !== 'Não registrado' ? String(item.fornecedor_ult_compra).toUpperCase() : 'OUTROS');
+          todosOrdenados.push({ distribuidora: distRef, preco: precoRef });
         }
 
         const melhorAbsoluto = todosOrdenados[0] || null;

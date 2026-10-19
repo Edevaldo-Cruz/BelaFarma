@@ -947,6 +947,22 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             </button>
           )}
 
+          {resumo.qtd > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setItensSelecionados({});
+                setHistorico([]);
+                addToast('Lista de compras limpa!', 'info');
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 font-semibold transition-all cursor-pointer border border-slate-800 hover:border-rose-700/60"
+              title="Zerar itens selecionados na lista"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Limpar Lista</span>
+            </button>
+          )}
+
           <button
             onClick={onAbrirVerCarrinhos}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white font-semibold transition-all cursor-pointer border border-slate-700"
