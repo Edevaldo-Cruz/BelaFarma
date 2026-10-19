@@ -206,6 +206,13 @@ function belapedEndpoints(db) {
       // Coluna já existe
     }
 
+    // Migração transparente: Coluna enviado_carrinho_ate para ocultar nos cards itens que já entraram no carrinho na semana atual
+    try {
+      db.prepare(`ALTER TABLE belaped_produtos_regras ADD COLUMN enviado_carrinho_ate TEXT`).run();
+    } catch (migCartErr) {
+      // Coluna já existe
+    }
+
     // Cadastra e sincroniza EXCLUSIVAMENTE as 4 distribuidoras reais configuradas
     const portaisReais = [
       { id: 'profarma', nome: 'PROFARMA', url: 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', usuario: '47378578000140', min: 400.0, prazo: 35, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
@@ -435,14 +442,36 @@ function belapedEndpoints(db) {
         }
       } catch (e) {}
 
-      // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas e adiar para próx. semana)
+      // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas, adiar e enviado ao carrinho na semana)
       const regrasMap = {};
       try {
-        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate FROM belaped_produtos_regras`).all();
+        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, enviado_carrinho_ate FROM belaped_produtos_regras`).all();
         for (const reg of rowsRegras) {
           if (reg.ean) regrasMap[reg.ean] = reg;
           if (reg.produto_id) regrasMap[`ID_${reg.produto_id}`] = reg;
           if (reg.chave_regra) regrasMap[reg.chave_regra] = reg;
+        }
+      } catch (e) {}
+
+      // Itens que já entraram no carrinho na semana atual (segunda a domingo)
+      const eansNoCarrinhoSemanaSet = new Set();
+      try {
+        const hoje = new Date();
+        const diaSemana = hoje.getDay(); // 0=Dom, 1=Seg...
+        const diffSegunda = diaSemana === 0 ? 6 : (diaSemana - 1);
+        const inicioSemana = new Date(hoje);
+        inicioSemana.setDate(hoje.getDate() - diffSegunda);
+        const inicioSemanaISO = inicioSemana.toISOString().slice(0, 10);
+
+        const rowsCarrinhoSem = db.prepare(`
+          SELECT DISTINCT pi.ean
+          FROM belaped_pedidos_itens pi
+          JOIN belaped_pedidos p ON p.id = pi.pedido_id
+          WHERE pi.ean IS NOT NULL AND pi.ean != ''
+            AND date(p.data_criacao) >= date(?)
+        `).all(inicioSemanaISO);
+        for (const r of rowsCarrinhoSem) {
+          if (r.ean) eansNoCarrinhoSemanaSet.add(String(r.ean).trim());
         }
       } catch (e) {}
 
@@ -880,9 +909,19 @@ function belapedEndpoints(db) {
         let fotoUrl = (r.ean && fotoEanMap.get(String(r.ean).trim())) || r.imagem_url || null;
         if (!fotoUrl && r.produto_id) {
           try {
-            const localPath = path.join(__dirname, '../public/uploads/produtos', `${r.produto_id}.jpg`);
-            if (fs.existsSync(localPath)) {
-              fotoUrl = `/uploads/produtos/${r.produto_id}.jpg`;
+            const pIdStr = String(r.produto_id);
+            const candidates = [
+              path.join(__dirname, '../public/uploads/produtos', `${pIdStr}.jpg`),
+              path.join(__dirname, 'uploads/produtos', `${pIdStr}.jpg`),
+              path.join(__dirname, '../public/uploads/produtos', `${pIdStr}.png`),
+              path.join(__dirname, 'uploads/produtos', `${pIdStr}.png`)
+            ];
+            for (const cPath of candidates) {
+              if (fs.existsSync(cPath)) {
+                const ext = cPath.endsWith('.png') ? 'png' : 'jpg';
+                fotoUrl = `/uploads/produtos/${pIdStr}.${ext}`;
+                break;
+              }
             }
           } catch (e) {}
         }
@@ -891,8 +930,18 @@ function belapedEndpoints(db) {
           if (words.length >= 2) {
             const match = fotoNameList.find(n => n.key.includes(words[0]) && n.key.includes(words[1]));
             if (match) fotoUrl = match.url;
+          } else if (words.length === 1 && words[0].length >= 5) {
+            const match = fotoNameList.find(n => n.key.includes(words[0]));
+            if (match) fotoUrl = match.url;
           }
         }
+
+        const hojeIso = new Date().toISOString().slice(0, 10);
+        const enviadoAte = regProd?.enviado_carrinho_ate || null;
+        const isEnviadoCarrinhoSemana = Boolean(
+          (enviadoAte && String(enviadoAte) >= hojeIso) ||
+          (r.ean && eansNoCarrinhoSemanaSet.has(String(r.ean).trim()))
+        );
 
         return {
           produto_id: r.produto_id,
@@ -956,7 +1005,9 @@ function belapedEndpoints(db) {
           nao_carrinho: Boolean(regProd?.nao_carrinho),
           motivo_justificativa: regProd?.motivo_justificativa || '',
           adiar_ate: regProd?.adiar_ate || null,
-          is_adiado_proxima_semana: Boolean(regProd?.adiar_ate && String(regProd.adiar_ate) >= new Date().toISOString().slice(0, 10)),
+          is_adiado_proxima_semana: Boolean(regProd?.adiar_ate && String(regProd.adiar_ate) >= hojeIso),
+          enviado_carrinho_ate: enviadoAte,
+          is_enviado_carrinho_semana: isEnviadoCarrinhoSemana,
           falta_balcao_belinha: faltaBelinhaMatch ? {
             id: faltaBelinhaMatch.id,
             productName: faltaBelinhaMatch.productName,
@@ -3721,6 +3772,180 @@ function belapedEndpoints(db) {
     );
   }
 
+  /**
+   * Marca um produto como enviado ao carrinho na semana atual (até a próxima segunda-feira)
+   * Assim que o robô confirma que o produto entrou no carrinho do portal.
+   */
+  function marcarItemEnviadoCarrinhoSemana(item, distribuidora) {
+    try {
+      const eanLimpo = String(item?.ean || '').trim();
+      const pidNum = item?.produto_id ? Number(item.produto_id) : null;
+      const chaveRegra = eanLimpo || (pidNum ? `ID_${pidNum}` : null);
+      if (!chaveRegra) return;
+
+      const proxSeg = new Date();
+      const day = proxSeg.getDay(); // 0=Dom, 1=Seg...
+      const diasAteSegunda = day === 0 ? 1 : (8 - day);
+      proxSeg.setDate(proxSeg.getDate() + diasAteSegunda);
+      const proxSegISO = proxSeg.toISOString().slice(0, 10);
+
+      db.prepare(`
+        INSERT INTO belaped_produtos_regras (
+          chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho,
+          motivo_justificativa, enviado_carrinho_ate, atualizado_por, atualizado_em
+        ) VALUES (
+          @chave_regra, @ean, @produto_id, @descricao, 0, 0,
+          @motivo, @enviado_ate, 'Robô Carrinho', datetime('now', 'localtime')
+        )
+        ON CONFLICT(chave_regra) DO UPDATE SET
+          ean = COALESCE(excluded.ean, belaped_produtos_regras.ean),
+          produto_id = COALESCE(excluded.produto_id, belaped_produtos_regras.produto_id),
+          descricao = COALESCE(excluded.descricao, belaped_produtos_regras.descricao),
+          enviado_carrinho_ate = excluded.enviado_carrinho_ate,
+          atualizado_por = excluded.atualizado_por,
+          atualizado_em = excluded.atualizado_em
+      `).run({
+        chave_regra: chaveRegra,
+        ean: eanLimpo || null,
+        produto_id: pidNum,
+        descricao: item?.descricao || '',
+        motivo: `Enviado ao carrinho (${distribuidora})`,
+        enviado_ate: proxSegISO
+      });
+    } catch (e) {
+      console.warn('[BelaPed] Aviso ao marcar item enviado ao carrinho na semana:', e.message);
+    }
+  }
+
+  /**
+   * POST /api/belaped/buscar-imagem-produto
+   * Busca e salva automaticamente a foto real do produto (Napp -> Cosmos CDN -> DuckDuckGo)
+   */
+  router.post('/buscar-imagem-produto', async (req, res) => {
+    try {
+      const { produto_id, ean, descricao } = req.body || {};
+      const pId = Number(produto_id) || 0;
+      const cleanEan = String(ean || '').trim();
+      const desc = String(descricao || '').trim();
+
+      if (!pId && !cleanEan && !desc) {
+        return res.status(400).json({ success: false, error: 'Informe produto_id, ean ou descricao.' });
+      }
+
+      const uploadsDir = path.join(__dirname, 'uploads', 'produtos');
+      const publicUploadsDir = path.join(__dirname, '../public/uploads/produtos');
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      if (!fs.existsSync(publicUploadsDir)) fs.mkdirSync(publicUploadsDir, { recursive: true });
+
+      const fileKey = pId > 0 ? String(pId) : (cleanEan || String(Date.now()));
+      const fileName = `${fileKey}.jpg`;
+      const destPath = path.join(uploadsDir, fileName);
+      const destPublic = path.join(publicUploadsDir, fileName);
+
+      // 1. Verifica se já existe em disco
+      if (fs.existsSync(destPublic) || fs.existsSync(destPath)) {
+        const urlExistente = `/uploads/produtos/${fileName}`;
+        return res.json({ success: true, imagem_url: urlExistente });
+      }
+
+      // 2. Tenta catálogo Napp (scraped_images)
+      try {
+        let nappRow = null;
+        if (cleanEan.length >= 7) {
+          nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE ean = ? AND image_url IS NOT NULL AND image_url != ''`).get(cleanEan);
+        }
+        if (!nappRow && desc.length >= 4) {
+          const words = desc.split(/\s+/).filter(w => w.length >= 3).slice(0, 2);
+          if (words.length >= 2) {
+            nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE name LIKE ? AND name LIKE ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1`).get(`%${words[0]}%`, `%${words[1]}%`);
+          } else if (words.length === 1) {
+            nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE name LIKE ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1`).get(`%${words[0]}%`);
+          }
+        }
+        if (nappRow && nappRow.image_url) {
+          return res.json({ success: true, imagem_url: nappRow.image_url });
+        }
+      } catch (e) {}
+
+      const salvarBufferFoto = (buffer) => {
+        fs.writeFileSync(destPath, buffer);
+        try { fs.writeFileSync(destPublic, buffer); } catch (e) {}
+        const urlRel = `/uploads/produtos/${fileName}`;
+        try {
+          if (cleanEan.length >= 7) {
+            db.prepare(`INSERT OR REPLACE INTO scraped_images (ean, name, image_url, last_updated) VALUES (?, ?, ?, datetime('now'))`).run(cleanEan, desc || cleanEan, urlRel);
+          }
+        } catch (e) {}
+        try {
+          if (pId > 0) {
+            db.prepare(`UPDATE compras_estoque_cache SET imagem_url = ? WHERE produto_id = ?`).run(urlRel, pId);
+          }
+        } catch (e) {}
+        return urlRel;
+      };
+
+      // 3. Tenta CDN Bluesoft Cosmos por EAN
+      if (cleanEan.length >= 7) {
+        try {
+          const cosmosUrl = `https://cdn-cosmos.bluesoft.com.br/products/${cleanEan}`;
+          const cosmosRes = await fetch(cosmosUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            signal: AbortSignal.timeout(4000)
+          });
+          if (cosmosRes.ok) {
+            const buffer = Buffer.from(await cosmosRes.arrayBuffer());
+            if (buffer.length > 2500) {
+              const urlSalva = salvarBufferFoto(buffer);
+              return res.json({ success: true, imagem_url: urlSalva });
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 4. Tenta DuckDuckGo Image Search por EAN + Descrição
+      const queryTerms = [];
+      if (cleanEan.length >= 7) {
+        queryTerms.push(`${cleanEan} ${desc.split(' ')[0] || 'farmacia'}`);
+      }
+      if (desc) {
+        const cleanDesc = desc.replace(/[^\w\sÀ-ÿ]/gi, ' ').trim();
+        queryTerms.push(`${cleanDesc} medicamento farmacia`);
+      }
+
+      for (const q of queryTerms) {
+        try {
+          const tokenUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(q);
+          const r1 = await fetch(tokenUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+          const html = await r1.text();
+          const vqdMatch = html.match(/vqd=([\d-]+)/);
+          if (!vqdMatch) continue;
+          const vqd = vqdMatch[1];
+          const imgUrl = 'https://duckduckgo.com/i.js?l=wt-wt&o=json&q=' + encodeURIComponent(q) + '&vqd=' + vqd + '&f=,,,';
+          const r2 = await fetch(imgUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+          const data = await r2.json();
+          if (data.results && data.results.length > 0) {
+            for (const itemRes of data.results.slice(0, 3)) {
+              try {
+                const imgRes = await fetch(itemRes.image, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4500) });
+                if (imgRes.ok) {
+                  const buffer = Buffer.from(await imgRes.arrayBuffer());
+                  if (buffer.length > 2500) {
+                    const urlSalva = salvarBufferFoto(buffer);
+                    return res.json({ success: true, imagem_url: urlSalva });
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+
+      return res.json({ success: false, imagem_url: null });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Estado de montagem do carrinho na Soton
   const sotonCarrinhoStatus = {
     emAndamento: false,
@@ -3833,6 +4058,7 @@ function belapedEndpoints(db) {
 
             if (resItem.sucesso) {
               sotonCarrinhoStatus.sucessos++;
+              marcarItemEnviadoCarrinhoSemana(item, 'SOTON FARMA');
               sotonCarrinhoStatus.itens.push({
                 ean: item.ean,
                 descricao: item.descricao || '',
@@ -3904,7 +4130,7 @@ function belapedEndpoints(db) {
             }
           }
 
-          console.log(`[BelaPed Carrinho Soton] Concluído: ${adicionados.length} adicionados (R$ ${totalAdicionadoReais}), ${repassados.length} repassados p/ 2º colocado.`);
+          console.log(`[BelaPed Carrinho Soton] Concluído: ${adicionados.length} adicionados, ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
           console.error('[BelaPed Carrinho Soton] Erro crítico no robô:', botErr.message);
         } finally {
@@ -4042,6 +4268,7 @@ function belapedEndpoints(db) {
 
             if (resItem.sucesso) {
               divimedCarrinhoStatus.sucessos++;
+              marcarItemEnviadoCarrinhoSemana(item, 'DIVIMED');
               divimedCarrinhoStatus.itens.push({
                 ean: item.ean,
                 descricao: item.descricao || '',
@@ -4113,7 +4340,7 @@ function belapedEndpoints(db) {
             }
           }
 
-          console.log(`[BelaPed Carrinho Divimed] Concluído: ${adicionados.length} adicionados (R$ ${totalAdicionadoReais}), ${repassados.length} repassados p/ 2º colocado.`);
+          console.log(`[BelaPed Carrinho Divimed] Concluído: ${adicionados.length} adicionados, ${repassados.length} repassados p/ 2º colocado.`);
         } catch (botErr) {
           console.error('[BelaPed Carrinho Divimed] Erro crítico no robô:', botErr.message);
         } finally {
@@ -4184,6 +4411,10 @@ function belapedEndpoints(db) {
     iniciadoEm: null,
     sucesso: false,
     total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    itens: [],
     relatorio: null
   };
 
@@ -4254,6 +4485,10 @@ function belapedEndpoints(db) {
       distrimedImportStatus.iniciadoEm = new Date().toISOString();
       distrimedImportStatus.sucesso = false;
       distrimedImportStatus.total = itensParaAdicionar.length;
+      distrimedImportStatus.atual = 0;
+      distrimedImportStatus.sucessos = 0;
+      distrimedImportStatus.erros = 0;
+      distrimedImportStatus.itens = [];
       distrimedImportStatus.relatorio = null;
 
       // Gera arquivo temporário no disco
@@ -4290,6 +4525,7 @@ function belapedEndpoints(db) {
 
           if (resultado.sucesso) {
             const adicionados = itensParaAdicionar.map(it => {
+              marcarItemEnviadoCarrinhoSemana(it, 'DISTRIMED');
               const finItem = calcularEconomiaItem(it, it.preco_1, db);
               return {
                 ean: it.ean,
@@ -4306,6 +4542,10 @@ function belapedEndpoints(db) {
               };
             });
 
+            distrimedImportStatus.atual = adicionados.length;
+            distrimedImportStatus.sucessos = adicionados.length;
+            distrimedImportStatus.itens = adicionados;
+
             distrimedImportStatus.relatorio = consolidarRelatorioFinanceiro(
               'DISTRIMED',
               itensParaAdicionar.length,
@@ -4317,6 +4557,7 @@ function belapedEndpoints(db) {
             // Salva pedido formal no banco de dados belaped_pedidos
             try {
               const pedidoId = 'PED-DISTRIMED-' + Date.now();
+              const totalAdicionadoReais = distrimedImportStatus.relatorio?.totalAdicionadoReais || 0;
               db.prepare(`
                 INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, observacoes)
                 VALUES (?, 'DISTRIMED', 'ARQUIVO_IMPORTADO', ?, ?, ?, ?)
@@ -4470,6 +4711,7 @@ function belapedEndpoints(db) {
 
             if (resItem.sucesso) {
               dpcCarrinhoStatus.sucessos++;
+              marcarItemEnviadoCarrinhoSemana(item, 'DPC DISTRIBUIDORA');
               dpcCarrinhoStatus.itens.push({
                 ean: item.ean,
                 descricao: item.descricao || '',
@@ -4663,6 +4905,7 @@ function belapedEndpoints(db) {
 
             if (resItem.sucesso) {
               profarmaCarrinhoStatus.sucessos++;
+              marcarItemEnviadoCarrinhoSemana(item, 'PROFARMA');
               profarmaCarrinhoStatus.itens.push({
                 ean: item.ean,
                 descricao: item.descricao || '',
@@ -4856,6 +5099,7 @@ function belapedEndpoints(db) {
 
             if (resItem.sucesso) {
               martinsCarrinhoStatus.sucessos++;
+              marcarItemEnviadoCarrinhoSemana(item, 'MARTINS ATACADO');
               martinsCarrinhoStatus.itens.push({
                 ean: item.ean,
                 descricao: item.descricao || '',
@@ -5049,6 +5293,7 @@ function belapedEndpoints(db) {
 
             if (resItem.sucesso) {
               orienteCarrinhoStatus.sucessos++;
+              marcarItemEnviadoCarrinhoSemana(item, 'ORIENTE FARMA');
               orienteCarrinhoStatus.itens.push({
                 ean: item.ean,
                 descricao: item.descricao || '',

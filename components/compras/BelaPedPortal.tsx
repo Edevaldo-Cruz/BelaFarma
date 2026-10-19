@@ -905,6 +905,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         }
       }
 
+      if ((item as any).qtd_manual_override !== undefined) {
+        qtdFinal = Math.max(1, Number((item as any).qtd_manual_override) || 1);
+      }
+
       if (bruta > qtdFinal) {
         unCortadas += (bruta - qtdFinal);
         reaisEconomizados += (bruta - qtdFinal) * precoRef;
@@ -1165,12 +1169,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           totalEsquecidos6m: Number(dataFaltas.total_esquecidos_6m) || 0
         });
         
-        // Preserva seleção anterior se já existir, ou seleciona todos inicialmente
+        // Preserva seleção anterior se já existir (desmarcando os já enviados ao carrinho na semana), ou seleciona os ativos inicialmente
         setItensSelecionados(prev => {
-          if (Object.keys(prev).length > 0) return prev;
+          const itemsList: any[] = dataFaltas.items || [];
+          if (Object.keys(prev).length > 0) {
+            const atualizado = { ...prev };
+            itemsList.forEach((item: any) => {
+              if (item.is_enviado_carrinho_semana || item.nao_carrinho || item.nao_cotar || item.is_adiado_proxima_semana) {
+                atualizado[item.produto_id] = false;
+              }
+            });
+            return atualizado;
+          }
           const selMap: Record<number, boolean> = {};
-          (dataFaltas.items || []).forEach((item: FaltaItem7d) => {
-            selMap[item.produto_id] = true;
+          itemsList.forEach((item: any) => {
+            if (!item.is_enviado_carrinho_semana && !item.nao_carrinho && !item.nao_cotar && !item.is_adiado_proxima_semana) {
+              selMap[item.produto_id] = true;
+            }
           });
           return selMap;
         });
@@ -3486,7 +3501,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Contagem de itens que possuem cotação e estão pendentes de decisão
   const itensPendentesDecisaoCount = useMemo(() => {
     return faltas.filter(f => {
-      if (f.nao_cotar || f.is_adiado_proxima_semana) return false;
+      if (f.nao_cotar || f.is_adiado_proxima_semana || (f as any).is_enviado_carrinho_semana) return false;
       const temCotacao = Boolean(f.preco_1 && f.preco_1 > 0 && f.fornecedor_1 && f.fornecedor_1 !== 'Sem Estoque (Portais)' && f.fornecedor_1 !== 'Não Cotado');
       return temCotacao;
     }).length;
@@ -3494,27 +3509,45 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Funções de manipulação para a aba de Decisão de Compras
   const handleAlterarQtdDecisao = (produtoId: number, novaQtd: number) => {
-    setFaltas(prev => prev.map(f => {
+    setFaltasRaw(prev => prev.map(f => {
       if (f.produto_id !== produtoId) return f;
       const preco = f.preco_1 || f.preco_ult_compra || f.custo_unitario || 0;
       return {
         ...f,
+        qtd_manual_override: novaQtd,
         qtd_sugerida_7d: novaQtd,
         subtotal_7d: Number((novaQtd * preco).toFixed(2))
-      };
+      } as any;
     }));
   };
 
-  const handleEscolherFornecedorDecisao = (produtoId: number, posicao: 1 | 2) => {
-    setFaltas(prev => prev.map(f => {
+  const handleEscolherFornecedorDecisao = (
+    produtoId: number,
+    posicao: 1 | 2,
+    fornecedorOverride?: string,
+    precoOverride?: number,
+    urlOverride?: string | null
+  ) => {
+    setFaltasRaw(prev => prev.map(f => {
       if (f.produto_id !== produtoId) return f;
+      if (fornecedorOverride && precoOverride && precoOverride > 0) {
+        return {
+          ...f,
+          fornecedor_1: fornecedorOverride,
+          preco_1: precoOverride,
+          url_produto_1: urlOverride !== undefined ? urlOverride : f.url_produto_1,
+          subtotal_7d: Number(((f.qtd_sugerida_7d || 1) * precoOverride).toFixed(2))
+        };
+      }
       if (posicao === 2 && f.fornecedor_2 && f.preco_2) {
         return {
           ...f,
           fornecedor_1: f.fornecedor_2,
           preco_1: f.preco_2,
+          url_produto_1: f.url_produto_2,
           fornecedor_2: f.fornecedor_1,
           preco_2: f.preco_1,
+          url_produto_2: f.url_produto_1,
           subtotal_7d: Number((f.qtd_sugerida_7d * f.preco_2).toFixed(2))
         };
       }
@@ -4048,6 +4081,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             onAtualizarRegra={handleAtualizarRegraProduto}
             onAbrirVerCarrinhos={handleAbrirModalVerCarrinhos}
             onNavegarTab={setActiveTab}
+            onRecarregarDados={carregarDados}
           />
         )}
 
@@ -9256,6 +9290,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             statusCotacao={statusCotacao}
             onDispararRobo={(fornecedor = 'TODOS', lote = 40, prio = 'TODAS_PRIORITARIAS') => handleIniciarCotacaoAoVivo(fornecedor, lote, prio)}
             onDadosAtualizados={() => carregarDados()}
+            modoDiscreto={activeTab === 'decisao'}
           />
         );
       })()}

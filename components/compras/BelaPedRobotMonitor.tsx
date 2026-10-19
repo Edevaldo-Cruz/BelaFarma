@@ -51,6 +51,7 @@ interface RobotLiveMonitorProps {
     prioridade?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS'
   ) => void;
   onDadosAtualizados?: () => void;
+  modoDiscreto?: boolean;
 }
 
 export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
@@ -59,7 +60,8 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   cotandoAoVivo,
   statusCotacao,
   onDispararRobo,
-  onDadosAtualizados
+  onDadosAtualizados,
+  modoDiscreto = false
 }) => {
   const [minimizado, setMinimizado] = useState(true);
   const [liveStatus, setLiveStatus] = useState<any>(statusCotacao);
@@ -238,6 +240,33 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const logsRecentes: LogEntry[] = Array.isArray(liveStatus?.log)
     ? [...liveStatus.log].slice(-12).reverse()
     : [];
+
+  if (minimizado && modoDiscreto) {
+    return (
+      <button
+        type="button"
+        onClick={() => setMinimizado(false)}
+        className={`fixed bottom-3 right-3 z-[70] flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border shadow-xl transition-all cursor-pointer select-none hover:scale-105 ${
+          emAndamento
+            ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200 shadow-emerald-950/80'
+            : aguardandoRoboCount > 0
+              ? 'bg-[#09101e]/90 border-cyan-500/50 text-cyan-200 shadow-cyan-950/80'
+              : 'bg-[#09101e]/85 border-slate-700/70 text-slate-300'
+        }`}
+        title="Clique para abrir o Monitor do Robô BelaPed"
+      >
+        <Bot className={`w-3.5 h-3.5 shrink-0 ${emAndamento ? 'text-emerald-400 animate-bounce' : 'text-cyan-400'}`} />
+        <span className="text-[11px] font-black uppercase tracking-wider whitespace-nowrap">
+          {emAndamento
+            ? `Robô: ${atualLote}/${totalLote}`
+            : aguardandoRoboCount > 0
+              ? `Robô (${aguardandoRoboCount} fila)`
+              : 'Robô Pronto'}
+        </span>
+        <ChevronUp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+      </button>
+    );
+  }
 
   return (
     <div className="fixed bottom-4 right-4 z-[80] w-[375px] sm:w-[435px] rounded-2xl bg-[#09101e]/95 backdrop-blur-md border-2 border-cyan-500/50 shadow-2xl shadow-cyan-950/80 text-slate-100 overflow-hidden transition-all duration-300">

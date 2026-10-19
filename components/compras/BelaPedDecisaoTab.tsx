@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   ShoppingCart, 
   Check, 
@@ -14,9 +14,24 @@ import {
   ArrowRight,
   TrendingDown,
   Pill,
-  Sparkles
+  Sparkles,
+  ExternalLink,
+  AlertTriangle,
+  RefreshCw,
+  Zap,
+  X,
+  CheckSquare,
+  Square,
+  PackageCheck
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
+
+export interface CotacaoRealItem {
+  distribuidora: string;
+  preco: number;
+  url_produto?: string | null;
+  condicao_comercial?: string | null;
+}
 
 export interface FaltaItem7d {
   produto_id: number;
@@ -42,10 +57,13 @@ export interface FaltaItem7d {
   fornecedor_2?: string;
   preco_2?: number;
   url_produto_2?: string | null;
+  todas_cotacoes_reais?: CotacaoRealItem[];
   prioridade?: 'P1' | 'P2' | 'P3' | 'P4';
   nao_cotar?: boolean;
   nao_carrinho?: boolean;
   is_adiado_proxima_semana?: boolean;
+  is_enviado_carrinho_semana?: boolean;
+  enviado_carrinho_ate?: string | null;
   is_desejado?: boolean;
   ranking_posicao?: number;
   score_ranking?: number;
@@ -66,7 +84,13 @@ interface Props {
   itensSelecionados: Record<number, boolean>;
   setItensSelecionados: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
   onAlterarQtd: (produtoId: number, novaQtd: number) => void;
-  onEscolherFornecedor: (produtoId: number, posicao: 1 | 2) => void;
+  onEscolherFornecedor: (
+    produtoId: number,
+    posicao: 1 | 2,
+    fornecedorOverride?: string,
+    precoOverride?: number,
+    urlOverride?: string | null
+  ) => void;
   onAtualizarRegra: (
     item: FaltaItem7d, 
     campo: 'nao_cotar' | 'nao_carrinho' | 'motivo_justificativa' | 'adiar_ate', 
@@ -74,6 +98,76 @@ interface Props {
   ) => Promise<void>;
   onAbrirVerCarrinhos: () => void;
   onNavegarTab: (tab: any) => void;
+  onRecarregarDados?: () => Promise<void> | void;
+}
+
+const MINIMOS_PADRAO_PORTAL: Record<string, number> = {
+  'PROFARMA': 350,
+  'DISTRIMED': 300,
+  'DPC DISTRIBUIDORA': 350,
+  'SOTON FARMA': 250,
+  'DIVIMED': 250,
+  'MARTINS ATACADO': 400,
+  'ORIENTE FARMA': 300
+};
+
+function normalizarNomeDistribuidora(nome?: string): string {
+  const u = (nome || '').toUpperCase().trim();
+  if (u.includes('PROFARMA')) return 'PROFARMA';
+  if (u.includes('DISTRIMED')) return 'DISTRIMED';
+  if (u.includes('DPC')) return 'DPC DISTRIBUIDORA';
+  if (u.includes('SOTON')) return 'SOTON FARMA';
+  if (u.includes('DIVIMED')) return 'DIVIMED';
+  if (u.includes('MARTINS')) return 'MARTINS ATACADO';
+  if (u.includes('ORIENTE')) return 'ORIENTE FARMA';
+  return u || 'OUTROS';
+}
+
+function obterEndpointsCarrinhoPortal(distribuidora: string): { postUrl: string; statusUrl: string } | null {
+  const u = distribuidora.toUpperCase();
+  if (u.includes('SOTON')) return { postUrl: '/api/belaped/montar-carrinho-soton', statusUrl: '/api/belaped/status-carrinho-soton' };
+  if (u.includes('DIVIMED')) return { postUrl: '/api/belaped/montar-carrinho-divimed', statusUrl: '/api/belaped/status-carrinho-divimed' };
+  if (u.includes('DISTRIMED')) return { postUrl: '/api/belaped/importar-carrinho-distrimed', statusUrl: '/api/belaped/status-carrinho-distrimed' };
+  if (u.includes('DPC')) return { postUrl: '/api/belaped/montar-carrinho-dpc', statusUrl: '/api/belaped/status-carrinho-dpc' };
+  if (u.includes('PROFARMA')) return { postUrl: '/api/belaped/montar-carrinho-profarma', statusUrl: '/api/belaped/status-carrinho-profarma' };
+  if (u.includes('MARTINS')) return { postUrl: '/api/belaped/montar-carrinho-martins', statusUrl: '/api/belaped/status-carrinho-martins' };
+  if (u.includes('ORIENTE')) return { postUrl: '/api/belaped/montar-carrinho-oriente', statusUrl: '/api/belaped/status-carrinho-oriente' };
+  return null;
+}
+
+export function obterUrlConferenciaPortal(item: FaltaItem7d, colocacao: 1 | 2 = 1): string | null {
+  const urlDireta = colocacao === 1 ? item.url_produto_1 : item.url_produto_2;
+  if (urlDireta && typeof urlDireta === 'string' && urlDireta.startsWith('http')) {
+    const urlsCruas = [
+      'https://pedido.profarma.com.br/',
+      'https://pedido.profarma.com.br',
+      'https://inovacao.distrimed.com.br/produtos',
+      'https://inovacao.distrimed.com.br/produtos/',
+      'https://divimed.artpedidoweb.com.br/#/comprar',
+      'https://divimed.artpedidoweb.com.br/#/',
+      'https://divimed.artpedidoweb.com.br',
+      'https://www.orientefarma.com.br/',
+      'https://www.orientefarma.com.br'
+    ];
+    if (!urlsCruas.includes(urlDireta.trim())) {
+      return urlDireta;
+    }
+  }
+
+  const fornecedor = (colocacao === 1 ? item.fornecedor_1 : item.fornecedor_2 || '').toUpperCase();
+  if (!fornecedor || fornecedor === 'NÃO COTADO' || fornecedor.includes('SEM ESTOQUE') || fornecedor.includes('AGUARDANDO')) {
+    return null;
+  }
+
+  const termo = item.ean || encodeURIComponent(item.descricao);
+  if (fornecedor.includes('PROFARMA')) return `https://pedido.profarma.com.br/novo-pedido?q=${termo}`;
+  if (fornecedor.includes('SOTON')) return `https://sotonfarma.meuspedidos.com.br/?busca=${termo}`;
+  if (fornecedor.includes('DPC')) return `https://dpcnet.com.br/catalogo?busca=${termo}&visualizacao=bloco-1&ordenacao=ordem-0`;
+  if (fornecedor.includes('MARTINS')) return `https://www.martinsatacado.com.br/busca?q=${termo}`;
+  if (fornecedor.includes('DISTRIMED')) return `https://inovacao.distrimed.com.br/produtos?pesquisa=${termo}`;
+  if (fornecedor.includes('DIVIMED')) return `https://divimed.artpedidoweb.com.br/#/comprar?busca=${termo}`;
+  if (fornecedor.includes('ORIENTE')) return `https://www.orientefarma.com.br/produtos?busca=${termo}`;
+  return null;
 }
 
 // Logo/Badge Visual das Distribuidoras (PROFARMA, DISTRIMED, DPC, SOTON, DIVIMED, MARTINS, ORIENTE)
@@ -182,7 +276,8 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   onEscolherFornecedor,
   onAtualizarRegra,
   onAbrirVerCarrinhos,
-  onNavegarTab
+  onNavegarTab,
+  onRecarregarDados
 }) => {
   const { addToast } = useToast();
   
@@ -191,11 +286,35 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const [copiadoEan, setCopiadoEan] = useState<string | null>(null);
   const [historico, setHistorico] = useState<number[]>([]);
 
-  // Filtra itens com cotação ativa que não estão excluídos permanentemente nem adiados
+  // Cache local de imagens buscadas sob demanda e controle de falhas
+  const [imagensResolvidas, setImagensResolvidas] = useState<Record<number, string>>({});
+  const [buscandoImagemIds, setBuscandoImagemIds] = useState<Record<number, boolean>>({});
+  const [imagensComErro, setImagensComErro] = useState<Record<number, boolean>>({});
+  const tentadosRef = useRef<Set<number>>(new Set());
+
+  // Produtos confirmados no carrinho durante esta sessão (ocultados imediatamente dos cards da semana)
+  const [idsAdicionadosSemanaSessao, setIdsAdicionadosSemanaSessao] = useState<Record<number, boolean>>({});
+
+  // Modal de Finalizar Procedimento (Montagem de Carrinhos nos Portais + Sugestões de Pedido Mínimo)
+  const [modalFinalizarOpen, setModalFinalizarOpen] = useState<boolean>(false);
+  const [portaisMarcadosFinalizar, setPortaisMarcadosFinalizar] = useState<Record<string, boolean>>({});
+  const [executandoCarrinhos, setExecutandoCarrinhos] = useState<boolean>(false);
+  const [progressoPortais, setProgressoPortais] = useState<Record<string, {
+    status: 'AGUARDANDO' | 'EXECUTANDO' | 'CONCLUIDO' | 'ERRO';
+    atual: number;
+    total: number;
+    sucessos: number;
+    erros: number;
+    mensagem: string;
+  }>>({});
+
+  // Filtra itens com cotação ativa que não estão excluídos permanentemente, nem adiados, nem já enviados ao carrinho na semana atual
   const itens = useMemo(() => {
     return faltas
       .filter(f => {
-        if (f.nao_cotar || f.is_adiado_proxima_semana) return false;
+        if (f.nao_cotar || f.is_adiado_proxima_semana || f.is_enviado_carrinho_semana || idsAdicionadosSemanaSessao[f.produto_id]) {
+          return false;
+        }
         return Boolean(f.preco_1 && f.preco_1 > 0 && f.fornecedor_1 && f.fornecedor_1 !== 'Sem Estoque (Portais)' && f.fornecedor_1 !== 'Não Cotado');
       })
       .sort((a, b) => {
@@ -206,35 +325,424 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         if (a.ranking_posicao && b.ranking_posicao) return a.ranking_posicao - b.ranking_posicao;
         return (b.vmd_ponderado || 0) - (a.vmd_ponderado || 0);
       });
-  }, [faltas]);
+  }, [faltas, idsAdicionadosSemanaSessao]);
 
   const index = Math.min(Math.max(0, indexAtual), Math.max(0, itens.length - 1));
   const item = itens[index] || null;
 
-  // Resumo da compra aprovada
+  // Busca automática de imagens para o item atual e os próximos 3 itens da fila se não tiverem foto
+  const solicitarBuscaImagem = async (alvo: FaltaItem7d, forcar = false) => {
+    if (!alvo) return;
+    if (!forcar && tentadosRef.current.has(alvo.produto_id)) return;
+    tentadosRef.current.add(alvo.produto_id);
+    setBuscandoImagemIds(prev => ({ ...prev, [alvo.produto_id]: true }));
+    try {
+      const res = await fetch('/api/belaped/buscar-imagem-produto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ean: alvo.ean,
+          descricao: alvo.descricao,
+          produto_id: alvo.produto_id,
+          forcar
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.imagem_url) {
+          setImagensResolvidas(prev => ({ ...prev, [alvo.produto_id]: `${data.imagem_url}?t=${Date.now()}` }));
+          setImagensComErro(prev => ({ ...prev, [alvo.produto_id]: false }));
+        }
+      }
+    } catch {
+      // Silencioso em background
+    } finally {
+      setBuscandoImagemIds(prev => ({ ...prev, [alvo.produto_id]: false }));
+    }
+  };
+
+  useEffect(() => {
+    const janela = itens.slice(index, index + 4);
+    janela.forEach(it => {
+      const temUrl = Boolean(imagensResolvidas[it.produto_id] || (it.imagem_url && !imagensComErro[it.produto_id]));
+      if (!temUrl) {
+        solicitarBuscaImagem(it, false);
+      }
+    });
+  }, [index, itens]);
+
+  // Helper para obter o pedido mínimo de uma distribuidora
+  const obterPedidoMinimoDist = (distNorm: string): number => {
+    const cfg = portais.find(p => normalizarNomeDistribuidora(p.nome) === distNorm);
+    if (cfg && Number(cfg.pedido_minimo) > 0) return Number(cfg.pedido_minimo);
+    return MINIMOS_PADRAO_PORTAL[distNorm] || 300;
+  };
+
+  // Resumo da compra aprovada agrupada por distribuidora
   const resumo = useMemo(() => {
     let total = 0;
     let qtd = 0;
-    const distMap: Record<string, { total: number; min: number }> = {};
+    const distMap: Record<string, {
+      distribuidora: string;
+      total: number;
+      min: number;
+      atingiuMinimo: boolean;
+      faltaParaMinimo: number;
+      itens: FaltaItem7d[];
+    }> = {};
 
     faltas.forEach(f => {
-      if (itensSelecionados[f.produto_id]) {
-        const preco = f.preco_1 || f.preco_ult_compra || f.custo_unitario || 0;
-        const sub = (f.qtd_sugerida_7d || 1) * preco;
-        total += sub;
-        qtd += 1;
-
-        const dist = (f.fornecedor_1 || 'Outros').toUpperCase();
-        if (!distMap[dist]) {
-          const cfg = portais.find(p => p.nome.toUpperCase() === dist);
-          distMap[dist] = { total: 0, min: cfg?.pedido_minimo || 0 };
-        }
-        distMap[dist].total += sub;
+      if (f.nao_cotar || f.nao_carrinho || f.is_adiado_proxima_semana || f.is_enviado_carrinho_semana || idsAdicionadosSemanaSessao[f.produto_id]) {
+        return;
       }
+      if (!itensSelecionados[f.produto_id]) return;
+      if (!f.fornecedor_1 || f.fornecedor_1 === 'Não Cotado' || f.fornecedor_1 === 'Sem Estoque (Portais)' || !f.preco_1 || f.preco_1 <= 0) {
+        return;
+      }
+
+      const preco = Number(f.preco_1) || 0;
+      const qtdItem = Math.max(1, Number(f.qtd_sugerida_7d) || 1);
+      const sub = Number((qtdItem * preco).toFixed(2));
+      total += sub;
+      qtd += 1;
+
+      const dist = normalizarNomeDistribuidora(f.fornecedor_1);
+      if (!distMap[dist]) {
+        const min = obterPedidoMinimoDist(dist);
+        distMap[dist] = {
+          distribuidora: dist,
+          total: 0,
+          min,
+          atingiuMinimo: false,
+          faltaParaMinimo: min,
+          itens: []
+        };
+      }
+      distMap[dist].total = Number((distMap[dist].total + sub).toFixed(2));
+      distMap[dist].itens.push(f);
+      distMap[dist].atingiuMinimo = distMap[dist].min <= 0 || distMap[dist].total >= distMap[dist].min;
+      distMap[dist].faltaParaMinimo = Math.max(0, Number((distMap[dist].min - distMap[dist].total).toFixed(2)));
     });
 
-    return { total, qtd, distMap };
-  }, [faltas, itensSelecionados, portais]);
+    return { total: Number(total.toFixed(2)), qtd, distMap };
+  }, [faltas, itensSelecionados, portais, idsAdicionadosSemanaSessao]);
+
+  // Sugestões inteligentes de produtos já cotados para completar o pedido mínimo de cada distribuidora
+  const sugestoesParaMinimoPorDist = useMemo(() => {
+    const mapa: Record<string, Array<{
+      item: FaltaItem7d;
+      precoNaDist: number;
+      urlNaDist?: string | null;
+      subtotalNaDist: number;
+      isPrimeiroColocado: boolean;
+      jaSelecionadoOutraDist: boolean;
+    }>> = {};
+
+    Object.values(resumo.distMap).forEach(grupo => {
+      if (grupo.atingiuMinimo) return;
+      const distAlvo = grupo.distribuidora;
+      const candidatos: Array<{
+        item: FaltaItem7d;
+        precoNaDist: number;
+        urlNaDist?: string | null;
+        subtotalNaDist: number;
+        isPrimeiroColocado: boolean;
+        jaSelecionadoOutraDist: boolean;
+      }> = [];
+
+      faltas.forEach(f => {
+        if (f.nao_cotar || f.nao_carrinho || f.is_adiado_proxima_semana || f.is_enviado_carrinho_semana || idsAdicionadosSemanaSessao[f.produto_id]) {
+          return;
+        }
+        const jaSelecionado = Boolean(itensSelecionados[f.produto_id]);
+        const distAtualItem = normalizarNomeDistribuidora(f.fornecedor_1);
+        // Se já está selecionado nesta mesma distribuidora, já faz parte do total dela
+        if (jaSelecionado && distAtualItem === distAlvo) return;
+
+        // Procura cotação disponível nesta distribuidora (em todas_cotacoes_reais, fornecedor_1 ou fornecedor_2)
+        let precoNaDist = 0;
+        let urlNaDist: string | null | undefined = null;
+
+        if (distAtualItem === distAlvo && f.preco_1 && f.preco_1 > 0) {
+          precoNaDist = f.preco_1;
+          urlNaDist = f.url_produto_1;
+        } else if (normalizarNomeDistribuidora(f.fornecedor_2) === distAlvo && f.preco_2 && f.preco_2 > 0) {
+          precoNaDist = f.preco_2;
+          urlNaDist = f.url_produto_2;
+        } else if (Array.isArray(f.todas_cotacoes_reais)) {
+          const cot = f.todas_cotacoes_reais.find(c => normalizarNomeDistribuidora(c.distribuidora) === distAlvo && c.preco > 0);
+          if (cot) {
+            precoNaDist = cot.preco;
+            urlNaDist = cot.url_produto;
+          }
+        }
+
+        if (precoNaDist > 0) {
+          const qtdSug = Math.max(1, Number(f.qtd_sugerida_7d) || 1);
+          candidatos.push({
+            item: f,
+            precoNaDist,
+            urlNaDist,
+            subtotalNaDist: Number((qtdSug * precoNaDist).toFixed(2)),
+            isPrimeiroColocado: distAtualItem === distAlvo,
+            jaSelecionadoOutraDist: jaSelecionado && distAtualItem !== distAlvo
+          });
+        }
+      });
+
+      // Ordena: 1º não selecionados ainda -> 2º onde a distribuidora já é 1ª colocada -> 3º Prioridade P1..P4 -> 4º Maior Giro (VMD)
+      const pesoPrio: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
+      candidatos.sort((a, b) => {
+        if (a.jaSelecionadoOutraDist !== b.jaSelecionadoOutraDist) return a.jaSelecionadoOutraDist ? 1 : -1;
+        if (a.isPrimeiroColocado !== b.isPrimeiroColocado) return a.isPrimeiroColocado ? -1 : 1;
+        const pA = pesoPrio[a.item.prioridade || 'P4'] || 5;
+        const pB = pesoPrio[b.item.prioridade || 'P4'] || 5;
+        if (pA !== pB) return pA - pB;
+        return (b.item.vmd_ponderado || 0) - (a.item.vmd_ponderado || 0);
+      });
+
+      mapa[distAlvo] = candidatos.slice(0, 12);
+    });
+
+    return mapa;
+  }, [faltas, resumo.distMap, itensSelecionados, idsAdicionadosSemanaSessao]);
+
+  // Abre modal de Finalizar Procedimento inicializando os checkboxes (marcados se >= mínimo, desmarcados se < mínimo)
+  const handleAbrirModalFinalizar = () => {
+    const inicial: Record<string, boolean> = {};
+    Object.values(resumo.distMap).forEach(g => {
+      inicial[g.distribuidora] = g.atingiuMinimo;
+    });
+    setPortaisMarcadosFinalizar(inicial);
+    setProgressoPortais({});
+    setModalFinalizarOpen(true);
+  };
+
+  // Inclui um item sugerido para ajudar a atingir o pedido mínimo da distribuidora
+  const handleIncluirSugestaoMinimo = (
+    distAlvo: string,
+    sug: { item: FaltaItem7d; precoNaDist: number; urlNaDist?: string | null; subtotalNaDist: number }
+  ) => {
+    onEscolherFornecedor(sug.item.produto_id, 1, distAlvo, sug.precoNaDist, sug.urlNaDist);
+    setItensSelecionados(prev => ({ ...prev, [sug.item.produto_id]: true }));
+    const grupoAtual = resumo.distMap[distAlvo];
+    if (grupoAtual && (grupoAtual.total + sug.subtotalNaDist) >= grupoAtual.min) {
+      setPortaisMarcadosFinalizar(prev => ({ ...prev, [distAlvo]: true }));
+    }
+    addToast(`+ "${sug.item.descricao}" incluído na ${distAlvo} (R$ ${sug.subtotalNaDist.toFixed(2)})`, 'success');
+  };
+
+  // Auto-completa uma distribuidora até atingir o pedido mínimo usando as melhores sugestões
+  const handleAutoCompletarMinimo = (distAlvo: string) => {
+    const grupo = resumo.distMap[distAlvo];
+    const sugs = sugestoesParaMinimoPorDist[distAlvo] || [];
+    if (!grupo || sugs.length === 0) return;
+
+    let acumulado = grupo.total;
+    let adicionadosCount = 0;
+    const novosSelecionados: Record<number, boolean> = {};
+
+    for (const sug of sugs) {
+      if (acumulado >= grupo.min) break;
+      onEscolherFornecedor(sug.item.produto_id, 1, distAlvo, sug.precoNaDist, sug.urlNaDist);
+      novosSelecionados[sug.item.produto_id] = true;
+      acumulado += sug.subtotalNaDist;
+      adicionadosCount++;
+    }
+
+    if (adicionadosCount > 0) {
+      setItensSelecionados(prev => ({ ...prev, ...novosSelecionados }));
+      if (acumulado >= grupo.min) {
+        setPortaisMarcadosFinalizar(prev => ({ ...prev, [distAlvo]: true }));
+      }
+      addToast(`⚡ ${adicionadosCount} produto(s) incluídos na ${distAlvo}! Novo total: R$ ${acumulado.toFixed(2)}`, 'success');
+    }
+  };
+
+  // Executa a montagem real dos carrinhos nos portais marcados e oculta da semana os itens confirmados
+  const handleExecutarFinalizacaoPortais = async () => {
+    const gruposParaEnviar = Object.values(resumo.distMap).filter(
+      g => portaisMarcadosFinalizar[g.distribuidora] && g.itens.length > 0
+    );
+
+    if (gruposParaEnviar.length === 0) {
+      addToast('Selecione pelo menos uma distribuidora para montar o carrinho.', 'warning');
+      return;
+    }
+
+    setExecutandoCarrinhos(true);
+    const progInicial: typeof progressoPortais = {};
+    gruposParaEnviar.forEach(g => {
+      progInicial[g.distribuidora] = {
+        status: 'AGUARDANDO',
+        atual: 0,
+        total: g.itens.length,
+        sucessos: 0,
+        erros: 0,
+        mensagem: 'Na fila para iniciar...'
+      };
+    });
+    setProgressoPortais(progInicial);
+
+    let totalAdicionadosGeral = 0;
+    let totalErrosGeral = 0;
+    const produtosConfirmadosIds: number[] = [];
+
+    for (const grupo of gruposParaEnviar) {
+      const endpoints = obterEndpointsCarrinhoPortal(grupo.distribuidora);
+      if (!endpoints) {
+        setProgressoPortais(prev => ({
+          ...prev,
+          [grupo.distribuidora]: {
+            ...prev[grupo.distribuidora],
+            status: 'ERRO',
+            mensagem: 'Portal sem robô de carrinho configurado.'
+          }
+        }));
+        continue;
+      }
+
+      setProgressoPortais(prev => ({
+        ...prev,
+        [grupo.distribuidora]: {
+          ...prev[grupo.distribuidora],
+          status: 'EXECUTANDO',
+          mensagem: 'Iniciando robô e limpando carrinho no portal...'
+        }
+      }));
+
+      try {
+        const payloadItens = grupo.itens.map(it => ({
+          produto_id: it.produto_id,
+          ean: it.ean,
+          descricao: it.descricao,
+          quantidade: Math.max(1, Number(it.qtd_sugerida_7d) || 1),
+          preco_1: Number(it.preco_1) || 0,
+          preco_ult_compra: Number(it.preco_ult_compra || it.custo_unitario || 0),
+          fornecedor_2: it.fornecedor_2,
+          preco_2: it.preco_2
+        }));
+
+        const startRes = await fetch(endpoints.postUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itens: payloadItens })
+        });
+        const startData = await startRes.json();
+
+        if (!startRes.ok || !startData.success) {
+          setProgressoPortais(prev => ({
+            ...prev,
+            [grupo.distribuidora]: {
+              ...prev[grupo.distribuidora],
+              status: 'ERRO',
+              mensagem: startData.message || startData.error || 'Falha ao iniciar robô'
+            }
+          }));
+          continue;
+        }
+
+        // Faz polling em statusUrl até emAndamento === false
+        let finalizado = false;
+        let tentativas = 0;
+        while (!finalizado && tentativas < 240) {
+          await new Promise(r => setTimeout(r, 1500));
+          tentativas++;
+          const stRes = await fetch(endpoints.statusUrl);
+          if (!stRes.ok) continue;
+          const stData = await stRes.json();
+          const st = stData.status;
+          if (!st) continue;
+
+          const atual = Number(st.atual ?? (st.sucesso ? grupo.itens.length : 0));
+          const total = Number(st.total || grupo.itens.length);
+          const sucessos = Number(st.sucessos ?? (st.sucesso ? grupo.itens.length : 0));
+          const erros = Number(st.erros || 0);
+          const msg = st.ultimoItem || st.mensagem || `Processando ${atual}/${total}...`;
+
+          setProgressoPortais(prev => ({
+            ...prev,
+            [grupo.distribuidora]: {
+              status: st.emAndamento ? 'EXECUTANDO' : 'CONCLUIDO',
+              atual,
+              total,
+              sucessos,
+              erros,
+              mensagem: st.emAndamento ? msg : `Concluído: ${sucessos} adicionados no carrinho`
+            }
+          }));
+
+          if (!st.emAndamento) {
+            finalizado = true;
+            totalAdicionadosGeral += sucessos;
+            totalErrosGeral += erros;
+
+            // Identifica quais itens foram confirmados com status ADICIONADO
+            const eansSucesso = new Set<string>();
+            if (Array.isArray(st.itens)) {
+              st.itens.forEach((ri: any) => {
+                if (ri.status === 'ADICIONADO' && ri.ean) {
+                  eansSucesso.add(String(ri.ean).trim());
+                }
+              });
+            } else if (st.sucesso) {
+              // Caso de importação por planilha (Distrimed)
+              grupo.itens.forEach(gi => {
+                if (gi.ean) eansSucesso.add(String(gi.ean).trim());
+              });
+            }
+
+            grupo.itens.forEach(gi => {
+              if (gi.ean && eansSucesso.has(String(gi.ean).trim())) {
+                produtosConfirmadosIds.push(gi.produto_id);
+              }
+            });
+          }
+        }
+      } catch (e: any) {
+        setProgressoPortais(prev => ({
+          ...prev,
+          [grupo.distribuidora]: {
+            ...prev[grupo.distribuidora],
+            status: 'ERRO',
+            mensagem: 'Erro de conexão: ' + (e.message || 'falha')
+          }
+        }));
+      }
+    }
+
+    // Remove dos selecionados e oculta dos cards da semana atual apenas os produtos que realmente entraram nos carrinhos
+    if (produtosConfirmadosIds.length > 0) {
+      setIdsAdicionadosSemanaSessao(prev => {
+        const next = { ...prev };
+        produtosConfirmadosIds.forEach(id => { next[id] = true; });
+        return next;
+      });
+      setItensSelecionados(prev => {
+        const next = { ...prev };
+        produtosConfirmadosIds.forEach(id => { next[id] = false; });
+        return next;
+      });
+    }
+
+    if (onRecarregarDados) {
+      await onRecarregarDados();
+    }
+
+    setExecutandoCarrinhos(false);
+
+    if (totalAdicionadosGeral > 0) {
+      addToast(
+        `✅ ${totalAdicionadosGeral} produto(s) adicionados aos carrinhos nos portais e ocultados da lista desta semana!`,
+        'success'
+      );
+    } else if (totalErrosGeral > 0) {
+      addToast(
+        `⚠️ Nenhum item pôde ser adicionado (${totalErrosGeral} falha/sem estoque). Os itens permanecem nos cards para decisão.`,
+        'warning'
+      );
+    }
+  };
 
   const handleProximo = () => {
     if (index < itens.length - 1) setIndexAtual(index + 1);
@@ -253,6 +761,23 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       addToast(`EAN ${ean} copiado!`, 'success');
       setTimeout(() => setCopiadoEan(null), 1800);
     } catch {}
+  };
+
+  const handleConferirNoPortal = (alvo: FaltaItem7d, colocacao: 1 | 2 = 1) => {
+    const url = obterUrlConferenciaPortal(alvo, colocacao);
+    if (alvo.ean) {
+      try {
+        navigator.clipboard.writeText(alvo.ean);
+        setCopiadoEan(alvo.ean);
+        setTimeout(() => setCopiadoEan(null), 2000);
+      } catch {}
+    }
+    if (url) {
+      addToast(`EAN ${alvo.ean || ''} copiado! Abrindo portal para conferência...`, 'info');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      addToast('Link direto não disponível para esta distribuidora.', 'warning');
+    }
   };
 
   const handleComprar = (alvo: FaltaItem7d) => {
@@ -303,6 +828,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   // Atalhos de teclado (Seta Esquerda / Seta Direita)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (modalFinalizarOpen || confirmarModal) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'ArrowRight') {
@@ -313,9 +839,9 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [index, itens.length]);
+  }, [index, itens.length, modalFinalizarOpen, confirmarModal]);
 
-  // Gestos de toque lateral (Swipe) para smartphones (ex: Galaxy S21)
+  // Gestos de toque lateral (Swipe) para smartphones
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -341,12 +867,21 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           <CheckCircle2 className="w-6 h-6" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-white">Todas as cotações foram revisadas</h3>
+          <h3 className="text-base font-bold text-white">Todas as cotações da semana foram revisadas</h3>
           <p className="text-xs text-slate-400 mt-1">
-            Nenhum produto pendente de decisão nesta semana.
+            Nenhum produto pendente de decisão nesta semana (itens já enviados ao carrinho ficam ocultos até a próxima semana).
           </p>
         </div>
-        <div className="pt-2 flex justify-center gap-3">
+        <div className="pt-2 flex flex-wrap justify-center gap-3">
+          {resumo.qtd > 0 && (
+            <button
+              onClick={handleAbrirModalFinalizar}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-emerald-950/50"
+            >
+              <PackageCheck className="w-4 h-4" />
+              <span>Finalizar Procedimento ({resumo.qtd} itens • R$ {resumo.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
+            </button>
+          )}
           <button
             onClick={onAbrirVerCarrinhos}
             className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all cursor-pointer"
@@ -375,22 +910,27 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const diff2Colocado = (preco1 > 0 && preco2 > preco1) ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
   const jaSelecionado = Boolean(itensSelecionados[item.produto_id]);
 
+  const urlImagemExibida = imagensResolvidas[item.produto_id] || (!imagensComErro[item.produto_id] ? item.imagem_url : null);
+  const estaBuscandoImagem = Boolean(buscandoImagemIds[item.produto_id]);
+  const urlConferencia1 = obterUrlConferenciaPortal(item, 1);
+  const urlConferencia2 = item.fornecedor_2 && preco2 > 0 ? obterUrlConferenciaPortal(item, 2) : null;
+
   return (
-    <div className="max-w-3xl mx-auto space-y-3 pb-6 animate-in fade-in duration-200">
+    <div className="max-w-3xl mx-auto space-y-3 pb-24 animate-in fade-in duration-200">
       
-      {/* ─── TOPO MINIMALISTA: CONTADOR, RESUMO E AÇÃO DE CARRINHO ────────────── */}
-      <div className="flex items-center justify-between px-1 py-1 text-xs">
+      {/* ─── TOPO: CONTADOR, RESUMO, VER CARRINHO E BOTÃO FINALIZAR PROCEDIMENTO ─── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1 text-xs">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-slate-300">
-            {index + 1} de {itens.length}
+            Card <b className="text-cyan-400">{index + 1}</b> de {itens.length}
           </span>
           <span className="text-slate-600">•</span>
           <span className="text-slate-400">
-            Aprovados: <b className="text-white">{resumo.qtd}</b> (<b className="text-emerald-400">R$ {resumo.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>)
+            Selecionados: <b className="text-white">{resumo.qtd}</b> (<b className="text-emerald-400">R$ {resumo.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>)
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {historico.length > 0 && (
             <button
               onClick={handleDesfazer}
@@ -404,30 +944,49 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
 
           <button
             onClick={onAbrirVerCarrinhos}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white font-semibold transition-all cursor-pointer border border-slate-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white font-semibold transition-all cursor-pointer border border-slate-700"
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            <span>Ver Carrinho ({resumo.qtd})</span>
+            <span>Ver Lista ({resumo.qtd})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleAbrirModalFinalizar}
+            disabled={resumo.qtd === 0}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer active:scale-95"
+            title="Revisar pedidos mínimos por distribuidora e montar carrinhos automaticamente nos portais"
+          >
+            <PackageCheck className="w-4 h-4 text-emerald-100" />
+            <span>Finalizar Procedimento ({resumo.qtd})</span>
           </button>
         </div>
       </div>
 
-      {/* Mini-linha com status dos pedidos mínimos (se houver seleções) */}
+      {/* Mini-linha clicável com status dos pedidos mínimos por distribuidora */}
       {Object.keys(resumo.distMap).length > 0 && (
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 text-[11px]">
-          {Object.entries(resumo.distMap).map(([dist, d]) => {
-            const ok = d.min <= 0 || d.total >= d.min;
+          {Object.values(resumo.distMap).map((d) => {
+            const ok = d.atingiuMinimo;
             return (
-              <span
-                key={dist}
-                className={`shrink-0 px-2 py-0.5 rounded-md border font-medium ${
+              <button
+                key={d.distribuidora}
+                type="button"
+                onClick={handleAbrirModalFinalizar}
+                className={`shrink-0 px-2.5 py-1 rounded-lg border font-medium cursor-pointer transition-all flex items-center gap-1.5 ${
                   ok
-                    ? 'border-emerald-600/40 text-emerald-300 bg-emerald-950/20'
-                    : 'border-slate-800 text-slate-400 bg-slate-900/40'
+                    ? 'border-emerald-600/50 text-emerald-300 bg-emerald-950/30 hover:bg-emerald-950/50'
+                    : 'border-amber-600/50 text-amber-300 bg-amber-950/30 hover:bg-amber-950/50'
                 }`}
+                title="Clique para revisar pedido mínimo e sugestões desta distribuidora"
               >
-                {dist}: <b>R$ {d.total.toFixed(0)}</b> {d.min > 0 && (ok ? '✓' : `(faltam R$ ${(d.min - d.total).toFixed(0)})`)}
-              </span>
+                <span>{d.distribuidora}: <b>R$ {d.total.toFixed(0)}</b></span>
+                {d.min > 0 && (
+                  <span className="text-[10px] opacity-90">
+                    {ok ? '✓ Mín. OK' : `⚠️ faltam R$ ${d.faltaParaMinimo.toFixed(0)}`}
+                  </span>
+                )}
+              </button>
             );
           })}
         </div>
@@ -450,7 +1009,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         }`}
       >
         
-        {/* Bloco Superior: Tags discretas e Categoria */}
+        {/* Bloco Superior: Tags discretas, EAN e Navegação Rápida no Topo */}
         <div className="flex items-center justify-between text-[11px] gap-2">
           <div className="flex items-center gap-1.5 flex-wrap">
             {item.prioridade && (
@@ -472,44 +1031,65 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             </span>
           </div>
 
-          {item.ean && (
-            <button
-              onClick={(e) => handleCopiarEan(item.ean, e)}
-              className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer"
-              title="Copiar código EAN"
-            >
-              {copiadoEan === item.ean ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              <span>{item.ean}</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {item.ean && (
+              <button
+                onClick={(e) => handleCopiarEan(item.ean, e)}
+                className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                title="Copiar código EAN"
+              >
+                {copiadoEan === item.ean ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{item.ean}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Bloco Produto: Foto Real do Produto (25% do Card) + Informações */}
         <div className="flex items-start gap-3.5 sm:gap-4">
-          <div className="w-[25%] aspect-square min-w-[95px] max-w-[160px] rounded-2xl bg-[#080d18] border border-slate-800/90 flex items-center justify-center p-2 shrink-0 overflow-hidden relative shadow-inner">
-            {item.imagem_url ? (
+          <div className="w-[25%] aspect-square min-w-[95px] max-w-[160px] rounded-2xl bg-[#080d18] border border-slate-800/90 flex items-center justify-center p-2 shrink-0 overflow-hidden relative shadow-inner group">
+            {urlImagemExibida ? (
               <img
-                src={item.imagem_url}
+                key={urlImagemExibida}
+                src={urlImagemExibida}
                 alt={item.descricao}
-                className="w-full h-full object-contain p-0.5 drop-shadow-md"
-                loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                  const fb = e.currentTarget.nextElementSibling;
-                  if (fb) (fb as HTMLElement).style.display = 'flex';
+                className="w-full h-full object-contain p-0.5 drop-shadow-md bg-white/95 rounded-xl"
+                loading="eager"
+                onError={() => {
+                  setImagensComErro(prev => ({ ...prev, [item.produto_id]: true }));
+                  solicitarBuscaImagem(item, true);
                 }}
               />
-            ) : null}
-            <div className={`${item.imagem_url ? 'hidden' : 'flex'} flex-col items-center justify-center w-full h-full text-slate-500`}>
-              {item.tipo_categoria === 'MEDICAMENTO' ? (
-                <Pill className="w-10 h-10 text-cyan-400 stroke-[1.75]" />
-              ) : (
-                <Sparkles className="w-10 h-10 text-purple-400 stroke-[1.75]" />
-              )}
-              <span className="text-[10px] uppercase font-bold tracking-wider mt-1.5 text-slate-500">
-                {item.tipo_categoria === 'MEDICAMENTO' ? 'Medicamento' : 'Perfumaria'}
-              </span>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center w-full h-full text-slate-500">
+                {estaBuscandoImagem ? (
+                  <>
+                    <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin" />
+                    <span className="text-[9px] uppercase font-bold tracking-wider mt-1.5 text-cyan-400">
+                      Buscando foto...
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {item.tipo_categoria === 'MEDICAMENTO' ? (
+                      <Pill className="w-10 h-10 text-cyan-400 stroke-[1.75]" />
+                    ) : (
+                      <Sparkles className="w-10 h-10 text-purple-400 stroke-[1.75]" />
+                    )}
+                    <span className="text-[10px] uppercase font-bold tracking-wider mt-1.5 text-slate-500">
+                      {item.tipo_categoria === 'MEDICAMENTO' ? 'Medicamento' : 'Perfumaria'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => solicitarBuscaImagem(item, true)}
+                      className="mt-1 text-[9px] text-cyan-400 hover:underline cursor-pointer"
+                    >
+                      Buscar foto
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 min-w-0 space-y-1">
@@ -527,7 +1107,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Linha Minimalista de Estoque & Saídas (Sem caixas pesadas) */}
+        {/* Linha Minimalista de Estoque & Saídas */}
         <div className="grid grid-cols-4 gap-2 py-2 px-3 rounded-xl bg-[#080e1b] border border-slate-800/80 text-center text-xs">
           <div>
             <span className="text-[10px] text-slate-500 block uppercase">Estoque</span>
@@ -555,17 +1135,28 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* ─── COTAÇÃO DOS GANHADORES (DESIGN LIMPO) ───────────────────────────── */}
+        {/* ─── COTAÇÃO DOS GANHADORES + LINK DIRETO DE CONFERÊNCIA NO PORTAL ─── */}
         <div className="space-y-2 pt-1">
           {/* 1º Colocado */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#091222] border border-emerald-500/40">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-[#091222] border border-emerald-500/40">
+            <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
               <DistribuidoraLogoClean nome={item.fornecedor_1} isWinner={true} />
               {economizou && (
-                <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-emerald-400 font-medium">
+                <span className="inline-flex items-center gap-0.5 text-[11px] text-emerald-400 font-medium">
                   <TrendingDown className="w-3 h-3" />
                   <span>-R$ {diferencaReais.toFixed(2)} ({Math.abs(diffPct)}%)</span>
                 </span>
+              )}
+              {urlConferencia1 && (
+                <button
+                  type="button"
+                  onClick={() => handleConferirNoPortal(item, 1)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 hover:text-white border border-cyan-700/60 text-[11px] font-bold transition-all cursor-pointer shadow-xs"
+                  title={`Abrir página do produto na ${item.fornecedor_1} para conferência (copia o EAN automaticamente)`}
+                >
+                  <span>Conferir no Portal</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
               )}
             </div>
 
@@ -577,21 +1168,32 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* 2º Colocado (Discreto) */}
+          {/* 2º Colocado (Discreto + Link de Conferência) */}
           {item.fornecedor_2 && preco2 > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#080d1a] border border-slate-800/80 text-xs">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#080d1a] border border-slate-800/80 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] text-slate-500 uppercase">2º:</span>
                 <DistribuidoraLogoClean nome={item.fornecedor_2} isWinner={false} />
-                <span className="text-slate-400 font-medium">
-                  R$ {preco2.toFixed(2)} {diff2Colocado > 0 && <span className="text-slate-500">(+{diff2Colocado}%)</span>}
+                <span className="text-slate-300 font-semibold">
+                  R$ {preco2.toFixed(2)} {diff2Colocado > 0 && <span className="text-slate-500 font-normal">(+{diff2Colocado}%)</span>}
                 </span>
+                {urlConferencia2 && (
+                  <button
+                    type="button"
+                    onClick={() => handleConferirNoPortal(item, 2)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 border border-slate-700/80 text-[10px] font-semibold transition-colors cursor-pointer"
+                    title={`Conferir produto no portal da ${item.fornecedor_2}`}
+                  >
+                    <span>Conferir</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </button>
+                )}
               </div>
 
               <button
                 type="button"
                 onClick={() => handleComprarSegundo(item)}
-                className="text-xs text-slate-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors font-medium"
+                className="text-xs text-slate-300 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors font-semibold"
                 title={`Direcionar compra para ${item.fornecedor_2}`}
               >
                 <span>Optar por este</span>
@@ -643,8 +1245,37 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           </div>
         </div>
 
+        {/* ─── BARRA DE NAVEGAÇÃO ANTERIOR / PRÓXIMO (ACIMA DOS BOTÕES PARA NUNCA COLIDIR COM O ROBÔ) ─── */}
+        <div className="flex items-center justify-between py-2 px-2.5 rounded-xl bg-[#080e1b] border border-slate-800/90 text-xs">
+          <button
+            type="button"
+            onClick={handleAnterior}
+            disabled={index === 0}
+            className="flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/70 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all font-bold"
+            title="Item anterior (ou tecla ←)"
+          >
+            <ChevronLeft className="w-4 h-4 text-cyan-400" />
+            <span>Anterior</span>
+          </button>
+
+          <span className="text-xs text-slate-300 font-bold">
+            Produto <span className="text-cyan-400">{index + 1}</span> de {itens.length}
+          </span>
+
+          <button
+            type="button"
+            onClick={handleProximo}
+            disabled={index >= itens.length - 1}
+            className="flex items-center gap-1.5 py-1.5 px-3.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-200 hover:text-white border border-cyan-700/70 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all font-bold shadow-sm"
+            title="Próximo item (ou tecla →)"
+          >
+            <span>Próximo</span>
+            <ChevronRight className="w-4 h-4 text-cyan-300" />
+          </button>
+        </div>
+
         {/* ─── BOTÕES DE AÇÃO: PRINCIPAL + PLANOS ──────────────────────────────── */}
-        <div className="pt-2 space-y-2">
+        <div className="pt-1 space-y-2">
           {/* Botão de Comprar */}
           <button
             type="button"
@@ -656,7 +1287,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             }`}
           >
             <ShoppingCart className="w-4 h-4" />
-            <span>{jaSelecionado ? `✓ No Carrinho (${item.fornecedor_1?.split(' ')[0]}) - Confirmar` : `Comprar na ${item.fornecedor_1?.split(' ')[0] || '1ª'}`}</span>
+            <span>{jaSelecionado ? `✓ No Carrinho (${item.fornecedor_1?.split(' ')[0]}) - Avançar p/ Próximo` : `Comprar na ${item.fornecedor_1?.split(' ')[0] || '1ª'}`}</span>
           </button>
 
           {/* Botões Secundários Planos */}
@@ -682,38 +1313,256 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             </button>
           </div>
         </div>
-
-        {/* ─── NAVEGAÇÃO DE SETAS MINIMALISTA ──────────────────────────────────── */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs text-slate-400">
-          <button
-            type="button"
-            onClick={handleAnterior}
-            disabled={index === 0}
-            className="flex items-center gap-1 py-1 px-2 rounded-lg hover:text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Item anterior (ou tecla ←)"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Anterior</span>
-            <span className="hidden sm:inline text-[10px] text-slate-600 font-mono">←</span>
-          </button>
-
-          <span className="text-[11px] text-slate-500 font-medium">
-            {index + 1} de {itens.length}
-          </span>
-
-          <button
-            type="button"
-            onClick={handleProximo}
-            disabled={index >= itens.length - 1}
-            className="flex items-center gap-1 py-1 px-2 rounded-lg hover:text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Próximo item (ou tecla →)"
-          >
-            <span className="hidden sm:inline text-[10px] text-slate-600 font-mono">→</span>
-            <span>Próximo</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
       </div>
+
+      {/* ─── MODAL: FINALIZAR PROCEDIMENTO & MONTAR CARRINHOS NOS PORTAIS ──────── */}
+      {modalFinalizarOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0b1220] border border-cyan-500/40 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl text-slate-100 overflow-hidden">
+            {/* Cabeçalho */}
+            <div className="p-4 bg-[#080e1a] border-b border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
+                  <PackageCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black uppercase text-white">
+                    Finalizar Procedimento & Montar Carrinhos nos Portais
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Confira o pedido mínimo de cada distribuidora. Os itens adicionados nos carrinhos não aparecerão novamente nesta semana.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !executandoCarrinhos && setModalFinalizarOpen(false)}
+                disabled={executandoCarrinhos}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer disabled:opacity-40"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Lista de Distribuidoras e Sugestões de Pedido Mínimo */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
+              {Object.values(resumo.distMap).length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  Nenhum produto selecionado com cotação ativa para montar carrinho.
+                </div>
+              ) : (
+                Object.values(resumo.distMap).map(grupo => {
+                  const marcado = Boolean(portaisMarcadosFinalizar[grupo.distribuidora]);
+                  const sugs = sugestoesParaMinimoPorDist[grupo.distribuidora] || [];
+                  const prog = progressoPortais[grupo.distribuidora];
+
+                  return (
+                    <div
+                      key={grupo.distribuidora}
+                      className={`rounded-2xl border p-3.5 space-y-3 transition-all ${
+                        grupo.atingiuMinimo
+                          ? 'bg-[#0d1628] border-emerald-500/40'
+                          : 'bg-[#121420] border-amber-500/50'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <button
+                            type="button"
+                            disabled={executandoCarrinhos}
+                            onClick={() =>
+                              setPortaisMarcadosFinalizar(prev => ({
+                                ...prev,
+                                [grupo.distribuidora]: !prev[grupo.distribuidora]
+                              }))
+                            }
+                            className="text-cyan-400 hover:text-cyan-300 cursor-pointer disabled:opacity-50"
+                          >
+                            {marcado ? (
+                              <CheckSquare className="w-5 h-5 text-emerald-400" />
+                            ) : (
+                              <Square className="w-5 h-5 text-slate-500" />
+                            )}
+                          </button>
+                          <DistribuidoraLogoClean nome={grupo.distribuidora} />
+                          <span className="text-xs font-bold text-slate-300">
+                            {grupo.itens.length} produto(s)
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2.5">
+                          <div className="text-right">
+                            <span className="text-sm font-black text-white block">
+                              R$ {grupo.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block">
+                              Mínimo: R$ {grupo.min.toFixed(2)}
+                            </span>
+                          </div>
+
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-black border ${
+                              grupo.atingiuMinimo
+                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
+                                : 'bg-amber-950/80 text-amber-300 border-amber-600/60'
+                            }`}
+                          >
+                            {grupo.atingiuMinimo
+                              ? '✓ Mínimo Atingido'
+                              : `⚠️ Faltam R$ ${grupo.faltaParaMinimo.toFixed(2)}`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Progresso ao Vivo durante Execução do Robô */}
+                      {prog && (
+                        <div className="p-2.5 rounded-xl bg-[#070c16] border border-slate-800 space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-cyan-300 flex items-center gap-1.5">
+                              {prog.status === 'EXECUTANDO' && <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />}
+                              {prog.status === 'CONCLUIDO' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                              {prog.status === 'ERRO' && <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />}
+                              <span>{prog.mensagem}</span>
+                            </span>
+                            <span className="font-mono text-[11px] text-slate-400">
+                              {prog.atual}/{prog.total} ({prog.sucessos} OK)
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${
+                                prog.status === 'ERRO' ? 'bg-rose-500' : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${prog.total > 0 ? Math.min(100, Math.round((prog.atual / prog.total) * 100)) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Painel de Sugestões de Produtos para Atingir o Pedido Mínimo */}
+                      {!grupo.atingiuMinimo && !executandoCarrinhos && (
+                        <div className="p-3 rounded-xl bg-[#090f1d] border border-amber-500/30 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>
+                                Sugestões já cotadas na {grupo.distribuidora} para completar R$ {grupo.faltaParaMinimo.toFixed(2)}:
+                              </span>
+                            </div>
+                            {sugs.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleAutoCompletarMinimo(grupo.distribuidora)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black transition-all cursor-pointer shadow-sm"
+                              >
+                                <Zap className="w-3 h-3" />
+                                <span>Auto-completar Mínimo</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {sugs.length === 0 ? (
+                            <p className="text-[11px] text-slate-400">
+                              Não há outros produtos cotados com estoque nesta distribuidora no momento. Você ainda pode marcar a caixa acima se desejar montar o carrinho parcial mesmo assim.
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                              {sugs.map(sug => (
+                                <div
+                                  key={sug.item.produto_id}
+                                  className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#0d1526] border border-slate-800/90 text-xs"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      {sug.item.prioridade && (
+                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-slate-800 text-cyan-300">
+                                          {sug.item.prioridade}
+                                        </span>
+                                      )}
+                                      <span className="font-bold text-white truncate">{sug.item.descricao}</span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                      <span>Est: {sug.item.saldo} un</span>
+                                      <span>•</span>
+                                      <span>Giro: {sug.item.vmd_ponderado}/dia</span>
+                                      <span>•</span>
+                                      <span>{sug.item.qtd_sugerida_7d} un × R$ {sug.precoNaDist.toFixed(2)}</span>
+                                      {sug.jaSelecionadoOutraDist && (
+                                        <span className="text-amber-400">(Atualmente em {sug.item.fornecedor_1?.split(' ')[0]})</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="font-black text-emerald-300 text-xs">
+                                      + R$ {sug.subtotalNaDist.toFixed(2)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleIncluirSugestaoMinimo(grupo.distribuidora, sug)}
+                                      className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-black cursor-pointer transition-colors flex items-center gap-1"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>Incluir</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="p-4 bg-[#080e1a] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-slate-400">
+                Portais marcados para montar carrinho:{' '}
+                <b className="text-white">
+                  {Object.values(resumo.distMap).filter(g => portaisMarcadosFinalizar[g.distribuidora]).length}
+                </b>{' '}
+                de {Object.values(resumo.distMap).length}
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  disabled={executandoCarrinhos}
+                  onClick={() => setModalFinalizarOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer disabled:opacity-40"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    executandoCarrinhos ||
+                    Object.values(resumo.distMap).filter(g => portaisMarcadosFinalizar[g.distribuidora]).length === 0
+                  }
+                  onClick={handleExecutarFinalizacaoPortais}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-black shadow-lg shadow-emerald-950/60 flex items-center gap-2 cursor-pointer transition-all"
+                >
+                  {executandoCarrinhos ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Montando Carrinhos nos Portais...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-4 h-4" />
+                      <span>Confirmar e Montar Carrinhos nos Portais</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── MODAL DISCRETA: NUNCA MAIS COTAR ─────────────────────────────────── */}
       {confirmarModal && (
