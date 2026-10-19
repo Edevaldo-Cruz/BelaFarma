@@ -4510,6 +4510,26 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/baixar-relatorio-prioridades
+   * Download direto da planilha Excel de prioridades (.xlsx) com cabeçalhos forçados de anexo
+   */
+  router.get('/baixar-relatorio-prioridades', (req, res) => {
+    try {
+      const filePath = path.join(__dirname, '../public/relatorio-prioridades-belaped.xlsx');
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ success: false, error: 'Arquivo de relatório não encontrado no servidor.' });
+      }
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="relatorio-prioridades-belaped.xlsx"');
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } catch (err) {
+      console.error('[BelaPed] Erro ao servir planilha de prioridades:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/belaped/exportar-planilha-distrimed
    * Exporta arquivo no modelo aceito pela Modal da Distrimed (EAN;Quantidade)
    */

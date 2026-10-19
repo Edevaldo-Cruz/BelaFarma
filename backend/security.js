@@ -453,6 +453,14 @@ function isPublicApiRoute(req) {
     return true;
   }
 
+  // Relatório público de prioridades do BelaPed para download/impressão
+  if (
+    reqPath === '/belaped/baixar-relatorio-prioridades' ||
+    reqPath.startsWith('/belaped/baixar-relatorio-')
+  ) {
+    return true;
+  }
+
   return false;
 }
 
