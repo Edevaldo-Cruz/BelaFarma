@@ -48,6 +48,9 @@ export interface FaltaItem7d {
   preco_ult_compra?: number;
   fornecedor_ult_compra: string;
   data_ult_compra: string;
+  nf_ult_compra?: string;
+  qtd_ult_compra?: number | null;
+  embalagem_ult_compra?: string;
   qtd_sugerida_7d: number;
   subtotal_7d: number;
   tipo_categoria: 'MEDICAMENTO' | 'PERFUMARIA';
@@ -57,6 +60,8 @@ export interface FaltaItem7d {
   fornecedor_2?: string;
   preco_2?: number;
   url_produto_2?: string | null;
+  fornecedor_2_ref?: string | null;
+  preco_2_ref?: number;
   todas_cotacoes_reais?: CotacaoRealItem[];
   prioridade?: 'P1' | 'P2' | 'P3' | 'P4';
   nao_cotar?: boolean;
@@ -1135,14 +1140,14 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* ─── COTAÇÃO DOS GANHADORES + LINK DIRETO DE CONFERÊNCIA NO PORTAL ─── */}
+        {/* ─── COTAÇÃO DOS GANHADORES (1º E 2º COLOCADOS) + INFORMAÇÃO DA ÚLTIMA COMPRA ─── */}
         <div className="space-y-2 pt-1">
           {/* 1º Colocado */}
           <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-[#091222] border border-emerald-500/40">
             <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
               <DistribuidoraLogoClean nome={item.fornecedor_1} isWinner={true} />
               {economizou && (
-                <span className="inline-flex items-center gap-0.5 text-[11px] text-emerald-400 font-medium">
+                <span className="inline-flex items-center gap-0.5 text-[11px] text-emerald-400 font-semibold bg-emerald-950/60 border border-emerald-700/50 px-2 py-0.5 rounded-md">
                   <TrendingDown className="w-3 h-3" />
                   <span>-R$ {diferencaReais.toFixed(2)} ({Math.abs(diffPct)}%)</span>
                 </span>
@@ -1164,19 +1169,18 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               <span className="text-base sm:text-lg font-black text-emerald-300">
                 R$ {preco1.toFixed(2)}
               </span>
-              <span className="text-[10px] text-slate-500 block">/unidade</span>
+              <span className="text-[10px] text-slate-500 block">/unidade (1º Colocado)</span>
             </div>
           </div>
 
-          {/* 2º Colocado (Discreto + Link de Conferência) */}
-          {item.fornecedor_2 && preco2 > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#080d1a] border border-slate-800/80 text-xs">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] text-slate-500 uppercase">2º:</span>
-                <DistribuidoraLogoClean nome={item.fornecedor_2} isWinner={false} />
-                <span className="text-slate-300 font-semibold">
-                  R$ {preco2.toFixed(2)} {diff2Colocado > 0 && <span className="text-slate-500 font-normal">(+{diff2Colocado}%)</span>}
+          {/* 2º Colocado (Sempre visível com valor em destaque) */}
+          {item.fornecedor_2 && item.fornecedor_2 !== '—' && preco2 > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:px-3 rounded-xl bg-[#080f1e] border border-slate-700/80 text-xs">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300 uppercase">
+                  2º Colocado
                 </span>
+                <DistribuidoraLogoClean nome={item.fornecedor_2} isWinner={false} />
                 {urlConferencia2 && (
                   <button
                     type="button"
@@ -1188,26 +1192,116 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                     <ExternalLink className="w-2.5 h-2.5" />
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => handleComprarSegundo(item)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-cyan-950 text-slate-200 hover:text-cyan-300 border border-slate-700 hover:border-cyan-700/60 text-[11px] font-bold cursor-pointer transition-all"
+                  title={`Optar por comprar no 2º colocado (${item.fornecedor_2})`}
+                >
+                  <span>Optar pelo 2º</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => handleComprarSegundo(item)}
-                className="text-xs text-slate-300 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors font-semibold"
-                title={`Direcionar compra para ${item.fornecedor_2}`}
-              >
-                <span>Optar por este</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
+              <div className="text-right shrink-0">
+                <span className="text-sm sm:text-base font-black text-slate-200">
+                  R$ {preco2.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-amber-400/90 block font-medium">
+                  {preco2 > preco1
+                    ? `+R$ ${(preco2 - preco1).toFixed(2)} (+${diff2Colocado}% vs 1º)`
+                    : '/unidade (2º Colocado)'}
+                </span>
+              </div>
+            </div>
+          ) : item.fornecedor_2_ref && (item.preco_2_ref || 0) > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:px-3 rounded-xl bg-[#080d1a] border border-slate-800/90 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-[10px] font-bold text-slate-400 uppercase">
+                  2º Colocado
+                </span>
+                <DistribuidoraLogoClean nome={item.fornecedor_2_ref} isWinner={false} />
+                <span className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60 text-[10px] text-amber-300 font-semibold">
+                  Sem estoque no momento
+                </span>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-sm font-bold text-slate-300">
+                  R$ {Number(item.preco_2_ref).toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-500 block">/un (ref. cotada)</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#080d1a] border border-slate-800/70 text-xs text-slate-400">
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-[10px] font-bold text-slate-400 uppercase">
+                  2º Colocado
+                </span>
+                <span>Apenas 1 distribuidora com estoque cotado para este item</span>
+              </div>
+              <span className="font-semibold text-slate-500">Sem 2ª oferta</span>
             </div>
           )}
 
-          {/* Referência Última Compra */}
-          <div className="flex items-center justify-between px-1 text-[11px] text-slate-500">
-            <span>Última Compra no ERP:</span>
-            <span>
-              {precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'} {item.fornecedor_ult_compra ? `(${item.fornecedor_ult_compra})` : ''}
-            </span>
+          {/* Bloco Completo: Informação da Última Compra (Digifarma / Nota Fiscal) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:px-3 rounded-xl bg-[#070c17] border border-slate-800/90 text-xs">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+                  Última Compra (NF / ERP)
+                </span>
+                {item.nf_ult_compra && (
+                  <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[10px] border border-slate-700">
+                    {item.nf_ult_compra}
+                  </span>
+                )}
+                {item.data_ult_compra && (
+                  <span className="text-[10px] text-slate-400">
+                    • {(() => {
+                      const dStr = String(item.data_ult_compra).slice(0, 10);
+                      const parts = dStr.split('-');
+                      return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dStr;
+                    })()}
+                  </span>
+                )}
+                {item.qtd_ult_compra ? (
+                  <span className="text-[10px] text-slate-400">
+                    • Qtd: <b className="text-slate-300">{item.qtd_ult_compra} un</b>
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="text-[11px] text-slate-300 font-medium truncate" title={item.fornecedor_ult_compra}>
+                Fornecedor: <span className="text-white font-semibold">{item.fornecedor_ult_compra || 'Não registrado'}</span>
+                {item.embalagem_ult_compra ? (
+                  <span className="text-slate-500 text-[10px] ml-1.5">({item.embalagem_ult_compra})</span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="text-right shrink-0">
+              <span className="text-sm font-black text-white">
+                {precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}
+              </span>
+              {precoUlt > 0 && preco1 > 0 ? (
+                <span className={`text-[10px] block font-semibold ${
+                  preco1 < precoUlt
+                    ? 'text-emerald-400'
+                    : preco1 > precoUlt
+                    ? 'text-amber-400'
+                    : 'text-slate-400'
+                }`}>
+                  {preco1 < precoUlt
+                    ? `Economia -R$ ${(precoUlt - preco1).toFixed(2)} (${diffPct}%)`
+                    : preco1 > precoUlt
+                    ? `+R$ ${(preco1 - precoUlt).toFixed(2)} (+${diffPct}% vs últ.)`
+                    : 'Mesmo valor da últ. compra'}
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-500 block">/un últ. compra</span>
+              )}
+            </div>
           </div>
         </div>
 

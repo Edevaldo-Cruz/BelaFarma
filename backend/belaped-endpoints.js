@@ -428,8 +428,9 @@ function belapedEndpoints(db) {
       // Itens avulsos adicionados manualmente pelo usuário
       const avulsos = db.prepare(`SELECT * FROM belaped_itens_avulsos ORDER BY created_at DESC`).all();
 
-      // Cotações reais obtidas pelos robôs (Profarma, DPC, Soton, Distrimed)
+      // Cotações reais obtidas pelos robôs (Profarma, DPC, Soton, Distrimed, Divimed, Martins, Oriente)
       const cotacoesReaisMap = {};
+      const cotacoesSemEstoqueComPrecoMap = {};
       const eansConsultadosSet = new Set();
       try {
         const todasCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais ORDER BY preco ASC`).all();
@@ -438,9 +439,27 @@ function belapedEndpoints(db) {
           if (c.disponivel === 1 && c.preco > 0) {
             if (!cotacoesReaisMap[c.ean]) cotacoesReaisMap[c.ean] = [];
             cotacoesReaisMap[c.ean].push(c);
+          } else if (c.preco > 0) {
+            if (!cotacoesSemEstoqueComPrecoMap[c.ean]) cotacoesSemEstoqueComPrecoMap[c.ean] = [];
+            cotacoesSemEstoqueComPrecoMap[c.ean].push(c);
           }
         }
       } catch (e) {}
+
+      // Cache de Últimas Compras reais do ERP Digifarma (Notas Fiscais: fornecedor, data, NF, quantidade, embalagem e preço)
+      const ultCompraByIdMap = new Map();
+      const ultCompraByEanMap = new Map();
+      try {
+        const rowsUltCompra = db.prepare(`
+          SELECT produto_id, ean, preco_unitario_ult_compra, preco_total_nota, quantidade,
+                 embalagem, embalagem_detalhe, data_compra, fornecedor_nome, numero_nota_fiscal, fonte
+          FROM digifarma_ultimas_compras_cache
+        `).all();
+        for (const uc of rowsUltCompra) {
+          if (uc.produto_id) ultCompraByIdMap.set(Number(uc.produto_id), uc);
+          if (uc.ean) ultCompraByEanMap.set(String(uc.ean).trim(), uc);
+        }
+      } catch (eUc) {}
 
       // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas, adiar e enviado ao carrinho na semana)
       const regrasMap = {};
@@ -761,9 +780,31 @@ function belapedEndpoints(db) {
       let unidadesCortadasEqualizador = 0;
       let economiaEqualizadorReais = 0;
 
+      const isArquivoImagemValido = (filePath) => {
+        try {
+          if (!fs.existsSync(filePath)) return false;
+          const buf = fs.readFileSync(filePath);
+          if (!buf || buf.length < 1200) return false;
+          const isJpeg = buf[0] === 0xFF && buf[1] === 0xD8;
+          const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+          const isWebp = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46;
+          const isGif = buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46;
+          return isJpeg || isPng || isWebp || isGif;
+        } catch (e) {
+          return false;
+        }
+      };
+
       const items = candidatosFinais.map(cand => {
         const { raw: r, vmd, saldo, vendas30d, vendasHistorico6m, isEsquecido6m, diasCobertura, chaveEq, equivalentesAgrupados, avulsoInfo } = cand;
-        const custo = Number(r.preco_unitario_ult_compra) || Number(r.custo_unitario) || Number(avulsoInfo?.preco_referencia) || 0;
+        const ultCache = (r.produto_id && ultCompraByIdMap.get(Number(r.produto_id))) ||
+          (r.ean && ultCompraByEanMap.get(String(r.ean).trim())) ||
+          null;
+        const custo = Number(ultCache?.preco_unitario_ult_compra) ||
+          Number(r.preco_unitario_ult_compra) ||
+          Number(r.custo_unitario) ||
+          Number(avulsoInfo?.preco_referencia) ||
+          0;
 
         // Cruzamento com a Guia de Faltas do Belinha
         let faltaBelinhaMatch = null;
@@ -795,6 +836,7 @@ function belapedEndpoints(db) {
 
         // Verifica se há cotação REAL capturada pelos robôs para este EAN
         const cotacoesReais = r.ean ? cotacoesReaisMap[r.ean] : null;
+        const cotacoesSemEst = r.ean ? cotacoesSemEstoqueComPrecoMap[r.ean] : null;
         const jaConsultado = r.ean ? eansConsultadosSet.has(r.ean) : false;
         let fornecedor1 = '';
         let preco1 = 0;
@@ -802,6 +844,8 @@ function belapedEndpoints(db) {
         let fornecedor2 = '';
         let preco2 = 0;
         let urlProduto2 = null;
+        let fornecedor2Ref = null;
+        let preco2Ref = 0;
         let diferencaPct = 0;
 
         if (cotacoesReais && cotacoesReais.length > 0) {
@@ -819,6 +863,14 @@ function belapedEndpoints(db) {
             preco2 = 0;
             urlProduto2 = null;
             diferencaPct = 0;
+            // Se houver um 2º portal cotado com preço registrado porém sem estoque no momento, expõe como referência
+            if (Array.isArray(cotacoesSemEst) && cotacoesSemEst.length > 0) {
+              const segRef = cotacoesSemEst.find(x => String(x.fornecedor).toUpperCase() !== String(fornecedor1).toUpperCase());
+              if (segRef && Number(segRef.preco) > 0) {
+                fornecedor2Ref = segRef.fornecedor;
+                preco2Ref = Number(Number(segRef.preco).toFixed(2));
+              }
+            }
           }
         } else if (jaConsultado) {
           fornecedor1 = 'Sem Estoque (Portais)';
@@ -907,6 +959,13 @@ function belapedEndpoints(db) {
           /\b(\d+\s*(MG|ML|MCG|G)|CPR|COMP|CAPS|GOTAS|POMADA|CREME|XPE|SUSP)\b/i.test(descUpper);
 
         let fotoUrl = (r.ean && fotoEanMap.get(String(r.ean).trim())) || r.imagem_url || null;
+        if (fotoUrl && fotoUrl.startsWith('/uploads/produtos/')) {
+          const checkRel = path.join(__dirname, '..', 'public', fotoUrl);
+          const checkBack = path.join(__dirname, fotoUrl);
+          if (!isArquivoImagemValido(checkRel) && !isArquivoImagemValido(checkBack)) {
+            fotoUrl = null;
+          }
+        }
         if (!fotoUrl && r.produto_id) {
           try {
             const pIdStr = String(r.produto_id);
@@ -917,7 +976,7 @@ function belapedEndpoints(db) {
               path.join(__dirname, 'uploads/produtos', `${pIdStr}.png`)
             ];
             for (const cPath of candidates) {
-              if (fs.existsSync(cPath)) {
+              if (isArquivoImagemValido(cPath)) {
                 const ext = cPath.endsWith('.png') ? 'png' : 'jpg';
                 fotoUrl = `/uploads/produtos/${pIdStr}.${ext}`;
                 break;
@@ -942,6 +1001,14 @@ function belapedEndpoints(db) {
           (enviadoAte && String(enviadoAte) >= hojeIso) ||
           (r.ean && eansNoCarrinhoSemanaSet.has(String(r.ean).trim()))
         );
+
+        const fornUltFinal = (ultCache?.fornecedor_nome && String(ultCache.fornecedor_nome).trim()) ||
+          (r.ultima_compra_fornecedor && String(r.ultima_compra_fornecedor).trim()) ||
+          'Não registrado';
+        const dataUltFinal = ultCache?.data_compra || r.ultima_compra_data || '';
+        const nfUltFinal = ultCache?.numero_nota_fiscal || r.ultima_compra_nf || '';
+        const qtdUltFinal = ultCache?.quantidade ? Number(ultCache.quantidade) : null;
+        const embUltFinal = ultCache?.embalagem_detalhe || '';
 
         return {
           produto_id: r.produto_id,
@@ -978,6 +1045,8 @@ function belapedEndpoints(db) {
           fornecedor_2: fornecedor2,
           preco_2: preco2,
           url_produto_2: urlProduto2,
+          fornecedor_2_ref: fornecedor2Ref,
+          preco_2_ref: preco2Ref,
           condicao_comercial_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].condicao_comercial || null) : null,
           preco_padrao_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].preco_padrao || null) : null,
           is_generico_mais_barato_1: Boolean(cotacoesReais && cotacoesReais[0] && cotacoesReais[0].is_generico_mais_barato),
@@ -993,9 +1062,11 @@ function belapedEndpoints(db) {
               }))
             : [],
 
-          fornecedor_ult_compra: r.ultima_compra_fornecedor || 'Não registrado',
-          data_ult_compra: r.ultima_compra_data || '',
-          nf_ult_compra: r.ultima_compra_nf || '',
+          fornecedor_ult_compra: fornUltFinal,
+          data_ult_compra: dataUltFinal,
+          nf_ult_compra: nfUltFinal,
+          qtd_ult_compra: qtdUltFinal,
+          embalagem_ult_compra: embUltFinal,
           qtd_bruta_7d: qtdBruta7d,
           qtd_equalizada_7d: qtdEqualizada7d,
           qtd_sugerida_7d: qtdSugerida7d,
@@ -3819,11 +3890,12 @@ function belapedEndpoints(db) {
 
   /**
    * POST /api/belaped/buscar-imagem-produto
-   * Busca e salva automaticamente a foto real do produto (Napp -> Cosmos CDN -> DuckDuckGo)
+   * Busca e salva automaticamente a foto real do produto (Napp -> Bing Images -> DuckDuckGo -> Cosmos CDN)
+   * com validação estrita de assinatura de arquivo (magic bytes) para impedir HTML/Cloudflare corrompido.
    */
   router.post('/buscar-imagem-produto', async (req, res) => {
     try {
-      const { produto_id, ean, descricao } = req.body || {};
+      const { produto_id, ean, descricao, forcar } = req.body || {};
       const pId = Number(produto_id) || 0;
       const cleanEan = String(ean || '').trim();
       const desc = String(descricao || '').trim();
@@ -3831,6 +3903,15 @@ function belapedEndpoints(db) {
       if (!pId && !cleanEan && !desc) {
         return res.status(400).json({ success: false, error: 'Informe produto_id, ean ou descricao.' });
       }
+
+      const isValidImageBuffer = (buf) => {
+        if (!buf || !Buffer.isBuffer(buf) || buf.length < 1200) return false;
+        const isJpeg = buf[0] === 0xFF && buf[1] === 0xD8;
+        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+        const isWebp = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46;
+        const isGif = buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46;
+        return isJpeg || isPng || isWebp || isGif;
+      };
 
       const uploadsDir = path.join(__dirname, 'uploads', 'produtos');
       const publicUploadsDir = path.join(__dirname, '../public/uploads/produtos');
@@ -3842,30 +3923,44 @@ function belapedEndpoints(db) {
       const destPath = path.join(uploadsDir, fileName);
       const destPublic = path.join(publicUploadsDir, fileName);
 
-      // 1. Verifica se já existe em disco
-      if (fs.existsSync(destPublic) || fs.existsSync(destPath)) {
-        const urlExistente = `/uploads/produtos/${fileName}`;
-        return res.json({ success: true, imagem_url: urlExistente });
-      }
-
-      // 2. Tenta catálogo Napp (scraped_images)
-      try {
-        let nappRow = null;
-        if (cleanEan.length >= 7) {
-          nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE ean = ? AND image_url IS NOT NULL AND image_url != ''`).get(cleanEan);
-        }
-        if (!nappRow && desc.length >= 4) {
-          const words = desc.split(/\s+/).filter(w => w.length >= 3).slice(0, 2);
-          if (words.length >= 2) {
-            nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE name LIKE ? AND name LIKE ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1`).get(`%${words[0]}%`, `%${words[1]}%`);
-          } else if (words.length === 1) {
-            nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE name LIKE ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1`).get(`%${words[0]}%`);
+      // 1. Verifica se já existe em disco (validando magic bytes para remover eventual HTML corrompido)
+      if (!forcar) {
+        for (const pCheck of [destPublic, destPath]) {
+          if (fs.existsSync(pCheck)) {
+            try {
+              const bExist = fs.readFileSync(pCheck);
+              if (isValidImageBuffer(bExist)) {
+                return res.json({ success: true, imagem_url: `/uploads/produtos/${fileName}` });
+              } else {
+                try { fs.unlinkSync(pCheck); } catch (e) {}
+              }
+            } catch (e) {}
           }
         }
-        if (nappRow && nappRow.image_url) {
-          return res.json({ success: true, imagem_url: nappRow.image_url });
-        }
-      } catch (e) {}
+      }
+
+      // 2. Tenta catálogo Napp (scraped_images) se não for forçado
+      if (!forcar) {
+        try {
+          let nappRow = null;
+          if (cleanEan.length >= 7) {
+            nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE ean = ? AND image_url IS NOT NULL AND image_url != ''`).get(cleanEan);
+          }
+          if (!nappRow && desc.length >= 4) {
+            const words = desc.split(/\s+/).filter(w => w.length >= 3).slice(0, 2);
+            if (words.length >= 2) {
+              nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE name LIKE ? AND name LIKE ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1`).get(`%${words[0]}%`, `%${words[1]}%`);
+            } else if (words.length === 1) {
+              nappRow = db.prepare(`SELECT image_url FROM scraped_images WHERE name LIKE ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1`).get(`%${words[0]}%`);
+            }
+          }
+          if (nappRow && nappRow.image_url) {
+            if (!nappRow.image_url.startsWith('/uploads/produtos/') || fs.existsSync(path.join(__dirname, '..', 'public', nappRow.image_url))) {
+              return res.json({ success: true, imagem_url: nappRow.image_url });
+            }
+          }
+        } catch (e) {}
+      }
 
       const salvarBufferFoto = (buffer) => {
         fs.writeFileSync(destPath, buffer);
@@ -3884,57 +3979,100 @@ function belapedEndpoints(db) {
         return urlRel;
       };
 
-      // 3. Tenta CDN Bluesoft Cosmos por EAN
+      const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+      const cleanDesc = desc.replace(/[^\w\sÀ-ÿ0-9]/gi, ' ').replace(/\s+/g, ' ').trim();
+      const queryTerms = [];
+      if (cleanEan.length >= 7 && cleanDesc) {
+        queryTerms.push(`${cleanEan} ${cleanDesc}`);
+      }
       if (cleanEan.length >= 7) {
+        queryTerms.push(`${cleanEan} farmacia`);
+      }
+      if (cleanDesc) {
+        queryTerms.push(`${cleanDesc} produto farmacia`);
+      }
+
+      // 3. Tenta Bing Image Search (rápido e sem bloqueio Cloudflare)
+      for (const q of queryTerms) {
         try {
-          const cosmosUrl = `https://cdn-cosmos.bluesoft.com.br/products/${cleanEan}`;
-          const cosmosRes = await fetch(cosmosUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-            signal: AbortSignal.timeout(4000)
+          const bingUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(q)}&form=HDRSC2`;
+          const bRes = await fetch(bingUrl, {
+            headers: { 'User-Agent': ua, 'Accept-Language': 'pt-BR,pt;q=0.9' },
+            signal: AbortSignal.timeout(4500)
           });
-          if (cosmosRes.ok) {
-            const buffer = Buffer.from(await cosmosRes.arrayBuffer());
-            if (buffer.length > 2500) {
-              const urlSalva = salvarBufferFoto(buffer);
-              return res.json({ success: true, imagem_url: urlSalva });
+          if (bRes.ok) {
+            const html = await bRes.text();
+            const urlsCandidatas = [];
+            const murlMatches = [...html.matchAll(/murl&quot;:&quot;(https?:\/\/[^&]+?)&quot;/g)];
+            for (const m of murlMatches.slice(0, 4)) {
+              if (m[1]) urlsCandidatas.push(m[1]);
+            }
+            const turlMatches = [...html.matchAll(/turl&quot;:&quot;(https?:\/\/[^&]+?)&quot;/g)];
+            for (const t of turlMatches.slice(0, 3)) {
+              if (t[1]) urlsCandidatas.push(t[1]);
+            }
+
+            for (const candidateUrl of urlsCandidatas) {
+              try {
+                const imgRes = await fetch(candidateUrl, {
+                  headers: { 'User-Agent': ua },
+                  signal: AbortSignal.timeout(4000)
+                });
+                if (imgRes.ok) {
+                  const buffer = Buffer.from(await imgRes.arrayBuffer());
+                  if (isValidImageBuffer(buffer)) {
+                    const urlSalva = salvarBufferFoto(buffer);
+                    return res.json({ success: true, imagem_url: urlSalva });
+                  }
+                }
+              } catch (eImg) {}
             }
           }
-        } catch (e) {}
+        } catch (eBing) {}
       }
 
       // 4. Tenta DuckDuckGo Image Search por EAN + Descrição
-      const queryTerms = [];
-      if (cleanEan.length >= 7) {
-        queryTerms.push(`${cleanEan} ${desc.split(' ')[0] || 'farmacia'}`);
-      }
-      if (desc) {
-        const cleanDesc = desc.replace(/[^\w\sÀ-ÿ]/gi, ' ').trim();
-        queryTerms.push(`${cleanDesc} medicamento farmacia`);
-      }
-
       for (const q of queryTerms) {
         try {
           const tokenUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(q);
-          const r1 = await fetch(tokenUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+          const r1 = await fetch(tokenUrl, { headers: { 'User-Agent': ua }, signal: AbortSignal.timeout(4000) });
           const html = await r1.text();
           const vqdMatch = html.match(/vqd=([\d-]+)/);
           if (!vqdMatch) continue;
           const vqd = vqdMatch[1];
           const imgUrl = 'https://duckduckgo.com/i.js?l=wt-wt&o=json&q=' + encodeURIComponent(q) + '&vqd=' + vqd + '&f=,,,';
-          const r2 = await fetch(imgUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+          const r2 = await fetch(imgUrl, { headers: { 'User-Agent': ua }, signal: AbortSignal.timeout(4000) });
           const data = await r2.json();
           if (data.results && data.results.length > 0) {
             for (const itemRes of data.results.slice(0, 3)) {
               try {
-                const imgRes = await fetch(itemRes.image, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4500) });
+                const imgRes = await fetch(itemRes.image, { headers: { 'User-Agent': ua }, signal: AbortSignal.timeout(4500) });
                 if (imgRes.ok) {
                   const buffer = Buffer.from(await imgRes.arrayBuffer());
-                  if (buffer.length > 2500) {
+                  if (isValidImageBuffer(buffer)) {
                     const urlSalva = salvarBufferFoto(buffer);
                     return res.json({ success: true, imagem_url: urlSalva });
                   }
                 }
               } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 5. Tenta CDN Bluesoft Cosmos por EAN (com validação de magic bytes)
+      if (cleanEan.length >= 7) {
+        try {
+          const cosmosUrl = `https://cdn-cosmos.bluesoft.com.br/products/${cleanEan}`;
+          const cosmosRes = await fetch(cosmosUrl, {
+            headers: { 'User-Agent': ua },
+            signal: AbortSignal.timeout(4000)
+          });
+          if (cosmosRes.ok) {
+            const buffer = Buffer.from(await cosmosRes.arrayBuffer());
+            if (isValidImageBuffer(buffer)) {
+              const urlSalva = salvarBufferFoto(buffer);
+              return res.json({ success: true, imagem_url: urlSalva });
             }
           }
         } catch (e) {}
