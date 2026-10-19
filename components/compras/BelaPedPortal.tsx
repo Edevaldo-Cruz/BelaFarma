@@ -1364,7 +1364,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const totaisPorDistribuidora = useMemo(() => {
     const minimosPadrao: Record<string, number> = {
       'DISTRIMED': 350,
-      'PROFARMA': 400,
+      'PROFARMA': 150,
       'SOTON FARMA': 300,
       'DPC DISTRIBUIDORA': 300,
       'DIVIMED': 400,
