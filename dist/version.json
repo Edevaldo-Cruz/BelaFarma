@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "5517c0d",
-  "commitMessage": "feat(belaped): vincular imagens reais de produtos via scraped_images e exibir logos oficiais das distribuidoras",
-  "buildTime": "18/10/2026, 12:07:59"
+  "commitHash": "4937045",
+  "commitMessage": "feat(belaped): imagem ocupando 25% do card e recarga do servico da API com resolucao de 321 fotos",
+  "buildTime": "19/10/2026, 10:27:28"
 }
