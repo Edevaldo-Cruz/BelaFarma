@@ -363,7 +363,11 @@ class OrienteRobot {
       await this.page.waitForSelector(inputSelector, { timeout: 10000 });
 
       // Digita o EAN na busca da grade
-      await this.page.click(inputSelector);
+      await this.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (el) el.focus();
+      }, inputSelector);
+      await this.page.focus(inputSelector).catch(() => {});
       await this.page.keyboard.down('Control');
       await this.page.keyboard.press('A');
       await this.page.keyboard.up('Control');
@@ -373,32 +377,36 @@ class OrienteRobot {
 
       await new Promise(r => setTimeout(r, 1800));
 
-      // Localiza a linha do produto com validação estrita de EAN
-      const rowHandle = await this.page.evaluateHandle((eanAlvo) => {
+      // Localiza e digita a quantidade direto no DOM
+      const resAdicao = await this.page.evaluate((eanAlvo, qtd) => {
         const rows = Array.from(document.querySelectorAll('table tbody tr'));
-        return rows.find(r => (r.innerText || '').includes(eanAlvo)) || null;
-      }, eanLimpo);
+        const row = rows.find(r => (r.innerText || '').includes(eanAlvo));
+        if (!row) {
+          return { sucesso: false, motivo: `Produto EAN ${eanAlvo} não localizado na tabela.` };
+        }
 
-      if (!rowHandle || !rowHandle.asElement()) {
-        throw new Error(`Produto EAN ${eanLimpo} não encontrado na grade para adicionar.`);
+        const inputQtd = row.querySelector('input[type="number"]') || row.querySelector('input');
+        if (!inputQtd) {
+          return { sucesso: false, motivo: `Campo de quantidade não encontrado na linha do EAN ${eanAlvo}.` };
+        }
+
+        inputQtd.focus();
+        inputQtd.value = String(qtd);
+        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
+        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+        inputQtd.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+
+        const btnAdd = row.querySelector('button, [class*="add"], [class*="carrinho"], [class*="cart"]');
+        if (btnAdd) btnAdd.click();
+
+        return { sucesso: true };
+      }, eanLimpo, qtdDesejada);
+
+      if (!resAdicao.sucesso) {
+        throw new Error(resAdicao.motivo);
       }
 
-      // Localiza o input de quantidade dentro da linha
-      const inputQtdHandle = await rowHandle.asElement().$('input[type="number"]');
-      if (!inputQtdHandle) {
-        throw new Error(`Campo de quantidade não encontrado para EAN ${eanLimpo}.`);
-      }
-
-      await inputQtdHandle.click();
-      await this.page.keyboard.down('Control');
-      await this.page.keyboard.press('A');
-      await this.page.keyboard.up('Control');
-      await this.page.keyboard.press('Backspace');
-      await this.page.keyboard.type(String(qtdDesejada), { delay: 20 });
-      await this.page.keyboard.press('Tab');
-
-      // Aguarda confirmação de produto adicionado
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 1500));
 
       console.log(`[OrienteRobot] ✅ EAN ${eanLimpo} adicionado com sucesso (Qtd: ${qtdDesejada}).`);
       return {
