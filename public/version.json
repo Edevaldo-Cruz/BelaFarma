@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "cd39dfe",
-  "commitMessage": "feat(belaped): botao de download da planilha de prioridades diretamente no topo do BelaPed",
-  "buildTime": "19/10/2026, 16:28:08"
+  "commitHash": "b35c975",
+  "commitMessage": "feat(belaped): gera arquivos de importacao de carrinho para Distrimed e Profarma",
+  "buildTime": "19/10/2026, 18:26:02"
 }

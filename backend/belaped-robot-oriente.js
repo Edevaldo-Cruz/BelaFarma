@@ -193,8 +193,11 @@ class OrienteRobot {
       const inputSelector = 'input[placeholder*="Filtrar produtos" i]';
       await this.page.waitForSelector(inputSelector, { timeout: 10000 });
 
-      // Limpa e digita o EAN
-      await this.page.click(inputSelector);
+      await this.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (el) el.focus();
+      }, inputSelector);
+      await this.page.focus(inputSelector).catch(() => {});
       await this.page.keyboard.down('Control');
       await this.page.keyboard.press('A');
       await this.page.keyboard.up('Control');
