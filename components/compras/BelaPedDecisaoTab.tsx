@@ -22,7 +22,10 @@ import {
   X,
   CheckSquare,
   Square,
-  PackageCheck
+  PackageCheck,
+  FileSpreadsheet,
+  Download,
+  Printer
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -830,6 +833,32 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     addToast('↩️ Ação desfeita', 'info');
   };
 
+  const handleBaixarPlanilhaPrioridades = async () => {
+    try {
+      addToast('Gerando download da planilha de prioridades...', 'info');
+      const res = await fetch('/api/belaped/baixar-relatorio-prioridades');
+      if (!res.ok) {
+        throw new Error(`Erro no servidor (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'relatorio-prioridades-belaped.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        } catch (e) {}
+      }, 1500);
+      addToast('✅ Download da planilha concluído!', 'success');
+    } catch (err: any) {
+      addToast('Erro ao baixar planilha: ' + err.message, 'error');
+    }
+  };
+
   // Atalhos de teclado (Seta Esquerda / Seta Direita)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -962,6 +991,16 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               <span>Limpar Lista</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={handleBaixarPlanilhaPrioridades}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 hover:text-emerald-100 font-semibold transition-all cursor-pointer border border-emerald-700/60 shadow-sm"
+            title="Baixar planilha Excel (.xlsx) com a auditoria dos 51 produtos e status do radar"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Baixar Planilha (.xlsx)</span>
+          </button>
 
           <button
             onClick={onAbrirVerCarrinhos}
