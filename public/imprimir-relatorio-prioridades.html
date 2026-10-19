@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório BelaPed - Análise de Prioridades e Radar</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm 12mm;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #1e293b;
+      margin: 0;
+      padding: 10px;
+      font-size: 11px;
+    }
+    .header {
+      border-bottom: 2px solid #0284c7;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      color: #0f172a;
+    }
+    .header .subtitle {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 3px;
+    }
+    .header .date {
+      font-size: 10px;
+      color: #475569;
+      font-weight: bold;
+    }
+    .summary-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 14px;
+      display: flex;
+      gap: 20px;
+    }
+    .summary-item {
+      font-size: 10.5px;
+    }
+    .summary-item b {
+      font-weight: 700;
+    }
+    .badge-p1 {
+      color: #b91c1c;
+      font-weight: bold;
+    }
+    .badge-p2 {
+      color: #d97706;
+      font-weight: bold;
+    }
+    .badge-ok {
+      color: #15803d;
+      font-weight: bold;
+    }
+    .badge-radar-sim {
+      background: #dcfce7;
+      color: #166534;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 9.5px;
+      display: inline-block;
+    }
+    .badge-radar-nao {
+      background: #f1f5f9;
+      color: #64748b;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 9.5px;
+      display: inline-block;
+    }
+    h2 {
+      font-size: 13px;
+      color: #0369a1;
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 4px;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      page-break-inside: auto;
+    }
+    tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    th {
+      background: #f1f5f9;
+      color: #334155;
+      text-align: left;
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 5px 6px;
+      border-top: 1px solid #cbd5e1;
+      border-bottom: 1px solid #cbd5e1;
+      white-space: nowrap;
+    }
+    td {
+      padding: 4px 6px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 10px;
+      vertical-align: middle;
+    }
+    tr:nth-child(even) td {
+      background-color: #fafafa;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .nowrap { white-space: nowrap; }
+    .bold { font-weight: bold; }
+    .print-actions {
+      margin-bottom: 15px;
+      display: flex;
+      gap: 10px;
+    }
+    .btn-print {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .btn-print:hover {
+      background: #0369a1;
+    }
+    @media print {
+      .print-actions {
+        display: none !important;
+      }
+      body {
+        padding: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="print-actions">
+    <button class="btn-print" onclick="window.print()">🖨️ Imprimir / Salvar como PDF</button>
+  </div>
+
+  <div class="header">
+    <div>
+      <h1>Drogaria BelaFarma - Auditoria de Prioridades BelaPed</h1>
+      <div class="subtitle">Cruzamento da Lista Solicitada com o Estoque Físico, Giro Real e Radar de Faltas</div>
+    </div>
+    <div class="date" id="print-date"></div>
+  </div>
+
+  <div class="summary-box">
+    <div class="summary-item"><span class="badge-p1">● 18 Rupturas Críticas (P1)</span>: Saldo 0 com Giro Histórico</div>
+    <div class="summary-item"><span class="badge-p2">● 19 Baixo Estoque (P2)</span>: Saldo 1 a 2 un (Risco Iminente)</div>
+    <div class="summary-item"><span class="badge-ok">● 14 Estoque OK / Opcionais</span>: Cobertura > 7 dias ou sem giro</div>
+    <div class="summary-item" style="margin-left: auto;"><b>Total no Radar:</b> 32 / 51 itens</div>
+  </div>
+
+  <h2>Coluna 1 - Medicamentos e Produtos (24 Itens)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Produto</th>
+        <th class="text-center">Radar BelaPed</th>
+        <th class="text-center">Prioridade</th>
+        <th class="text-center">Saldo</th>
+        <th class="text-center">Vendas 30d</th>
+        <th class="text-center">Vendas 10m</th>
+        <th class="text-center">Curva</th>
+        <th>Melhor Cotação</th>
+        <th>Observação / Diagnóstico</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="bold">Naproxeno 550mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#17)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">4</td>
+        <td class="text-center">16</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>Ruptura total em item Curva A</td>
+      </tr>
+      <tr>
+        <td class="bold">Gliclazida 60mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#39)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">2</td>
+        <td class="text-center">17</td>
+        <td class="text-center">A</td>
+        <td>R$ 10,49 (Distrimed)</td>
+        <td>Ruptura crítica Curva A</td>
+      </tr>
+      <tr>
+        <td class="bold">Olmesartana 40mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#47)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">1</td>
+        <td class="text-center">7</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>Ruptura crítica Curva A</td>
+      </tr>
+      <tr>
+        <td class="bold">Pantoprazol 20 c/ 60</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#50)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (c/60)</td>
+        <td class="text-center">6</td>
+        <td class="text-center">52</td>
+        <td class="text-center">A</td>
+        <td>R$ 5,40 (Distrimed)</td>
+        <td>Caixa c/ 56/60 zerada (restam 2 cx c/ 42)</td>
+      </tr>
+      <tr>
+        <td class="bold">Timolol colírio</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#104)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">3</td>
+        <td class="text-center">14</td>
+        <td class="text-center">B</td>
+        <td>Aguardando robô</td>
+        <td>Ruptura total (3 un vendidas no mês)</td>
+      </tr>
+      <tr>
+        <td class="bold">Acebrofilina 25mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#134)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold">1 (ped)</td>
+        <td class="text-center">1</td>
+        <td class="text-center">3</td>
+        <td class="text-center">B</td>
+        <td>R$ 9,28 (Distrimed)</td>
+        <td>Infantil c/ 1 un (Adulto 50mg possui 8 un)</td>
+      </tr>
+      <tr>
+        <td class="bold">Clotrimazol Derm.</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#148)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">0</td>
+        <td class="text-center">6</td>
+        <td class="text-center">B</td>
+        <td>R$ 8,31 (Divimed)</td>
+        <td>Creme zerado (restam 2 un spray)</td>
+      </tr>
+      <tr>
+        <td class="bold">Glimepirida 2mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#151)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">4</td>
+        <td class="text-center">B</td>
+        <td>Aguardando robô</td>
+        <td>Ruptura total em estoque</td>
+      </tr>
+      <tr>
+        <td class="bold">Nimesulida gotas</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#214)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">3</td>
+        <td class="text-center">5</td>
+        <td class="text-center">C</td>
+        <td>R$ 2,19 (Distrimed)</td>
+        <td>Ruptura total (3 un vendidas em 30d)</td>
+      </tr>
+      <tr>
+        <td class="bold">Mometasona spray</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#271)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">1</td>
+        <td class="text-center">1</td>
+        <td class="text-center">10</td>
+        <td class="text-center">A</td>
+        <td>R$ 19,81 (Distrimed)</td>
+        <td>Restou apenas 1 un na loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Ciclopirox líq.</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#294)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">1</td>
+        <td class="text-center">12</td>
+        <td class="text-center">B</td>
+        <td>R$ 9,28 (Distrimed)</td>
+        <td>Solução gotas com apenas 2 un</td>
+      </tr>
+      <tr>
+        <td class="bold">Terbinafina pom./cr.</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#356)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">2</td>
+        <td class="text-center">C</td>
+        <td>R$ 15,80 (Distrimed)</td>
+        <td>Creme dermatológico zerado</td>
+      </tr>
+      <tr>
+        <td class="bold">Clopidogrel 75mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#365)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">1</td>
+        <td class="text-center">2</td>
+        <td class="text-center">26</td>
+        <td class="text-center">A</td>
+        <td>R$ 9,99 (Distrimed)</td>
+        <td>Restou apenas 1 cx na loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Betaistina 16mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#389)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">1</td>
+        <td class="text-center">1</td>
+        <td class="text-center">19</td>
+        <td class="text-center">A</td>
+        <td>R$ 10,49 (Distrimed)</td>
+        <td>Restou apenas 1 cx na loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Domperidona 10mg c/60</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#411)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">2</td>
+        <td class="text-center">38</td>
+        <td class="text-center">A</td>
+        <td>R$ 3,58 (Distrimed)</td>
+        <td>Restam 2 caixas na loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Ác. Mefenâmico</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#509)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">3</td>
+        <td class="text-center">15</td>
+        <td class="text-center">A</td>
+        <td>R$ 13,10 (Distrimed)</td>
+        <td>Vende 3/mês e restam 2 caixas</td>
+      </tr>
+      <tr>
+        <td class="bold">Rosuvas 20mg</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">4</td>
+        <td class="text-center">10</td>
+        <td class="text-center">87</td>
+        <td class="text-center">A</td>
+        <td>R$ 6,39 (Distrimed)</td>
+        <td>4 un cobrem ~12 dias (> meta de 7d)</td>
+      </tr>
+      <tr>
+        <td class="bold">Dapagliflozina</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">3</td>
+        <td class="text-center">4</td>
+        <td class="text-center">20</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>3 un cobrem ~22 dias de demanda</td>
+      </tr>
+      <tr>
+        <td class="bold">Doxazosina 2mg</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">3</td>
+        <td class="text-center">20</td>
+        <td class="text-center">B</td>
+        <td>Aguardando robô</td>
+        <td>2 un cobrem ~20 dias de demanda</td>
+      </tr>
+      <tr>
+        <td class="bold">Enalapril 20mg</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">2</td>
+        <td class="text-center">24</td>
+        <td class="text-center">B</td>
+        <td>Aguardando robô</td>
+        <td>2 un cobrem ~30 dias de demanda</td>
+      </tr>
+      <tr>
+        <td class="bold">Betaistina 24mg</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">1</td>
+        <td class="text-center">1</td>
+        <td class="text-center">23</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>1 un cobre ~30 dias (giro suave)</td>
+      </tr>
+      <tr>
+        <td class="bold">Shampoo Cetoconazol</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">4</td>
+        <td class="text-center">1</td>
+        <td class="text-center">15</td>
+        <td class="text-center">B</td>
+        <td>—</td>
+        <td>Estoque suficiente (> 60 dias)</td>
+      </tr>
+      <tr>
+        <td class="bold">Omeprazol 56 Teuto</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">13</td>
+        <td class="text-center">12</td>
+        <td class="text-center">113</td>
+        <td class="text-center">A</td>
+        <td>—</td>
+        <td>13 caixas em estoque (cobre > 30 dias)</td>
+      </tr>
+      <tr>
+        <td class="bold">Alendronato de sódio</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center" style="color:#64748b;">Sem Giro</td>
+        <td class="text-center bold">1</td>
+        <td class="text-center">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">C</td>
+        <td>—</td>
+        <td>Zero vendas registradas em 10 meses</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Coluna 2 - Medicamentos e Produtos (27 Itens)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Produto</th>
+        <th class="text-center">Radar BelaPed</th>
+        <th class="text-center">Prioridade</th>
+        <th class="text-center">Saldo</th>
+        <th class="text-center">Vendas 30d</th>
+        <th class="text-center">Vendas 10m</th>
+        <th class="text-center">Curva</th>
+        <th>Melhor Cotação</th>
+        <th>Observação / Diagnóstico</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="bold">Ox machucado (10v)</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#7)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold">3</td>
+        <td class="text-center">10</td>
+        <td class="text-center">94</td>
+        <td class="text-center">A</td>
+        <td>R$ 8,19 (Soton)</td>
+        <td>Top 10 urgência (alto giro de 94 un/10m)</td>
+      </tr>
+      <tr>
+        <td class="bold">Ny.Looks (Gel)</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#8)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">7</td>
+        <td class="text-center">66</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>Top 10 urgência (zerado e vende 7 un/mês)</td>
+      </tr>
+      <tr>
+        <td class="bold">Apixabana 2,5mg</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#28)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (2,5mg)</td>
+        <td class="text-center">2</td>
+        <td class="text-center">12</td>
+        <td class="text-center">A</td>
+        <td>R$ 16,29 (Oriente)</td>
+        <td>Zerado na dosagem 2,5mg (há 1 un de 5mg)</td>
+      </tr>
+      <tr>
+        <td class="bold">Venaflon</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#37)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold">4</td>
+        <td class="text-center">6</td>
+        <td class="text-center">37</td>
+        <td class="text-center">A</td>
+        <td>R$ 19,79 (Distrimed)</td>
+        <td>Alto giro Curva A (vende 6 un/mês)</td>
+      </tr>
+      <tr>
+        <td class="bold">Óleo de girassol</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#64)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">1</td>
+        <td class="text-center">12</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>Ruptura total (Farmax/Missner zerados)</td>
+      </tr>
+      <tr>
+        <td class="bold">Cefalexina comp.</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#80)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold">2</td>
+        <td class="text-center">5</td>
+        <td class="text-center">26</td>
+        <td class="text-center">A</td>
+        <td>R$ 5,03 (Distrimed)</td>
+        <td>Estoque crítico (2 un) e giro de 5 un/mês</td>
+      </tr>
+      <tr>
+        <td class="bold">Tira teste G-Tech</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#102)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (tiras)</td>
+        <td class="text-center">0</td>
+        <td class="text-center">3</td>
+        <td class="text-center">A</td>
+        <td>Aguardando robô</td>
+        <td>Tiras c/ 50 avulsas zeradas (só há 1 Kit)</td>
+      </tr>
+      <tr>
+        <td class="bold">Babysec XG e XXG</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#170)</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold">2 (XG)</td>
+        <td class="text-center">11</td>
+        <td class="text-center">77</td>
+        <td class="text-center">A</td>
+        <td>R$ 86,90 (Distrimed)</td>
+        <td>Tamanho XG vende 11/mês e tem só 2 pct</td>
+      </tr>
+      <tr>
+        <td class="bold">Sab. Granado</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#230)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">9 (total)</td>
+        <td class="text-center">4</td>
+        <td class="text-center">38</td>
+        <td class="text-center">B</td>
+        <td>R$ 7,53 (Profarma)</td>
+        <td>Versões Trad./Bebê zeradas na loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Dorflex Max</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#241)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (Max)</td>
+        <td class="text-center">0</td>
+        <td class="text-center">15</td>
+        <td class="text-center">C</td>
+        <td>R$ 13,39 (Profarma)</td>
+        <td>Dorflex Max zerado (comum tem 91 un)</td>
+      </tr>
+      <tr>
+        <td class="bold">Riohex líquido</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#257)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (líq)</td>
+        <td class="text-center">0</td>
+        <td class="text-center">2</td>
+        <td class="text-center">C</td>
+        <td>Aguardando robô</td>
+        <td>Líquido 30ml zerado (há 1 sabonete)</td>
+      </tr>
+      <tr>
+        <td class="bold">Benegrip hosp. / env.</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#261)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (env)</td>
+        <td class="text-center">1</td>
+        <td class="text-center">31</td>
+        <td class="text-center">A</td>
+        <td>R$ 22,47 (Profarma)</td>
+        <td>Envelope c/ 6 zerado (só há 1 cx c/ 12)</td>
+      </tr>
+      <tr>
+        <td class="bold">Allegra susp. (marca)</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#287)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">3</td>
+        <td class="text-center">C</td>
+        <td>R$ 30,40 (Profarma)</td>
+        <td>Pediátrico 60ml zerado em loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Supositório adulto</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#303)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold">5</td>
+        <td class="text-center">1</td>
+        <td class="text-center">10</td>
+        <td class="text-center">C</td>
+        <td>Aguardando robô</td>
+        <td>Marca zerada capturada no radar</td>
+      </tr>
+      <tr>
+        <td class="bold">Tintura de Iodo</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#446)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (tint)</td>
+        <td class="text-center">0</td>
+        <td class="text-center">2</td>
+        <td class="text-center">C</td>
+        <td>R$ 4,59 (Distrimed)</td>
+        <td>Tintura 2% 30ml zerada</td>
+      </tr>
+      <tr>
+        <td class="bold">Buscopan comum gts</td>
+        <td class="text-center"><span class="badge-radar-sim">SIM (#594)</span></td>
+        <td class="text-center badge-p2">P2</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (simples)</td>
+        <td class="text-center">0</td>
+        <td class="text-center">2</td>
+        <td class="text-center">C</td>
+        <td>Aguardando robô</td>
+        <td>Gotas simples zerado (composto tem 1 un)</td>
+      </tr>
+      <tr>
+        <td class="bold">Álcool 70 líq 50ml</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0 (líq)</td>
+        <td class="text-center">8</td>
+        <td class="text-center">50</td>
+        <td class="text-center">A</td>
+        <td>R$ 1,80 (Oriente)</td>
+        <td>50ml líq. zerado (há 2 gel + 11 Sulálcool)</td>
+      </tr>
+      <tr>
+        <td class="bold">Álcool iodado</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-p1">P1</td>
+        <td class="text-center bold" style="color:#b91c1c;">0</td>
+        <td class="text-center">2</td>
+        <td class="text-center">5</td>
+        <td class="text-center">B</td>
+        <td>Aguardando robô</td>
+        <td>Zerado (recomenda-se ativar em Desejados)</td>
+      </tr>
+      <tr>
+        <td class="bold">Sal de fruta Eno pote</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center" style="color:#64748b;">Sem Giro</td>
+        <td class="text-center bold">0 (pote)</td>
+        <td class="text-center">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">C</td>
+        <td>R$ 22,52 (Distrimed)</td>
+        <td>0 vendas em 10m (há 133 envelopes na loja)</td>
+      </tr>
+      <tr>
+        <td class="bold">Bismo-Jet</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center" style="color:#64748b;">Sem Giro</td>
+        <td class="text-center bold">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">0</td>
+        <td class="text-center">C</td>
+        <td>—</td>
+        <td>Sem histórico de vendas nos últimos 10m</td>
+      </tr>
+      <tr>
+        <td class="bold">Buscoduo</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">1</td>
+        <td class="text-center">0</td>
+        <td class="text-center">1</td>
+        <td class="text-center">C</td>
+        <td>—</td>
+        <td>1 cx na loja e 0 vendas nos últimos 30 dias</td>
+      </tr>
+      <tr>
+        <td class="bold">Loperamida cx</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">4</td>
+        <td class="text-center">2</td>
+        <td class="text-center">14</td>
+        <td class="text-center">B</td>
+        <td>—</td>
+        <td>4 caixas cobrem ~60 dias de demanda</td>
+      </tr>
+      <tr>
+        <td class="bold">Torcilax 20 c/ 4</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">7</td>
+        <td class="text-center">12</td>
+        <td class="text-center">19</td>
+        <td class="text-center">A</td>
+        <td>—</td>
+        <td>7 blisters c/ 4 + 157 caixas c/ 10 na loja</td>
+      </tr>
+      <tr>
+        <td class="bold">Enalapril 10mg</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">7</td>
+        <td class="text-center">4</td>
+        <td class="text-center">56</td>
+        <td class="text-center">A</td>
+        <td>—</td>
+        <td>7 caixas em estoque (cobertura > 45 dias)</td>
+      </tr>
+      <tr>
+        <td class="bold">Sab. inf. barra</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">11</td>
+        <td class="text-center">4</td>
+        <td class="text-center">38</td>
+        <td class="text-center">B</td>
+        <td>R$ 7,53 (Profarma)</td>
+        <td>Estoque suficiente (11 un)</td>
+      </tr>
+      <tr>
+        <td class="bold">Neosoro</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">18</td>
+        <td class="text-center">47</td>
+        <td class="text-center">595</td>
+        <td class="text-center">A</td>
+        <td>—</td>
+        <td>18 un cobrem ~11 dias (> meta de 7d)</td>
+      </tr>
+      <tr>
+        <td class="bold">Torsilax (caixa)</td>
+        <td class="text-center"><span class="badge-radar-nao">Não</span></td>
+        <td class="text-center badge-ok">OK</td>
+        <td class="text-center bold">157</td>
+        <td class="text-center">66</td>
+        <td class="text-center">674</td>
+        <td class="text-center">A</td>
+        <td>—</td>
+        <td>Estoque alto (157 caixas c/ 10)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <script>
+    document.getElementById('print-date').innerText = 'Data da Emissão: ' + new Date().toLocaleDateString('pt-BR') + ' às ' + new Date().toLocaleTimeString('pt-BR');
+  </script>
+</body>
+</html>
