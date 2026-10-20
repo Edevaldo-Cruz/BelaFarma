@@ -24,7 +24,7 @@ const { DistrimedRobot } = require('./belaped-robot-distrimed');
 const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
-const { validarCorrespondenciaProduto, expurgarCotacoesInconsistentes } = require('./belaped-validador');
+const { validarCorrespondenciaProduto } = require('./belaped-validador');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
 const motorEssencia = require('./belaped-motor-essencia');
 const { auditarPortalSeguro, auditarTodasDistribuidoras } = require('./belaped-auditoria-prazos');
@@ -56,6 +56,217 @@ function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
     return `https://pedidoweb.orientefarma.com.br/pedidos?busca=${termo}`;
   }
   return null;
+}
+
+/**
+ * Função Canônica de Conferência de Cortes (R4)
+ * Executa em transação SQLite atômica:
+ * a) Atualiza belaped_pedidos_itens com qtd_faturada e preco_cobrado
+ * b) Para cada item cortado, re-enfileira em belaped_itens_avulsos para re-cotação prioritária
+ * c) Se houver corte de valor, recalcula orders (totalValue e installments),
+ *    recalcula boletos pendentes protegendo o saldo mensal em monthly_limits,
+ *    e atualiza belaped_pedidos para FATURADO_COM_CORTE.
+ */
+function processarConferenciaCortes({ db: dbInstance, pedidoId, itensConferidos }) {
+  if (!dbInstance || !pedidoId || !Array.isArray(itensConferidos)) {
+    throw new Error('Parâmetros inválidos para conferência de cortes.');
+  }
+
+  let valorCorteTotal = 0;
+  const cortesDetectados = [];
+  const divergencias = [];
+  let pedidas = 0;
+  let faturadas = 0;
+
+  const resultado = dbInstance.transaction(() => {
+    // 1. Atualiza belaped_pedidos_itens com qtd_faturada e preco_cobrado
+    const updItem = dbInstance.prepare(`
+      UPDATE belaped_pedidos_itens 
+      SET qtd_faturada = ?, preco_cobrado = ? 
+      WHERE pedido_id = ? AND ean = ?
+    `);
+
+    for (const item of itensConferidos) {
+      updItem.run(
+        Number(item.qtd_faturada) || 0,
+        item.preco_cobrado != null ? Number(item.preco_cobrado) : null,
+        pedidoId,
+        String(item.ean).trim()
+      );
+    }
+
+    // 2. Avalia divergências e identifica todos os cortes (qtd_faturada < qtd_pedida)
+    const linhas = dbInstance.prepare('SELECT * FROM belaped_pedidos_itens WHERE pedido_id = ?').all(pedidoId);
+
+    let nomeDistribuidora = 'distribuidora';
+    try {
+      const belapedPedido = dbInstance.prepare('SELECT * FROM belaped_pedidos WHERE id = ?').get(pedidoId);
+      if (belapedPedido && belapedPedido.distribuidora) {
+        nomeDistribuidora = belapedPedido.distribuidora;
+      }
+    } catch (e) {}
+
+    for (const l of linhas) {
+      const qtdPedida = Number(l.qtd_pedida || 0);
+      pedidas += qtdPedida;
+
+      if (l.qtd_faturada == null) continue;
+      const qtdFaturada = Number(l.qtd_faturada);
+      faturadas += qtdFaturada;
+
+      if (qtdFaturada < qtdPedida) {
+        const qtdCorte = qtdPedida - qtdFaturada;
+        const precoRef = Number(l.preco_cotado || l.preco_cobrado || 0);
+        const subtotalCorte = Number((qtdCorte * precoRef).toFixed(2));
+        valorCorteTotal += subtotalCorte;
+
+        cortesDetectados.push({
+          ean: l.ean,
+          descricao: l.descricao,
+          qtdCorte,
+          precoRef,
+          subtotalCorte
+        });
+
+        divergencias.push({
+          ean: l.ean,
+          descricao: l.descricao,
+          tipo: 'CORTE',
+          pedido: qtdPedida,
+          faturado: qtdFaturada,
+          corte: qtdCorte,
+          valorCorte: subtotalCorte
+        });
+
+        // 3. Para cada item cortado, re-enfileira em belaped_itens_avulsos
+        const cleanEan = String(l.ean || Date.now()).replace(/\D/g, '') || String(l.ean || '').trim();
+        const avulsoId = `corte_${pedidoId}_${cleanEan}`;
+        try {
+          dbInstance.prepare(`
+            INSERT INTO belaped_itens_avulsos (
+              id, produto_id, descricao, ean, quantidade, preco_referencia, motivo, adicionado_por, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Auditoria de Cortes BelaPed', CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+              quantidade = excluded.quantidade,
+              motivo = excluded.motivo
+          `).run(
+            avulsoId,
+            l.produto_id || null,
+            l.descricao || 'Produto Cortado',
+            l.ean,
+            qtdCorte,
+            precoRef,
+            `Corte no pedido da distribuidora ${nomeDistribuidora} (#${pedidoId}) - Corte de ${qtdCorte} un.`
+          );
+        } catch (e) {
+          console.warn('[BelaPed] Aviso ao re-enfileirar item avulso cortado:', e.message);
+        }
+      }
+
+      if (l.preco_cobrado != null && l.preco_cobrado > (l.preco_cotado || 0) * 1.005) {
+        divergencias.push({
+          ean: l.ean,
+          descricao: l.descricao,
+          tipo: 'PRECO_MAIOR',
+          cotado: l.preco_cotado,
+          cobrado: l.preco_cobrado
+        });
+      }
+    }
+
+    // 4. Se houver corte de valor, recalcula orders, boletos e belaped_pedidos
+    let novoTotal = null;
+    if (valorCorteTotal > 0) {
+      try {
+        const order = dbInstance.prepare('SELECT * FROM orders WHERE id = ?').get(pedidoId);
+        if (order) {
+          const totalAntigo = Number(order.totalValue || 0);
+          novoTotal = Math.max(0, Number((totalAntigo - valorCorteTotal).toFixed(2)));
+
+          // Recalcula boletos vinculados
+          const boletosVinculados = dbInstance.prepare(`
+            SELECT * FROM boletos 
+            WHERE order_id = ? 
+            ORDER BY due_date ASC
+          `).all(pedidoId);
+
+          const boletosPendentes = boletosVinculados.filter(b => String(b.status).toLowerCase() === 'pendente');
+          const boletosPagos = boletosVinculados.filter(b => String(b.status).toLowerCase() === 'pago');
+
+          if (boletosPendentes.length > 0) {
+            const totalPago = boletosPagos.reduce((acc, b) => acc + Number(b.value || 0), 0);
+            const saldoRestante = Math.max(0, Number((novoTotal - totalPago).toFixed(2)));
+
+            const valPorBoleto = Math.floor((saldoRestante / boletosPendentes.length) * 100) / 100;
+            boletosPendentes.forEach((b, idx) => {
+              const isUltimo = idx === boletosPendentes.length - 1;
+              const valBoleto = isUltimo
+                ? Number((saldoRestante - (valPorBoleto * (boletosPendentes.length - 1))).toFixed(2))
+                : valPorBoleto;
+
+              dbInstance.prepare('UPDATE boletos SET value = ? WHERE id = ?').run(valBoleto, b.id);
+            });
+          }
+
+          // Recalcula parcelas em orders.installments
+          let installments = [];
+          try {
+            installments = JSON.parse(order.installments || '[]');
+          } catch (e) {
+            installments = [];
+          }
+
+          if (installments.length > 0) {
+            const valInst = Math.floor((novoTotal / installments.length) * 100) / 100;
+            installments = installments.map((inst, idx) => ({
+              ...inst,
+              value: idx === installments.length - 1
+                ? Number((novoTotal - (valInst * (installments.length - 1))).toFixed(2))
+                : valInst
+            }));
+          }
+
+          dbInstance.prepare('UPDATE orders SET totalValue = ?, installments = ? WHERE id = ?').run(
+            novoTotal,
+            JSON.stringify(installments),
+            pedidoId
+          );
+        }
+      } catch (e) {
+        console.warn('[BelaPed] Aviso ao atualizar orders/boletos no corte:', e.message);
+      }
+
+      // Atualiza belaped_pedidos: adjust total = total - valorCorteTotal, status = 'FATURADO_COM_CORTE'
+      try {
+        dbInstance.prepare(`
+          UPDATE belaped_pedidos 
+          SET total = MAX(0, total - ?), 
+              status = 'FATURADO_COM_CORTE', 
+              updated_at = CURRENT_TIMESTAMP 
+          WHERE id = ?
+        `).run(valorCorteTotal, pedidoId);
+
+        if (novoTotal === null) {
+          const bp = dbInstance.prepare('SELECT total FROM belaped_pedidos WHERE id = ?').get(pedidoId);
+          if (bp) novoTotal = Number(bp.total);
+        }
+      } catch (e) {}
+    }
+
+    return {
+      success: true,
+      pedidas,
+      faturadas,
+      taxa_atendimento_pct: pedidas ? Number(((faturadas / pedidas) * 100).toFixed(1)) : 0,
+      valorCorteTotal: Number(valorCorteTotal.toFixed(2)),
+      novoTotal: novoTotal != null ? Number(novoTotal.toFixed(2)) : undefined,
+      cortesDetectados,
+      divergencias,
+      recalculado: valorCorteTotal > 0
+    };
+  })();
+
+  return resultado;
 }
 
 function belapedEndpoints(db) {
@@ -1700,6 +1911,90 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/portais/:portal/sugestoes-curva-a
+   * Consulta compras_estoque_cache onde curva_abc = 'A' e saldo <= 0,
+   * cruzado com belaped_cotacoes_reais cr (disponivel = 1, preco > 0, fornecedor do portal),
+   * ordenado por vmd_ponderado DESC. Sugere quantidades para cobrir a falta.
+   */
+  router.get('/portais/:portal/sugestoes-curva-a', (req, res) => {
+    try {
+      const portalParam = req.params.portal;
+      const falta = Math.max(0, parseFloat(req.query.falta) || 0);
+
+      // Normaliza / resolve nome da distribuidora
+      let fornecedorNome = portalParam;
+      const portalRow = db.prepare(`
+        SELECT id, nome, pedido_minimo FROM belaped_portais 
+        WHERE id = lower(?) OR upper(nome) = upper(?) OR upper(nome) LIKE ?
+      `).get(portalParam, portalParam, `%${portalParam.toUpperCase()}%`);
+
+      if (portalRow) {
+        fornecedorNome = portalRow.nome;
+      }
+
+      const query = `
+        SELECT 
+          c.produto_id,
+          c.descricao,
+          c.apresentacao,
+          c.ean,
+          c.curva_abc,
+          c.saldo,
+          c.vmd_ponderado,
+          c.est_minimo_calculado,
+          c.custo_unitario,
+          cr.preco as preco_portal,
+          cr.fornecedor,
+          cr.url_produto
+        FROM compras_estoque_cache c
+        INNER JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.disponivel = 1 AND cr.preco > 0
+        WHERE c.curva_abc = 'A'
+          AND c.saldo <= 0
+          AND (UPPER(cr.fornecedor) = UPPER(?) OR UPPER(cr.fornecedor) = UPPER(?))
+        ORDER BY c.vmd_ponderado DESC
+        LIMIT 30
+      `;
+
+      const candidatos = db.prepare(query).all(portalParam, fornecedorNome);
+
+      let acumulado = 0;
+      const sugestoes = [];
+
+      for (const item of candidatos) {
+        const preco = Number(item.preco_portal);
+        if (preco <= 0) continue;
+        const vmd = Number(item.vmd_ponderado || 0);
+        // Quantidade sugerida: 7 dias de giro (mínimo 1 un, teto prudencial 20 un)
+        const qtdSugerida = Math.max(1, Math.min(20, Math.ceil(vmd * 7)));
+        const subtotal = Number((qtdSugerida * preco).toFixed(2));
+
+        sugestoes.push({
+          ...item,
+          qtd_sugerida: qtdSugerida,
+          subtotal
+        });
+
+        acumulado += subtotal;
+        if (falta > 0 && acumulado >= falta) {
+          break;
+        }
+      }
+
+      res.json({
+        success: true,
+        portal: portalRow ? portalRow.id : portalParam,
+        fornecedor: fornecedorNome,
+        falta,
+        totalSugerido: Number(acumulado.toFixed(2)),
+        sugestoes
+      });
+    } catch (err) {
+      console.error('[BelaPed] Erro em sugestoes-curva-a:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/belaped/portais
    * Cria ou edita um portal de distribuidora
    */
@@ -2590,15 +2885,68 @@ function belapedEndpoints(db) {
         if (carrinho.total >= carrinho.pedidoMinimo) {
           carrinho.atingiuMinimo = true;
           carrinho.faltaParaMinimo = 0;
+          carrinho.sugestoesComplementoCurvaA = [];
         } else {
           carrinho.atingiuMinimo = false;
           carrinho.faltaParaMinimo = Number((carrinho.pedidoMinimo - carrinho.total).toFixed(2));
+
+          // Sugestões de Curva A com saldo zerado no ERP para completar o pedido mínimo
+          let sugsCurvaA = [];
+          try {
+            const queryCurvaA = `
+              SELECT 
+                c.produto_id,
+                c.descricao,
+                c.apresentacao,
+                c.ean,
+                c.curva_abc,
+                c.saldo,
+                c.vmd_ponderado,
+                c.est_minimo_calculado,
+                c.custo_unitario,
+                cr.preco as preco_portal,
+                cr.fornecedor,
+                cr.url_produto
+              FROM compras_estoque_cache c
+              INNER JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.disponivel = 1 AND cr.preco > 0
+              WHERE c.curva_abc = 'A'
+                AND c.saldo <= 0
+                AND (UPPER(cr.fornecedor) = UPPER(?) OR UPPER(cr.fornecedor) LIKE ?)
+              ORDER BY c.vmd_ponderado DESC
+              LIMIT 20
+            `;
+            const candidatosCurvaA = db.prepare(queryCurvaA).all(carrinho.distribuidora, `%${carrinho.distribuidora.toUpperCase()}%`);
+            let acumuladoCurvaA = 0;
+            for (const item of candidatosCurvaA) {
+              const preco = Number(item.preco_portal);
+              if (preco <= 0) continue;
+              const vmd = Number(item.vmd_ponderado || 0);
+              const qtdSugerida = Math.max(1, Math.min(20, Math.ceil(vmd * 7)));
+              const subtotal = Number((qtdSugerida * preco).toFixed(2));
+              sugsCurvaA.push({
+                ...item,
+                qtd_sugerida: qtdSugerida,
+                subtotal
+              });
+              acumuladoCurvaA += subtotal;
+              if (acumuladoCurvaA >= carrinho.faltaParaMinimo) {
+                break;
+              }
+            }
+          } catch (e) {
+            console.warn('[BelaPed] Aviso ao buscar sugestoesComplementoCurvaA em simular-otimizacao:', e.message);
+            sugsCurvaA = [];
+          }
+
+          carrinho.sugestoesComplementoCurvaA = sugsCurvaA;
+
           sugestoesReagrupamento.push({
             distribuidora: carrinho.distribuidora,
             valorAtual: carrinho.total,
             pedidoMinimo: carrinho.pedidoMinimo,
             falta: carrinho.faltaParaMinimo,
-            sugestao: `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)} para atingir o mínimo (itens exclusivos desta distribuidora).`
+            sugestao: `Faltam R$ ${carrinho.faltaParaMinimo.toFixed(2)} para atingir o mínimo (itens exclusivos desta distribuidora).`,
+            sugestoesComplementoCurvaA: sugsCurvaA
           });
         }
 
@@ -2858,7 +3206,7 @@ function belapedEndpoints(db) {
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length > 0) rotuloFoco = '💼 P3: Orçamento Semanal';
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length === 0) rotuloFoco = '📦 P4: Regular';
 
-    const numWorkers = fornecedor === 'TODOS' ? 6 : 1;
+    const numWorkers = fornecedor === 'TODOS' ? 7 : 1;
     let passosConcluidos = 0;
 
     // Inicializa status com telemetria de prioridade
@@ -2977,7 +3325,8 @@ function belapedEndpoints(db) {
                 resultado = { disponivel: false, preco: null, mensagem: 'Descartado: Variação absurda (> 70% de desconto vs custo)' };
               }
               // Trava 3: 🛡️ Validação Estrita Semântica Anti-Alucinação (impede troca de produto/marca/público)
-              else if (descAtual && resultado.descricao) {
+              // Bypassa validação se for substituto equivalente ou genérico reconhecido pelo motor de essência
+              else if (descAtual && resultado.descricao && !resultado.isSubstituto && !resultado.isGenericoEquivalente && !resultado.is_substituto && !resultado.is_generico_mais_barato) {
                 const checagemSem = validarCorrespondenciaProduto(descAtual, resultado.descricao);
                 if (!checagemSem.valido) {
                   console.warn(`[BelaPed Segurança] ⛔ Cotação bloqueada por discrepância semântica em ${nomeFornecedor}: esperado "${descAtual}" vs retornado "${resultado.descricao}" (${checagemSem.motivo})`);
@@ -3132,11 +3481,64 @@ function belapedEndpoints(db) {
         cotacaoStatus.solicitouParar = false;
         cotacaoStatus.finalizadoEm = new Date().toISOString();
         console.log(`[BelaPed Cotação] Finalizada: ${cotacaoStatus.encontrados} preços reais capturados.`);
+        try {
+          expurgarCotacoesInconsistentes(db);
+        } catch (expErr) {
+          console.warn('[BelaPed Cotação] Erro no expurgo pós-lote:', expErr.message);
+        }
       }
     })();
 
     return true;
   };
+
+  /**
+   * Varre a tabela belaped_cotacoes_reais e remove cotações inconsistentes com o catálogo do ERP.
+   * Cotações legítimas de substitutos (is_substituto = 1 ou is_generico_mais_barato = 1)
+   * são expressamente PRESERVADAS e não sofrem expurgo por divergência de laboratório/marca.
+   */
+  function expurgarCotacoesInconsistentes(dbInstance) {
+    const activeDb = dbInstance || db;
+    try {
+      const cotacoes = activeDb.prepare(`
+        SELECT c.id, c.ean, c.fornecedor, c.preco, c.descricao as desc_cotada, e.descricao as desc_esperada,
+               COALESCE(c.is_substituto, 0) as is_substituto,
+               COALESCE(c.is_generico_mais_barato, 0) as is_generico_mais_barato
+        FROM belaped_cotacoes_reais c
+        JOIN compras_estoque_cache e ON e.ean = c.ean
+        WHERE c.disponivel = 1 AND c.preco > 0
+          AND COALESCE(c.is_substituto, 0) = 0
+          AND COALESCE(c.is_generico_mais_barato, 0) = 0
+      `).all();
+
+      let removidas = 0;
+      const stmtInvalidar = activeDb.prepare(`
+        UPDATE belaped_cotacoes_reais
+        SET disponivel = 0, preco = NULL, descricao = @motivo, updated_at = datetime('now')
+        WHERE id = @id
+      `);
+
+      for (const row of cotacoes) {
+        const checagem = validarCorrespondenciaProduto(row.desc_esperada, row.desc_cotada);
+        if (!checagem.valido) {
+          console.warn(`[Expurgo Cotação] 🧹 Invalidando cotação ID ${row.id} (${row.fornecedor}): EAN ${row.ean} - Esperado "${row.desc_esperada}" vs Cotado "${row.desc_cotada}" (${checagem.motivo})`);
+          stmtInvalidar.run({
+            id: row.id,
+            motivo: `[Incompatível] ${checagem.motivo}`
+          });
+          removidas++;
+        }
+      }
+
+      if (removidas > 0) {
+        console.log(`[Expurgo Cotação] ✅ ${removidas} cotações inconsistentes/fantasmas foram expurgadas com sucesso.`);
+      }
+      return removidas;
+    } catch (err) {
+      console.error('[Expurgo Cotação] Erro ao expurgar cotações inconsistentes:', err.message);
+      return 0;
+    }
+  }
 
   // =========================================================================
   // HORÁRIOS ESTRATÉGICOS DE COTAÇÃO AUTOMÁTICA (B2B FARMÁCIA)
@@ -3182,7 +3584,7 @@ function belapedEndpoints(db) {
 
       if (HORARIOS_ESTRATEGICOS.includes(horaMinutoAtual) && ultimoMinutoAgendado !== horaMinutoAtual) {
         ultimoMinutoAgendado = horaMinutoAtual;
-        console.log(`[BelaPed Agendador] >>> HORÁRIO ESTRATÉGICO (${horaMinutoAtual}): Disparando cotação nos 6 portais! <<<`);
+        console.log(`[BelaPed Agendador] >>> HORÁRIO ESTRATÉGICO (${horaMinutoAtual}): Disparando cotação nos 7 portais! <<<`);
         verificarERodarCotacaoSegundoPlano(`HORARIO_ESTRATEGICO_${horaMinutoAtual}`);
       }
 
@@ -6576,6 +6978,16 @@ function belapedEndpoints(db) {
 
       const itens = carrinho?.itens || [];
       const valorTotal = Number(carrinho?.total) || 0;
+
+      const configPortal = db.prepare('SELECT pedido_minimo FROM belaped_portais WHERE upper(nome) = upper(?) OR id = lower(?)').get(distribuidora, distribuidora);
+      const minOficial = configPortal ? Number(configPortal.pedido_minimo) : 300;
+      if (valorTotal < minOficial) {
+        return res.status(400).json({
+          success: false,
+          error: `PEDIDO_BLOQUEADO: Pedido em ${distribuidora} (R$ ${valorTotal.toFixed(2)}) abaixo do pedido mínimo de R$ ${minOficial.toFixed(2)}.`
+        });
+      }
+
       const robot = obterInstanciaRobo(distribuidora);
 
       if (!robot) {
@@ -6846,36 +7258,22 @@ function belapedEndpoints(db) {
   /**
    * PUT /api/belaped/pedidos/:id/conferencia
    * Body: { itens: [{ ean, qtd_faturada, preco_cobrado }] }
-   * Compara com o pedido e devolve divergências de quantidade (corte) e de preço.
+   * Compara com o pedido, audita cortes, atualiza boletos/orçamento e re-enfileira itens cortados.
    */
   router.put('/pedidos/:id/conferencia', (req, res) => {
     try {
       const { itens } = req.body || {};
       if (!Array.isArray(itens)) return res.status(400).json({ success: false, error: 'Informe itens.' });
-      const upd = db.prepare('UPDATE belaped_pedidos_itens SET qtd_faturada = ?, preco_cobrado = ? WHERE pedido_id = ? AND ean = ?');
-      db.transaction(() => {
-        for (const i of itens) upd.run(Number(i.qtd_faturada) || 0, i.preco_cobrado != null ? Number(i.preco_cobrado) : null, req.params.id, i.ean);
-      })();
-      const linhas = db.prepare('SELECT * FROM belaped_pedidos_itens WHERE pedido_id = ?').all(req.params.id);
-      const divergencias = [];
-      let pedidas = 0, faturadas = 0;
-      for (const l of linhas) {
-        pedidas += l.qtd_pedida || 0;
-        if (l.qtd_faturada == null) continue;
-        faturadas += l.qtd_faturada;
-        if (l.qtd_faturada < l.qtd_pedida) {
-          divergencias.push({ ean: l.ean, descricao: l.descricao, tipo: 'CORTE', pedido: l.qtd_pedida, faturado: l.qtd_faturada });
-        }
-        if (l.preco_cobrado != null && l.preco_cobrado > (l.preco_cotado || 0) * 1.005) {
-          divergencias.push({ ean: l.ean, descricao: l.descricao, tipo: 'PRECO_MAIOR', cotado: l.preco_cotado, cobrado: l.preco_cobrado });
-        }
-      }
-      res.json({
-        success: true,
-        taxa_atendimento_pct: pedidas ? Number(((faturadas / pedidas) * 100).toFixed(1)) : 0,
-        divergencias
+
+      const resultado = processarConferenciaCortes({
+        db,
+        pedidoId: req.params.id,
+        itensConferidos: itens
       });
+
+      res.json(resultado);
     } catch (err) {
+      console.error('[BelaPed] Erro em conferencia de pedido:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -7037,5 +7435,7 @@ function belapedEndpoints(db) {
 
   return router;
 }
+
+belapedEndpoints.processarConferenciaCortes = processarConferenciaCortes;
 
 module.exports = belapedEndpoints;

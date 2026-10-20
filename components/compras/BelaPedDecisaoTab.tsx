@@ -25,7 +25,9 @@ import {
   PackageCheck,
   FileSpreadsheet,
   Download,
-  Printer
+  Printer,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -86,6 +88,15 @@ interface PortalInfo {
   prazos_boleto?: string;
 }
 
+export interface GrupoDistribuidoraResumo {
+  distribuidora: string;
+  total: number;
+  min: number;
+  atingiuMinimo: boolean;
+  faltaParaMinimo: number;
+  itens: FaltaItem7d[];
+}
+
 interface Props {
   faltas: FaltaItem7d[];
   portais: PortalInfo[];
@@ -110,13 +121,13 @@ interface Props {
 }
 
 const MINIMOS_PADRAO_PORTAL: Record<string, number> = {
-  'PROFARMA': 350,
-  'DISTRIMED': 300,
-  'DPC DISTRIBUIDORA': 350,
-  'SOTON FARMA': 250,
-  'DIVIMED': 250,
-  'MARTINS ATACADO': 400,
-  'ORIENTE FARMA': 300
+  'PROFARMA': 150,
+  'DISTRIMED': 350,
+  'DPC DISTRIBUIDORA': 300,
+  'SOTON FARMA': 300,
+  'DIVIMED': 400,
+  'MARTINS ATACADO': 200,
+  'ORIENTE FARMA': 150
 };
 
 function normalizarNomeDistribuidora(nome?: string): string {
@@ -316,6 +327,40 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     mensagem: string;
   }>>({});
 
+  // Sugestões inteligentes de Curva A zerada (ERP Digifarma) para atingir pedido mínimo
+  const [curvaASugestoesPorDist, setCurvaASugestoesPorDist] = useState<Record<string, Array<{
+    produto_id: number;
+    descricao: string;
+    apresentacao?: string | null;
+    ean: string;
+    curva_abc: string;
+    saldo: number;
+    vmd_ponderado: number;
+    preco_portal: number;
+    fornecedor: string;
+    url_produto?: string | null;
+    qtd_sugerida: number;
+    subtotal: number;
+  }>>>({});
+  const [carregandoCurvaA, setCarregandoCurvaA] = useState<Record<string, boolean>>({});
+  const [abaSugestaoPorDist, setAbaSugestaoPorDist] = useState<Record<string, 'curva_a' | 'semanal'>>({});
+
+  // Itens extras de Curva A incorporados aos carrinhos para atingir o pedido mínimo
+  const [itensCurvaAAdicionados, setItensCurvaAAdicionados] = useState<Array<{
+    produto_id: number;
+    descricao: string;
+    apresentacao?: string | null;
+    ean: string;
+    curva_abc: string;
+    saldo: number;
+    vmd_ponderado: number;
+    distribuidora: string;
+    quantidade: number;
+    precoUnitario: number;
+    subtotal: number;
+    url_produto?: string | null;
+  }>>([]);
+
   // Filtra itens com cotação ativa que não estão excluídos permanentemente, nem adiados, nem já enviados ao carrinho na semana atual
   const itens = useMemo(() => {
     return faltas
@@ -390,14 +435,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const resumo = useMemo(() => {
     let total = 0;
     let qtd = 0;
-    const distMap: Record<string, {
-      distribuidora: string;
-      total: number;
-      min: number;
-      atingiuMinimo: boolean;
-      faltaParaMinimo: number;
-      itens: FaltaItem7d[];
-    }> = {};
+    const distMap: Record<string, GrupoDistribuidoraResumo> = {};
 
     faltas.forEach(f => {
       if (f.nao_cotar || f.nao_carrinho || f.is_adiado_proxima_semana || f.is_enviado_carrinho_semana || idsAdicionadosSemanaSessao[f.produto_id]) {
@@ -432,8 +470,59 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       distMap[dist].faltaParaMinimo = Math.max(0, Number((distMap[dist].min - distMap[dist].total).toFixed(2)));
     });
 
-    return { total: Number(total.toFixed(2)), qtd, distMap };
-  }, [faltas, itensSelecionados, portais, idsAdicionadosSemanaSessao]);
+    // Incorpora complementos de Curva A adicionados para atingir o pedido mínimo
+    itensCurvaAAdicionados.forEach(ca => {
+      const dist = normalizarNomeDistribuidora(ca.distribuidora);
+      if (!distMap[dist]) {
+        const min = obterPedidoMinimoDist(dist);
+        distMap[dist] = {
+          distribuidora: dist,
+          total: 0,
+          min,
+          atingiuMinimo: false,
+          faltaParaMinimo: min,
+          itens: []
+        };
+      }
+      const jaExiste = distMap[dist].itens.some(it => it.produto_id === ca.produto_id);
+      if (!jaExiste) {
+        distMap[dist].total = Number((distMap[dist].total + ca.subtotal).toFixed(2));
+        distMap[dist].itens.push({
+          produto_id: ca.produto_id,
+          descricao: ca.descricao,
+          apresentacao: ca.apresentacao || '',
+          ean: ca.ean,
+          curva_abc: ca.curva_abc || 'A',
+          saldo: ca.saldo || 0,
+          vmd_ponderado: ca.vmd_ponderado || 0,
+          vendas_30d: 0,
+          dias_estoque_restante: 0,
+          custo_unitario: ca.precoUnitario,
+          preco_ult_compra: ca.precoUnitario,
+          fornecedor_ult_compra: ca.distribuidora,
+          data_ult_compra: new Date().toISOString().slice(0, 10),
+          qtd_sugerida_7d: ca.quantidade,
+          subtotal_7d: ca.subtotal,
+          tipo_categoria: 'MEDICAMENTO',
+          fornecedor_1: ca.distribuidora,
+          preco_1: ca.precoUnitario,
+          url_produto_1: ca.url_produto,
+          prioridade: 'P1'
+        } as FaltaItem7d);
+        total += ca.subtotal;
+        qtd += 1;
+      }
+      distMap[dist].atingiuMinimo = distMap[dist].min <= 0 || distMap[dist].total >= distMap[dist].min;
+      distMap[dist].faltaParaMinimo = Math.max(0, Number((distMap[dist].min - distMap[dist].total).toFixed(2)));
+    });
+
+    return { 
+      total: Number(total.toFixed(2)), 
+      qtd, 
+      distMap,
+      grupos: Object.values(distMap) as GrupoDistribuidoraResumo[]
+    };
+  }, [faltas, itensSelecionados, portais, idsAdicionadosSemanaSessao, itensCurvaAAdicionados]);
 
   // Sugestões inteligentes de produtos já cotados para completar o pedido mínimo de cada distribuidora
   const sugestoesParaMinimoPorDist = useMemo(() => {
@@ -446,7 +535,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       jaSelecionadoOutraDist: boolean;
     }>> = {};
 
-    Object.values(resumo.distMap).forEach(grupo => {
+    resumo.grupos.forEach(grupo => {
       if (grupo.atingiuMinimo) return;
       const distAlvo = grupo.distribuidora;
       const candidatos: Array<{
@@ -515,15 +604,141 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     return mapa;
   }, [faltas, resumo.distMap, itensSelecionados, idsAdicionadosSemanaSessao]);
 
-  // Abre modal de Finalizar Procedimento inicializando os checkboxes (marcados se >= mínimo, desmarcados se < mínimo)
+  // Busca sugestões de Curva A zerada para complementar o pedido mínimo da distribuidora
+  const carregarSugestoesCurvaA = async (dist: string, falta: number) => {
+    setCarregandoCurvaA(prev => ({ ...prev, [dist]: true }));
+    try {
+      const res = await fetch(`/api/belaped/portais/${encodeURIComponent(dist)}/sugestoes-curva-a?falta=${falta}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.sugestoes)) {
+        setCurvaASugestoesPorDist(prev => ({ ...prev, [dist]: data.sugestoes }));
+      }
+    } catch (err: any) {
+      console.error(`Erro ao carregar sugestões Curva A para ${dist}:`, err);
+    } finally {
+      setCarregandoCurvaA(prev => ({ ...prev, [dist]: false }));
+    }
+  };
+
+  // Abre modal de Finalizar Procedimento inicializando os checkboxes (apenas os que atingiram o mínimo)
   const handleAbrirModalFinalizar = () => {
     const inicial: Record<string, boolean> = {};
-    Object.values(resumo.distMap).forEach(g => {
+    resumo.grupos.forEach(g => {
       inicial[g.distribuidora] = g.atingiuMinimo;
+      if (!g.atingiuMinimo) {
+        carregarSugestoesCurvaA(g.distribuidora, g.faltaParaMinimo);
+      }
     });
     setPortaisMarcadosFinalizar(inicial);
     setProgressoPortais({});
     setModalFinalizarOpen(true);
+  };
+
+  // Inclui um item de Curva A zerada para cobrir a falta do pedido mínimo
+  const handleIncluirCurvaA = (distAlvo: string, sug: any) => {
+    const itemEmFaltas = faltas.find(f => f.produto_id === sug.produto_id);
+    if (itemEmFaltas) {
+      onEscolherFornecedor(sug.produto_id, 1, distAlvo, sug.preco_portal, sug.url_produto);
+      setItensSelecionados(prev => ({ ...prev, [sug.produto_id]: true }));
+    } else {
+      setItensCurvaAAdicionados(prev => {
+        const semEle = prev.filter(x => !(x.produto_id === sug.produto_id && x.distribuidora === distAlvo));
+        return [...semEle, {
+          produto_id: sug.produto_id,
+          descricao: sug.descricao,
+          apresentacao: sug.apresentacao,
+          ean: sug.ean,
+          curva_abc: sug.curva_abc || 'A',
+          saldo: sug.saldo || 0,
+          vmd_ponderado: sug.vmd_ponderado || 0,
+          distribuidora: distAlvo,
+          quantidade: sug.qtd_sugerida,
+          precoUnitario: sug.preco_portal,
+          subtotal: sug.subtotal,
+          url_produto: sug.url_produto
+        }];
+      });
+    }
+
+    const grupoAtual = resumo.distMap[distAlvo];
+    if (grupoAtual && (grupoAtual.total + sug.subtotal) >= grupoAtual.min) {
+      setPortaisMarcadosFinalizar(prev => ({ ...prev, [distAlvo]: true }));
+    }
+    addToast(`+ Curva A: "${sug.descricao}" (+R$ ${sug.subtotal.toFixed(2)}) incluído na ${distAlvo}`, 'success');
+  };
+
+  // Auto-completa uma distribuidora com produtos de Curva A zerados do Digifarma
+  const handleAutoCompletarCurvaA = async (distAlvo: string) => {
+    const grupo = resumo.distMap[distAlvo];
+    if (!grupo) return;
+
+    let sugs = curvaASugestoesPorDist[distAlvo];
+    if (!sugs || sugs.length === 0) {
+      setCarregandoCurvaA(prev => ({ ...prev, [distAlvo]: true }));
+      try {
+        const res = await fetch(`/api/belaped/portais/${encodeURIComponent(distAlvo)}/sugestoes-curva-a?falta=${grupo.faltaParaMinimo}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.sugestoes)) {
+          sugs = data.sugestoes;
+          setCurvaASugestoesPorDist(prev => ({ ...prev, [distAlvo]: data.sugestoes }));
+        }
+      } catch (e) {
+        addToast(`Erro ao buscar sugestões Curva A para ${distAlvo}`, 'danger');
+        setCarregandoCurvaA(prev => ({ ...prev, [distAlvo]: false }));
+        return;
+      }
+      setCarregandoCurvaA(prev => ({ ...prev, [distAlvo]: false }));
+    }
+
+    if (!sugs || sugs.length === 0) {
+      addToast(`Nenhum produto de Curva A com estoque zero disponível para ${distAlvo}.`, 'warning');
+      return;
+    }
+
+    let acumulado = grupo.total;
+    let adicionadosCount = 0;
+    const novosCurvaA: any[] = [];
+    const novosSelecionados: Record<number, boolean> = {};
+
+    for (const sug of sugs) {
+      if (acumulado >= grupo.min) break;
+      const itemEmFaltas = faltas.find(f => f.produto_id === sug.produto_id);
+      if (itemEmFaltas) {
+        onEscolherFornecedor(sug.produto_id, 1, distAlvo, sug.preco_portal, sug.url_produto);
+        novosSelecionados[sug.produto_id] = true;
+      } else {
+        novosCurvaA.push({
+          produto_id: sug.produto_id,
+          descricao: sug.descricao,
+          apresentacao: sug.apresentacao,
+          ean: sug.ean,
+          curva_abc: sug.curva_abc || 'A',
+          saldo: sug.saldo || 0,
+          vmd_ponderado: sug.vmd_ponderado || 0,
+          distribuidora: distAlvo,
+          quantidade: sug.qtd_sugerida,
+          precoUnitario: sug.preco_portal,
+          subtotal: sug.subtotal,
+          url_produto: sug.url_produto
+        });
+      }
+      acumulado += sug.subtotal;
+      adicionadosCount++;
+    }
+
+    if (Object.keys(novosSelecionados).length > 0) {
+      setItensSelecionados(prev => ({ ...prev, ...novosSelecionados }));
+    }
+    if (novosCurvaA.length > 0) {
+      setItensCurvaAAdicionados(prev => [...prev, ...novosCurvaA]);
+    }
+
+    if (adicionadosCount > 0) {
+      if (acumulado >= grupo.min) {
+        setPortaisMarcadosFinalizar(prev => ({ ...prev, [distAlvo]: true }));
+      }
+      addToast(`⚡ ${adicionadosCount} produto(s) Curva A incluídos na ${distAlvo}! Novo total: R$ ${acumulado.toFixed(2)}`, 'success');
+    }
   };
 
   // Inclui um item sugerido para ajudar a atingir o pedido mínimo da distribuidora
@@ -569,12 +784,20 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
 
   // Executa a montagem real dos carrinhos nos portais marcados e oculta da semana os itens confirmados
   const handleExecutarFinalizacaoPortais = async () => {
-    const gruposParaEnviar = Object.values(resumo.distMap).filter(
+    const gruposParaEnviar = resumo.grupos.filter(
       g => portaisMarcadosFinalizar[g.distribuidora] && g.itens.length > 0
     );
 
     if (gruposParaEnviar.length === 0) {
       addToast('Selecione pelo menos uma distribuidora para montar o carrinho.', 'warning');
+      return;
+    }
+
+    // BLOQUEIO ESTRITO DE ENVIO DE PEDIDO ABAIXO DO MÍNIMO
+    const deficientes = gruposParaEnviar.filter(g => !g.atingiuMinimo);
+    if (deficientes.length > 0) {
+      const nomes = deficientes.map(g => `${g.distribuidora} (faltam R$ ${g.faltaParaMinimo.toFixed(2)})`).join(', ');
+      addToast(`🚫 Envio bloqueado: Distribuidora(s) abaixo do pedido mínimo: ${nomes}. Complete o pedido com Curva A para prosseguir.`, 'danger');
       return;
     }
 
@@ -1024,9 +1247,9 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       </div>
 
       {/* Mini-linha clicável com status dos pedidos mínimos por distribuidora */}
-      {Object.keys(resumo.distMap).length > 0 && (
+      {resumo.grupos.length > 0 && (
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 text-[11px]">
-          {Object.values(resumo.distMap).map((d) => {
+          {resumo.grupos.map((d) => {
             const ok = d.atingiuMinimo;
             return (
               <button
@@ -1036,14 +1259,21 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                 className={`shrink-0 px-2.5 py-1 rounded-lg border font-medium cursor-pointer transition-all flex items-center gap-1.5 ${
                   ok
                     ? 'border-emerald-600/50 text-emerald-300 bg-emerald-950/30 hover:bg-emerald-950/50'
-                    : 'border-amber-600/50 text-amber-300 bg-amber-950/30 hover:bg-amber-950/50'
+                    : 'border-rose-600/50 text-rose-300 bg-rose-950/30 hover:bg-rose-950/50'
                 }`}
-                title="Clique para revisar pedido mínimo e sugestões desta distribuidora"
+                title={ok ? 'Pedido mínimo atingido' : `Bloqueado: Faltam R$ ${d.faltaParaMinimo.toFixed(0)} para atingir o mínimo`}
               >
                 <span>{d.distribuidora}: <b>R$ {d.total.toFixed(0)}</b></span>
                 {d.min > 0 && (
-                  <span className="text-[10px] opacity-90">
-                    {ok ? '✓ Mín. OK' : `⚠️ faltam R$ ${d.faltaParaMinimo.toFixed(0)}`}
+                  <span className="text-[10px] opacity-90 flex items-center gap-1">
+                    {ok ? (
+                      '✓ Mín. OK'
+                    ) : (
+                      <>
+                        <Lock className="w-3 h-3 text-rose-400" />
+                        <span>faltam R$ {d.faltaParaMinimo.toFixed(0)}</span>
+                      </>
+                    )}
                   </span>
                 )}
               </button>
@@ -1495,12 +1725,12 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
 
             {/* Lista de Distribuidoras e Sugestões de Pedido Mínimo */}
             <div className="p-4 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
-              {Object.values(resumo.distMap).length === 0 ? (
+              {resumo.grupos.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-400">
                   Nenhum produto selecionado com cotação ativa para montar carrinho.
                 </div>
               ) : (
-                Object.values(resumo.distMap).map(grupo => {
+                resumo.grupos.map(grupo => {
                   const marcado = Boolean(portaisMarcadosFinalizar[grupo.distribuidora]);
                   const sugs = sugestoesParaMinimoPorDist[grupo.distribuidora] || [];
                   const prog = progressoPortais[grupo.distribuidora];
@@ -1518,16 +1748,28 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                         <div className="flex items-center gap-2.5">
                           <button
                             type="button"
-                            disabled={executandoCarrinhos}
-                            onClick={() =>
+                            disabled={executandoCarrinhos || !grupo.atingiuMinimo}
+                            onClick={() => {
+                              if (!grupo.atingiuMinimo) return;
                               setPortaisMarcadosFinalizar(prev => ({
                                 ...prev,
                                 [grupo.distribuidora]: !prev[grupo.distribuidora]
-                              }))
+                              }));
+                            }}
+                            className={`transition-colors ${
+                              !grupo.atingiuMinimo
+                                ? 'cursor-not-allowed opacity-60 text-slate-500'
+                                : 'text-cyan-400 hover:text-cyan-300 cursor-pointer'
+                            }`}
+                            title={
+                              !grupo.atingiuMinimo
+                                ? `Envio Bloqueado: Faltam R$ ${grupo.faltaParaMinimo.toFixed(2)} para atingir o pedido mínimo de R$ ${grupo.min.toFixed(2)}.`
+                                : 'Selecionar distribuidora para montagem do carrinho'
                             }
-                            className="text-cyan-400 hover:text-cyan-300 cursor-pointer disabled:opacity-50"
                           >
-                            {marcado ? (
+                            {!grupo.atingiuMinimo ? (
+                              <Lock className="w-5 h-5 text-rose-500" />
+                            ) : marcado ? (
                               <CheckSquare className="w-5 h-5 text-emerald-400" />
                             ) : (
                               <Square className="w-5 h-5 text-slate-500" />
@@ -1550,15 +1792,23 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                           </div>
 
                           <span
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-black border ${
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-black border flex items-center gap-1.5 ${
                               grupo.atingiuMinimo
                                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
-                                : 'bg-amber-950/80 text-amber-300 border-amber-600/60'
+                                : 'bg-rose-950/80 text-rose-300 border-rose-600/60 shadow-sm shadow-rose-950/40'
                             }`}
                           >
-                            {grupo.atingiuMinimo
-                              ? '✓ Mínimo Atingido'
-                              : `⚠️ Faltam R$ ${grupo.faltaParaMinimo.toFixed(2)}`}
+                            {grupo.atingiuMinimo ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>✓ Mínimo Atingido</span>
+                              </>
+                            ) : (
+                              <>
+                                <Lock className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Envio Bloqueado (Faltam R$ ${grupo.faltaParaMinimo.toFixed(2)})</span>
+                              </>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -1591,72 +1841,178 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                       {/* Painel de Sugestões de Produtos para Atingir o Pedido Mínimo */}
                       {!grupo.atingiuMinimo && !executandoCarrinhos && (
                         <div className="p-3 rounded-xl bg-[#090f1d] border border-amber-500/30 space-y-2.5">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
-                              <Sparkles className="w-3.5 h-3.5" />
-                              <span>
-                                Sugestões já cotadas na {grupo.distribuidora} para completar R$ {grupo.faltaParaMinimo.toFixed(2)}:
-                              </span>
-                            </div>
-                            {sugs.length > 0 && (
+                          {/* Seletor de Abas de Sugestão: Curva A Zerada vs Semanal */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleAutoCompletarMinimo(grupo.distribuidora)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black transition-all cursor-pointer shadow-sm"
+                                onClick={() => setAbaSugestaoPorDist(prev => ({ ...prev, [grupo.distribuidora]: 'curva_a' }))}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                  (abaSugestaoPorDist[grupo.distribuidora] || 'curva_a') === 'curva_a'
+                                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
+                                    : 'text-slate-400 hover:text-slate-200'
+                                }`}
                               >
-                                <Zap className="w-3 h-3" />
-                                <span>Auto-completar Mínimo</span>
+                                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                                <span>🎯 Curva A Zerada ({curvaASugestoesPorDist[grupo.distribuidora]?.length || 0})</span>
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => setAbaSugestaoPorDist(prev => ({ ...prev, [grupo.distribuidora]: 'semanal' }))}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                  abaSugestaoPorDist[grupo.distribuidora] === 'semanal'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+                                    : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                <span>📋 Lista Semanal ({sugs.length})</span>
+                              </button>
+                            </div>
+
+                            {(abaSugestaoPorDist[grupo.distribuidora] || 'curva_a') === 'curva_a' ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => carregarSugestoesCurvaA(grupo.distribuidora, grupo.faltaParaMinimo)}
+                                  disabled={carregandoCurvaA[grupo.distribuidora]}
+                                  className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs cursor-pointer"
+                                  title="Recarregar sugestões de Curva A"
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 ${carregandoCurvaA[grupo.distribuidora] ? 'animate-spin' : ''}`} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAutoCompletarCurvaA(grupo.distribuidora)}
+                                  disabled={carregandoCurvaA[grupo.distribuidora] || (curvaASugestoesPorDist[grupo.distribuidora]?.length || 0) === 0}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 disabled:opacity-40 text-white text-[11px] font-black transition-all cursor-pointer shadow-sm"
+                                >
+                                  <Zap className="w-3 h-3 text-yellow-300" />
+                                  <span>Auto-completar com Curva A</span>
+                                </button>
+                              </div>
+                            ) : (
+                              sugs.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAutoCompletarMinimo(grupo.distribuidora)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black transition-all cursor-pointer shadow-sm"
+                                >
+                                  <Zap className="w-3 h-3" />
+                                  <span>Auto-completar Mínimo</span>
+                                </button>
+                              )
                             )}
                           </div>
 
-                          {sugs.length === 0 ? (
-                            <p className="text-[11px] text-slate-400">
-                              Não há outros produtos cotados com estoque nesta distribuidora no momento. Você ainda pode marcar a caixa acima se desejar montar o carrinho parcial mesmo assim.
-                            </p>
-                          ) : (
-                            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
-                              {sugs.map(sug => (
-                                <div
-                                  key={sug.item.produto_id}
-                                  className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#0d1526] border border-slate-800/90 text-xs"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5">
-                                      {sug.item.prioridade && (
-                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-slate-800 text-cyan-300">
-                                          {sug.item.prioridade}
-                                        </span>
-                                      )}
-                                      <span className="font-bold text-white truncate">{sug.item.descricao}</span>
-                                    </div>
-                                    <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                                      <span>Est: {sug.item.saldo} un</span>
-                                      <span>•</span>
-                                      <span>Giro: {sug.item.vmd_ponderado}/dia</span>
-                                      <span>•</span>
-                                      <span>{sug.item.qtd_sugerida_7d} un × R$ {sug.precoNaDist.toFixed(2)}</span>
-                                      {sug.jaSelecionadoOutraDist && (
-                                        <span className="text-amber-400">(Atualmente em {sug.item.fornecedor_1?.split(' ')[0]})</span>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="font-black text-emerald-300 text-xs">
-                                      + R$ {sug.subtotalNaDist.toFixed(2)}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleIncluirSugestaoMinimo(grupo.distribuidora, sug)}
-                                      className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-black cursor-pointer transition-colors flex items-center gap-1"
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                      <span>Incluir</span>
-                                    </button>
-                                  </div>
+                          {/* Conteúdo da Aba Curva A Zerada */}
+                          {(abaSugestaoPorDist[grupo.distribuidora] || 'curva_a') === 'curva_a' && (
+                            <div>
+                              {carregandoCurvaA[grupo.distribuidora] ? (
+                                <div className="p-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                                  <span>Buscando produtos Curva A zerados no Digifarma para {grupo.distribuidora}...</span>
                                 </div>
-                              ))}
+                              ) : (curvaASugestoesPorDist[grupo.distribuidora]?.length || 0) === 0 ? (
+                                <p className="text-[11px] text-slate-400 py-1">
+                                  Nenhum produto de Curva A com estoque zerado e cotação ativa encontrado para esta distribuidora. Veja a aba "Lista Semanal" ao lado.
+                                </p>
+                              ) : (
+                                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                                  {curvaASugestoesPorDist[grupo.distribuidora].map(sug => (
+                                    <div
+                                      key={sug.produto_id}
+                                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#0d1526] border border-cyan-500/20 text-xs hover:border-cyan-500/40 transition-colors"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-cyan-950 text-cyan-300 border border-cyan-800/60">
+                                            Curva A
+                                          </span>
+                                          <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-rose-950 text-rose-300 border border-rose-800/60">
+                                            Estoque 0
+                                          </span>
+                                          <span className="font-bold text-white truncate">{sug.descricao}</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                          <span>Giro: <b>{sug.vmd_ponderado}</b>/dia</span>
+                                          <span>•</span>
+                                          <span>Sugerido 7d: <b>{sug.qtd_sugerida} un</b> × R$ {sug.preco_portal.toFixed(2)}</span>
+                                          {sug.ean && <span>• EAN: {sug.ean}</span>}
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="font-black text-emerald-300 text-xs">
+                                          + R$ {sug.subtotal.toFixed(2)}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleIncluirCurvaA(grupo.distribuidora, sug)}
+                                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black cursor-pointer transition-colors flex items-center gap-1 shadow-sm"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                          <span>Incluir</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Conteúdo da Aba Lista Semanal */}
+                          {abaSugestaoPorDist[grupo.distribuidora] === 'semanal' && (
+                            <div>
+                              {sugs.length === 0 ? (
+                                <p className="text-[11px] text-slate-400 py-1">
+                                  Não há outros produtos cotados com estoque nesta distribuidora na lista semanal.
+                                </p>
+                              ) : (
+                                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                                  {sugs.map(sug => (
+                                    <div
+                                      key={sug.item.produto_id}
+                                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#0d1526] border border-slate-800/90 text-xs"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5">
+                                          {sug.item.prioridade && (
+                                            <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-slate-800 text-cyan-300">
+                                              {sug.item.prioridade}
+                                            </span>
+                                          )}
+                                          <span className="font-bold text-white truncate">{sug.item.descricao}</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                          <span>Est: {sug.item.saldo} un</span>
+                                          <span>•</span>
+                                          <span>Giro: {sug.item.vmd_ponderado}/dia</span>
+                                          <span>•</span>
+                                          <span>{sug.item.qtd_sugerida_7d} un × R$ {sug.precoNaDist.toFixed(2)}</span>
+                                          {sug.jaSelecionadoOutraDist && (
+                                            <span className="text-amber-400">(Atualmente em {sug.item.fornecedor_1?.split(' ')[0]})</span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="font-black text-emerald-300 text-xs">
+                                          + R$ {sug.subtotalNaDist.toFixed(2)}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleIncluirSugestaoMinimo(grupo.distribuidora, sug)}
+                                          className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-black cursor-pointer transition-colors flex items-center gap-1"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                          <span>Incluir</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1670,11 +2026,16 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             {/* Rodapé do Modal */}
             <div className="p-4 bg-[#080e1a] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
               <div className="text-xs text-slate-400">
-                Portais marcados para montar carrinho:{' '}
-                <b className="text-white">
-                  {Object.values(resumo.distMap).filter(g => portaisMarcadosFinalizar[g.distribuidora]).length}
+                Portais liberados e selecionados:{' '}
+                <b className="text-emerald-400">
+                  {resumo.grupos.filter(g => portaisMarcadosFinalizar[g.distribuidora] && g.atingiuMinimo).length}
                 </b>{' '}
-                de {Object.values(resumo.distMap).length}
+                de {resumo.grupos.length}
+                {resumo.grupos.some(g => !g.atingiuMinimo) && (
+                  <span className="text-rose-400 ml-2 font-medium">
+                    (⚠️ {resumo.grupos.filter(g => !g.atingiuMinimo).length} portal(is) com envio bloqueado)
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -1690,10 +2051,16 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                   type="button"
                   disabled={
                     executandoCarrinhos ||
-                    Object.values(resumo.distMap).filter(g => portaisMarcadosFinalizar[g.distribuidora]).length === 0
+                    resumo.grupos.filter(g => portaisMarcadosFinalizar[g.distribuidora] && g.atingiuMinimo).length === 0 ||
+                    resumo.grupos.some(g => portaisMarcadosFinalizar[g.distribuidora] && !g.atingiuMinimo)
                   }
                   onClick={handleExecutarFinalizacaoPortais}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-black shadow-lg shadow-emerald-950/60 flex items-center gap-2 cursor-pointer transition-all"
+                  title={
+                    resumo.grupos.some(g => portaisMarcadosFinalizar[g.distribuidora] && !g.atingiuMinimo)
+                      ? 'Envio bloqueado: Há distribuidoras selecionadas que não atingiram o pedido mínimo'
+                      : 'Confirmar e montar carrinhos'
+                  }
                 >
                   {executandoCarrinhos ? (
                     <>
@@ -1703,7 +2070,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                   ) : (
                     <>
                       <ShoppingCart className="w-4 h-4" />
-                      <span>Confirmar e Montar Carrinhos nos Portais</span>
+                      <span>Confirmar e Montar Carrinhos ({resumo.grupos.filter(g => portaisMarcadosFinalizar[g.distribuidora] && g.atingiuMinimo).length})</span>
                     </>
                   )}
                 </button>

@@ -181,16 +181,44 @@ class DivimedRobot {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'DIVIMED', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
 
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
       const termoNome = extrairTermoLimpo(descricaoProduto);
 
-      // 1. Busca por nome/EAN no portal da Divimed
-      const itensOriginais = termoNome ? await this._buscarProdutosDivimed(termoNome) : [];
-      const eanDigitos = eanLimpo.replace(/\D/g, '');
-      const itensCorrespondentes = (itensOriginais || []).filter(it => {
+      // 1. Busca inicial por termo limpo da descrição no portal da Divimed (se houver)
+      let itensOriginais = termoNome ? await this._buscarProdutosDivimed(termoNome) : [];
+      let itensCorrespondentes = (itensOriginais || []).filter(it => {
         if (!it.ean) return false;
         const codLimpo = String(it.ean).replace(/\D/g, '');
-        return codLimpo === eanDigitos || (codLimpo.length >= 8 && eanDigitos.length >= 8 && (codLimpo.endsWith(eanDigitos) || eanDigitos.endsWith(codLimpo)));
+        const bateEan = codLimpo === eanDigitos ||
+                       (codLimpo.length === 14 && eanDigitos.length === 13 && codLimpo === '0' + eanDigitos) ||
+                       (eanDigitos.length === 14 && codLimpo.length === 13 && eanDigitos === '0' + codLimpo);
+        return bateEan;
       });
+
+      // Fallback: Se a busca por descrição não retornou resultados ou se a descrição não foi informada
+      // ou não encontrou o EAN correspondente, executa busca direta pelos dígitos do EAN no input da Divimed
+      if ((!termoNome || itensOriginais.length === 0 || itensCorrespondentes.length === 0) && eanDigitos) {
+        try {
+          const itensEan = await this._buscarProdutosDivimed(eanDigitos);
+          if (itensEan && itensEan.length > 0) {
+            for (const it of itensEan) {
+              if (!itensOriginais.some(existente => existente.produtoId === it.produtoId)) {
+                itensOriginais.push(it);
+              }
+            }
+            itensCorrespondentes = (itensOriginais || []).filter(it => {
+              if (!it.ean) return false;
+              const codLimpo = String(it.ean).replace(/\D/g, '');
+              const bateEan = codLimpo === eanDigitos ||
+                             (codLimpo.length === 14 && eanDigitos.length === 13 && codLimpo === '0' + eanDigitos) ||
+                             (eanDigitos.length === 14 && codLimpo.length === 13 && eanDigitos === '0' + codLimpo);
+              return bateEan;
+            });
+          }
+        } catch (eFallback) {
+          console.warn('[DivimedRobot] Aviso na busca fallback por EAN:', eFallback.message);
+        }
+      }
 
       let melhorEanOriginal = null;
       if (itensCorrespondentes && itensCorrespondentes.length > 0) {
@@ -200,7 +228,7 @@ class DivimedRobot {
 
       // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
       const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
-      let todosCandidatos = [...(itensOriginais || [])];
+      let todosCandidatos = [...itensCorrespondentes];
 
       if (cotarPorEssencia) {
         try {
@@ -239,7 +267,24 @@ class DivimedRobot {
         };
       }
 
-      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+      const isSubstituto = Boolean(vencedor.isSubstituto);
+
+      if (!isSubstituto && vencedor.ean) {
+        const vencDigitos = String(vencedor.ean).replace(/\D/g, '');
+        const bateEan = vencDigitos === eanDigitos ||
+                       (vencDigitos.length === 14 && eanDigitos.length === 13 && vencDigitos === '0' + eanDigitos) ||
+                       (eanDigitos.length === 14 && vencDigitos.length === 13 && eanDigitos === '0' + vencDigitos);
+        if (!bateEan) {
+          console.warn(`[DivimedRobot] ⛔ Rejeitando item com EAN divergente: esperado "${eanDigitos}" vs encontrado "${vencDigitos}"`);
+          return {
+            fornecedor: 'DIVIMED',
+            ean: eanLimpo,
+            disponivel: false,
+            preco: null,
+            mensagem: 'EAN divergente no catálogo da Divimed'
+          };
+        }
+      }
 
       return {
         fornecedor: 'DIVIMED',

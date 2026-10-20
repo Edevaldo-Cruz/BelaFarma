@@ -116,12 +116,15 @@ function extrairAtributosProduto(nome) {
     }
   }
 
-  const chave = `${principio} ${dosagem} C/ ${unidades} ${forma}`.replace(/\s+/g, ' ').trim();
+  const isMensal = (unidades === 28 || unidades === 30) && (forma === 'COMPRIMIDO' || forma === 'CÁPSULA' || forma === 'COMP/CAPS');
+  const unidadesChave = isMensal ? '28-30' : unidades;
+  const chave = `${principio} ${dosagem} C/ ${unidadesChave} ${forma}`.replace(/\s+/g, ' ').trim();
 
   return {
     principio,
     dosagem,
     unidades,
+    unidadesChave,
     forma,
     laboratorio,
     chave
@@ -290,17 +293,26 @@ function buscarGrupoPorProduto(produtoId, ean, produtoNome, dbInstance) {
     }
   }
 
-  // 3. Busca por correspondência exata de Princípio Ativo + Dosagem + Unidades
+  // 3. Busca por correspondência de Princípio Ativo + Dosagem + Unidades (com tolerância mensal 28 vs 30)
   if (produtoNome) {
     const attr = extrairAtributosProduto(produtoNome);
     if (attr.principio && attr.principio !== 'OUTROS' && attr.unidades > 0) {
-      const matchGrupo = db.prepare(`
-        SELECT id FROM compras_grupos_equivalentes 
-        WHERE principio_ativo = ? 
-          AND unidades_embalagem = ?
-          AND (dosagem = ? OR (dosagem IS NULL AND ? = ''))
-        LIMIT 1
-      `).get(attr.principio, attr.unidades, attr.dosagem || '', attr.dosagem || '');
+      const isMensal = (attr.unidades === 28 || attr.unidades === 30) && (attr.forma === 'COMPRIMIDO' || attr.forma === 'CÁPSULA' || attr.forma === 'COMP/CAPS');
+      const matchGrupo = isMensal
+        ? db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? 
+              AND unidades_embalagem IN (28, 30)
+              AND (dosagem = ? OR (dosagem IS NULL AND ? = ''))
+            LIMIT 1
+          `).get(attr.principio, attr.dosagem || '', attr.dosagem || '')
+        : db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? 
+              AND unidades_embalagem = ?
+              AND (dosagem = ? OR (dosagem IS NULL AND ? = ''))
+            LIMIT 1
+          `).get(attr.principio, attr.unidades, attr.dosagem || '', attr.dosagem || '');
 
       if (matchGrupo) {
         return obterEstoqueConsolidadoGrupo(matchGrupo.id, db);
@@ -332,13 +344,16 @@ function gerarGruposAutomaticos(dbInstance) {
     const attr = extrairAtributosProduto(p.descricao);
     if (!attr.principio || attr.principio === 'OUTROS' || attr.principio.length < 3) continue;
 
-    const chave = `${attr.principio}|${attr.dosagem}|${attr.unidades}|${attr.forma}`;
+    const isMensal = (attr.unidades === 28 || attr.unidades === 30) && (attr.forma === 'COMPRIMIDO' || attr.forma === 'CÁPSULA' || attr.forma === 'COMP/CAPS');
+    const unidadesChave = isMensal ? '28-30' : attr.unidades;
+    const chave = `${attr.principio}|${attr.dosagem}|${unidadesChave}|${attr.forma}`;
     if (!gruposMap.has(chave)) {
       gruposMap.set(chave, {
-        nomeGrupo: `${attr.principio} ${attr.dosagem} C/ ${attr.unidades} ${attr.forma}`.replace(/\s+/g, ' ').trim(),
+        nomeGrupo: `${attr.principio} ${attr.dosagem} C/ ${unidadesChave} ${attr.forma}`.replace(/\s+/g, ' ').trim(),
         principio: attr.principio,
         dosagem: attr.dosagem,
-        unidades: attr.unidades,
+        unidades: isMensal ? 30 : attr.unidades,
+        isMensal,
         forma: attr.forma,
         produtos: []
       });
@@ -360,10 +375,17 @@ function gerarGruposAutomaticos(dbInstance) {
       // Cria grupo para itens que possuem 2 ou mais equivalentes (ou se for princípio farmacêutico reconhecido)
       if (gData.produtos.length < 2) continue;
 
-      let grupo = db.prepare(`
-        SELECT id FROM compras_grupos_equivalentes 
-        WHERE principio_ativo = ? AND dosagem = ? AND unidades_embalagem = ?
-      `).get(gData.principio, gData.dosagem, gData.unidades);
+      let grupo = gData.isMensal
+        ? db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? AND (dosagem = ? OR (dosagem IS NULL AND ? = '')) AND unidades_embalagem IN (28, 30)
+            LIMIT 1
+          `).get(gData.principio, gData.dosagem || '', gData.dosagem || '')
+        : db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? AND (dosagem = ? OR (dosagem IS NULL AND ? = '')) AND unidades_embalagem = ?
+            LIMIT 1
+          `).get(gData.principio, gData.dosagem || '', gData.dosagem || '', gData.unidades);
 
       let grupoId = grupo ? grupo.id : null;
 

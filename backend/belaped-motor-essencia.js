@@ -139,34 +139,56 @@ function filtrarEClassificarCandidatos(candidatos, itemOriginal, db) {
 
   // Calcula economia se houver preço original do EAN de referência
   let precoReferencia = itemOriginal.precoOriginal || null;
+  let itemReferenciaDesc = itemOriginal.descricao || '';
   if (!precoReferencia) {
     const itemOrigLista = validos.find(v => v.isEanOriginal);
-    if (itemOrigLista) precoReferencia = itemOrigLista.preco;
+    if (itemOrigLista) {
+      precoReferencia = itemOrigLista.preco;
+      if (itemOrigLista.descricao) itemReferenciaDesc = itemOrigLista.descricao;
+    }
   }
+
+  const qtdOrig = farmacoMatcher.extrairQuantidadeEForma(itemReferenciaDesc)?.numero || 1;
+  const qtdVencedor = farmacoMatcher.extrairQuantidadeEForma(vencedor.descricao)?.numero || 1;
+  const custoDoseVencedor = vencedor.preco / Math.max(1, qtdVencedor);
 
   let economiaReais = 0;
   let economiaPct = 0;
-  if (precoReferencia && precoReferencia > vencedor.preco) {
-    economiaReais = Number((precoReferencia - vencedor.preco).toFixed(2));
-    economiaPct = Number((((precoReferencia - vencedor.preco) / precoReferencia) * 100).toFixed(1));
+  if (precoReferencia && precoReferencia > 0) {
+    const custoDoseRef = precoReferencia / Math.max(1, qtdOrig);
+    // Preço de referência normalizado para a quantidade de doses do produto vencedor
+    const precoRefNormalizado = custoDoseRef * Math.max(1, qtdVencedor);
+
+    if (precoRefNormalizado > vencedor.preco) {
+      economiaReais = Number((precoRefNormalizado - vencedor.preco).toFixed(2));
+      economiaPct = Number((((precoRefNormalizado - vencedor.preco) / precoRefNormalizado) * 100).toFixed(1));
+    }
   }
 
   // Mapeia todos os concorrentes para exibição
-  const todosConcorrentes = validos.map(v => ({
-    ean: v.ean,
-    descricao: v.descricao,
-    preco: v.preco,
-    laboratorio: v.laboratorio,
-    jaTeveNaLoja: v.jaTeveNaLoja,
-    isVencedor: v.ean === vencedor.ean,
-    economiaVsVencedor: Number((v.preco - vencedor.preco).toFixed(2))
-  }));
+  const todosConcorrentes = validos.map(v => {
+    const qtdV = farmacoMatcher.extrairQuantidadeEForma(v.descricao)?.numero || 1;
+    const custoDoseV = Number((v.preco / Math.max(1, qtdV)).toFixed(4));
+    return {
+      ean: v.ean,
+      descricao: v.descricao,
+      preco: v.preco,
+      qtdDoses: qtdV,
+      custoPorDose: custoDoseV,
+      laboratorio: v.laboratorio,
+      jaTeveNaLoja: v.jaTeveNaLoja,
+      isVencedor: v.ean === vencedor.ean,
+      economiaVsVencedor: Number((v.preco - vencedor.preco).toFixed(2))
+    };
+  });
 
   return {
     vencedor: {
       ...vencedor,
       eanVencedor: vencedor.ean,
       eanOriginal: itemOriginal.ean,
+      qtdDoses: qtdVencedor,
+      custoPorDose: Number(custoDoseVencedor.toFixed(4)),
       isSubstituto,
       economiaReais,
       economiaPct,

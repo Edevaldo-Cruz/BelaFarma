@@ -203,7 +203,20 @@ class SotonRobot {
               }
             }
 
+            // Tenta extrair EAN do bloco de texto ou do título
+            let eanEncontrado = null;
+            const matchRotuloEan = (titulo + ' ' + bloco.join(' ')).match(/\b(?:EAN|C[oó]d\.?\s*(?:de\s*)?Barras?|Barras?)\s*:?\s*(\d{8,14})\b/i);
+            if (matchRotuloEan) {
+              eanEncontrado = matchRotuloEan[1];
+            } else {
+              const matchDigitos = (titulo + ' ' + bloco.join(' ')).match(/\b(789\d{10}|790\d{10}|\d{13})\b/);
+              if (matchDigitos) {
+                eanEncontrado = matchDigitos[1] || matchDigitos[0];
+              }
+            }
+
             encontrados.push({
+              ean: eanEncontrado,
               descricao: titulo,
               preco: precoNum,
               url: linkDireto || null
@@ -226,13 +239,40 @@ class SotonRobot {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'SOTON FARMA', disponivel: false, preco: null };
 
-      // 1. Busca por EAN original no portal
+      // 1. Busca por EAN original no portal com validação estrita
       let itensEan = await this._buscarTermoNaSoton(eanLimpo);
       const eanDigitos = eanLimpo.replace(/\D/g, '');
       let itensCorrespondentes = (itensEan || []).filter(it => {
         if (!it.descricao) return false;
-        // Na Soton, se o EAN veio na descrição ou foi encontrado na busca exata
-        return true;
+
+        // Se o item tem EAN raspado, valida correspondência estrita
+        if (it.ean) {
+          const itDigitos = String(it.ean).replace(/\D/g, '');
+          const bateEan = itDigitos === eanDigitos ||
+                         (itDigitos.length === 14 && eanDigitos.length === 13 && itDigitos === '0' + eanDigitos) ||
+                         (eanDigitos.length === 14 && itDigitos.length === 13 && eanDigitos === '0' + itDigitos);
+          return bateEan;
+        }
+
+        // Se a descrição contém a sequência numérica exata do EAN
+        const descDigitos = String(it.descricao).replace(/\D/g, '');
+        if (descDigitos.includes(eanDigitos) || (eanDigitos.length >= 8 && descDigitos.endsWith(eanDigitos))) {
+          return true;
+        }
+
+        // Se o link direto contiver o EAN
+        if (it.url && it.url.includes(eanDigitos)) {
+          return true;
+        }
+
+        // Se a descrição do produto original foi informada, valida semanticamente (marca, dosagem, apresentação)
+        if (descricaoProduto) {
+          const checagem = validarCorrespondenciaProduto(descricaoProduto, it.descricao);
+          return checagem.valido;
+        }
+
+        // Sem EAN correspondente e sem correspondência semântica válida, descarta
+        return false;
       });
 
       let melhorEanOriginal = null;
@@ -283,7 +323,26 @@ class SotonRobot {
         };
       }
 
-      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+      const isSubstituto = Boolean(vencedor.isSubstituto);
+
+      if (!isSubstituto && vencedor.ean) {
+        const vencDigitos = String(vencedor.ean).replace(/\D/g, '');
+        const bateEan = vencDigitos === eanDigitos ||
+                       (vencDigitos.length === 14 && eanDigitos.length === 13 && vencDigitos === '0' + eanDigitos) ||
+                       (eanDigitos.length === 14 && vencDigitos.length === 13 && eanDigitos === '0' + vencDigitos);
+        if (!bateEan) {
+          console.warn(`[SotonRobot] ⛔ Rejeitando item com EAN divergente: esperado "${eanDigitos}" vs encontrado "${vencDigitos}"`);
+          return {
+            fornecedor: 'SOTON FARMA',
+            ean: eanLimpo,
+            disponivel: false,
+            preco: null,
+            descricao: '',
+            mensagem: 'EAN divergente no catálogo da Soton Farma'
+          };
+        }
+      }
+
       const urlProduto = vencedor.url || `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(vencedor.ean || eanLimpo)}`;
 
       return {

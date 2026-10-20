@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 const farmacoMatcher = require('./belaped-farmaco-matcher.js');
 const motorEssencia = require('./belaped-motor-essencia.js');
 
@@ -241,17 +242,35 @@ class MartinsRobot {
     const eanLimpo = String(ean || '').trim();
     if (!eanLimpo) return { fornecedor: 'MARTINS ATACADO', disponivel: false, preco: null };
 
-    // 1. Busca por EAN original no portal
+    // 1. Busca por EAN original no portal com validação estrita
     const itensEan = await this._executarBuscaMartins(eanLimpo);
+    const eanDigitos = eanLimpo.replace(/\D/g, '');
+    const itensCorrespondentes = (itensEan || []).filter(it => {
+      if (!it.ean) {
+        if (it.urlProduto && it.urlProduto.includes(eanDigitos)) return true;
+        if (it.descricao && it.descricao.replace(/\D/g, '').includes(eanDigitos)) return true;
+        if (descricaoProduto && it.descricao) {
+          const checagem = validarCorrespondenciaProduto(descricaoProduto, it.descricao);
+          return checagem.valido;
+        }
+        return false;
+      }
+      const itDigitos = String(it.ean).replace(/\D/g, '');
+      const bateEan = itDigitos === eanDigitos ||
+                     (itDigitos.length === 14 && eanDigitos.length === 13 && itDigitos === '0' + eanDigitos) ||
+                     (eanDigitos.length === 14 && itDigitos.length === 13 && eanDigitos === '0' + itDigitos);
+      return bateEan;
+    });
+
     let melhorEanOriginal = null;
-    if (itensEan && itensEan.length > 0) {
-      itensEan.sort((a, b) => a.preco - b.preco);
-      melhorEanOriginal = itensEan[0];
+    if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+      itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+      melhorEanOriginal = itensCorrespondentes[0];
     }
 
     // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
     const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
-    let todosCandidatos = [...(itensEan || [])];
+    let todosCandidatos = [...itensCorrespondentes];
 
     if (cotarPorEssencia) {
       try {
@@ -290,8 +309,24 @@ class MartinsRobot {
       };
     }
 
-    const eanDigitos = eanLimpo.replace(/\D/g, '');
-    const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+    const isSubstituto = Boolean(vencedor.isSubstituto);
+
+    if (!isSubstituto && vencedor.ean) {
+      const vencDigitos = String(vencedor.ean).replace(/\D/g, '');
+      const bateEan = vencDigitos === eanDigitos ||
+                     (vencDigitos.length === 14 && eanDigitos.length === 13 && vencDigitos === '0' + eanDigitos) ||
+                     (eanDigitos.length === 14 && vencDigitos.length === 13 && eanDigitos === '0' + vencDigitos);
+      if (!bateEan) {
+        console.warn(`[MartinsRobot] ⛔ Rejeitando item com EAN divergente: esperado "${eanDigitos}" vs encontrado "${vencDigitos}"`);
+        return {
+          fornecedor: 'MARTINS ATACADO',
+          ean: eanLimpo,
+          disponivel: false,
+          preco: null,
+          mensagem: 'EAN divergente no catálogo do Martins Atacado'
+        };
+      }
+    }
 
     return {
       fornecedor: 'MARTINS ATACADO',

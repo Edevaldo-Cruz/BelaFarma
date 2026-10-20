@@ -121,6 +121,52 @@ class DpcRobot {
         const linhas = areaBusca.split('\n').map(l => l.trim()).filter(Boolean);
         const encontrados = [];
 
+        // 1. Tentar raspar cards de produtos no DOM
+        const cards = Array.from(document.querySelectorAll('.bloco-produto, .card-produto, [class*="produto-card"], .shelf-item, .item-produto'));
+        if (cards.length > 0) {
+          for (const card of cards) {
+            const cardText = card.innerText || '';
+            if (
+              cardText.includes('Sem estoque') ||
+              cardText.includes('Indisponível') ||
+              cardText.includes('Esgotado') ||
+              cardText.includes('Avise-me')
+            ) {
+              continue;
+            }
+
+            const matchPreco = cardText.match(/R\$\s*([\d\.]+,\d{2})/i);
+            if (!matchPreco) continue;
+            const precoNum = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
+            if (isNaN(precoNum) || precoNum <= 0) continue;
+
+            let fatorEmbalagem = 1;
+            const matchEmb = cardText.match(/Emb\.:\s*(\d+)/i);
+            if (matchEmb) {
+              const n = parseInt(matchEmb[1], 10);
+              if (n > 1) fatorEmbalagem = n;
+            }
+
+            const precoFinal = fatorEmbalagem > 1 ? Number((precoNum / fatorEmbalagem).toFixed(2)) : precoNum;
+
+            const tituloEl = card.querySelector('h2, h3, [class*="title"], [class*="name"], .desc-produto');
+            const descProd = tituloEl ? tituloEl.innerText.trim() : (cardText.split('\n')[0] || '');
+
+            const matchEan = cardText.match(/\b(?:EAN|C[oó]d\.?\s*(?:de\s*)?Barras?|Barras?)\s*:?\s*(\d{8,14})\b/i) ||
+                             cardText.match(/\b(789\d{10}|790\d{10}|\d{13}|\d{8,14})\b/);
+            const eanItem = matchEan ? (matchEan[1] || matchEan[0]) : null;
+
+            encontrados.push({
+              ean: eanItem,
+              descricao: descProd,
+              preco: precoFinal,
+              fatorEmbalagem
+            });
+          }
+          if (encontrados.length > 0) return encontrados;
+        }
+
+        // 2. Extração resiliente linha a linha em areaBusca
         for (let i = 0; i < linhas.length; i++) {
           const l = linhas[i];
           if (l.startsWith('Emb.:')) {
@@ -131,6 +177,28 @@ class DpcRobot {
               if (n > 1) fatorEmbalagem = n;
             }
             const desc = (i + 1 < linhas.length) ? linhas[i + 1] : '';
+
+            // Extrai EAN no bloco adjacente
+            let eanEncontrado = null;
+            for (let j = Math.max(0, i - 1); j < Math.min(i + 8, linhas.length); j++) {
+              const subL = linhas[j];
+              if (subL.startsWith('Emb.:') && j !== i) break;
+              const matchRotuloEan = subL.match(/\b(?:EAN|C[oó]d\.?\s*(?:de\s*)?Barras?|Barras?)\s*:?\s*(\d{8,14})\b/i);
+              if (matchRotuloEan) {
+                eanEncontrado = matchRotuloEan[1];
+                break;
+              }
+              const matchDigitos = subL.match(/\b(789\d{10}|790\d{10}|\d{13})\b/);
+              if (matchDigitos && !subL.includes('R$')) {
+                eanEncontrado = matchDigitos[1] || matchDigitos[0];
+                break;
+              }
+            }
+            if (!eanEncontrado && desc) {
+              const matchDesc = desc.match(/\b(789\d{10}|790\d{10}|\d{13}|\d{8,14})\b/);
+              if (matchDesc) eanEncontrado = matchDesc[1] || matchDesc[0];
+            }
+
             for (let j = i + 2; j < Math.min(i + 7, linhas.length); j++) {
               const subL = linhas[j];
               if (/^R\$\s*[\d.,]+$/.test(subL)) {
@@ -138,6 +206,7 @@ class DpcRobot {
                 if (!isNaN(num) && num > 0) {
                   const precoFinal = fatorEmbalagem > 1 ? Number((num / fatorEmbalagem).toFixed(2)) : num;
                   encontrados.push({
+                    ean: eanEncontrado,
                     descricao: desc,
                     preco: precoFinal,
                     fatorEmbalagem
@@ -166,17 +235,34 @@ class DpcRobot {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'DPC DISTRIBUIDORA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
 
-      // 1. Busca por EAN original no portal
+      // 1. Busca por EAN original no portal com validação estrita
       const itensEan = await this._buscarNoCatalogoDpc(eanLimpo);
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      const itensCorrespondentes = (itensEan || []).filter(it => {
+        if (!it.ean) {
+          if (it.descricao && it.descricao.replace(/\D/g, '').includes(eanDigitos)) return true;
+          if (descricaoProduto && it.descricao) {
+            const checagem = validarCorrespondenciaProduto(descricaoProduto, it.descricao);
+            return checagem.valido;
+          }
+          return false;
+        }
+        const itDigitos = String(it.ean).replace(/\D/g, '');
+        const bateEan = itDigitos === eanDigitos ||
+                       (itDigitos.length === 14 && eanDigitos.length === 13 && itDigitos === '0' + eanDigitos) ||
+                       (eanDigitos.length === 14 && itDigitos.length === 13 && eanDigitos === '0' + itDigitos);
+        return bateEan;
+      });
+
       let melhorEanOriginal = null;
-      if (itensEan && itensEan.length > 0) {
-        itensEan.sort((a, b) => a.preco - b.preco);
-        melhorEanOriginal = itensEan[0];
+      if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+        itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensCorrespondentes[0];
       }
 
       // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
       const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
-      let todosCandidatos = [...(itensEan || [])];
+      let todosCandidatos = [...itensCorrespondentes];
 
       if (cotarPorEssencia) {
         try {
@@ -215,8 +301,25 @@ class DpcRobot {
         };
       }
 
-      const eanDigitos = eanLimpo.replace(/\D/g, '');
-      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+      const isSubstituto = Boolean(vencedor.isSubstituto);
+
+      // Trava estrita de integridade: se não for substituto validado pelo motorEssencia, o EAN do vencedor DEVE bater com o EAN alvo
+      if (!isSubstituto) {
+        const vencDigitos = vencedor.ean ? String(vencedor.ean).replace(/\D/g, '') : '';
+        const bateEan = vencDigitos === eanDigitos ||
+                       (vencDigitos.length === 14 && eanDigitos.length === 13 && vencDigitos === '0' + eanDigitos) ||
+                       (eanDigitos.length === 14 && vencDigitos.length === 13 && eanDigitos === '0' + vencDigitos);
+        if (vencedor.ean && !bateEan) {
+          console.warn(`[DpcRobot] ⛔ Rejeitando item com EAN divergente: esperado "${eanDigitos}" vs encontrado "${vencDigitos}"`);
+          return {
+            fornecedor: 'DPC DISTRIBUIDORA',
+            ean: eanLimpo,
+            disponivel: false,
+            preco: null,
+            mensagem: 'EAN divergente no catálogo da DPC'
+          };
+        }
+      }
       const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(vencedor.ean || eanLimpo)}`;
 
       return {

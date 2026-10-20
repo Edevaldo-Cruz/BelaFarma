@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "3d2d336",
-  "commitMessage": "fix(belaped): cotacao por essencia desconsiderando marca/laboratorio e tolerancia 28 vs 30 cpr pelo menor custo unitario",
-  "buildTime": "20/10/2026, 18:18:35"
+  "commitHash": "47716d0",
+  "commitMessage": "feat(belaped): adicionar botao e endpoint para reiniciar cotacao",
+  "buildTime": "20/10/2026, 19:21:21"
 }
