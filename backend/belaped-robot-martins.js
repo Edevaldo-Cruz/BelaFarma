@@ -1,6 +1,8 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const farmacoMatcher = require('./belaped-farmaco-matcher.js');
+const motorEssencia = require('./belaped-motor-essencia.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -230,30 +232,90 @@ class MartinsRobot {
   }
 
   /**
-   * Consulta um EAN ou Descrição no catálogo do Martins Atacado
-   * Aplica a REGRA MASTER DE MG:
-   * ❌ Descarta produtos faturados fora de MG (evita DIFAL / CD interestadual)
+   * Consulta um EAN ou Descrição no catálogo do Martins Atacado com busca por essência e menor preço
+   * Aplica a REGRA MASTER DE MG: Descarta produtos faturados fora de MG
    */
-  async cotarEAN(ean, descricaoProduto = '') {
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
     if (!this.page) throw new Error('Robô Martins não iniciado.');
 
     const eanLimpo = String(ean || '').trim();
-    const termoLimpo = extrairTermoLimpo(descricaoProduto);
+    if (!eanLimpo) return { fornecedor: 'MARTINS ATACADO', disponivel: false, preco: null };
 
-    // 1. Tenta buscar primeiro pelo EAN
-    let resultado = await this._executarBuscaMartins(eanLimpo);
-
-    // 2. Se não encontrar pelo EAN e tiver descrição, busca por nome limpo
-    if (!resultado.disponivel && termoLimpo) {
-      resultado = await this._executarBuscaMartins(termoLimpo);
+    // 1. Busca por EAN original no portal
+    const itensEan = await this._executarBuscaMartins(eanLimpo);
+    let melhorEanOriginal = null;
+    if (itensEan && itensEan.length > 0) {
+      itensEan.sort((a, b) => a.preco - b.preco);
+      melhorEanOriginal = itensEan[0];
     }
 
-    return resultado;
+    // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+    const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+    let todosCandidatos = [...(itensEan || [])];
+
+    if (cotarPorEssencia) {
+      try {
+        const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+        if (prep.termoBusca && prep.termoBusca.length >= 3) {
+          const itensEssencia = await this._executarBuscaMartins(prep.termoBusca);
+          for (const it of (itensEssencia || [])) {
+            if (!todosCandidatos.some(existente => existente.descricao === it.descricao && existente.preco === it.preco)) {
+              todosCandidatos.push(it);
+            }
+          }
+        }
+      } catch (eGen) {
+        console.warn('[MartinsRobot] Aviso na busca por essência:', eGen.message);
+      }
+    }
+
+    // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+    const itemOrigConfig = {
+      ean: eanLimpo,
+      descricao: descricaoProduto,
+      precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+      tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+    };
+
+    const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+    const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+    if (!vencedor) {
+      return {
+        fornecedor: 'MARTINS ATACADO',
+        ean: eanLimpo,
+        disponivel: false,
+        preco: null,
+        mensagem: 'Sem estoque ou indisponível em MG no Martins'
+      };
+    }
+
+    const eanDigitos = eanLimpo.replace(/\D/g, '');
+    const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+
+    return {
+      fornecedor: 'MARTINS ATACADO',
+      ean: vencedor.ean || eanLimpo,
+      eanOriginal: eanLimpo,
+      eanEncontrado: vencedor.ean || eanLimpo,
+      disponivel: true,
+      preco: vencedor.preco,
+      descricao: vencedor.descricao || '',
+      laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+      isSubstituto,
+      isGenericoEquivalente: isSubstituto,
+      precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+      economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+      economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+      todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
+      urlProduto: vencedor.urlProduto || `https://www.martinsatacado.com.br/busca?q=${encodeURIComponent(vencedor.ean || eanLimpo)}`,
+      origem: 'MG (Filial Local)',
+      mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : ''
+    };
   }
 
   async _executarBuscaMartins(termo) {
     try {
-      // 1. Acessa a home ou página de busca e localiza o input
       await this.page.goto('https://www.martinsatacado.com.br/', { waitUntil: 'domcontentloaded', timeout: 35000 });
       await new Promise(r => setTimeout(r, 1500));
 
@@ -272,21 +334,19 @@ class MartinsRobot {
         await new Promise(r => setTimeout(r, 2500));
       }
 
-      const dadosProduto = await this.page.evaluate(() => {
+      return await this.page.evaluate(() => {
         const bodyText = document.body.innerText || '';
-
-        // Se nenhum produto foi encontrado
         if (
           bodyText.includes('Nenhum resultado') ||
           bodyText.includes('não encontramos nenhum resultado') ||
           bodyText.includes('Ops! Nenhum produto')
         ) {
-          return { disponivel: false, mensagem: 'Produto não encontrado' };
+          return [];
         }
 
-        // ⚠️ REGRA CRÍTICA DE MG: Identifica produtos que vêm de FORA DO ESTADO
-        // No Martins, produtos interestaduais exibem tags de CD de outro estado ou aviso de ICMS/DIFAL
-        const textoMinusculo = bodyText.toLowerCase();
+        const cards = Array.from(document.querySelectorAll('[data-testid*="product"], article, [class*="productCard"], [class*="product-card"], .shelf-item'));
+        const resultados = [];
+
         const indicadoresForaEstado = [
           'fora do estado',
           'interestadual',
@@ -298,63 +358,58 @@ class MartinsRobot {
           'faturamento fora de mg'
         ];
 
-        const isForaDeMg = indicadoresForaEstado.some(ind => textoMinusculo.includes(ind));
-        if (isForaDeMg) {
-          return {
-            disponivel: false,
-            mensagem: 'Produto faturado fora de MG (Bloqueado por regra fiscal / DIFAL)'
-          };
+        for (const card of cards) {
+          const cardText = card ? card.innerText : '';
+          const cardMinusculo = cardText.toLowerCase();
+
+          // Ignora itens faturados fora de MG
+          if (indicadoresForaEstado.some(ind => cardMinusculo.includes(ind))) {
+            continue;
+          }
+
+          // Checagem de estoque no card do Martins
+          if (
+            cardMinusculo.includes('esgotado') ||
+            cardMinusculo.includes('indisponível') ||
+            cardMinusculo.includes('indisponivel') ||
+            cardMinusculo.includes('sem estoque') ||
+            cardMinusculo.includes('avise-me') ||
+            cardMinusculo.includes('avise me') ||
+            cardMinusculo.includes('fora de estoque')
+          ) {
+            continue;
+          }
+
+          const matchPreco = cardText.match(/R\$\s*([\d\.]+,\d{2})/i);
+          if (!matchPreco) continue;
+
+          const precoNum = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
+          if (isNaN(precoNum) || precoNum <= 0) continue;
+
+          const linkEl = card.querySelector('a[href*="/p/"], a[href*="produto"], a');
+          const urlProd = linkEl ? linkEl.href : null;
+
+          const tituloEl = card.querySelector('h2, h3, [class*="title"], [class*="name"]');
+          const descProd = tituloEl ? tituloEl.innerText.trim() : '';
+
+          // Tenta extrair EAN se houver no card
+          const matchEan = cardText.match(/\b\d{8,14}\b/);
+          const eanItem = matchEan ? matchEan[0] : null;
+
+          resultados.push({
+            ean: eanItem,
+            descricao: descProd,
+            preco: precoNum,
+            urlProduto: urlProd,
+            origem: 'MG (Filial Local)'
+          });
         }
 
-        // Tenta capturar o card do produto
-        const cards = Array.from(document.querySelectorAll('[data-testid*="product"], article, [class*="productCard"], [class*="product-card"], .shelf-item'));
-        let cardAlvo = cards[0];
-        let cardText = cardAlvo ? cardAlvo.innerText : bodyText;
-
-        // Checagem de estoque no card do Martins
-        const cardMinusculo = cardText.toLowerCase();
-        if (
-          cardMinusculo.includes('esgotado') ||
-          cardMinusculo.includes('indisponível') ||
-          cardMinusculo.includes('indisponivel') ||
-          cardMinusculo.includes('sem estoque') ||
-          cardMinusculo.includes('avise-me') ||
-          cardMinusculo.includes('avise me') ||
-          cardMinusculo.includes('avise quando') ||
-          cardMinusculo.includes('fora de estoque')
-        ) {
-          return { disponivel: false, mensagem: 'Produto sem estoque no Martins' };
-        }
-
-        // Extrai o preço OBRIGATORIAMENTE com o símbolo R$ para evitar capturar dosagens (ex: 0,25mg ou 0,07mg)
-        const matchPreco = cardText.match(/R\$\s*([\d\.]+,\d{2})/i);
-        if (!matchPreco) {
-          return { disponivel: false, mensagem: 'Preço não disponível ou indisponível' };
-        }
-
-        const precoNum = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
-        if (isNaN(precoNum) || precoNum <= 0) {
-          return { disponivel: false, mensagem: 'Preço zerado ou inválido' };
-        }
-
-        let linkEl = cardAlvo ? cardAlvo.querySelector('a[href*="/p/"], a[href*="produto"], a') : document.querySelector('a[href*="/p/"]');
-        let urlProduto = linkEl ? linkEl.href : null;
-
-        let tituloEl = cardAlvo ? cardAlvo.querySelector('h2, h3, [class*="title"], [class*="name"]') : null;
-        let descProd = tituloEl ? tituloEl.innerText.trim() : '';
-
-        return {
-          disponivel: true,
-          preco: precoNum,
-          descricao: descProd,
-          urlProduto: urlProduto,
-          origem: 'MG (Filial Local)'
-        };
+        return resultados;
       });
-
-      return dadosProduto;
     } catch (err) {
-      return { disponivel: false, mensagem: `Erro na busca Martins: ${err.message}` };
+      console.warn(`[MartinsRobot] Erro na busca:`, err.message);
+      return [];
     }
   }
 

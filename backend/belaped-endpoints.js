@@ -26,6 +26,7 @@ const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
 const { validarCorrespondenciaProduto, expurgarCotacoesInconsistentes } = require('./belaped-validador');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
+const motorEssencia = require('./belaped-motor-essencia');
 const { auditarPortalSeguro, auditarTodasDistribuidoras } = require('./belaped-auditoria-prazos');
 const { executarCheckoutRobo } = require('./belaped-checkout');
 
@@ -258,6 +259,38 @@ function belapedEndpoints(db) {
     try {
       db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN is_generico_mais_barato INTEGER DEFAULT 0`).run();
     } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN ean_substituto TEXT`).run();
+    } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN laboratorio TEXT`).run();
+    } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN is_substituto INTEGER DEFAULT 0`).run();
+    } catch (e) {}
+    try {
+      db.prepare(`ALTER TABLE belaped_cotacoes_reais ADD COLUMN todos_concorrentes TEXT`).run();
+    } catch (e) {}
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS belaped_equivalencias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ean_original TEXT NOT NULL,
+        ean_substituto TEXT NOT NULL,
+        descricao_original TEXT,
+        descricao_substituto TEXT,
+        laboratorio TEXT,
+        principio_ativo TEXT,
+        origem_portal TEXT,
+        preco_original REAL,
+        preco_substituto REAL,
+        economia_reais REAL,
+        data_vinculo TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ean_original, ean_substituto)
+      );
+      CREATE INDEX IF NOT EXISTS idx_belaped_equiv_orig ON belaped_equivalencias (ean_original);
+      CREATE INDEX IF NOT EXISTS idx_belaped_equiv_sub ON belaped_equivalencias (ean_substituto);
+    `);
 
     // Migração: Prazos e data de auditoria em belaped_portais
     try {
@@ -1050,6 +1083,10 @@ function belapedEndpoints(db) {
           condicao_comercial_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].condicao_comercial || null) : null,
           preco_padrao_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].preco_padrao || null) : null,
           is_generico_mais_barato_1: Boolean(cotacoesReais && cotacoesReais[0] && cotacoesReais[0].is_generico_mais_barato),
+          ean_substituto_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].ean_substituto || null) : null,
+          laboratorio_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].laboratorio || null) : null,
+          is_substituto_1: Boolean(cotacoesReais && cotacoesReais[0] && cotacoesReais[0].is_substituto),
+          todos_concorrentes_1: cotacoesReais && cotacoesReais[0] && cotacoesReais[0].todos_concorrentes ? JSON.parse(cotacoesReais[0].todos_concorrentes) : [],
           condicao_comercial_2: cotacoesReais && cotacoesReais[1] ? (cotacoesReais[1].condicao_comercial || null) : null,
           preco_padrao_2: cotacoesReais && cotacoesReais[1] ? (cotacoesReais[1].preco_padrao || null) : null,
           diferenca_percentual: diferencaPct,
@@ -1058,7 +1095,11 @@ function belapedEndpoints(db) {
                 distribuidora: cr.fornecedor,
                 preco: Number(cr.preco) || 0,
                 url_produto: cr.url_produto || null,
-                condicao_comercial: cr.condicao_comercial || null
+                condicao_comercial: cr.condicao_comercial || null,
+                ean_substituto: cr.ean_substituto || null,
+                laboratorio: cr.laboratorio || null,
+                is_substituto: Boolean(cr.is_substituto),
+                todos_concorrentes: cr.todos_concorrentes ? JSON.parse(cr.todos_concorrentes) : []
               }))
             : [],
 
@@ -2166,7 +2207,7 @@ function belapedEndpoints(db) {
       const cotacoesBancoPorEan = {};
       try {
         const rowsCotReais = db.prepare(`
-          SELECT ean, fornecedor, preco, url_produto, condicao_comercial
+          SELECT ean, fornecedor, preco, url_produto, condicao_comercial, ean_substituto, laboratorio, is_substituto, todos_concorrentes
           FROM belaped_cotacoes_reais
           WHERE disponivel = 1 AND preco > 0
           ORDER BY preco ASC
@@ -2180,7 +2221,11 @@ function belapedEndpoints(db) {
               distribuidora: String(r.fornecedor).toUpperCase(),
               preco: Number(r.preco),
               url_produto: r.url_produto || null,
-              condicao_comercial: r.condicao_comercial || null
+              condicao_comercial: r.condicao_comercial || null,
+              ean_substituto: r.ean_substituto || null,
+              laboratorio: r.laboratorio || null,
+              is_substituto: Boolean(r.is_substituto),
+              todos_concorrentes: r.todos_concorrentes ? JSON.parse(r.todos_concorrentes) : []
             });
           }
         });
@@ -2330,6 +2375,10 @@ function belapedEndpoints(db) {
           ...item,
           melhorPreco: melhorElegivel.preco,
           melhorDistribuidora: melhorElegivel.distribuidora,
+          ean_substituto: melhorElegivel.ean_substituto || null,
+          laboratorio: melhorElegivel.laboratorio || null,
+          is_substituto: Boolean(melhorElegivel.is_substituto),
+          todos_concorrentes: melhorElegivel.todos_concorrentes || [],
           segundoPreco: segundoElegivel ? segundoElegivel.preco : null,
           segundaDistribuidora: segundoElegivel ? segundoElegivel.distribuidora : null,
           candidatasElegiveis: listaValida,
@@ -2462,6 +2511,10 @@ function belapedEndpoints(db) {
             melhorPreco: candEscolhida.preco,
             precoUnitario: candEscolhida.preco,
             subtotal: novoSubtotal,
+            ean_substituto: candEscolhida.ean_substituto || null,
+            laboratorio: candEscolhida.laboratorio || null,
+            is_substituto: Boolean(candEscolhida.is_substituto),
+            todos_concorrentes: candEscolhida.todos_concorrentes || [],
             segundaDistribuidora: outraOpcao ? outraOpcao.distribuidora : distNome,
             segundoPreco: outraOpcao ? outraOpcao.preco : item.precoUnitario,
             repassado: true,
@@ -2829,8 +2882,8 @@ function belapedEndpoints(db) {
     // Executa os robôs em segundo plano (em paralelo quando fornecedor === 'TODOS')
     (async () => {
       const stmtSalvar = db.prepare(`
-        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, ean_substituto, laboratorio, is_substituto, todos_concorrentes, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(ean, fornecedor) DO UPDATE SET
           preco = excluded.preco,
           disponivel = excluded.disponivel,
@@ -2840,6 +2893,10 @@ function belapedEndpoints(db) {
           condicao_comercial = excluded.condicao_comercial,
           preco_padrao = excluded.preco_padrao,
           is_generico_mais_barato = excluded.is_generico_mais_barato,
+          ean_substituto = excluded.ean_substituto,
+          laboratorio = excluded.laboratorio,
+          is_substituto = excluded.is_substituto,
+          todos_concorrentes = excluded.todos_concorrentes,
           updated_at = excluded.updated_at
       `);
 
@@ -2950,8 +3007,16 @@ function belapedEndpoints(db) {
                 resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(nomeFornecedor, eanAtual, descAtual),
                 resultado.condicao_comercial || null,
                 resultado.preco_padrao || resultado.preco,
-                resultado.isGenericoEquivalente ? 1 : 0
+                resultado.isGenericoEquivalente ? 1 : 0,
+                resultado.ean || resultado.eanVencedor || null,
+                resultado.laboratorio || null,
+                resultado.isSubstituto ? 1 : 0,
+                resultado.todosConcorrentes ? JSON.stringify(resultado.todosConcorrentes) : null
               );
+
+              if (resultado.isSubstituto) {
+                motorEssencia.registrarEquivalenciaNoBanco(db, eanAtual, resultado, descAtual, nomeFornecedor);
+              }
 
               // Grava na série histórica temporal para Inteligência de Mercado (Melhor Dia e Gráfico)
               try {
@@ -3249,8 +3314,8 @@ function belapedEndpoints(db) {
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descricao || ''}) em [${portaisParaCotar.join(', ')}]...`);
 
       const stmtSalvar = db.prepare(`
-        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, ean_substituto, laboratorio, is_substituto, todos_concorrentes, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(ean, fornecedor) DO UPDATE SET
           preco = excluded.preco,
           disponivel = excluded.disponivel,
@@ -3260,6 +3325,10 @@ function belapedEndpoints(db) {
           condicao_comercial = excluded.condicao_comercial,
           preco_padrao = excluded.preco_padrao,
           is_generico_mais_barato = excluded.is_generico_mais_barato,
+          ean_substituto = excluded.ean_substituto,
+          laboratorio = excluded.laboratorio,
+          is_substituto = excluded.is_substituto,
+          todos_concorrentes = excluded.todos_concorrentes,
           updated_at = excluded.updated_at
       `);
 
@@ -3282,8 +3351,8 @@ function belapedEndpoints(db) {
             resCot = await rob.cotarEAN(eanLimpo, descricao || '');
           }
 
-          // 🛡️ Validação Estrita Semântica Anti-Alucinação (se não for genérico intencional)
-          if (resCot.disponivel && resCot.preco > 0 && descricao && resCot.descricao && !resCot.isGenericoEquivalente) {
+          // 🛡️ Validação Estrita Semântica Anti-Alucinação (se não for substituto/genérico intencional)
+          if (resCot.disponivel && resCot.preco > 0 && descricao && resCot.descricao && !resCot.isGenericoEquivalente && !resCot.isSubstituto) {
             const checagemSem = validarCorrespondenciaProduto(descricao, resCot.descricao);
             if (!checagemSem.valido) {
               console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${nomePortal}: esperado "${descricao}" vs retornado "${resCot.descricao}" (${checagemSem.motivo})`);
@@ -3304,8 +3373,16 @@ function belapedEndpoints(db) {
               resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descricao),
               resCot.condicao_comercial || null,
               resCot.preco_padrao || resCot.preco,
-              resCot.isGenericoEquivalente ? 1 : 0
+              resCot.isGenericoEquivalente ? 1 : 0,
+              resCot.ean || resCot.eanVencedor || null,
+              resCot.laboratorio || null,
+              resCot.isSubstituto ? 1 : 0,
+              resCot.todosConcorrentes ? JSON.stringify(resCot.todosConcorrentes) : null
             );
+
+            if (resCot.isSubstituto) {
+              motorEssencia.registrarEquivalenciaNoBanco(db, eanLimpo, resCot, descricao, nomePortal);
+            }
           } else {
             stmtSalvar.run(
               eanLimpo,
@@ -3317,7 +3394,11 @@ function belapedEndpoints(db) {
               null,
               null,
               null,
-              0
+              0,
+              null,
+              null,
+              0,
+              null
             );
           }
 
@@ -3587,6 +3668,113 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/concorrentes-essencia/:ean
+   * Retorna os concorrentes cotados na essência farmacológica deste produto,
+   * incluindo histórico de equivalências registradas e dados locais de estoque/custo.
+   */
+  router.get('/concorrentes-essencia/:ean', (req, res) => {
+    try {
+      const eanLimpo = String(req.params.ean || '').trim();
+      if (!eanLimpo) {
+        return res.status(400).json({ success: false, error: 'EAN é obrigatório.' });
+      }
+
+      // 1. Dados do produto original no estoque
+      const produtoOriginal = db.prepare(`
+        SELECT ean, descricao, saldo, custo_unitario, preco_unitario_ult_compra, vmd_ponderado, curva_abc
+        FROM compras_estoque_cache
+        WHERE ean = ?
+      `).get(eanLimpo);
+
+      // 2. Cotações reais nos portais
+      const cotacoesReais = db.prepare(`
+        SELECT fornecedor, preco, disponivel, descricao, ean_substituto, laboratorio, is_substituto, todos_concorrentes, url_produto, condicao_comercial, updated_at
+        FROM belaped_cotacoes_reais
+        WHERE ean = ?
+        ORDER BY preco ASC
+      `).all(eanLimpo);
+
+      const concorrentesConsolidados = [];
+      const vistos = new Set();
+
+      cotacoesReais.forEach(cr => {
+        if (cr.todos_concorrentes) {
+          try {
+            const parsed = JSON.parse(cr.todos_concorrentes);
+            if (Array.isArray(parsed)) {
+              parsed.forEach(c => {
+                const k = `${c.ean || ''}_${cr.fornecedor}_${c.preco}`;
+                if (!vistos.has(k)) {
+                  vistos.add(k);
+                  concorrentesConsolidados.push({
+                    distribuidora: cr.fornecedor,
+                    ean: c.ean || cr.ean_substituto || null,
+                    descricao: c.descricao || cr.descricao,
+                    laboratorio: c.laboratorio || cr.laboratorio || null,
+                    preco: Number(c.preco),
+                    isSubstituto: Boolean(c.isSubstituto ?? cr.is_substituto),
+                    jaTeveNaLoja: Boolean(c.jaTeveNaLoja),
+                    vencedorPortal: (c.ean === cr.ean_substituto)
+                  });
+                }
+              });
+            }
+          } catch (e) {}
+        }
+
+        if (cr.preco > 0 && cr.disponivel === 1) {
+          const k = `${cr.ean_substituto || eanLimpo}_${cr.fornecedor}_${cr.preco}`;
+          if (!vistos.has(k)) {
+            vistos.add(k);
+            concorrentesConsolidados.push({
+              distribuidora: cr.fornecedor,
+              ean: cr.ean_substituto || eanLimpo,
+              descricao: cr.descricao,
+              laboratorio: cr.laboratorio || null,
+              preco: Number(cr.preco),
+              isSubstituto: Boolean(cr.is_substituto),
+              jaTeveNaLoja: false,
+              vencedorPortal: true
+            });
+          }
+        }
+      });
+
+      // 3. Histórico de equivalências gravadas
+      const equivalencias = db.prepare(`
+        SELECT * FROM belaped_equivalencias
+        WHERE ean_original = ? OR ean_substituto = ?
+        ORDER BY data_vinculo DESC
+      `).all(eanLimpo, eanLimpo);
+
+      concorrentesConsolidados.sort((a, b) => a.preco - b.preco);
+
+      res.json({
+        success: true,
+        ean: eanLimpo,
+        produtoOriginal: produtoOriginal || null,
+        concorrentes: concorrentesConsolidados,
+        cotacoesPorPortal: cotacoesReais.map(cr => ({
+          fornecedor: cr.fornecedor,
+          preco: cr.preco,
+          disponivel: Boolean(cr.disponivel),
+          descricao: cr.descricao,
+          ean_substituto: cr.ean_substituto,
+          laboratorio: cr.laboratorio,
+          is_substituto: Boolean(cr.is_substituto),
+          url_produto: cr.url_produto,
+          condicao_comercial: cr.condicao_comercial,
+          updated_at: cr.updated_at
+        })),
+        equivalencias
+      });
+    } catch (err) {
+      console.error('[BelaPed] Erro ao buscar concorrentes de essência:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/belaped/exportar-planilha-profarma
    * Gera e faz o download da planilha no formato exato da Profarma:
    * Colunas: Codigo/EAN;Quantidade
@@ -3596,10 +3784,12 @@ function belapedEndpoints(db) {
       const produtos = db.prepare(`
         SELECT 
           c.ean,
+          COALESCE(cr.ean_substituto, c.ean) AS ean_final,
           c.descricao,
           c.saldo,
           c.vmd_ponderado
         FROM compras_estoque_cache c
+        LEFT JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'PROFARMA' AND cr.disponivel = 1
         WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
           AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
           AND c.curva_abc IN ('A', 'B')
@@ -3613,7 +3803,8 @@ function belapedEndpoints(db) {
         const saldo = Number(p.saldo) || 0;
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-        csvContent += `${p.ean};${qtd}\r\n`;
+        const eanExport = p.ean_final || p.ean;
+        csvContent += `${eanExport};${qtd}\r\n`;
       }
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -3635,10 +3826,12 @@ function belapedEndpoints(db) {
       const produtos = db.prepare(`
         SELECT 
           c.ean,
+          COALESCE(cr.ean_substituto, c.ean) AS ean_final,
           c.descricao,
           c.saldo,
           c.vmd_ponderado
         FROM compras_estoque_cache c
+        LEFT JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'DPC DISTRIBUIDORA' AND cr.disponivel = 1
         WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
           AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
           AND c.curva_abc IN ('A', 'B')
@@ -3653,7 +3846,8 @@ function belapedEndpoints(db) {
         const saldo = Number(p.saldo) || 0;
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-        csvContent += `${p.ean};${qtd}\r\n`;
+        const eanExport = p.ean_final || p.ean;
+        csvContent += `${eanExport};${qtd}\r\n`;
       }
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -4125,9 +4319,10 @@ function belapedEndpoints(db) {
         const produtosGanhadores = db.prepare(`
           SELECT 
             c.ean,
-            c.descricao,
-            c.saldo,
-            c.vmd_ponderado,
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
+            c.descricao, 
+            c.saldo, 
+            c.vmd_ponderado, 
             c.preco_unitario_ult_compra,
             c.custo_unitario,
             cr.preco
@@ -4148,6 +4343,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -4195,8 +4391,9 @@ function belapedEndpoints(db) {
             sotonCarrinhoStatus.atual = i + 1;
             sotonCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho Soton] Adicionando EAN ${item.ean} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const eanParaAdicionar = item.ean_substituto || item.ean;
+            console.log(`[BelaPed Carrinho Soton] Adicionando EAN ${eanParaAdicionar} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(eanParaAdicionar, item.quantidade, item.descricao);
             const finItem = calcularEconomiaItem(item, item.preco_1, db);
 
             if (resItem.sucesso) {
@@ -4204,6 +4401,7 @@ function belapedEndpoints(db) {
               marcarItemEnviadoCarrinhoSemana(item, 'SOTON FARMA');
               sotonCarrinhoStatus.itens.push({
                 ean: item.ean,
+                ean_substituto: item.ean_substituto || null,
                 descricao: item.descricao || '',
                 quantidade: item.quantidade,
                 preco_1: Number(item.preco_1) || 0,
@@ -4335,6 +4533,7 @@ function belapedEndpoints(db) {
         const produtosGanhadores = db.prepare(`
           SELECT 
             c.ean,
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
             c.descricao,
             c.saldo,
             c.vmd_ponderado,
@@ -4358,6 +4557,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -4405,8 +4605,9 @@ function belapedEndpoints(db) {
             divimedCarrinhoStatus.atual = i + 1;
             divimedCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho Divimed] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const eanParaAdicionar = item.ean_substituto || item.ean;
+            console.log(`[BelaPed Carrinho Divimed] Adicionando ${eanParaAdicionar} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(eanParaAdicionar, item.quantidade, item.descricao);
             const finItem = calcularEconomiaItem(item, item.preco_1, db);
 
             if (resItem.sucesso) {
@@ -4414,6 +4615,7 @@ function belapedEndpoints(db) {
               marcarItemEnviadoCarrinhoSemana(item, 'DIVIMED');
               divimedCarrinhoStatus.itens.push({
                 ean: item.ean,
+                ean_substituto: item.ean_substituto || null,
                 descricao: item.descricao || '',
                 quantidade: item.quantidade,
                 preco_1: Number(item.preco_1) || 0,
@@ -4538,10 +4740,12 @@ function belapedEndpoints(db) {
       const produtos = db.prepare(`
         SELECT 
           c.ean,
+          COALESCE(cr.ean_substituto, c.ean) AS ean_final,
           c.descricao,
           c.saldo,
           c.vmd_ponderado
         FROM compras_estoque_cache c
+        LEFT JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean AND cr.fornecedor = 'DISTRIMED' AND cr.disponivel = 1
         WHERE c.ean IS NOT NULL AND length(c.ean) >= 7
           AND (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
           AND c.curva_abc IN ('A', 'B')
@@ -4555,7 +4759,8 @@ function belapedEndpoints(db) {
         const saldo = Number(p.saldo) || 0;
         const necessidade7d = Math.ceil(vmd * 7 * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
-        csvContent += `${p.ean};${qtd}\r\n`;
+        const eanExport = p.ean_final || p.ean;
+        csvContent += `${eanExport};${qtd}\r\n`;
       }
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -4605,6 +4810,7 @@ function belapedEndpoints(db) {
         const produtos = db.prepare(`
           SELECT 
             c.ean,
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
             c.descricao,
             c.saldo,
             c.vmd_ponderado,
@@ -4628,6 +4834,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -4658,7 +4865,8 @@ function belapedEndpoints(db) {
       const tempPath = path.resolve(__dirname, 'pedido_temp_distrimed.csv');
       let csvContent = 'EAN;Quantidade\r\n';
       for (const p of itensParaAdicionar) {
-        csvContent += `${p.ean};${p.quantidade}\r\n`;
+        const eanFinal = p.ean_substituto || p.ean;
+        csvContent += `${eanFinal};${p.quantidade}\r\n`;
       }
       fs.writeFileSync(tempPath, csvContent, 'utf-8');
 
@@ -4802,6 +5010,7 @@ function belapedEndpoints(db) {
         const produtosGanhadores = db.prepare(`
           SELECT 
             c.ean, 
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
             c.descricao, 
             c.saldo, 
             c.vmd_ponderado, 
@@ -4825,6 +5034,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -4868,8 +5078,9 @@ function belapedEndpoints(db) {
             dpcCarrinhoStatus.atual = i + 1;
             dpcCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho DPC] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const eanParaAdicionar = item.ean_substituto || item.ean;
+            console.log(`[BelaPed Carrinho DPC] Adicionando ${eanParaAdicionar} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(eanParaAdicionar, item.quantidade, item.descricao);
             const finItem = calcularEconomiaItem(item, item.preco_1, db);
 
             if (resItem.sucesso) {
@@ -4877,6 +5088,7 @@ function belapedEndpoints(db) {
               marcarItemEnviadoCarrinhoSemana(item, 'DPC DISTRIBUIDORA');
               dpcCarrinhoStatus.itens.push({
                 ean: item.ean,
+                ean_substituto: item.ean_substituto || null,
                 descricao: item.descricao || '',
                 quantidade: item.quantidade,
                 preco_1: Number(item.preco_1) || 0,
@@ -4996,6 +5208,7 @@ function belapedEndpoints(db) {
         const produtosGanhadores = db.prepare(`
           SELECT 
             c.ean, 
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
             c.descricao, 
             c.saldo, 
             c.vmd_ponderado, 
@@ -5019,6 +5232,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -5062,8 +5276,9 @@ function belapedEndpoints(db) {
             profarmaCarrinhoStatus.atual = i + 1;
             profarmaCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho Profarma] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const eanParaAdicionar = item.ean_substituto || item.ean;
+            console.log(`[BelaPed Carrinho Profarma] Adicionando ${eanParaAdicionar} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(eanParaAdicionar, item.quantidade, item.descricao);
             const finItem = calcularEconomiaItem(item, item.preco_1, db);
 
             if (resItem.sucesso) {
@@ -5071,6 +5286,7 @@ function belapedEndpoints(db) {
               marcarItemEnviadoCarrinhoSemana(item, 'PROFARMA');
               profarmaCarrinhoStatus.itens.push({
                 ean: item.ean,
+                ean_substituto: item.ean_substituto || null,
                 descricao: item.descricao || '',
                 quantidade: item.quantidade,
                 preco_1: Number(item.preco_1) || 0,
@@ -5190,6 +5406,7 @@ function belapedEndpoints(db) {
         const produtosGanhadores = db.prepare(`
           SELECT 
             c.ean, 
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
             c.descricao, 
             c.saldo, 
             c.vmd_ponderado, 
@@ -5213,6 +5430,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -5256,8 +5474,9 @@ function belapedEndpoints(db) {
             martinsCarrinhoStatus.atual = i + 1;
             martinsCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho Martins] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const eanParaAdicionar = item.ean_substituto || item.ean;
+            console.log(`[BelaPed Carrinho Martins] Adicionando ${eanParaAdicionar} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(eanParaAdicionar, item.quantidade, item.descricao);
             const finItem = calcularEconomiaItem(item, item.preco_1, db);
 
             if (resItem.sucesso) {
@@ -5265,6 +5484,7 @@ function belapedEndpoints(db) {
               marcarItemEnviadoCarrinhoSemana(item, 'MARTINS ATACADO');
               martinsCarrinhoStatus.itens.push({
                 ean: item.ean,
+                ean_substituto: item.ean_substituto || null,
                 descricao: item.descricao || '',
                 quantidade: item.quantidade,
                 preco_1: Number(item.preco_1) || 0,
@@ -5384,6 +5604,7 @@ function belapedEndpoints(db) {
         const produtosGanhadores = db.prepare(`
           SELECT 
             c.ean, 
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
             c.descricao, 
             c.saldo, 
             c.vmd_ponderado, 
@@ -5407,6 +5628,7 @@ function belapedEndpoints(db) {
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
+            ean_substituto: p.ean_substituto,
             quantidade: qtd,
             descricao: p.descricao,
             preco_1: p.preco,
@@ -5450,8 +5672,9 @@ function belapedEndpoints(db) {
             orienteCarrinhoStatus.atual = i + 1;
             orienteCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
 
-            console.log(`[BelaPed Carrinho Oriente] Adicionando ${item.descricao || item.ean} - Qtd ${item.quantidade}...`);
-            const resItem = await robot.adicionarAoCarrinho(item.ean, item.quantidade, item.descricao);
+            const eanParaAdicionar = item.ean_substituto || item.ean;
+            console.log(`[BelaPed Carrinho Oriente] Adicionando ${eanParaAdicionar} (${item.descricao || ''}) - Qtd ${item.quantidade}...`);
+            const resItem = await robot.adicionarAoCarrinho(eanParaAdicionar, item.quantidade, item.descricao);
             const finItem = calcularEconomiaItem(item, item.preco_1, db);
 
             if (resItem.sucesso) {
@@ -5459,6 +5682,7 @@ function belapedEndpoints(db) {
               marcarItemEnviadoCarrinhoSemana(item, 'ORIENTE FARMA');
               orienteCarrinhoStatus.itens.push({
                 ean: item.ean,
+                ean_substituto: item.ean_substituto || null,
                 descricao: item.descricao || '',
                 quantidade: item.quantidade,
                 preco_1: Number(item.preco_1) || 0,
@@ -5677,7 +5901,7 @@ function belapedEndpoints(db) {
                 todosCarrinhosStatus.ultimoItem = `Garantindo carrinho limpo com 0 itens na Distrimed...`;
                 await garantirCarrinhoVazioRobo(robot, 'distrimed').catch(() => {});
                 
-                const linhasTxt = carrinho.itens.map(it => `${it.ean || it.produto_id};${it.quantidade}`).join('\r\n');
+                const linhasTxt = carrinho.itens.map(it => `${it.ean_substituto || it.ean || it.produto_id};${it.quantidade}`).join('\r\n');
                 const tempPath = path.join(__dirname, `temp_carrinho_distrimed_${Date.now()}.txt`);
                 fs.writeFileSync(tempPath, linhasTxt, 'utf-8');
                 
@@ -5703,7 +5927,8 @@ function belapedEndpoints(db) {
                   todosCarrinhosStatus.itemAtualIndex = itIdx + 1;
                   todosCarrinhosStatus.ultimoItem = `${distNome}: ${it.descricao || it.ean} (Qtd: ${it.quantidade})`;
 
-                  const resAdd = await robot.adicionarAoCarrinho(it.ean, it.quantidade, it.descricao);
+                  const eanAdicionar = it.ean_substituto || it.ean;
+                  const resAdd = await robot.adicionarAoCarrinho(eanAdicionar, it.quantidade, it.descricao);
                   if (resAdd && resAdd.sucesso) {
                     itensSucesso++;
                     todosCarrinhosStatus.itensSucessoTotal++;

@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apresentação: Cartão BelaFarma & Crediário Inteligente</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            serif: ['"Playfair Display"', 'serif'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              200: '#a7f3d0',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+            },
+            primary: {
+              DEFAULT: '#0e7490',
+              dark: '#155e75',
+              light: '#06b6d4',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; color: black !important; font-size: 11pt; }
+      .page-break { page-break-before: always; }
+      .shadow-xl, .shadow-2xl, .shadow-lg { box-shadow: none !important; border: 1px solid #e2e8f0; }
+    }
+    .card-gradient {
+      background: linear-gradient(135deg, #064e3b 0%, #0e7490 50%, #1e293b 100%);
+    }
+    .card-gold {
+      background: linear-gradient(135deg, #78350f 0%, #b45309 40%, #d97706 70%, #f59e0b 100%);
+    }
+    .chip-gold {
+      background: linear-gradient(135deg, #fef08a 0%, #f59e0b 50%, #b45309 100%);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased font-sans min-h-screen selection:bg-brand-500 selection:text-white">
+
+  <!-- BARRA DE NAVEGAÇÃO SUPERIOR -->
+  <header class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-primary flex items-center justify-center text-white font-bold text-xl shadow-md">
+          +
+        </div>
+        <div>
+          <span class="font-extrabold text-xl tracking-tight text-slate-900">Bela<span class="text-brand-600">Farma</span></span>
+          <span class="text-xs ml-2 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">Plano de Negócios</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <a href="#ganhos" class="text-xs sm:text-sm font-semibold text-slate-600 hover:text-brand-600 hidden md:block">Como Ganhamos Dinheiro</a>
+        <a href="#como-funciona" class="text-xs sm:text-sm font-semibold text-slate-600 hover:text-brand-600 hidden md:block">O Cartão & Segurança</a>
+        <a href="#simulador" class="text-xs sm:text-sm font-semibold text-slate-600 hover:text-brand-600 hidden md:block">Simulador de Lucro</a>
+        <button onclick="window.print()" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs sm:text-sm font-bold hover:bg-slate-800 transition shadow">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+          Imprimir Apresentação
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO SECTION: IMPACTO VISUAL & VISÃO GERAL -->
+  <section class="relative bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 text-white py-16 px-4 sm:px-6 lg:px-8 overflow-hidden">
+    <div class="absolute inset-0 opacity-15 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:20px_20px]"></div>
+    
+    <div class="max-w-7xl mx-auto relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      
+      <div class="lg:col-span-7 space-y-6">
+        <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold uppercase tracking-wider">
+          💡 Nova Estratégia Comercial & Financeira
+        </div>
+        
+        <h1 class="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight text-white">
+          Do "Caderninho de Risco" ao nosso próprio <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Cartão de Crédito BelaFarma</span>
+        </h1>
+        
+        <p class="text-base sm:text-lg text-slate-300 leading-relaxed font-normal">
+          Hoje, quando um cliente compra no crediário, corremos risco de atraso sem ganhar nada por isso. Com cartão de crédito comum de banco, perdemos até <strong>4% da nossa margem em taxas de maquininha</strong>.
+        </p>
+
+        <p class="text-base sm:text-lg text-emerald-300 leading-relaxed font-medium">
+          A proposta é criar o <strong>Cartão Próprio da BelaFarma (Private Label)</strong>: fidelizamos a família do cliente, eliminamos o calote com travas 100% automáticas e transformamos atrasos e parcelamentos em uma <strong>nova fonte de lucro limpa, honesta e muito lucrativa</strong> para a nossa farmácia.
+        </p>
+        
+        <!-- 4 INDICADORES CHAVE -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4">
+          <div class="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur">
+            <div class="text-2xl sm:text-3xl font-extrabold text-emerald-400">+R$ 8 mil</div>
+            <div class="text-xs text-slate-300 font-medium mt-1">Lucro financeiro extra estimado/mês</div>
+          </div>
+          <div class="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur">
+            <div class="text-2xl sm:text-3xl font-extrabold text-teal-400">0% Calote</div>
+            <div class="text-xs text-slate-300 font-medium mt-1">Bloqueio no caixa com 1 dia de atraso</div>
+          </div>
+          <div class="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur">
+            <div class="text-2xl sm:text-3xl font-extrabold text-amber-400">45 Dias</div>
+            <div class="text-xs text-slate-300 font-medium mt-1">Argumento imbatível de vendas</div>
+          </div>
+          <div class="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur">
+            <div class="text-2xl sm:text-3xl font-extrabold text-cyan-400">3 Segundos</div>
+            <div class="text-xs text-slate-300 font-medium mt-1">Compra no caixa por aproximação (NFC)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MOCKUP VISUAL DO CARTÃO BELAFARMA -->
+      <div class="lg:col-span-5 flex flex-col items-center">
+        <div class="w-full max-w-sm rounded-3xl p-7 card-gradient text-white shadow-2xl border border-white/20 relative overflow-hidden transition-all duration-300 hover:scale-[1.02]">
+          <div class="absolute -right-10 -top-10 w-44 h-44 bg-emerald-500/25 rounded-full blur-2xl pointer-events-none"></div>
+          
+          <div class="flex justify-between items-start mb-6">
+            <div>
+              <div class="text-[11px] uppercase tracking-widest text-emerald-300 font-bold">Cartão Fidelidade & Crédito</div>
+              <div class="text-2xl font-black tracking-tight">Bela<span class="text-emerald-400">Farma</span> Card</div>
+            </div>
+            <!-- Ícone de Aproximação NFC -->
+            <div class="flex flex-col items-center">
+              <svg class="w-8 h-8 text-white/90 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"></path>
+              </svg>
+              <span class="text-[9px] uppercase tracking-wider text-emerald-200 font-bold">NFC</span>
+            </div>
+          </div>
+
+          <!-- Chip de Metal Dourado -->
+          <div class="w-12 h-9 rounded-md chip-gold mb-6 shadow-inner flex items-center justify-center border border-amber-300/60">
+            <div class="w-8 h-5 border border-amber-800/40 rounded-sm"></div>
+          </div>
+
+          <!-- Código Seguro / Número -->
+          <div class="font-mono text-base tracking-widest text-slate-200 mb-5">
+            5489 •••• •••• 9842
+          </div>
+
+          <div class="flex justify-between items-end border-t border-white/10 pt-4">
+            <div>
+              <div class="text-[10px] text-slate-300 uppercase tracking-wider">Cliente Preferencial</div>
+              <div class="font-bold text-sm tracking-wide text-white">MARIA DA SILVA</div>
+            </div>
+            <div class="text-right">
+              <div class="text-[10px] text-slate-300 uppercase tracking-wider">Limite Aprovado</div>
+              <div class="font-black text-base text-emerald-300">R$ 600,00</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 p-3 rounded-xl bg-white/5 border border-white/10 text-xs text-slate-300 text-center max-w-sm">
+          ✨ <strong>Sem burocracia:</strong> O cliente encosta o cartão no balcão, digita sua senha de 4 dígitos e a compra é aprovada na hora!
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- COMPARATIVO: ANTES (FICHÁRIO/CADERNO) VS NOVO CARTÃO -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+      <div class="text-center max-w-2xl mx-auto mb-8">
+        <span class="text-xs font-bold uppercase tracking-wider text-primary bg-cyan-100 px-3 py-1 rounded-full">Mudança de Patamar</span>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">Por que o modelo antigo ficou para trás?</h2>
+        <p class="text-slate-600 text-sm mt-1">Veja a diferença na prática entre o crediário comum e o Cartão Próprio BelaFarma.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        <!-- O Modelo Antigo -->
+        <div class="p-6 rounded-2xl bg-rose-50/60 border border-rose-200 space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-lg">✕</div>
+            <div>
+              <h3 class="font-extrabold text-slate-900 text-lg">Como é hoje (Fichário Tradicional)</h3>
+              <p class="text-xs text-rose-700 font-semibold">Alto risco de prejuízo e trabalho manual</p>
+            </div>
+          </div>
+          <ul class="space-y-3 text-sm text-slate-700">
+            <li class="flex items-start gap-2.5">
+              <span class="text-rose-600 font-bold">❌</span>
+              <span><strong>Prejuízo quando o cliente atrasa:</strong> O dinheiro fica parado semanas e a farmácia não recebe um centavo de juros por isso.</span>
+            </li>
+            <li class="flex items-start gap-2.5">
+              <span class="text-rose-600 font-bold">❌</span>
+              <span><strong>Controle manual e falho:</strong> O cliente diz "anota aí", passa do limite que deveria e ninguém percebe no balcão lotado.</span>
+            </li>
+            <li class="flex items-start gap-2.5">
+              <span class="text-rose-600 font-bold">❌</span>
+              <span><strong>Cobrança constrangedora:</strong> Ter que ligar cobrando ou esperar a pessoa ter boa vontade de passar na farmácia para pagar em dinheiro.</span>
+            </li>
+            <li class="flex items-start gap-2.5">
+              <span class="text-rose-600 font-bold">❌</span>
+              <span><strong>Taxas caras de maquininha:</strong> Quando o cliente passa cartão de banco parcelado em 3x, a maquininha come de 3% a 5% da nossa margem.</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- O Novo Modelo -->
+        <div class="p-6 rounded-2xl bg-emerald-50/60 border border-emerald-300 space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-lg">✓</div>
+            <div>
+              <h3 class="font-extrabold text-slate-900 text-lg">Com o Cartão BelaFarma (Novo Módulo)</h3>
+              <p class="text-xs text-emerald-700 font-semibold">Segurança absoluta, fidelização e lucro financeiro</p>
+            </div>
+          </div>
+          <ul class="space-y-3 text-sm text-slate-700">
+            <li class="flex items-start gap-2.5">
+              <span class="text-emerald-600 font-bold">✔️</span>
+              <span><strong>Lucro com juros e taxas transparentes:</strong> Atrasos, parcelamentos e fatura geram dinheiro limpo para a farmácia todo mês.</span>
+            </li>
+            <li class="flex items-start gap-2.5">
+              <span class="text-emerald-600 font-bold">✔️</span>
+              <span><strong>Travamento automático no caixa:</strong> Se o cliente atrasar 1 dia ou estourar o limite, o sistema bloqueia novas vendas na hora. Zero calote!</span>
+            </li>
+            <li class="flex items-start gap-2.5">
+              <span class="text-emerald-600 font-bold">✔️</span>
+              <span><strong>O cliente paga no celular por PIX ou Boleto:</strong> Ele recebe o link pelo WhatsApp com 1 clique, sem precisar ir até a loja se não puder.</span>
+            </li>
+            <li class="flex items-start gap-2.5">
+              <span class="text-emerald-600 font-bold">✔️</span>
+              <span><strong>Zero taxa de maquininha:</strong> O dinheiro das vendas é 100% da BelaFarma, sem intermediários comendo nossa margem de lucro.</span>
+            </li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. COMO GANHAMOS DINHEIRO: CLARO, HONESTO E LUCRATIVO -->
+  <section id="ganhos" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div class="text-center max-w-3xl mx-auto">
+      <span class="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full">Transparência Total</span>
+      <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">Como podemos lucrar de forma honesta e justa?</h2>
+      <p class="text-slate-600 text-sm mt-2">
+        Não usamos "letras miúdas". Explicamos cada taxa com carinho para o cliente. As pessoas pagam com gosto porque sabem que o juro da farmácia é <strong>3 a 4 vezes menor que o juro abusivo do cartão de banco ou cheque especial</strong>.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+      <!-- MOTOR 1: TARIFA DE FATURA ATIVA -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition space-y-4">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xl">
+          🪙
+        </div>
+        <h3 class="font-bold text-slate-900 text-lg">1. Tarifa de Fatura Ativa</h3>
+        <div class="text-2xl font-black text-emerald-600">R$ 4,90 <span class="text-xs font-normal text-slate-500">/mês que usar</span></div>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          <strong>Como explicar ao cliente:</strong> "Dona Maria, nosso cartão não tem anuidade fixa! Se a senhora não comprar nada no mês, paga ZERO. Se comprar, tem só uma taxinha de R$ 4,90 para cobrir o boleto e as mensagens no WhatsApp."
+        </p>
+        <div class="pt-2 border-t border-slate-100 text-xs font-semibold text-slate-700">
+          💰 <strong>Nosso Lucro:</strong> R$ 3,40 líquidos por cliente ativo (o Banco Inter cobra apenas ~R$ 1,50). Com 600 clientes = <span class="text-emerald-700">R$ 2.040/mês</span>!
+        </div>
+      </div>
+
+      <!-- MOTOR 2: PARCELAMENTO DE TRATAMENTOS -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition space-y-4">
+        <div class="w-12 h-12 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-xl">
+          📦
+        </div>
+        <h3 class="font-bold text-slate-900 text-lg">2. Parcelamento Amigo</h3>
+        <div class="text-2xl font-black text-teal-600">Até 3x s/ juros <span class="text-xs font-normal text-slate-500">ou 4x a 6x c/ juros</span></div>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          <strong>Como explicar ao cliente:</strong> Em compras grandes (R$ 150 a R$ 400), o cliente pode fazer em 4x a 6x com parcelinhas pequenas. Colocamos juros justos de <strong>2,9% ao mês</strong> (muito mais barato que os 15% do banco).
+        </p>
+        <div class="pt-2 border-t border-slate-100 text-xs font-semibold text-slate-700">
+          💰 <strong>Nosso Lucro:</strong> Em uma compra de R$ 200 em 6x, a farmácia ganha <span class="text-teal-700">R$ 24,00 a mais</span> só de juros, além do lucro normal dos medicamentos!
+        </div>
+      </div>
+
+      <!-- MOTOR 3: PAGAMENTO MÍNIMO / ROTATIVO -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition space-y-4">
+        <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xl">
+          🔄
+        </div>
+        <h3 class="font-bold text-slate-900 text-lg">3. Crédito Rotativo Humanizado</h3>
+        <div class="text-2xl font-black text-amber-600">Mínimo de 30% <span class="text-xs font-normal text-slate-500">para não travar</span></div>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          <strong>Como explicar ao cliente:</strong> O cliente apertou no final do mês? Ele pode pagar apenas 30% da fatura para manter o cartão ativo. O saldo restante rola para o mês seguinte com juros de 4,9% a.m.
+        </p>
+        <div class="pt-2 border-t border-slate-100 text-xs font-semibold text-slate-700">
+          💰 <strong>Sem Bola de Neve:</strong> Não deixamos virar dívida infinita. O cliente é salvo no mês difícil e a farmácia é remunerada pelo capital emprestado.
+        </div>
+      </div>
+
+      <!-- MOTOR 4: ENCARGOS DE ATRASO -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition space-y-4">
+        <div class="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-xl">
+          🛡️
+        </div>
+        <h3 class="font-bold text-slate-900 text-lg">4. Disciplina de Atraso</h3>
+        <div class="text-2xl font-black text-rose-600">Multa 2% + Mora <span class="text-xs font-normal text-slate-500">+ Taxa de aviso</span></div>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          <strong>Como funciona:</strong> Se atrasar, o sistema calcula na hora a multa de 2% permitida por lei + juros diários + taxa de cobrança de R$ 6,00 pelo disparo de WhatsApp.
+        </p>
+        <div class="pt-2 border-t border-slate-100 text-xs font-semibold text-slate-700">
+          💰 <strong>Efeito Educativo:</strong> Quem é bom pagador não atrasa para economizar; quem atrasa cobre com folga os custos operacionais da farmácia!
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- SIMULADOR INTERATIVO DE LUCRO PARA A SÓCIA -->
+  <section id="simulador" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-white rounded-3xl p-8 sm:p-10 border border-slate-800 shadow-2xl">
+      <div class="max-w-3xl mb-8">
+        <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-800/80">
+          Simulador Financeiro para os Sócios
+        </span>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-white mt-2">Quanto a BelaFarma pode faturar a mais por mês?</h2>
+        <p class="text-slate-300 text-sm mt-1">
+          Arraste a barra para alterar a quantidade de clientes com cartão e veja o impacto financeiro direto no caixa:
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+        
+        <!-- Controles Interativos -->
+        <div class="lg:col-span-6 space-y-6 bg-slate-800/60 p-6 rounded-2xl border border-slate-700">
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <label class="text-sm font-bold text-slate-200">Quantidade de Clientes com Cartão Ativo:</label>
+              <span id="labelClientes" class="text-xl font-extrabold text-emerald-400">600 clientes</span>
+            </div>
+            <input type="range" id="rangeClientes" min="100" max="2000" step="50" value="600" oninput="atualizarLucro()" class="w-full accent-emerald-500 h-2 bg-slate-700 rounded-lg cursor-pointer">
+            <div class="flex justify-between text-[11px] text-slate-400 mt-1">
+              <span>100 clientes (Início)</span>
+              <span>1.000 clientes (Médio)</span>
+              <span>2.000 clientes (Consolidado)</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 pt-2">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Tarifa de Fatura Ativa</label>
+              <select id="selTarifa" onchange="atualizarLucro()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none">
+                <option value="3.90">R$ 3,90 / mês</option>
+                <option value="4.90" selected>R$ 4,90 / mês (Recomendado)</option>
+                <option value="5.90">R$ 5,90 / mês</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Taxa de Parcelamento (4x a 6x)</label>
+              <select id="selJuros" onchange="atualizarLucro()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none">
+                <option value="2.49">2,49% ao mês</option>
+                <option value="2.99" selected>2,99% ao mês (Ideal)</option>
+                <option value="3.49">3,49% ao mês</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Painel de Resultados do Lucro -->
+        <div class="lg:col-span-6 bg-slate-950 p-6 rounded-2xl border border-emerald-900/50 shadow-inner space-y-4">
+          <div class="text-xs uppercase tracking-wider text-slate-400 font-bold">Projeção de Ganho Líquido Mensal</div>
+          
+          <div class="flex items-baseline gap-3">
+            <span id="valorTotalLucro" class="text-4xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">
+              R$ 8.250,00
+            </span>
+            <span class="text-xs text-slate-400">/mês no bolso</span>
+          </div>
+
+          <div class="text-xs text-emerald-300 font-semibold flex items-center gap-1.5">
+            <span>🚀 Resultado Anual Projetado:</span>
+            <span id="valorTotalAnual" class="font-extrabold text-white text-sm">R$ 99.000,00 / ano</span>
+          </div>
+
+          <!-- Composição das Receitas -->
+          <div class="space-y-2 pt-3 border-t border-slate-800 text-xs font-medium text-slate-300">
+            <div class="flex justify-between">
+              <span>Tarifas de Fatura (Líquidas):</span>
+              <span id="lucroTarifas" class="font-bold text-emerald-400">R$ 2.040,00</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Juros de Parcelamento (4x a 6x):</span>
+              <span id="lucroParcelas" class="font-bold text-teal-400">R$ 2.220,00</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Crédito Rotativo (Pagamento Mínimo):</span>
+              <span id="lucroRotativo" class="font-bold text-amber-400">R$ 840,00</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Multas & Atrasos Recuperados:</span>
+              <span id="lucroAtrasos" class="font-bold text-rose-400">R$ 450,00</span>
+            </div>
+            <div class="flex justify-between border-t border-slate-800 pt-1 text-slate-200">
+              <span>Economia com Maquininha (Sem pagar MDR Visa/Master):</span>
+              <span id="lucroEconomiaMdr" class="font-bold text-emerald-300">R$ 2.700,00</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. SEGURANÇA NO CAIXA E NO CELULAR DO CLIENTE -->
+  <section id="como-funciona" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div class="text-center max-w-3xl mx-auto">
+      <span class="text-xs font-bold uppercase tracking-wider text-primary bg-cyan-100 px-3 py-1 rounded-full">Operação Simples</span>
+      <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">Como vai ser o dia a dia na farmácia?</h2>
+      <p class="text-slate-600 text-sm mt-1">Criado para ser tão fácil que qualquer atendente novo aprende em 5 minutos.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+      <!-- PASSO 1 -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">1</div>
+        <h4 class="font-extrabold text-slate-900 text-base">Cliente Compra em 3 Segundos</h4>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          O cliente chega no balcão e só aproxima o cartão no leitor de mesa. O sistema reconhece a Maria da Silva na hora, checa se tem limite e pede a senha de 4 dígitos dela.
+        </p>
+        <div class="p-2.5 rounded-xl bg-slate-50 text-[11px] text-slate-500 border border-slate-200">
+          🔒 <strong>Segurança:</strong> Se o cliente perder o cartão na rua, ninguém consegue usar sem a senha pessoal dele.
+        </div>
+      </div>
+
+      <!-- PASSO 2 -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">2</div>
+        <h4 class="font-extrabold text-slate-900 text-base">Bloqueio Automático Anticalote</h4>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          Se o cliente tiver qualquer parcela vencida há mais de 1 dia, ou se a compra ultrapassar o limite dele, o caixa recusa automaticamente a venda. 
+        </p>
+        <div class="p-2.5 rounded-xl bg-slate-50 text-[11px] text-slate-500 border border-slate-200">
+          🚫 <strong>Fim do "jeitinho":</strong> O atendente não tem como liberar por amizade. O sistema protege o patrimônio dos sócios.
+        </div>
+      </div>
+
+      <!-- PASSO 3 -->
+      <div class="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-800 flex items-center justify-center font-bold">3</div>
+        <h4 class="font-extrabold text-slate-900 text-base">Cobrança e Pagamento no WhatsApp</h4>
+        <p class="text-xs text-slate-600 leading-relaxed">
+          3 dias antes do vencimento, o sistema envia no WhatsApp da cliente uma mensagem amigável com a fatura, o código PIX Copia-e-Cola e o boleto bancário em PDF.
+        </p>
+        <div class="p-2.5 rounded-xl bg-slate-50 text-[11px] text-slate-500 border border-slate-200">
+          ⚡ <strong>Compensação na hora:</strong> Ela paga no PIX do celular dela e o limite é liberado em menos de 10 segundos!
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 5. O ARGUMENTO IMBATÍVEL: "ATÉ 45 DIAS PARA PAGAR" -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="bg-gradient-to-r from-emerald-800 via-teal-900 to-slate-900 text-white rounded-3xl p-8 sm:p-10 shadow-xl">
+      <div class="max-w-3xl space-y-4">
+        <span class="text-xs font-bold uppercase tracking-wider text-emerald-300 bg-emerald-700/50 px-3 py-1 rounded-full border border-emerald-500/50">
+          Poder de Marketing no Balcão
+        </span>
+        <h2 class="text-2xl sm:text-3xl font-black">Como funciona o argumento dos "45 Dias para Pagar"?</h2>
+        <p class="text-slate-200 text-sm leading-relaxed">
+          É o mesmo truque comercial que os grandes bancos usam para conquistar clientes:
+        </p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 text-xs">
+          <div class="p-4 rounded-2xl bg-white/10 backdrop-blur border border-white/10">
+            <div class="font-bold text-emerald-300 text-sm mb-1">Dia 20: Fechamento</div>
+            <p class="text-slate-300">Todas as compras feitas até o dia 20 fecham a fatura e vencem no dia 05 do mês seguinte.</p>
+          </div>
+          <div class="p-4 rounded-2xl bg-white/10 backdrop-blur border border-emerald-400/40">
+            <div class="font-bold text-amber-300 text-sm mb-1">Dia 21: Melhor Dia! 🌟</div>
+            <p class="text-slate-300">Quem compra no dia 21 só terá essa compra fechada no dia 20 do MÊS SEGUINTE para pagar dia 05.</p>
+          </div>
+          <div class="p-4 rounded-2xl bg-white/10 backdrop-blur border border-white/10">
+            <div class="font-bold text-teal-300 text-sm mb-1">Total: 45 Dias de Prazo</div>
+            <p class="text-slate-300">O cliente ganha 45 dias corridos de fôlego! As vendas da farmácia disparam a partir do dia 21 de todo mês.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. PLANO DE AÇÃO: PRÓXIMOS PASSOS -->
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div class="text-center max-w-2xl mx-auto">
+      <span class="text-xs font-bold uppercase tracking-wider text-slate-700 bg-slate-200 px-3 py-1 rounded-full">Cronograma Executivo</span>
+      <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">Como podemos colocar para rodar?</h2>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+      
+      <div class="p-5 rounded-2xl bg-white border-t-4 border-t-emerald-600 border border-slate-200 shadow-sm space-y-2">
+        <span class="font-black text-emerald-700">ETAPA 1 (Já no Sistema)</span>
+        <h4 class="font-bold text-slate-900 text-sm">Regras & Limites no Software</h4>
+        <p class="text-slate-600">Configuração das datas de corte (dia 20 e 05), limites por cliente e trava anticalote.</p>
+      </div>
+
+      <div class="p-5 rounded-2xl bg-white border-t-4 border-t-teal-600 border border-slate-200 shadow-sm space-y-2">
+        <span class="font-black text-teal-700">ETAPA 2</span>
+        <h4 class="font-bold text-slate-900 text-sm">Boletos & PIX Banco Inter</h4>
+        <p class="text-slate-600">Ativação do envio automático com QR Code Pix dinâmico e compensação instantânea.</p>
+      </div>
+
+      <div class="p-5 rounded-2xl bg-white border-t-4 border-t-amber-600 border border-slate-200 shadow-sm space-y-2">
+        <span class="font-black text-amber-700">ETAPA 3</span>
+        <h4 class="font-bold text-slate-900 text-sm">Chegada dos Cartões NFC</h4>
+        <p class="text-slate-600">Aquisição de leitor USB para os caixas (R$ 80) e lote teste de cartões BelaFarma em PVC.</p>
+      </div>
+
+      <div class="p-5 rounded-2xl bg-white border-t-4 border-t-purple-600 border border-slate-200 shadow-sm space-y-2">
+        <span class="font-black text-purple-700">ETAPA 4</span>
+        <h4 class="font-bold text-slate-900 text-sm">Lançamento aos Clientes VIPs</h4>
+        <p class="text-slate-600">Entrega dos primeiros 50 cartões para clientes fiéis, testando e comemorando o novo formato!</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- RODAPÉ EXECUTIVO -->
+  <footer class="bg-white border-t border-slate-200 py-10 text-center text-xs text-slate-500 no-print mt-12">
+    <div class="max-w-7xl mx-auto px-4 space-y-2">
+      <div class="font-extrabold text-slate-800 text-sm">Rede de Farmácias BelaFarma &bull; 2026</div>
+      <p>Proposta de Valor: Cartão Fidelidade Private Label, Crediário Digital & Serviços Financeiros.</p>
+      <p class="text-[11px] text-slate-400">Documento interno confidencial para alinhamento entre sócios e diretoria.</p>
+    </div>
+  </footer>
+
+  <!-- SCRIPT DO SIMULADOR DE LUCRO PARA A SÓCIA -->
+  <script>
+    function formatarMoeda(val) {
+      return 'R$ ' + val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function atualizarLucro() {
+      const clientes = parseInt(document.getElementById('rangeClientes').value);
+      const tarifaFatura = parseFloat(document.getElementById('selTarifa').value);
+      const jurosMensal = parseFloat(document.getElementById('selJuros').value);
+
+      document.getElementById('labelClientes').innerText = clientes + ' clientes';
+
+      // 1. Tarifa de Fatura Ativa (considera 90% dos clientes comprando no mês)
+      const custoInter = 1.50;
+      const margemTarifa = Math.max(0, tarifaFatura - custoInter);
+      const totalTarifas = (clientes * 0.90) * margemTarifa;
+
+      // 2. Juros de Parcelamento (20% dos clientes fazem compra parcelada em 4x a 6x, ticket médio R$ 220)
+      const clientesParcelando = clientes * 0.20;
+      const jurosMedioPorCompra = (220 * (jurosMensal / 100) * 3); // ~3 meses de juros acumulados médios
+      const totalParcelas = clientesParcelando * jurosMedioPorCompra;
+
+      // 3. Crédito Rotativo (10% dos clientes usam o mínimo, ticket de saldo R$ 150 a 4.5% a.m.)
+      const clientesRotativo = clientes * 0.10;
+      const totalRotativo = clientesRotativo * (150 * 0.049);
+
+      // 4. Atrasos Recuperados (Multa 2% + R$ 6 de taxa de cobrança sobre 8% dos clientes)
+      const clientesAtraso = clientes * 0.08;
+      const totalAtrasos = clientesAtraso * ((160 * 0.02) + 6.00);
+
+      // 5. Economia de Taxa de Maquininha (Substitui Visa/Master por Cartão Próprio, ticket médio R$ 150/cliente, poupando 3%)
+      const volumeVendasProprio = clientes * 150;
+      const totalEconomiaMdr = volumeVendasProprio * 0.03;
+
+      // Total Geral
+      const lucroTotal = totalTarifas + totalParcelas + totalRotativo + totalAtrasos + totalEconomiaMdr;
+      const lucroAnual = lucroTotal * 12;
+
+      // Atualiza os elementos na tela
+      document.getElementById('valorTotalLucro').innerText = formatarMoeda(lucroTotal);
+      document.getElementById('valorTotalAnual').innerText = formatarMoeda(lucroAnual) + ' / ano';
+
+      document.getElementById('lucroTarifas').innerText = formatarMoeda(totalTarifas);
+      document.getElementById('lucroParcelas').innerText = formatarMoeda(totalParcelas);
+      document.getElementById('lucroRotativo').innerText = formatarMoeda(totalRotativo);
+      document.getElementById('lucroAtrasos').innerText = formatarMoeda(totalAtrasos);
+      document.getElementById('lucroEconomiaMdr').innerText = formatarMoeda(totalEconomiaMdr);
+    }
+
+    // Inicializa ao carregar
+    atualizarLucro();
+  </script>
+
+</body>
+</html>

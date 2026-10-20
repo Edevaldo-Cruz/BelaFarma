@@ -1,6 +1,8 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
+const farmacoMatcher = require('./belaped-farmaco-matcher.js');
+const motorEssencia = require('./belaped-motor-essencia.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -96,76 +98,114 @@ class DpcRobot {
   /**
    * Consulta um EAN no catálogo da DPC
    */
-  async cotarEAN(ean, descricaoProduto = '') {
+  /**
+   * Busca produtos no catálogo da DPC
+   */
+  async _buscarNoCatalogoDpc(termo) {
+    if (!this.page) return [];
+    try {
+      const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(termo)}&visualizacao=bloco-1&ordenacao=ordem-0`;
+      await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
+      await new Promise(r => setTimeout(r, 600));
+
+      return await this.page.evaluate(() => {
+        const bodyText = document.body.innerText || '';
+        const idxIni = bodyText.indexOf('Resultado da Busca:');
+        const idxFim = bodyText.indexOf('Empresa especializada na distribuição');
+        const areaBusca = idxIni >= 0 ? bodyText.slice(idxIni, idxFim > idxIni ? idxFim : undefined) : '';
+
+        if (!areaBusca || areaBusca.includes('Foram encontrados 0 produtos') || areaBusca.includes('Não localizamos nenhum resultado')) {
+          return [];
+        }
+
+        const linhas = areaBusca.split('\n').map(l => l.trim()).filter(Boolean);
+        const encontrados = [];
+
+        for (let i = 0; i < linhas.length; i++) {
+          const l = linhas[i];
+          if (l.startsWith('Emb.:')) {
+            let fatorEmbalagem = 1;
+            const matchQtd = l.match(/(\d+)/);
+            if (matchQtd) {
+              const n = parseInt(matchQtd[1], 10);
+              if (n > 1) fatorEmbalagem = n;
+            }
+            const desc = (i + 1 < linhas.length) ? linhas[i + 1] : '';
+            for (let j = i + 2; j < Math.min(i + 7, linhas.length); j++) {
+              const subL = linhas[j];
+              if (/^R\$\s*[\d.,]+$/.test(subL)) {
+                const num = parseFloat(subL.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
+                if (!isNaN(num) && num > 0) {
+                  const precoFinal = fatorEmbalagem > 1 ? Number((num / fatorEmbalagem).toFixed(2)) : num;
+                  encontrados.push({
+                    descricao: desc,
+                    preco: precoFinal,
+                    fatorEmbalagem
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        }
+        return encontrados;
+      });
+    } catch (e) {
+      console.warn('[DpcRobot] Erro ao buscar no catálogo:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Consulta um EAN no catálogo da DPC com busca por essência e menor preço
+   */
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
     if (!this.page) throw new Error('Robô DPC não iniciado.');
 
     try {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'DPC DISTRIBUIDORA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
 
-      const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(eanLimpo)}&visualizacao=bloco-1&ordenacao=ordem-0`;
-      await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });
-      await new Promise(r => setTimeout(r, 500));
+      // 1. Busca por EAN original no portal
+      const itensEan = await this._buscarNoCatalogoDpc(eanLimpo);
+      let melhorEanOriginal = null;
+      if (itensEan && itensEan.length > 0) {
+        itensEan.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensEan[0];
+      }
 
-      const dados = await this.page.evaluate(() => {
-        const bodyText = document.body.innerText || '';
-        const idxIni = bodyText.indexOf('Resultado da Busca:');
-        const idxFim = bodyText.indexOf('Empresa especializada na distribuição');
-        const areaBusca = idxIni >= 0
-          ? bodyText.slice(idxIni, idxFim > idxIni ? idxFim : undefined)
-          : '';
+      // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+      const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+      let todosCandidatos = [...(itensEan || [])];
 
-        if (
-          !areaBusca ||
-          areaBusca.includes('Foram encontrados 0 produtos') ||
-          areaBusca.includes('Não localizamos nenhum resultado') ||
-          areaBusca.includes('Sem estoque') ||
-          areaBusca.includes('Indisponível') ||
-          areaBusca.includes('indisponível') ||
-          areaBusca.includes('Esgotado') ||
-          areaBusca.includes('Avise-me')
-        ) {
-          return { encontrado: false };
-        }
-
-        const linhas = areaBusca.split('\n').map(l => l.trim()).filter(Boolean);
-        // Estrutura típica no bloco da DPC:
-        // "Emb.: 1 unidade"
-        // "Gel Fixador Ny Looks 240g Azul"
-        // "R$ 8,71"
-        // "Info"
-        let descricao = '';
-        let precoUnit = null;
-        let fatorEmbalagem = 1;
-
-        for (let i = 0; i < linhas.length; i++) {
-          const l = linhas[i];
-          if (l.startsWith('Emb.:')) {
-            const matchQtd = l.match(/(\d+)/);
-            if (matchQtd) {
-              const n = parseInt(matchQtd[1], 10);
-              if (n > 1) fatorEmbalagem = n;
-            }
-            if (i + 1 < linhas.length) {
-              descricao = linhas[i + 1];
-            }
-          } else if (/^R\$\s*[\d.,]+$/.test(l) && precoUnit === null) {
-            const num = parseFloat(l.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
-            if (!isNaN(num) && num > 0) {
-              precoUnit = fatorEmbalagem > 1 ? Number((num / fatorEmbalagem).toFixed(2)) : num;
-              break;
+      if (cotarPorEssencia) {
+        try {
+          const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+          if (prep.termoBusca && prep.termoBusca.length >= 3) {
+            const itensEssencia = await this._buscarNoCatalogoDpc(prep.termoBusca);
+            for (const it of (itensEssencia || [])) {
+              if (!todosCandidatos.some(existente => existente.descricao === it.descricao && existente.preco === it.preco)) {
+                todosCandidatos.push(it);
+              }
             }
           }
+        } catch (eGen) {
+          console.warn('[DpcRobot] Aviso na busca por essência:', eGen.message);
         }
+      }
 
-        return {
-          encontrado: precoUnit !== null && precoUnit > 0,
-          preco: precoUnit,
-          descricao
-        };
-      });
+      // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+      const itemOrigConfig = {
+        ean: eanLimpo,
+        descricao: descricaoProduto,
+        precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+      };
 
-      if (!dados.encontrado || !dados.preco) {
+      const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      if (!vencedor) {
         return {
           fornecedor: 'DPC DISTRIBUIDORA',
           ean: eanLimpo,
@@ -175,29 +215,27 @@ class DpcRobot {
         };
       }
 
-      // 🛡️ VALIDAÇÃO ESTRITA SEMÂNTICA ANTI-ALUCINAÇÃO
-      if (descricaoProduto && dados.descricao) {
-        const checagem = validarCorrespondenciaProduto(descricaoProduto, dados.descricao);
-        if (!checagem.valido) {
-          console.warn(`[DpcRobot] ⛔ Rejeitando item incompatível retornado na DPC: esperado "${descricaoProduto}" vs encontrado "${dados.descricao}" (${checagem.motivo})`);
-          return {
-            fornecedor: 'DPC DISTRIBUIDORA',
-            ean: eanLimpo,
-            disponivel: false,
-            preco: null,
-            descricao: dados.descricao,
-            mensagem: 'Produto divergente do catálogo na DPC'
-          };
-        }
-      }
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+      const urlBusca = `https://dpcnet.com.br/catalogo?busca=${encodeURIComponent(vencedor.ean || eanLimpo)}`;
 
       return {
         fornecedor: 'DPC DISTRIBUIDORA',
-        ean: eanLimpo,
+        ean: vencedor.ean || eanLimpo,
+        eanOriginal: eanLimpo,
+        eanEncontrado: vencedor.ean || eanLimpo,
         disponivel: true,
-        descricao: dados.descricao || '',
-        preco: dados.preco,
+        descricao: vencedor.descricao || '',
+        preco: vencedor.preco,
+        laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+        isSubstituto,
+        isGenericoEquivalente: isSubstituto,
+        precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+        economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+        todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
         urlProduto: urlBusca,
+        mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : '',
         dataHora: new Date().toISOString()
       };
 

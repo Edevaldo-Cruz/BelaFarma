@@ -1,5 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const farmacoMatcher = require('./belaped-farmaco-matcher.js');
+const motorEssencia = require('./belaped-motor-essencia.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -118,26 +120,11 @@ class DivimedRobot {
   }
 
   /**
-   * Consulta cotação na Divimed pelo Nome do Produto (com validação por EAN e Palavras-chave)
+   * Executa busca de produtos na API do catálogo da Divimed
    */
-  async cotarEAN(ean, descricaoProduto = '') {
-    if (!this.page) throw new Error('Robô Divimed não iniciado.');
-
+  async _buscarProdutosDivimed(termo) {
+    if (!this.page || !termo) return [];
     try {
-      const eanLimpo = String(ean || '').trim();
-      const termoNome = extrairTermoLimpo(descricaoProduto);
-
-      if (!termoNome || termoNome.length < 2) {
-        return {
-          fornecedor: 'DIVIMED',
-          ean: eanLimpo,
-          disponivel: false,
-          preco: null,
-          mensagem: 'Descrição insuficiente para busca por nome'
-        };
-      }
-
-      // Intercepta a resposta da API interna disparada pelo Angular
       const waitResponsePromise = this.page.waitForResponse(
         res => {
           if (!res.url().includes('/api/produto/comprar/all')) return false;
@@ -147,90 +134,131 @@ class DivimedRobot {
           if (!postData) return false;
           try {
             const parsed = JSON.parse(postData);
-            return parsed.query === termoNome;
+            return parsed.query === termo;
           } catch (_) {
             return false;
           }
         },
-        { timeout: 14000 }
+        { timeout: 12000 }
       ).catch(() => null);
 
-      // Limpa input e digita o termo limpo
       await this.page.click('input.filtro-search-input');
       await this.page.keyboard.down('Control');
       await this.page.keyboard.press('KeyA');
       await this.page.keyboard.up('Control');
       await this.page.keyboard.press('Backspace');
 
-      await this.page.type('input.filtro-search-input', termoNome, { delay: 15 });
-      await new Promise(r => setTimeout(r, 400)); // Aguarda debounce
+      await this.page.type('input.filtro-search-input', termo, { delay: 15 });
+      await new Promise(r => setTimeout(r, 400));
       await this.page.keyboard.press('Enter');
 
       const res = await waitResponsePromise;
-      if (!res) {
-        return {
-          fornecedor: 'DIVIMED',
-          ean: eanLimpo,
-          disponivel: false,
-          preco: null,
-          mensagem: 'Sem resposta do catálogo Divimed'
-        };
-      }
+      if (!res) return [];
 
       const data = await res.json().catch(() => ({}));
       const produtos = data.content || [];
 
-      if (!produtos || produtos.length === 0) {
+      return produtos.map(p => ({
+        ean: p.codigoBarra ? String(p.codigoBarra).trim() : null,
+        descricao: p.nome || '',
+        preco: Number(p.valorLiquido1 || p.valorLiquido || p.precoProduto || 0),
+        estoque: p.estoqueQuantidade || 0,
+        produtoId: p.produtoId
+      })).filter(p => p.preco > 0 && p.estoque > 0);
+    } catch (e) {
+      console.warn('[DivimedRobot] Erro ao buscar produtos:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Consulta um EAN no catálogo da Divimed com busca por essência e menor preço
+   */
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
+    if (!this.page) throw new Error('Robô Divimed não iniciado.');
+
+    try {
+      const eanLimpo = String(ean || '').trim();
+      if (!eanLimpo) return { fornecedor: 'DIVIMED', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
+
+      const termoNome = extrairTermoLimpo(descricaoProduto);
+
+      // 1. Busca por nome/EAN no portal da Divimed
+      const itensOriginais = termoNome ? await this._buscarProdutosDivimed(termoNome) : [];
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      const itensCorrespondentes = (itensOriginais || []).filter(it => {
+        if (!it.ean) return false;
+        const codLimpo = String(it.ean).replace(/\D/g, '');
+        return codLimpo === eanDigitos || (codLimpo.length >= 8 && eanDigitos.length >= 8 && (codLimpo.endsWith(eanDigitos) || eanDigitos.endsWith(codLimpo)));
+      });
+
+      let melhorEanOriginal = null;
+      if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+        itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensCorrespondentes[0];
+      }
+
+      // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+      const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+      let todosCandidatos = [...(itensOriginais || [])];
+
+      if (cotarPorEssencia) {
+        try {
+          const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+          if (prep.termoBusca && prep.termoBusca !== termoNome && prep.termoBusca.length >= 3) {
+            const itensEssencia = await this._buscarProdutosDivimed(prep.termoBusca);
+            for (const it of (itensEssencia || [])) {
+              if (!todosCandidatos.some(existente => existente.produtoId === it.produtoId)) {
+                todosCandidatos.push(it);
+              }
+            }
+          }
+        } catch (eGen) {
+          console.warn('[DivimedRobot] Aviso na busca por essência:', eGen.message);
+        }
+      }
+
+      // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+      const itemOrigConfig = {
+        ean: eanLimpo,
+        descricao: descricaoProduto,
+        precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+      };
+
+      const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      if (!vencedor) {
         return {
           fornecedor: 'DIVIMED',
           ean: eanLimpo,
           disponivel: false,
           preco: null,
-          descricao: '',
           mensagem: 'Indisponível na Divimed'
         };
       }
 
-      // 1. Validação ESTRITA por EAN (código de barra retornado na API da Divimed)
-      let item = produtos.find(p => {
-        if (!p.codigoBarra) return false;
-        const codLimpo = String(p.codigoBarra).trim().replace(/\D/g, '');
-        const eanDigitos = eanLimpo.replace(/\D/g, '');
-        return codLimpo === eanDigitos || (codLimpo.length >= 8 && eanDigitos.length >= 8 && (codLimpo.endsWith(eanDigitos) || eanDigitos.endsWith(codLimpo)));
-      });
-
-      if (!item) {
-        return {
-          fornecedor: 'DIVIMED',
-          ean: eanLimpo,
-          disponivel: false,
-          preco: null,
-          mensagem: 'EAN exato não localizado no catálogo da Divimed'
-        };
-      }
-
-      const precoFinal = item.valorLiquido1 || item.valorLiquido || item.precoProduto;
-      const temEstoque = (item.estoqueQuantidade || 0) > 0;
-
-      if (!temEstoque || !precoFinal || precoFinal <= 0) {
-        return {
-          fornecedor: 'DIVIMED',
-          ean: eanLimpo,
-          disponivel: false,
-          preco: null,
-          mensagem: 'Sem estoque na Divimed'
-        };
-      }
+      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
 
       return {
         fornecedor: 'DIVIMED',
-        ean: eanLimpo,
+        ean: vencedor.ean || eanLimpo,
+        eanOriginal: eanLimpo,
+        eanEncontrado: vencedor.ean || eanLimpo,
         disponivel: true,
-        preco: Number(Number(precoFinal).toFixed(2)),
-        descricao: item.nome || '',
-        produtoId: item.produtoId,
+        preco: Number(Number(vencedor.preco).toFixed(2)),
+        descricao: vencedor.descricao || '',
+        laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+        isSubstituto,
+        isGenericoEquivalente: isSubstituto,
+        precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+        economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+        todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
+        produtoId: vencedor.produtoId,
         urlProduto: 'https://divimed.artpedidoweb.com.br/#/comprar',
-        mensagem: ''
+        mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : ''
       };
 
     } catch (err) {

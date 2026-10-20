@@ -1,6 +1,8 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
+const farmacoMatcher = require('./belaped-farmaco-matcher.js');
+const motorEssencia = require('./belaped-motor-essencia.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -217,17 +219,60 @@ class SotonRobot {
   /**
    * Consulta um EAN no catálogo da Soton Farma com validação estrita de EAN, Semântica e Estoque
    */
-  async cotarEAN(ean, descricaoProduto = '') {
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
     if (!this.page) throw new Error('Robô Soton não iniciado.');
 
     try {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'SOTON FARMA', disponivel: false, preco: null };
 
-      // 1. Busca estrita pelo EAN no MeusPedidos da Soton
-      let itens = await this._buscarTermoNaSoton(eanLimpo);
+      // 1. Busca por EAN original no portal
+      let itensEan = await this._buscarTermoNaSoton(eanLimpo);
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      let itensCorrespondentes = (itensEan || []).filter(it => {
+        if (!it.descricao) return false;
+        // Na Soton, se o EAN veio na descrição ou foi encontrado na busca exata
+        return true;
+      });
 
-      if (!itens || itens.length === 0) {
+      let melhorEanOriginal = null;
+      if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+        itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensCorrespondentes[0];
+      }
+
+      // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+      const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+      let todosCandidatos = [...itensCorrespondentes];
+
+      if (cotarPorEssencia) {
+        try {
+          const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+          if (prep.termoBusca && prep.termoBusca.length >= 3) {
+            const itensEssencia = await this._buscarTermoNaSoton(prep.termoBusca);
+            for (const it of (itensEssencia || [])) {
+              if (!todosCandidatos.some(existente => existente.descricao === it.descricao && existente.preco === it.preco)) {
+                todosCandidatos.push(it);
+              }
+            }
+          }
+        } catch (eGen) {
+          console.warn('[SotonRobot] Aviso na busca por essência:', eGen.message);
+        }
+      }
+
+      // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+      const itemOrigConfig = {
+        ean: eanLimpo,
+        descricao: descricaoProduto,
+        precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+      };
+
+      const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      if (!vencedor) {
         return {
           fornecedor: 'SOTON FARMA',
           ean: eanLimpo,
@@ -238,41 +283,26 @@ class SotonRobot {
         };
       }
 
-      // 2. 🛡️ VALIDAÇÃO ESTRITA SEMÂNTICA ANTI-ALUCINAÇÃO:
-      // Impede que resultados broad-match/fuzzy da busca do Mercos aceitem produtos errados
-      const itensValidados = itens.filter(it => {
-        if (!descricaoProduto) return true;
-        const checagem = validarCorrespondenciaProduto(descricaoProduto, it.descricao);
-        if (!checagem.valido) {
-          console.warn(`[SotonRobot] ⛔ Rejeitando item incompatível retornado na Soton: esperado "${descricaoProduto}" vs encontrado "${it.descricao}" (${checagem.motivo})`);
-          return false;
-        }
-        return true;
-      });
-
-      if (!itensValidados || itensValidados.length === 0) {
-        return {
-          fornecedor: 'SOTON FARMA',
-          ean: eanLimpo,
-          disponivel: false,
-          preco: null,
-          descricao: '',
-          mensagem: 'Sem estoque ou produto divergente na Soton Farma'
-        };
-      }
-
-      itensValidados.sort((a, b) => a.preco - b.preco);
-      const melhor = itensValidados[0];
-      const urlProduto = melhor.url || `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(eanLimpo)}`;
+      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+      const urlProduto = vencedor.url || `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(vencedor.ean || eanLimpo)}`;
 
       return {
         fornecedor: 'SOTON FARMA',
-        ean: eanLimpo,
+        ean: vencedor.ean || eanLimpo, // EAN do vencedor
+        eanOriginal: eanLimpo,
+        eanEncontrado: vencedor.ean || eanLimpo,
         disponivel: true,
-        preco: melhor.preco,
-        descricao: melhor.descricao || '',
+        preco: vencedor.preco,
+        descricao: vencedor.descricao || '',
+        laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+        isSubstituto,
+        isGenericoEquivalente: isSubstituto,
+        precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+        economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+        todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
         urlProduto: urlProduto,
-        mensagem: ''
+        mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : ''
       };
 
     } catch (err) {

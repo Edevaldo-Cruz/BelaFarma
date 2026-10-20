@@ -1,6 +1,8 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
+const farmacoMatcher = require('./belaped-farmaco-matcher.js');
+const motorEssencia = require('./belaped-motor-essencia.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -193,26 +195,61 @@ class ProfarmaRobot {
   /**
    * Consulta um EAN na Profarma (com fallback pelo nome/dosagem quando for genérico/similar de outro laboratório)
    */
-  async cotarEAN(ean, descricaoProduto = '') {
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
     if (!this.page) throw new Error('Robô não iniciado.');
 
     try {
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) return { fornecedor: 'PROFARMA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
 
-      // 1. Busca pelo EAN no portal
-      let itens = await this._executarBuscaNoPortal(eanLimpo);
-
-      // Filtro ESTRITO por EAN: só aceita se o EAN retornado coincidir exatamente com o pesquisado
+      // 1. Busca por EAN original no portal
+      let itensEan = await this._executarBuscaNoPortal(eanLimpo);
       const eanDigitos = eanLimpo.replace(/\D/g, '');
-      let itensCorrespondentes = itens.filter(it => {
+      let itensCorrespondentes = (itensEan || []).filter(it => {
         if (!it.ean) return false;
         const itDigitos = String(it.ean).replace(/\D/g, '');
         return itDigitos === eanDigitos ||
                (itDigitos.length >= 8 && eanDigitos.length >= 8 && (itDigitos.endsWith(eanDigitos) || eanDigitos.endsWith(itDigitos)));
       });
 
-      if (!itensCorrespondentes || itensCorrespondentes.length === 0) {
+      let melhorEanOriginal = null;
+      if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+        itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensCorrespondentes[0];
+      }
+
+      // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+      const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+      let todosCandidatos = [...itensCorrespondentes];
+
+      if (cotarPorEssencia) {
+        try {
+          const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+          if (prep.termoBusca && prep.termoBusca.length >= 3) {
+            const itensEssencia = await this._executarBuscaNoPortal(prep.termoBusca);
+            for (const it of (itensEssencia || [])) {
+              if (!todosCandidatos.some(existente => existente.ean && it.ean && String(existente.ean) === String(it.ean))) {
+                todosCandidatos.push(it);
+              }
+            }
+          }
+        } catch (eGen) {
+          console.warn('[ProfarmaRobot] Aviso na busca por essência:', eGen.message);
+        }
+      }
+
+      // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+      const itemOrigConfig = {
+        ean: eanLimpo,
+        descricao: descricaoProduto,
+        precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+      };
+
+      const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      if (!vencedor) {
         return {
           fornecedor: 'PROFARMA',
           ean: eanLimpo,
@@ -222,18 +259,25 @@ class ProfarmaRobot {
         };
       }
 
-      // Ordena pelo menor preço disponível em estoque
-      itensCorrespondentes.sort((a, b) => a.preco - b.preco);
-      const melhor = itensCorrespondentes[0];
+      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
 
       return {
         fornecedor: 'PROFARMA',
-        ean: eanLimpo,
-        eanEncontrado: melhor.ean,
+        ean: vencedor.ean, // EAN do vencedor para compra
+        eanOriginal: eanLimpo,
+        eanEncontrado: vencedor.ean,
         disponivel: true,
-        descricao: melhor.descricao,
-        preco: melhor.preco,
-        descPct: melhor.descPct || 0,
+        descricao: vencedor.descricao,
+        preco: vencedor.preco,
+        laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+        isSubstituto,
+        isGenericoEquivalente: isSubstituto,
+        precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+        economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+        todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
+        descPct: vencedor.descPct || 0,
+        mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : '',
         dataHora: new Date().toISOString()
       };
 

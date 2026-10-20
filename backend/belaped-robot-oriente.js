@@ -1,6 +1,8 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
+const farmacoMatcher = require('./belaped-farmaco-matcher.js');
+const motorEssencia = require('./belaped-motor-essencia.js');
 
 function findChromeExecutable() {
   const candidates = [
@@ -171,18 +173,11 @@ class OrienteRobot {
   }
 
   /**
-   * Cota um EAN no catálogo da Oriente Farma
+   * Filtra e extrai os produtos da tabela da Oriente Farma
    */
-  async cotarEAN(ean, descricaoProduto = '') {
-    if (!this.page) throw new Error('Robô Oriente Farma não iniciado.');
-
+  async _filtrarTabelaOriente(termo) {
+    if (!this.page) return [];
     try {
-      const eanLimpo = String(ean || '').trim();
-      if (!eanLimpo) {
-        return { fornecedor: 'ORIENTE FARMA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
-      }
-
-      // Certifica que está na página de pedidos
       if (!this.page.url().includes('/pedidos')) {
         await this.page.goto('https://pedidoweb.orientefarma.com.br/pedidos', {
           waitUntil: 'networkidle2',
@@ -202,57 +197,41 @@ class OrienteRobot {
       await this.page.keyboard.press('A');
       await this.page.keyboard.up('Control');
       await this.page.keyboard.press('Backspace');
-      await this.page.type(inputSelector, eanLimpo, { delay: 15 });
+      await this.page.type(inputSelector, termo, { delay: 15 });
       await this.page.keyboard.press('Enter');
 
-      // Aguarda tabela filtrar
       await new Promise(r => setTimeout(r, 1800));
 
-      const dados = await this.page.evaluate((eanAlvo) => {
+      return await this.page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('table tbody tr'));
-        if (rows.length === 0) {
-          return { encontrado: false, motivo: 'SEM_RESULTADOS' };
-        }
+        const resultados = [];
 
-        // Validação estrita de EAN: busca linha que tenha o EAN exato
         for (const row of rows) {
           const text = row.innerText || '';
-          
-          // EAN costuma estar na coluna de código ou no texto geral
-          if (!text.includes(eanAlvo)) {
+          if (text.includes('Indisponível') || text.includes('Esgotado') || text.includes('Sem estoque')) {
             continue;
           }
 
-          // Se estiver indisponível ou esgotado
-          if (text.includes('Indisponível') || text.includes('Esgotado') || text.includes('Sem estoque')) {
-            return { encontrado: false, motivo: 'SEM_ESTOQUE' };
-          }
-
-          // Extração do preço líquido:
-          // Na tabela da Oriente o "Preço Líq." aparece com "R$ 0,38"
-          // Exemplo de texto: "... R$ 1,02 | P.F: R$ 0,72 | 47.08% | R$ 0,38 | ST: R$ 0,03 ..."
-          const partesReais = text.match(/R\$\s*([\d\.,]+)/g) || [];
-          if (partesReais.length === 0) continue;
-
-          // Extração específica por células
           const cells = Array.from(row.querySelectorAll('td')).map(c => (c.innerText || '').trim());
-          
+          let codOriente = null;
+          let eanItem = null;
+          let descricaoItem = '';
           let precoLiq = null;
           let pmc = null;
           let descontoPct = null;
-          let estoqueDesc = null;
-          let emb = null;
-          let codOriente = null;
-          let descricaoItem = null;
+          let estoqueDesc = 'Disponível';
+          let emb = 1;
 
-          // Se temos colunas estruturadas:
-          // [0] Imagem, [1] Código + EAN, [2] Descrição, [3] Condição, [4] Emb, [5] Estoque, [6] PMC, [7] Desc, [8] Preço Líq, [9] Qtd, [10] Subtotal
           if (cells.length >= 9) {
-            codOriente = cells[1].split('\n')[0] || null;
+            const linhaCod = cells[1].split('\n').map(s => s.trim()).filter(Boolean);
+            codOriente = linhaCod[0] || null;
+            const matchEan = cells[1].match(/\b\d{8,14}\b/) || text.match(/\b\d{8,14}\b/);
+            if (matchEan) eanItem = matchEan[0];
+
             descricaoItem = cells[2].split('\n')[0] || '';
             emb = parseInt(cells[4].replace(/\D/g, ''), 10) || 1;
             estoqueDesc = cells[5].replace(/\n+/g, ' ');
-            
+
             const matchPmc = cells[6].match(/R\$\s*([\d\.,]+)/);
             if (matchPmc) pmc = parseFloat(matchPmc[1].replace(/\./g, '').replace(',', '.'));
 
@@ -261,71 +240,122 @@ class OrienteRobot {
 
             const matchPreco = cells[8].match(/R\$\s*([\d\.,]+)/);
             if (matchPreco) precoLiq = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
-          } else {
-            // Fallback via regex no texto da linha
-            const matchDesc = text.match(/([\d\.,]+)%/);
-            if (matchDesc) descontoPct = parseFloat(matchDesc[1].replace(',', '.'));
-
-            // Último ou penúltimo R$ antes do subtotal costuma ser o preço líquido
-            const precos = partesReais.map(p => parseFloat(p.replace(/[^\d,]/g, '').replace(',', '.'))).filter(n => !isNaN(n) && n > 0);
-            if (precos.length > 0) {
-              precoLiq = precos[precos.length - 1]; // Menor ou último
-            }
           }
 
           if (precoLiq && precoLiq > 0) {
-            return {
-              encontrado: true,
-              ean: eanAlvo,
+            resultados.push({
+              ean: eanItem,
               codigo: codOriente,
               descricao: descricaoItem || text.slice(0, 100),
               preco: precoLiq,
               pmc,
               desconto: descontoPct,
-              estoque: estoqueDesc || 'Disponível',
-              embalagem: emb || 1
-            };
+              estoque: estoqueDesc,
+              embalagem: emb
+            });
           }
         }
+        return resultados;
+      });
+    } catch (e) {
+      console.warn('[OrienteRobot] Erro ao filtrar tabela:', e.message);
+      return [];
+    }
+  }
 
-        return { encontrado: false, motivo: 'EAN_DIVERGENTE_OU_SEM_PRECO' };
-      }, eanLimpo);
+  /**
+   * Cota um EAN no catálogo da Oriente Farma com busca por essência e menor preço geral
+   */
+  async cotarEAN(ean, descricaoProduto = '', opts = {}) {
+    if (!this.page) throw new Error('Robô Oriente Farma não iniciado.');
 
-      if (!dados.encontrado || !dados.preco) {
+    try {
+      const eanLimpo = String(ean || '').trim();
+      if (!eanLimpo) {
+        return { fornecedor: 'ORIENTE FARMA', disponivel: false, preco: null, motivo: 'EAN_VAZIO' };
+      }
+
+      // 1. Busca por EAN original no portal
+      const itensEan = await this._filtrarTabelaOriente(eanLimpo);
+      const eanDigitos = eanLimpo.replace(/\D/g, '');
+      const itensCorrespondentes = (itensEan || []).filter(it => {
+        if (!it.ean) return false;
+        const itDigitos = String(it.ean).replace(/\D/g, '');
+        return itDigitos === eanDigitos ||
+               (itDigitos.length >= 8 && eanDigitos.length >= 8 && (itDigitos.endsWith(eanDigitos) || eanDigitos.endsWith(itDigitos)));
+      });
+
+      let melhorEanOriginal = null;
+      if (itensCorrespondentes && itensCorrespondentes.length > 0) {
+        itensCorrespondentes.sort((a, b) => a.preco - b.preco);
+        melhorEanOriginal = itensCorrespondentes[0];
+      }
+
+      // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+      const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+      let todosCandidatos = [...itensCorrespondentes];
+
+      if (cotarPorEssencia) {
+        try {
+          const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+          if (prep.termoBusca && prep.termoBusca.length >= 3) {
+            const itensEssencia = await this._filtrarTabelaOriente(prep.termoBusca);
+            for (const it of (itensEssencia || [])) {
+              if (!todosCandidatos.some(existente => existente.ean && it.ean && String(existente.ean) === String(it.ean))) {
+                todosCandidatos.push(it);
+              }
+            }
+          }
+        } catch (eGen) {
+          console.warn('[OrienteRobot] Aviso na busca por essência:', eGen.message);
+        }
+      }
+
+      // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+      const itemOrigConfig = {
+        ean: eanLimpo,
+        descricao: descricaoProduto,
+        precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+      };
+
+      const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      if (!vencedor) {
         return {
           fornecedor: 'ORIENTE FARMA',
+          ean: eanLimpo,
           disponivel: false,
           preco: null,
-          motivo: dados.motivo || 'NAO_ENCONTRADO'
+          motivo: 'NAO_ENCONTRADO'
         };
       }
 
-      // Validação semântica adicional
-      if (descricaoProduto && dados.descricao) {
-        const check = validarCorrespondenciaProduto(descricaoProduto, dados.descricao);
-        if (!check.valido) {
-          console.warn(`[OrienteRobot] ⚠️ Divergência semântica para EAN ${eanLimpo}: ${check.motivo}`);
-          return {
-            fornecedor: 'ORIENTE FARMA',
-            disponivel: false,
-            preco: null,
-            motivo: check.motivo
-          };
-        }
-      }
+      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
 
       return {
         fornecedor: 'ORIENTE FARMA',
         disponivel: true,
-        ean: dados.ean,
-        codigo: dados.codigo,
-        descricao: dados.descricao,
-        preco: Number(dados.preco.toFixed(2)),
-        preco_unitario: Number(dados.preco.toFixed(2)),
-        pmc: dados.pmc ? Number(dados.pmc.toFixed(2)) : null,
-        desconto: dados.desconto,
-        estoque: dados.estoque,
-        embalagem: dados.embalagem
+        ean: vencedor.ean, // EAN do vencedor para compras e carrinho
+        eanOriginal: eanLimpo,
+        eanEncontrado: vencedor.ean,
+        codigo: vencedor.codigo,
+        descricao: vencedor.descricao,
+        laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+        preco: Number(vencedor.preco.toFixed(2)),
+        preco_unitario: Number(vencedor.preco.toFixed(2)),
+        isSubstituto,
+        isGenericoEquivalente: isSubstituto,
+        precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+        economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+        todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
+        pmc: vencedor.pmc ? Number(vencedor.pmc.toFixed(2)) : null,
+        desconto: vencedor.desconto,
+        estoque: vencedor.estoque,
+        embalagem: vencedor.embalagem,
+        mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : ''
       };
 
     } catch (err) {

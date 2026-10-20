@@ -70,6 +70,7 @@ import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
 import { BelaPedRobotMonitor } from './BelaPedRobotMonitor';
 import { BelaPedPrecoHistoricoModal } from './BelaPedPrecoHistoricoModal';
 import { BelaPedOrcamentoSemanalModal } from './BelaPedOrcamentoSemanalModal';
+import { BelaPedConcorrentesModal } from './BelaPedConcorrentesModal';
 import BelaPedDecisaoTab from './BelaPedDecisaoTab';
 
 interface BelaPedPortalProps {
@@ -124,6 +125,10 @@ interface FaltaItem7d {
   condicao_comercial_1?: string | null;
   preco_padrao_1?: number | null;
   is_generico_mais_barato_1?: boolean;
+  ean_substituto_1?: string | null;
+  laboratorio_1?: string | null;
+  is_substituto_1?: boolean;
+  todos_concorrentes_1?: any[];
   condicao_comercial_2?: string | null;
   preco_padrao_2?: number | null;
   nao_cotar?: boolean;
@@ -747,7 +752,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         body: JSON.stringify({
           ean: item.ean,
           fornecedor: 'TODOS',
-          descricao: item.descricao
+          descricao: item.descricao,
+          por_essencia: cotarEssenciaAtivo
         })
       });
       const data = await res.json();
@@ -771,6 +777,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Modal de Histórico de Preços & Tendências com Séries Temporais (Recharts)
   const [modalHistoricoPreco, setModalHistoricoPreco] = useState<{
+    isOpen: boolean;
+    produto: FaltaItem7d | null;
+  }>({ isOpen: false, produto: null });
+
+  // Modo Cotação por Essência (Menor Preço Geral sem restrição de marca) - Ativo por padrão
+  const [cotarEssenciaAtivo, setCotarEssenciaAtivo] = useState<boolean>(true);
+
+  // Modal de Análise e Comparação de Concorrentes por Essência Farmacológica
+  const [modalConcorrentesEssencia, setModalConcorrentesEssencia] = useState<{
     isOpen: boolean;
     produto: FaltaItem7d | null;
   }>({ isOpen: false, produto: null });
@@ -2479,7 +2494,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           fornecedor,
           limite: limiteReal,
           eans: eansParaCotar.length > 0 ? eansParaCotar : undefined,
-          prioridade: prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? prioridadeFiltro : undefined
+          prioridade: prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? prioridadeFiltro : undefined,
+          por_essencia: cotarEssenciaAtivo
         })
       });
 
@@ -3301,6 +3317,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     ⚡ Genérico Mais Barato
                   </span>
                 )}
+
+                {/* Badge de Substituto Eleito por Essência */}
+                {item.is_substituto_1 && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-black text-purple-300 bg-purple-950/90 px-1.5 py-0.5 rounded border border-purple-700/70 mt-0.5"
+                    title={`⚡ Substituto eleito por menor preço: ${item.laboratorio_1 || 'Genérico'} (EAN: ${item.ean_substituto_1})`}
+                  >
+                    ⚡ {item.laboratorio_1 ? `Subst: ${item.laboratorio_1}` : 'Substituto'}
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-col items-end">
@@ -3308,6 +3334,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <span className="text-sm font-black text-emerald-300">
                     {preco1 !== null ? `R$ ${preco1.toFixed(2)}` : '—'}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setModalConcorrentesEssencia({ isOpen: true, produto: item })}
+                    className="p-1 rounded bg-[#06101f] text-purple-400 hover:text-white border border-purple-800/80 transition-colors cursor-pointer"
+                    title="Ver opções concorrentes cotadas na essência farmacológica"
+                  >
+                    <ArrowRightLeft className="w-3 h-3" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => setModalHistoricoPreco({ isOpen: true, produto: item })}
@@ -4776,6 +4810,24 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     ))}
                   </div>
                 )}
+
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-950/70 border border-purple-700/60">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-purple-200">
+                    Cotar por Essência:
+                  </span>
+                  <button
+                    onClick={() => setCotarEssenciaAtivo(prev => !prev)}
+                    className={`px-2.5 py-0.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                      cotarEssenciaAtivo
+                        ? 'bg-purple-500 text-slate-950 shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    title="Desvincula do EAN fixo e busca a menor opção de preço pela substância/essência farmacológica idêntica sem viés de marca"
+                  >
+                    {cotarEssenciaAtivo ? 'ATIVO (MENOR PREÇO GERAL)' : 'EAN EXATO'}
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
@@ -6396,6 +6448,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                                 ⚡ Genérico
                                               </span>
                                             )}
+                                            {item.is_substituto_1 && (
+                                              <span
+                                                className="px-1 py-0.2 rounded text-[9px] font-black bg-purple-950 text-purple-300 border border-purple-700/80 shrink-0 whitespace-nowrap"
+                                                title={`⚡ Substituto eleito por Essência: ${item.laboratorio_1 || 'Genérico'} (EAN: ${item.ean_substituto_1})`}
+                                              >
+                                                ⚡ {item.laboratorio_1 ? `Subst: ${item.laboratorio_1}` : 'Substituto'}
+                                              </span>
+                                            )}
                                           </div>
                                       ) : semEstoquePortais ? (
                                         <div className="flex items-center gap-1.5">
@@ -6445,6 +6505,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                             </button>
                                           );
                                         })()}
+                                        <button
+                                          type="button"
+                                          onClick={() => setModalConcorrentesEssencia({ isOpen: true, produto: item })}
+                                          className="p-1 rounded bg-[#071324] hover:bg-purple-900/60 text-purple-400 border border-purple-800/80 transition-colors cursor-pointer ml-1"
+                                          title="Ver todos os concorrentes e marcas cotadas na essência farmacológica"
+                                        >
+                                          <ArrowRightLeft className="w-3.5 h-3.5" />
+                                        </button>
                                         <button
                                           type="button"
                                           onClick={() => handleRecotarProduto(item)}
@@ -6794,6 +6862,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                       ⚡ Genérico
                                     </span>
                                   )}
+                                  {item.is_substituto_1 && (
+                                    <span
+                                      className="px-1 py-0.2 rounded text-[9px] font-black bg-purple-950 text-purple-300 border border-purple-700/80 shrink-0 whitespace-nowrap"
+                                      title={`⚡ Substituto eleito por Essência: ${item.laboratorio_1 || 'Genérico'} (EAN: ${item.ean_substituto_1})`}
+                                    >
+                                      ⚡ {item.laboratorio_1 ? `Subst: ${item.laboratorio_1}` : 'Substituto'}
+                                    </span>
+                                  )}
                                 </div>
                               ) : semEstoquePortais ? (
                                 <div className="flex items-center gap-1.5">
@@ -6845,6 +6921,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                     </button>
                                   );
                                 })()}
+                                <button
+                                  type="button"
+                                  onClick={() => setModalConcorrentesEssencia({ isOpen: true, produto: item })}
+                                  className="p-1 rounded bg-[#071324] hover:bg-purple-900/60 text-purple-400 border border-purple-800/80 transition-colors cursor-pointer ml-1"
+                                  title="Ver todos os concorrentes e marcas cotadas na essência farmacológica"
+                                >
+                                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleRecotarProduto(item)}
@@ -7841,6 +7925,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       )}
 
       {/* ─── MODAL DE HISTÓRICO DE PREÇOS & SÉRIE TEMPORAL (RECHARTS) ─── */}
+      <BelaPedConcorrentesModal
+        isOpen={modalConcorrentesEssencia.isOpen}
+        onClose={() => setModalConcorrentesEssencia({ isOpen: false, produto: null })}
+        ean={modalConcorrentesEssencia.produto?.ean || ''}
+        descricao={modalConcorrentesEssencia.produto?.descricao || ''}
+        custoUnitario={modalConcorrentesEssencia.produto?.custo_unitario}
+        saldo={modalConcorrentesEssencia.produto?.saldo}
+      />
+
       <BelaPedPrecoHistoricoModal
         isOpen={modalHistoricoPreco.isOpen}
         onClose={() => setModalHistoricoPreco({ isOpen: false, produto: null })}

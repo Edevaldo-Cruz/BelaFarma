@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
+const motorEssencia = require('./belaped-motor-essencia');
 
 function findChromeExecutable() {
   const candidates = [
@@ -313,10 +314,10 @@ class DistrimedRobot {
       if (!eanLimpo) return { fornecedor: 'DISTRIMED', disponivel: false, preco: null };
 
       // 1. Busca exata por EAN primeiro
-      let itens = await this._buscarNoCatalogo(eanLimpo);
+      let itensEan = await this._buscarNoCatalogo(eanLimpo);
 
       const eanDigitos = eanLimpo.replace(/\D/g, '');
-      let itensCorrespondentes = itens.filter(it => {
+      let itensCorrespondentes = itensEan.filter(it => {
         if (!it.ean) return false;
         const eanCardDigitos = String(it.ean).replace(/\D/g, '');
         return eanCardDigitos === eanDigitos ||
@@ -329,42 +330,36 @@ class DistrimedRobot {
         melhorEanOriginal = itensCorrespondentes[0];
       }
 
-      // 2. Busca por Princípio Ativo / Genérico Mais Barato (se habilitado ou se não achou pelo EAN)
-      const buscarGenerico = opts.buscarGenerico !== false && Boolean(descricaoProduto);
-      let melhorGenerico = null;
+      // 2. Busca por Essência (Menor Preço Geral) - Ativada por padrão
+      const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
+      let todosCandidatos = [...itensCorrespondentes];
 
-      if (buscarGenerico) {
+      if (cotarPorEssencia) {
         try {
-          const termoAtivo = farmacoMatcher.extrairTermoBuscaGenerico(descricaoProduto);
-          if (termoAtivo && termoAtivo.length >= 3) {
-            const itensGenericos = await this._buscarNoCatalogo(termoAtivo);
-            const validados = itensGenericos.filter(it => {
-              return farmacoMatcher.validarEquivalencia(
-                { descricao: descricaoProduto, ean: eanLimpo, tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO' },
-                it
-              );
-            });
-
-            if (validados.length > 0) {
-              validados.sort((a, b) => a.preco - b.preco);
-              melhorGenerico = validados[0];
+          const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
+          if (prep.termoBusca && prep.termoBusca.length >= 3) {
+            const itensEssencia = await this._buscarNoCatalogo(prep.termoBusca);
+            for (const it of itensEssencia) {
+              if (!todosCandidatos.some(existente => existente.ean && it.ean && String(existente.ean) === String(it.ean))) {
+                todosCandidatos.push(it);
+              }
             }
           }
         } catch (eGen) {
-          console.warn('[DistrimedRobot] Aviso na busca de genéricos equivalentes:', eGen.message);
+          console.warn('[DistrimedRobot] Aviso na busca por essência:', eGen.message);
         }
       }
 
-      // 3. Decisão: Escolhe o menor preço entre o EAN exato e o Genérico equivalente mais barato
-      let vencedor = melhorEanOriginal;
-      let isEquivalente = false;
+      // 3. Classificação e Seleção do Vencedor pelo Menor Preço e Desempate por Histórico
+      const itemOrigConfig = {
+        ean: eanLimpo,
+        descricao: descricaoProduto,
+        precoOriginal: melhorEanOriginal ? melhorEanOriginal.preco : null,
+        tipo_categoria: opts.tipo_categoria || 'MEDICAMENTO'
+      };
 
-      if (melhorGenerico) {
-        if (!melhorEanOriginal || melhorGenerico.preco < melhorEanOriginal.preco) {
-          vencedor = melhorGenerico;
-          isEquivalente = melhorGenerico.ean !== eanLimpo;
-        }
-      }
+      const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
+      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
 
       if (!vencedor) {
         return {
@@ -377,19 +372,24 @@ class DistrimedRobot {
         };
       }
 
+      const isSubstituto = Boolean(vencedor.isSubstituto || (vencedor.ean && String(vencedor.ean).replace(/\D/g, '') !== eanDigitos));
+
       return {
         fornecedor: 'DISTRIMED',
-        ean: eanLimpo,
+        ean: vencedor.ean, // EAN vencedor (usado no faturamento e carrinho)
+        eanOriginal: eanLimpo,
         eanEncontrado: vencedor.ean,
         disponivel: true,
         preco: vencedor.preco,
         descricao: vencedor.descricao || '',
-        isGenericoEquivalente: isEquivalente,
+        laboratorio: vencedor.laboratorio || farmacoMatcher.extrairLaboratorio(vencedor.descricao),
+        isSubstituto,
+        isGenericoEquivalente: isSubstituto,
         precoOriginalEan: melhorEanOriginal ? melhorEanOriginal.preco : null,
-        economiaGenericoPct: (melhorEanOriginal && isEquivalente && melhorEanOriginal.preco > vencedor.preco)
-          ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1))
-          : 0,
-        mensagem: isEquivalente ? `Genérico mais barato encontrado (${vencedor.descricao})` : ''
+        economiaReais: vencedor.economiaReais || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((melhorEanOriginal.preco - vencedor.preco).toFixed(2)) : 0),
+        economiaPct: vencedor.economiaPct || (melhorEanOriginal && isSubstituto && melhorEanOriginal.preco > vencedor.preco ? Number((((melhorEanOriginal.preco - vencedor.preco) / melhorEanOriginal.preco) * 100).toFixed(1)) : 0),
+        todosConcorrentes: resultadoClassificacao.todosConcorrentes || [],
+        mensagem: isSubstituto ? `Opção mais barata (${vencedor.laboratorio || ''} - R$ ${vencedor.preco.toFixed(2)})` : ''
       };
 
     } catch (err) {
