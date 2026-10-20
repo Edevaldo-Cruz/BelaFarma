@@ -80,7 +80,7 @@ class ProfarmaRobot {
     await this.page.setRequestInterception(true);
     this.page.on('request', (req) => {
       const type = req.resourceType();
-      if (type === 'image' || type === 'media' || type === 'font') {
+      if (type === 'image' || type === 'media') {
         req.abort();
       } else {
         req.continue();
@@ -314,6 +314,82 @@ class ProfarmaRobot {
         quantidade: qtdNum,
         motivo: 'Erro ao adicionar item Profarma: ' + err.message
       };
+    }
+  }
+
+  /**
+   * Importa um lote de produtos no carrinho via modal/arquivo CSV oficial da Profarma
+   * Cabeçalho obrigatório: "Codigo/EAN;Quantidade"
+   * @param {string} caminhoArquivo
+   * @returns {Promise<{ sucesso: boolean, totalItens?: number, detalhes?: any }>}
+   */
+  async importarCarrinhoArquivo(caminhoArquivo) {
+    if (!this.page) throw new Error('Robô Profarma não iniciado.');
+
+    try {
+      console.log('[ProfarmaRobot] Abrindo modal de importação...');
+      await this.page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button'));
+        const btn = btns.find(b => (b.innerText || '').trim() === 'Importação');
+        if (btn) btn.click();
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      const inputFile = await this.page.$('input[type="file"]');
+      if (!inputFile) {
+        throw new Error('Campo input[type="file"] não encontrado na tela da Profarma.');
+      }
+
+      console.log(`[ProfarmaRobot] Anexando arquivo ${caminhoArquivo}...`);
+      await inputFile.uploadFile(caminhoArquivo);
+      await new Promise(r => setTimeout(r, 2500));
+
+      console.log('[ProfarmaRobot] Clicando em ENVIAR para processar importação...');
+      let importResult = null;
+      const respPromise = new Promise(resolve => {
+        const handler = async res => {
+          if (res.url().includes('import-order-file')) {
+            try {
+              const json = await res.json();
+              resolve(json);
+            } catch (e) {
+              resolve(null);
+            }
+          }
+        };
+        this.page.on('response', handler);
+        setTimeout(() => resolve(null), 15000);
+      });
+
+      await this.page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button'));
+        const btnEnviar = btns.find(b => (b.innerText || '').trim().toUpperCase() === 'ENVIAR');
+        if (btnEnviar) btnEnviar.click();
+      });
+
+      importResult = await respPromise;
+      await new Promise(r => setTimeout(r, 3000));
+
+      if (importResult && importResult.status === 'SUCCESS') {
+        const qtdSucesso = (importResult.dados && importResult.dados.successItems) ? importResult.dados.successItems.length : 0;
+        console.log(`[ProfarmaRobot] ✅ Importação concluída com sucesso: ${qtdSucesso} itens importados!`);
+        return {
+          sucesso: true,
+          totalItens: qtdSucesso,
+          detalhes: importResult.dados
+        };
+      } else {
+        const msg = importResult?.message || 'Falha desconhecida no retorno da importação da Profarma';
+        console.warn(`[ProfarmaRobot] ⚠️ Retorno da importação: ${msg}`);
+        return {
+          sucesso: false,
+          motivo: msg,
+          detalhes: importResult
+        };
+      }
+    } catch (err) {
+      console.error('[ProfarmaRobot] Erro ao importar carrinho via arquivo:', err.message);
+      throw err;
     }
   }
 
