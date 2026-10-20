@@ -3259,19 +3259,52 @@ function belapedEndpoints(db) {
         'ORIENTE FARMA': { status: 'AGUARDANDO', itemAtual: 'Aguardando fila...', avaliados: 0, encontrados: 0, semEstoque: 0 }
       };
 
-      const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass) => {
+      const executarRoboParaFornecedor = async (nomeFornecedor, RobotClass, delayInicialMs = 0) => {
         let robot = null;
         if (!cotacaoStatus.workers[nomeFornecedor]) {
           cotacaoStatus.workers[nomeFornecedor] = { status: 'INICIANDO', itemAtual: 'Iniciando navegador...', avaliados: 0, encontrados: 0, semEstoque: 0 };
         }
         try {
+          if (delayInicialMs > 0) {
+            cotacaoStatus.workers[nomeFornecedor].status = 'AGUARDANDO';
+            cotacaoStatus.workers[nomeFornecedor].itemAtual = `Escalonando abertura (${(delayInicialMs / 1000).toFixed(1)}s)...`;
+            await new Promise(r => setTimeout(r, delayInicialMs));
+          }
+
+          if (cotacaoStatus.solicitouParar) {
+            cotacaoStatus.workers[nomeFornecedor].status = 'INTERROMPIDO';
+            cotacaoStatus.workers[nomeFornecedor].itemAtual = 'Interrompido antes de iniciar';
+            return;
+          }
+
           console.log(`[BelaPed Cotação] Iniciando robô para ${nomeFornecedor}...`);
           cotacaoStatus.workers[nomeFornecedor].status = 'AUTENTICANDO';
           cotacaoStatus.workers[nomeFornecedor].itemAtual = 'Autenticando no portal B2B...';
           cotacaoStatus.ultimoItem = `${nomeFornecedor}: Autenticando no portal...`;
 
-          robot = new RobotClass({ headless: true });
-          await robot.iniciar();
+          // Retry automático na inicialização do navegador/login para evitar falha por pico de CPU (Runtime.callFunctionOn timed out)
+          let iniciouOk = false;
+          let ultimoErroInit = null;
+          for (let tentativaInit = 1; tentativaInit <= 2; tentativaInit++) {
+            try {
+              robot = new RobotClass({ headless: true });
+              await robot.iniciar();
+              iniciouOk = true;
+              break;
+            } catch (initErr) {
+              ultimoErroInit = initErr;
+              console.warn(`[BelaPed Cotação] ⚠️ Tentativa ${tentativaInit}/2 de iniciar ${nomeFornecedor} falhou: ${initErr.message}`);
+              if (robot) await robot.fechar().catch(() => {});
+              robot = null;
+              if (tentativaInit < 2 && !cotacaoStatus.solicitouParar) {
+                cotacaoStatus.workers[nomeFornecedor].itemAtual = `Reconectando ao portal (2ª tentativa)...`;
+                await new Promise(r => setTimeout(r, 2500));
+              }
+            }
+          }
+          if (!iniciouOk) {
+            throw ultimoErroInit || new Error(`Falha ao autenticar em ${nomeFornecedor}`);
+          }
 
           cotacaoStatus.workers[nomeFornecedor].status = 'COTANDO';
 
@@ -3288,11 +3321,29 @@ function belapedEndpoints(db) {
             cotacaoStatus.workers[nomeFornecedor].itemAtual = `Pesquisando: ${descAtual || eanAtual} (${i + 1}/${listaEans.length})`;
             cotacaoStatus.ultimoItem = `${nomeFornecedor}: ${descAtual || eanAtual}`;
 
-            let resultado = await robot.cotarEAN(eanAtual, descAtual);
+            let resultado;
+            try {
+              resultado = await robot.cotarEAN(eanAtual, descAtual);
+            } catch (itemErr) {
+              console.warn(`[BelaPed Cotação] ⚠️ Erro ao cotar item ${eanAtual} em ${nomeFornecedor}: ${itemErr.message}`);
+              resultado = { disponivel: false, preco: null, mensagem: `Falha temporária: ${itemErr.message}` };
+              // Se a sessão/página do Puppeteer travou (callFunctionOn timed out / Target closed), tenta reiniciar o robô para não perder o resto do lote
+              if (/timed out|Target closed|Session closed|Protocol error| detached/i.test(itemErr.message || '') && !cotacaoStatus.solicitouParar) {
+                try {
+                  cotacaoStatus.workers[nomeFornecedor].itemAtual = `♻️ Recuperando navegador de ${nomeFornecedor}...`;
+                  if (robot) await robot.fechar().catch(() => {});
+                  await new Promise(r => setTimeout(r, 1500));
+                  robot = new RobotClass({ headless: true });
+                  await robot.iniciar();
+                } catch (recErr) {
+                  console.warn(`[BelaPed Cotação] Falha ao recuperar navegador de ${nomeFornecedor}: ${recErr.message}`);
+                }
+              }
+            }
 
             // Double-Check Automático: se houver diferença muito grande entre o último custo de compra e o preço cotado
             const ultCustoRef = mapaUltimoCusto[eanAtual] || 0;
-            if (resultado.disponivel && resultado.preco > 0 && ultCustoRef > 0) {
+            if (resultado && resultado.disponivel && resultado.preco > 0 && ultCustoRef > 0) {
               const diffPct = ((resultado.preco - ultCustoRef) / ultCustoRef) * 100;
               // Queda >= 40% (suspeita de fracionamento ou erro de leitura) ou aumento >= 60%
               if (diffPct <= -40 || diffPct >= 60) {
@@ -3301,19 +3352,23 @@ function belapedEndpoints(db) {
                 cotacaoStatus.ultimoItem = `🔄 Double-check ${nomeFornecedor}: ${descAtual || eanAtual}`;
 
                 await new Promise(r => setTimeout(r, 1800));
-                const segTentativa = await robot.cotarEAN(eanAtual, descAtual);
-                if (segTentativa.disponivel && segTentativa.preco > 0) {
-                  console.log(`[BelaPed Double-Check] ✅ Produto re-cotado com sucesso: R$ ${segTentativa.preco.toFixed(2)} (1ª: R$ ${resultado.preco.toFixed(2)})`);
-                  resultado = segTentativa;
-                } else {
-                  console.warn(`[BelaPed Double-Check] ❌ Produto não confirmado na 2ª tentativa do robô. Descartando valor suspeito.`);
-                  resultado = { disponivel: false, preco: null, mensagem: 'Divergência não confirmada no reteste do robô' };
+                try {
+                  const segTentativa = await robot.cotarEAN(eanAtual, descAtual);
+                  if (segTentativa && segTentativa.disponivel && segTentativa.preco > 0) {
+                    console.log(`[BelaPed Double-Check] ✅ Produto re-cotado com sucesso: R$ ${segTentativa.preco.toFixed(2)} (1ª: R$ ${resultado.preco.toFixed(2)})`);
+                    resultado = segTentativa;
+                  } else {
+                    console.warn(`[BelaPed Double-Check] ❌ Produto não confirmado na 2ª tentativa do robô. Descartando valor suspeito.`);
+                    resultado = { disponivel: false, preco: null, mensagem: 'Divergência não confirmada no reteste do robô' };
+                  }
+                } catch (dcErr) {
+                  resultado = { disponivel: false, preco: null, mensagem: 'Erro na 2ª confirmação do robô' };
                 }
               }
             }
 
             // 🛡️ TRAVAS DE SEGURANÇA MÁSTER DO BELAPED:
-            if (resultado.disponivel && resultado.preco > 0) {
+            if (resultado && resultado.disponivel && resultado.preco > 0) {
               // Trava 1: Preço irreal de centavos (< R$ 0,35)
               if (resultado.preco < 0.35) {
                 console.warn(`[BelaPed Segurança] ⛔ Preço irreal (< R$ 0,35): R$ ${resultado.preco.toFixed(2)} descartado para "${descAtual || eanAtual}".`);
@@ -3341,7 +3396,7 @@ function belapedEndpoints(db) {
 
             const horaLog = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-            if (resultado.disponivel && resultado.preco > 0) {
+            if (resultado && resultado.disponivel && resultado.preco > 0) {
               cotacaoStatus.encontrados++;
               cotacaoStatus.workers[nomeFornecedor].encontrados++;
               cotacaoStatus.workers[nomeFornecedor].itemAtual = `✅ ${descAtual || eanAtual} -> R$ ${resultado.preco.toFixed(2)}`;
@@ -3412,12 +3467,16 @@ function belapedEndpoints(db) {
                 nomeFornecedor,
                 null,
                 0,
-                resultado.mensagem || 'Indisponível',
+                (resultado && resultado.mensagem) || 'Indisponível',
                 0,
                 null,
                 null,
                 null,
-                0
+                0,
+                null,
+                null,
+                0,
+                null
               );
               cotacaoStatus.log.push({
                 hora: horaLog,
@@ -3425,7 +3484,7 @@ function belapedEndpoints(db) {
                 ean: eanAtual,
                 descricao: descAtual || eanAtual,
                 status: 'INDISPONIVEL',
-                motivo: resultado.mensagem || 'Sem estoque'
+                motivo: (resultado && resultado.mensagem) || 'Sem estoque'
               });
             }
             if (cotacaoStatus.log.length > 80) {
@@ -3464,13 +3523,13 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
-            executarRoboParaFornecedor('PROFARMA', ProfarmaRobot),
-            executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot),
-            executarRoboParaFornecedor('SOTON FARMA', SotonRobot),
-            executarRoboParaFornecedor('DISTRIMED', DistrimedRobot),
-            executarRoboParaFornecedor('DIVIMED', DivimedRobot),
-            executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot),
-            executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot)
+            executarRoboParaFornecedor('PROFARMA', ProfarmaRobot, 0),
+            executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot, 1200),
+            executarRoboParaFornecedor('SOTON FARMA', SotonRobot, 2400),
+            executarRoboParaFornecedor('DISTRIMED', DistrimedRobot, 3600),
+            executarRoboParaFornecedor('DIVIMED', DivimedRobot, 4800),
+            executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot, 6000),
+            executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);

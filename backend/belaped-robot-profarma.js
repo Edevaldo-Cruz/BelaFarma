@@ -59,6 +59,7 @@ class ProfarmaRobot {
     this.browser = await puppeteer.launch({
       headless: this.headless,
       executablePath: execPath,
+      protocolTimeout: 180000,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -71,11 +72,13 @@ class ProfarmaRobot {
     });
 
     this.page = await this.browser.newPage();
-    try {
-      const session = await this.page.target().createCDPSession();
-      const { windowId } = await session.send('Browser.getWindowForTarget');
-      await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
-    } catch (e) {}
+    if (!this.headless) {
+      try {
+        const session = await this.page.target().createCDPSession();
+        const { windowId } = await session.send('Browser.getWindowForTarget');
+        await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+      } catch (e) {}
+    }
     await this.page.setViewport({ width: 1440, height: 900 });
 
     // Otimização: desabilita carregamento de imagens pesadas para acelerar a cotação

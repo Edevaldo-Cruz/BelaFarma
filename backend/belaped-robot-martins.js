@@ -73,6 +73,7 @@ class MartinsRobot {
       headless: this.headless,
       executablePath: execPath,
       userDataDir: this.sessionDir,
+      protocolTimeout: 180000,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -85,11 +86,13 @@ class MartinsRobot {
     });
 
     this.page = await this.browser.newPage();
-    try {
-      const session = await this.page.target().createCDPSession();
-      const { windowId } = await session.send('Browser.getWindowForTarget');
-      await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
-    } catch (e) {}
+    if (!this.headless) {
+      try {
+        const session = await this.page.target().createCDPSession();
+        const { windowId } = await session.send('Browser.getWindowForTarget');
+        await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+      } catch (e) {}
+    }
     await this.page.setViewport({ width: 1366, height: 768 });
 
     // Acessa a home do Martins para verificar se a sessão já está logada

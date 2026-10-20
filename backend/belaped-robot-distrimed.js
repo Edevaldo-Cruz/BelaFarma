@@ -59,6 +59,7 @@ class DistrimedRobot {
     this.browser = await puppeteer.launch({
       headless: this.headless,
       executablePath: execPath,
+      protocolTimeout: 180000,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
