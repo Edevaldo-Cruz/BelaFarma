@@ -91,12 +91,12 @@ class DistrimedRobot {
 
     console.log('[DistrimedRobot] Acessando autenticação da Distrimed...');
     await this.page.goto('https://inovacao.distrimed.com.br/login?referencia=/produtos', {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 45000
     });
 
     console.log('[DistrimedRobot] Efetuando login...');
-    await this.page.waitForSelector('input[name="usuario"]', { timeout: 15000 });
+    await this.page.waitForSelector('input[name="usuario"]', { timeout: 20000 });
     await this.page.type('input[name="usuario"]', this.usuario, { delay: 5 });
     await this.page.type('input[senha="senha"]', this.senha, { delay: 5 }).catch(async () => {
       await this.page.type('input[name="senha"]', this.senha, { delay: 5 });

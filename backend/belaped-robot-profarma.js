@@ -91,7 +91,7 @@ class ProfarmaRobot {
 
     console.log('[ProfarmaRobot] Acessando tela de autenticação...');
     await this.page.goto('https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 45000
     });
 
