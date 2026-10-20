@@ -11,7 +11,9 @@ const LABORATORIOS_CONHECIDOS = [
   'NOVAQUIMICA', 'GLOBO', 'GEOLAB', 'ZODIAC', 'ALCON', 'TORRENT', 'MANTECORP', 'HYPERA',
   'CRISTALIA', 'UNIAO QUIMICA', 'VITAMEDIC', 'BRAINFARMA', 'ASPEN', 'ABBOTT', 'SANOFI',
   'PFIZER', 'BAYER', 'NOVARTIS', 'GSK', 'ASTRAZENECA', 'TAKEDA', 'BOEHRINGER', 'ALTHAIA',
-  'MOMENTA', 'MULTILAB', 'KLEY HERTZ', 'HERTZ', 'CATARINENSE', 'AIRELA', 'NATULAB', 'CIFARMA'
+  'MOMENTA', 'MULTILAB', 'KLEY HERTZ', 'HERTZ', 'CATARINENSE', 'AIRELA', 'NATULAB', 'CIFARMA',
+  'PHARLAB', 'AUROBINDO', 'APSEN', 'GLENMARK', 'RANBAXY', 'ACCORD', 'BLAU', 'VIATRIS', 'TEVA',
+  'CELLERA', 'SUPERA', 'FARMACE', 'HALEX ISTAR', 'HIPOLABOR', 'EQUIPLEX', 'SAMTEC'
 ];
 
 // Dicionário de sinonímias entre medicamentos de Marca/Referência e a DCB (Princípio Ativo)
@@ -206,11 +208,16 @@ function extrairTermoBuscaGenerico(descricao) {
     return MAPA_MARCAS_REFERENCIA[primeiraPalavra];
   }
 
-  // Remove termos operacionais
+  // Remove termos operacionais e radicais de sais farmacêuticos comuns que variam por distribuidora
   const termosRemover = [
     'GENERICO', 'GEN', 'SIMILAR', 'SIM', 'REFERENCIA', 'REF', 'COMPRIMIDOS', 'COMPRIMIDO',
     'COMP', 'CPR', 'CAPSULAS', 'CAPSULA', 'CAPS', 'CPS', 'BLIST', 'CX', 'DISPLAY', 'EMB',
-    'REV', 'REVESTIDO', 'REVESTIDOS', 'SOLUCAO', 'SUSPENSAO', 'GOTAS', 'GTS', 'XAROPE', 'XPE'
+    'REV', 'REVESTIDO', 'REVESTIDOS', 'SOLUCAO', 'SUSPENSAO', 'GOTAS', 'GTS', 'XAROPE', 'XPE',
+    'DICLORIDRATO', 'DICLORID', 'DICLOR', 'CLORIDRATO', 'CLORID', 'CLOR',
+    'CALCICA', 'CALCICO', 'CAL', 'SODICA', 'SODICO',
+    'POTASSICA', 'POTASSICO', 'BESILATO', 'MESILATO', 'MALEATO',
+    'SUCCINATO', 'HEMITARTARATO', 'FOSFATO', 'TARTRATO', 'MONOIDRATADO', 'HEMIDRATADO',
+    'DIPROPIONATO', 'PROPIONATO', 'VALERATO', 'ACETONIDO'
   ];
 
   for (const t of termosRemover) {

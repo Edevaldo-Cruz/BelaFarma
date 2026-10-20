@@ -3008,7 +3008,7 @@ function belapedEndpoints(db) {
                 resultado.condicao_comercial || null,
                 resultado.preco_padrao || resultado.preco,
                 resultado.isGenericoEquivalente ? 1 : 0,
-                resultado.ean || resultado.eanVencedor || null,
+                resultado.isSubstituto ? (resultado.eanSubstituto || resultado.ean || null) : null,
                 resultado.laboratorio || null,
                 resultado.isSubstituto ? 1 : 0,
                 resultado.todosConcorrentes ? JSON.stringify(resultado.todosConcorrentes) : null
@@ -3285,10 +3285,16 @@ function belapedEndpoints(db) {
    */
   router.post('/recotar-produto', async (req, res) => {
     try {
-      const { ean, fornecedor, descricao } = req.body;
+      const { ean, fornecedor, descricao, por_essencia } = req.body;
       const eanLimpo = String(ean || '').trim();
       if (!eanLimpo) {
         return res.status(400).json({ success: false, error: 'EAN é obrigatório para re-cotação.' });
+      }
+
+      let descFinal = descricao;
+      if (!descFinal) {
+        const rowEst = db.prepare('SELECT descricao FROM compras_estoque_cache WHERE ean = ?').get(eanLimpo);
+        if (rowEst && rowEst.descricao) descFinal = rowEst.descricao;
       }
 
       const MAPA_CLASSES = {
@@ -3311,7 +3317,7 @@ function belapedEndpoints(db) {
         ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA']
         : [fornecedorAlvo];
 
-      console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descricao || ''}) em [${portaisParaCotar.join(', ')}]...`);
+      console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descFinal || ''}) em [${portaisParaCotar.join(', ')}]...`);
 
       const stmtSalvar = db.prepare(`
         INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, ean_substituto, laboratorio, is_substituto, todos_concorrentes, updated_at)
@@ -3343,19 +3349,20 @@ function belapedEndpoints(db) {
           await rob.iniciar();
 
           let resCot = null;
+          const optsEssencia = { cotarPorEssencia: por_essencia !== false };
           // Se for Distrimed e houver campanhas cadastradas, usa cotação multi-condições
           if (nomePortal.includes('DISTRIMED') && typeof rob.cotarLoteDistrimedMultiCondicoes === 'function') {
-            const mapa = await rob.cotarLoteDistrimedMultiCondicoes([{ ean: eanLimpo, descricao: descricao || '', quantidade: 1 }], campanhasDistrimed);
-            resCot = mapa.get(eanLimpo) || await rob.cotarEAN(eanLimpo, descricao || '');
+            const mapa = await rob.cotarLoteDistrimedMultiCondicoes([{ ean: eanLimpo, descricao: descFinal || '', quantidade: 1 }], campanhasDistrimed);
+            resCot = mapa.get(eanLimpo) || await rob.cotarEAN(eanLimpo, descFinal || '', optsEssencia);
           } else {
-            resCot = await rob.cotarEAN(eanLimpo, descricao || '');
+            resCot = await rob.cotarEAN(eanLimpo, descFinal || '', optsEssencia);
           }
 
           // 🛡️ Validação Estrita Semântica Anti-Alucinação (se não for substituto/genérico intencional)
-          if (resCot.disponivel && resCot.preco > 0 && descricao && resCot.descricao && !resCot.isGenericoEquivalente && !resCot.isSubstituto) {
-            const checagemSem = validarCorrespondenciaProduto(descricao, resCot.descricao);
+          if (resCot.disponivel && resCot.preco > 0 && descFinal && resCot.descricao && !resCot.isGenericoEquivalente && !resCot.isSubstituto) {
+            const checagemSem = validarCorrespondenciaProduto(descFinal, resCot.descricao);
             if (!checagemSem.valido) {
-              console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${nomePortal}: esperado "${descricao}" vs retornado "${resCot.descricao}" (${checagemSem.motivo})`);
+              console.warn(`[BelaPed Re-cotação] ⛔ Cotação bloqueada por discrepância semântica em ${nomePortal}: esperado "${descFinal}" vs retornado "${resCot.descricao}" (${checagemSem.motivo})`);
               resCot.disponivel = false;
               resCot.preco = null;
               resCot.mensagem = `Descartado: ${checagemSem.motivo}`;
@@ -3368,20 +3375,20 @@ function belapedEndpoints(db) {
               nomePortal,
               resCot.preco,
               1,
-              resCot.descricao || descricao || '',
+              resCot.descricao || descFinal || '',
               resCot.descPct || 0,
-              resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descricao),
+              resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descFinal),
               resCot.condicao_comercial || null,
               resCot.preco_padrao || resCot.preco,
               resCot.isGenericoEquivalente ? 1 : 0,
-              resCot.ean || resCot.eanVencedor || null,
+              resCot.isSubstituto ? (resCot.eanSubstituto || resCot.ean || null) : null,
               resCot.laboratorio || null,
               resCot.isSubstituto ? 1 : 0,
               resCot.todosConcorrentes ? JSON.stringify(resCot.todosConcorrentes) : null
             );
 
             if (resCot.isSubstituto) {
-              motorEssencia.registrarEquivalenciaNoBanco(db, eanLimpo, resCot, descricao, nomePortal);
+              motorEssencia.registrarEquivalenciaNoBanco(db, eanLimpo, resCot, descFinal, nomePortal);
             }
           } else {
             stmtSalvar.run(
