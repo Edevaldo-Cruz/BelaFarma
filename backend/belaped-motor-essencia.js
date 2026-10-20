@@ -106,11 +106,22 @@ function filtrarEClassificarCandidatos(candidatos, itemOriginal, db) {
     return { vencedor: null, todosConcorrentes: [] };
   }
 
-  // Ordenação pelo critério de Menor Preço e Desempate por Histórico
+  // Ordenação pelo critério de Menor Preço (avaliando custo unitário por dose/comprimido para 28 vs 30 cpr)
   validos.sort((a, b) => {
+    const qtdA = farmacoMatcher.extrairQuantidadeEForma(a.descricao)?.numero || 1;
+    const qtdB = farmacoMatcher.extrairQuantidadeEForma(b.descricao)?.numero || 1;
+    const unitA = a.preco / Math.max(1, qtdA);
+    const unitB = b.preco / Math.max(1, qtdB);
+
+    // Se houver diferença relevante no custo por comprimido (> R$ 0,005 por dose), o menor custo unitário vence
+    const diffUnit = unitA - unitB;
+    if (Math.abs(diffUnit) >= 0.005) {
+      return diffUnit;
+    }
+
     const diff = a.preco - b.preco;
     if (Math.abs(diff) >= 0.005) {
-      return diff; // Menor preço absoluto sempre vence
+      return diff; // Menor preço absoluto
     }
     // Empate a R$ 0,00: se um já teve histórico na farmácia e o outro não, o histórico vence
     if (a.jaTeveNaLoja && !b.jaTeveNaLoja) return -1;

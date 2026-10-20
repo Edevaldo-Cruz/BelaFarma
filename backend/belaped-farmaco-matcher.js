@@ -322,8 +322,9 @@ function validarEquivalenciaEstrita(itemOriginal, candidato) {
   const qtdCand = extrairQuantidadeEForma(descCand);
 
   if (qtdOrig && qtdCand) {
-    // Quantidade de comprimidos ou volume deve ser IDÊNTICA
-    if (qtdOrig.numero !== qtdCand.numero) {
+    // Quantidade de comprimidos ou volume: tolera equivalência de 28 vs 30 comprimidos (tratamento mensal crônico)
+    const ehEquivalenteMensal = (qtdOrig.numero === 28 && qtdCand.numero === 30) || (qtdOrig.numero === 30 && qtdCand.numero === 28);
+    if (qtdOrig.numero !== qtdCand.numero && !ehEquivalenteMensal) {
       return false; // rejeita 30 vs 60 cpr, ou 15ml vs 30ml
     }
 
