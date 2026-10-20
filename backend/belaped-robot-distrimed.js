@@ -122,6 +122,7 @@ class DistrimedRobot {
 
     // Garante que a condição comercial PADRÃO seja ativada e confirmada
     await this.ativarCondicaoPadrao();
+    return true;
   }
 
   /**
