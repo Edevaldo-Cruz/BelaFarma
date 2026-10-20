@@ -71,11 +71,13 @@ class DistrimedRobot {
     });
 
     this.page = await this.browser.newPage();
-    try {
-      const session = await this.page.target().createCDPSession();
-      const { windowId } = await session.send('Browser.getWindowForTarget');
-      await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
-    } catch (e) {}
+    if (!this.headless) {
+      try {
+        const session = await this.page.target().createCDPSession();
+        const { windowId } = await session.send('Browser.getWindowForTarget');
+        await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+      } catch (e) {}
+    }
     await this.page.setViewport({ width: 1440, height: 900 });
 
     // Otimização de Performance: Bloqueia imagens, mídias e fontes para cotações ultra-rápidas
@@ -204,21 +206,25 @@ class DistrimedRobot {
     const searchSel = 'input[placeholder*="Pesquise por: produtos"]';
     await this.page.waitForSelector(searchSel, { timeout: 15000 });
 
-    // Limpa o input de forma garantida
-    await this.page.$eval(searchSel, el => {
-      el.value = '';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }).catch(() => {});
+    // Limpa e foca o input de forma garantida sem depender de page.click
+    await this.page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) {
+        el.focus();
+        el.value = '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        if (typeof el.select === 'function') el.select();
+      }
+    }, searchSel).catch(() => {});
 
-    await this.page.click(searchSel, { clickCount: 3 });
-    await this.page.keyboard.press('Backspace');
+    await this.page.focus(searchSel).catch(() => {});
     await this.page.keyboard.down('Control');
     await this.page.keyboard.press('A');
     await this.page.keyboard.up('Control');
     await this.page.keyboard.press('Backspace');
 
-    await this.page.type(searchSel, termo, { delay: 5 });
+    await this.page.type(searchSel, termo, { delay: 10 });
     await this.page.keyboard.press('Enter');
 
     // Clica também no botão de busca da Distrimed (botão "Buscar" com ícone de lupa)
@@ -431,15 +437,19 @@ class DistrimedRobot {
       // Etapa 2: Mapeamento automático das colunas (Select 1: EAN/Código, Select 2: Quantidade)
       console.log('[DistrimedRobot] Mapeando colunas EAN e Quantidade nos selects da modal...');
       await this.page.evaluate(() => {
-        const modal = document.querySelector('.modal, [role="dialog"], [class*="modal"]');
-        const selects = modal ? Array.from(modal.querySelectorAll('select')) : Array.from(document.querySelectorAll('select'));
+        // Filtra apenas os <select> de mapeamento de coluna da modal (que possuem opções "EAN/Código" e "Quantidade"),
+        // ignorando o <select> de Ordenação ("Mais vendidos") da página principal.
+        const selects = Array.from(document.querySelectorAll('select')).filter(s =>
+          Array.from(s.options).some(o => o.value === 'ean' || /ean|código|codigo/i.test(o.text))
+        );
 
         // Coluna 1 -> EAN/Código
         if (selects.length >= 1) {
           const s1 = selects[0];
           for (let i = 0; i < s1.options.length; i++) {
-            if (/ean|código|codigo/i.test(s1.options[i].text)) {
+            if (s1.options[i].value === 'ean' || /ean|código|codigo/i.test(s1.options[i].text)) {
               s1.selectedIndex = i;
+              s1.value = s1.options[i].value;
               s1.dispatchEvent(new Event('change', { bubbles: true }));
               break;
             }
@@ -450,8 +460,9 @@ class DistrimedRobot {
         if (selects.length >= 2) {
           const s2 = selects[1];
           for (let i = 0; i < s2.options.length; i++) {
-            if (/quantidade|qtd/i.test(s2.options[i].text)) {
+            if (s2.options[i].value === 'quantidade' || /quantidade|qtd/i.test(s2.options[i].text)) {
               s2.selectedIndex = i;
+              s2.value = s2.options[i].value;
               s2.dispatchEvent(new Event('change', { bubbles: true }));
               break;
             }
@@ -480,6 +491,22 @@ class DistrimedRobot {
       if (!confirmou) {
         throw new Error('Botão Confirmar não encontrado na modal da Distrimed.');
       }
+
+      await new Promise(r => setTimeout(r, 1800));
+
+      // Etapa 4: Se já houver itens no carrinho, a Distrimed exibe o modal:
+      // "Deseja limpar o carrinho antes de incluir os produtos?" -> Clicar em "Não" para somar/incluir sem apagar os atuais!
+      await this.page.evaluate(() => {
+        const bodyTxt = document.body.innerText || '';
+        if (bodyTxt.includes('Deseja limpar o carrinho antes de incluir')) {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const btnNao = btns.find(b => {
+            const t = (b.innerText || ''). normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            return t.includes('nao') || (t.includes('cancel') && !t.includes('cancelar'));
+          });
+          if (btnNao) btnNao.click();
+        }
+      });
 
       await new Promise(r => setTimeout(r, 5000));
 

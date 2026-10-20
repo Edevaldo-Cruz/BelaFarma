@@ -81,11 +81,13 @@ class OrienteRobot {
     });
 
     this.page = await this.browser.newPage();
-    try {
-      const session = await this.page.target().createCDPSession();
-      const { windowId } = await session.send('Browser.getWindowForTarget');
-      await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
-    } catch (e) {}
+    if (!this.headless) {
+      try {
+        const session = await this.page.target().createCDPSession();
+        const { windowId } = await session.send('Browser.getWindowForTarget');
+        await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+      } catch (e) {}
+    }
     await this.page.setViewport({ width: 1366, height: 768 });
 
     // Bloqueia imagens pesadas para cotação mais rápida
@@ -407,8 +409,8 @@ class OrienteRobot {
 
       await new Promise(r => setTimeout(r, 1800));
 
-      // Localiza e digita a quantidade direto no DOM
-      const resAdicao = await this.page.evaluate((eanAlvo, qtd) => {
+      // Localiza e foca o campo de quantidade na linha do EAN
+      const resFoco = await this.page.evaluate((eanAlvo) => {
         const rows = Array.from(document.querySelectorAll('table tbody tr'));
         const row = rows.find(r => (r.innerText || '').includes(eanAlvo));
         if (!row) {
@@ -421,22 +423,25 @@ class OrienteRobot {
         }
 
         inputQtd.focus();
-        inputQtd.value = String(qtd);
-        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
-        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
-        inputQtd.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-
-        const btnAdd = row.querySelector('button, [class*="add"], [class*="carrinho"], [class*="cart"]');
-        if (btnAdd) btnAdd.click();
-
+        if (typeof inputQtd.select === 'function') inputQtd.select();
         return { sucesso: true };
-      }, eanLimpo, qtdDesejada);
+      }, eanLimpo);
 
-      if (!resAdicao.sucesso) {
-        throw new Error(resAdicao.motivo);
+      if (!resFoco.sucesso) {
+        throw new Error(resFoco.motivo);
       }
 
-      await new Promise(r => setTimeout(r, 1500));
+      // Digita a quantidade via teclado real do Puppeteer para disparar o onChange/onBlur do React
+      // e enviar o POST /api/carrinho/<id>/itens (NÃO clicar no primeiro <button> da linha pois é o botão de menos "-")
+      await this.page.keyboard.down('Control');
+      await this.page.keyboard.press('A');
+      await this.page.keyboard.up('Control');
+      await this.page.keyboard.press('Backspace');
+      await this.page.keyboard.type(String(qtdDesejada), { delay: 40 });
+      await this.page.keyboard.press('Enter');
+      await this.page.keyboard.press('Tab');
+
+      await new Promise(r => setTimeout(r, 2200));
 
       console.log(`[OrienteRobot] ✅ EAN ${eanLimpo} adicionado com sucesso (Qtd: ${qtdDesejada}).`);
       return {
