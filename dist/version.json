@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "0c5ae90",
-  "commitMessage": "feat(belaped): automação de importação csv profarma e ajuste semanal de rosuvastatina",
-  "buildTime": "20/10/2026, 09:41:56"
+  "commitHash": "f3cf384",
+  "commitMessage": "fix(belaped): fix Oriente React cart input and Distrimed modal column/merge handling",
+  "buildTime": "20/10/2026, 15:30:11"
 }

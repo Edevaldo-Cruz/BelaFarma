@@ -18,7 +18,9 @@ import {
   Save,
   ChevronRight,
   RotateCcw,
-  BarChart3
+  BarChart3,
+  Package,
+  Download
 } from 'lucide-react';
 import { 
   Order, 
@@ -32,6 +34,8 @@ import { useToast } from './ToastContext';
 import { OrderForm } from './OrderForm';
 import { OrderStatusModal } from './OrderStatusModal';
 import { QuotationComparator } from './QuotationComparator';
+import { OrderItemsModal } from './OrderItemsModal';
+import { OrienteImportModal } from './OrienteImportModal';
 
 interface OrdersProps {
   user: User;
@@ -40,9 +44,10 @@ interface OrdersProps {
   onUpdate: (order: Order) => void;
   onDelete: (id: string) => void;
   onUpdateBoletos: (orderId: string, boletos: Boleto[]) => void;
+  onRefresh?: () => void;
 }
 
-export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, onDelete, onUpdateBoletos }) => {
+export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, onDelete, onUpdateBoletos, onRefresh }) => {
   const { addToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -51,6 +56,8 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
   const [showComparator, setShowComparator] = useState(false);
   
   const [statusModalOrder, setStatusModalOrder] = useState<Order | null>(null);
+  const [selectedOrderForItems, setSelectedOrderForItems] = useState<Order | null>(null);
+  const [isOrienteImportOpen, setIsOrienteImportOpen] = useState(false);
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -151,15 +158,25 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
           </button>
           */}
           {user.role === UserRole.ADM && (
-            <button 
-              onClick={() => {
-                setEditingOrder(undefined);
-                setIsModalOpen(true);
-              }}
-              className="flex items-center justify-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-200 active:scale-95"
-            >
-              <Plus className="w-5 h-5" /> Novo Pedido
-            </button>
+            <>
+              <button
+                onClick={() => setIsOrienteImportOpen(true)}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-200 active:scale-95 text-sm"
+                title="Sincronizar pedidos finalizados diretamente do Gerenciador da Oriente Farma"
+              >
+                <Download className="w-4 h-4" /> Importar Oriente
+              </button>
+
+              <button 
+                onClick={() => {
+                  setEditingOrder(undefined);
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-200 active:scale-95 text-sm"
+              >
+                <Plus className="w-5 h-5" /> Novo Pedido
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -217,9 +234,26 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                             </span>
                           )}
                         </div>
-                        {order.invoiceNumber && (
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{order.invoiceNumber}</span>
-                        )}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {order.invoiceNumber && (
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                              {order.invoiceNumber.startsWith('#') ? order.invoiceNumber : `#${order.invoiceNumber}`}
+                            </span>
+                          )}
+                          {order.items && order.items.length > 0 && (
+                            <button
+                              onClick={() => setSelectedOrderForItems(order)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-black uppercase tracking-tight transition-all cursor-pointer"
+                              title="Ver espelho de itens e conferência de cortes"
+                            >
+                              <Package className="w-3 h-3 text-blue-600" />
+                              <span>{order.items.length} itens</span>
+                              {order.items.some(i => i.status === 'Corte' || (i.quantidadeCorte && i.quantidadeCorte > 0)) && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" title="Contém cortes parciais ou totais" />
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4" data-label="Cronograma">
@@ -259,6 +293,16 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                     </td>
                     <td className="px-6 py-4" data-label="Ações">
                       <div className="flex items-center justify-center gap-1">
+                        {order.items && order.items.length > 0 && (
+                          <button 
+                            onClick={() => setSelectedOrderForItems(order)}
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" 
+                            title="Ver Itens do Pedido"
+                          >
+                            <Package className="w-4 h-4" />
+                          </button>
+                        )}
+
                         <button 
                           onClick={() => { setEditingOrder(order); setIsModalOpen(true); }}
                           className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-100 rounded-xl transition-all" 
@@ -312,6 +356,23 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
             setIsModalOpen(false);
           }} 
           onCancel={() => setIsModalOpen(false)} 
+        />
+      )}
+
+      {selectedOrderForItems && (
+        <OrderItemsModal
+          order={selectedOrderForItems}
+          onClose={() => setSelectedOrderForItems(null)}
+        />
+      )}
+
+      {isOrienteImportOpen && (
+        <OrienteImportModal
+          isOpen={isOrienteImportOpen}
+          onClose={() => setIsOrienteImportOpen(false)}
+          onOrderImported={() => {
+            if (onRefresh) onRefresh();
+          }}
         />
       )}
     </div>

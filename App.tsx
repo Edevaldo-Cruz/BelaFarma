@@ -1368,6 +1368,7 @@ const App: React.FC = () => {
                   onUpdate={updateOrder}
                   onDelete={deleteOrder}
                   onUpdateBoletos={handleUpdateBoletos}
+                  onRefresh={fetchData}
                 />
               )}
               {currentView === "shortages" && (

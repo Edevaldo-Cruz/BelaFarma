@@ -5779,6 +5779,103 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/oriente/pedidos-recentes
+   * Consulta os pedidos gerados recentemente no portal da Oriente Farma (gerenciar-pedidos)
+   */
+  router.get('/oriente/pedidos-recentes', async (req, res) => {
+    const rob = new OrienteRobot({ headless: true });
+    try {
+      await rob.iniciar();
+      const limite = parseInt(String(req.query.limite || '15'), 10) || 15;
+      const pedidos = await rob.consultarPedidosGerenciador(limite);
+      res.json({ success: true, pedidos });
+    } catch (err) {
+      console.error('[BelaPed] Erro ao buscar pedidos recentes na Oriente:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    } finally {
+      try { await rob.fechar(); } catch (e) {}
+    }
+  });
+
+  /**
+   * POST /api/belaped/oriente/importar-pedido
+   * Importa automaticamente um pedido finalizado na Oriente Farma (gerenciar-pedidos/:id)
+   * Cadastra os itens, boletos, prazos e controle orçamentário no Belinha
+   */
+  router.post('/oriente/importar-pedido', async (req, res) => {
+    const { codigoPedido } = req.body || {};
+    if (!codigoPedido) {
+      return res.status(400).json({ success: false, error: 'codigoPedido é obrigatório.' });
+    }
+
+    const rob = new OrienteRobot({ headless: true });
+    try {
+      await rob.iniciar();
+      const detalhes = await rob.consultarDetalhesPedido(codigoPedido);
+      
+      // Formata itens com status de faturamento/corte
+      const itensFormatados = (detalhes.itens || []).map(it => {
+        const p = it.produto || {};
+        const qtdSol = Number(it.quantidadeOriginal || it.quantidade || 0);
+        const qtdAtend = it.quantidadeAtendida !== undefined ? Number(it.quantidadeAtendida) : qtdSol;
+        const qtdCorte = it.quantidadeCorte !== undefined ? Number(it.quantidadeCorte) : (qtdSol - qtdAtend);
+        const isCorte = qtdAtend === 0 && qtdSol > 0;
+
+        return {
+          codigo: p.codigoProduto || it.codigoProduto,
+          ean: p.codigoBarras || '',
+          descricao: p.descricao || '',
+          quantidade: qtdSol,
+          quantidadeSolicitada: qtdSol,
+          quantidadeAtendida: qtdAtend,
+          quantidadeCorte: qtdCorte,
+          precoUnitario: Number(it.precoUnitario || 0),
+          valorST: Number(it.valorST || 0),
+          desconto: Number(it.percentualDesconto || 0),
+          subtotal: Number(it.valorTotal || 0),
+          status: isCorte ? 'Corte' : 'Atendido'
+        };
+      });
+
+      // Calcula total efetivo após cortes (se houver itens cortados)
+      const cortesValor = (detalhes.itens || [])
+        .filter(it => it.quantidadeAtendida === 0 && (it.quantidadeOriginal || it.quantidade) > 0)
+        .reduce((sum, it) => sum + Number(it.valorTotal || 0), 0);
+
+      const totalEfetivo = Number((Number(detalhes.valorTotal || detalhes.valorNota || 0) - (cortesValor > 0 && detalhes.status === 'Pendente' ? cortesValor : 0)).toFixed(2));
+
+      // Lança no Belinha (orders + boletos + monthly_limits + belaped_pedidos)
+      const lancamento = lancarPedidoNaGuiaBelinha({
+        distribuidora: 'ORIENTE FARMA',
+        valorTotal: totalEfetivo,
+        prazoEscolhido: detalhes.prazoPagamentoDescricao || '28 DDL',
+        itens: itensFormatados,
+        numeroPedido: String(detalhes.codigoPedido)
+      });
+
+      res.json({
+        success: true,
+        mensagem: `Pedido #${codigoPedido} importado com sucesso da Oriente Farma!`,
+        detalhes: {
+          codigoPedido: detalhes.codigoPedido,
+          codigoPedidoERP: detalhes.codigoPedidoERP,
+          statusPortal: detalhes.status,
+          totalEfetivo,
+          prazo: detalhes.prazoPagamentoDescricao,
+          qtdItens: itensFormatados.length
+        },
+        lancamento
+      });
+
+    } catch (err) {
+      console.error(`[BelaPed] Erro ao importar pedido #${codigoPedido} da Oriente:`, err.message);
+      res.status(500).json({ success: false, error: err.message });
+    } finally {
+      try { await rob.fechar(); } catch (e) {}
+    }
+  });
+
+  /**
    * POST /api/belaped/limpar-carrinhos
    * Aciona a limpeza explícita e confirmação de 0 itens para os portais informados (ou todos os 7)
    */
@@ -6058,8 +6155,8 @@ function belapedEndpoints(db) {
 
     db.transaction(() => {
       db.prepare(`
-        INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, isFogueteAmarelo, boletoPath)
-        VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
+        INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, items, isFogueteAmarelo, boletoPath)
+        VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @items, @isFogueteAmarelo, @boletoPath)
       `).run({
         id: orderId,
         orderDate,
@@ -6074,9 +6171,33 @@ function belapedEndpoints(db) {
         receiptDate: null,
         notes,
         installments: JSON.stringify(installments),
+        items: JSON.stringify(itens || []),
         isFogueteAmarelo: 0,
         boletoPath: null
       });
+
+      // Também registra em belaped_pedidos e belaped_pedidos_itens para rastreamento completo
+      try {
+        const stmtBelapedPed = db.prepare(`
+          INSERT INTO belaped_pedidos (id, distribuidora, status, total, qtd_itens, qtd_unidades, prazo_previsto, nf, observacoes, criado_por, created_at, updated_at, numero_pedido_portal, prazo_escolhido)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?)
+        `);
+        const totalUnidades = (itens || []).reduce((acc, it) => acc + (Number(it.quantidade || it.qtd_pedida || 1) || 1), 0);
+        stmtBelapedPed.run(orderId, distribuidora, 'FINALIZADO_PELO_USUARIO', total, (itens || []).length, totalUnidades, arrivalForecast, numeroPedido || null, notes, 'BelaPed', numeroPedido || null, prazoEscolhido || null);
+
+        const stmtItem = db.prepare(`
+          INSERT INTO belaped_pedidos_itens (pedido_id, ean, descricao, qtd_pedida, preco_cotado, qtd_faturada, preco_cobrado)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const it of (itens || [])) {
+          const qtd = Number(it.quantidade || it.qtd_pedida || 1) || 1;
+          const qtdAtend = it.quantidadeAtendida !== undefined ? Number(it.quantidadeAtendida) : qtd;
+          const pr = Number(it.precoUnitario || it.preco_cotado || 0);
+          stmtItem.run(orderId, it.ean || it.codigoBarras || null, it.descricao || '', qtd, pr, qtdAtend, pr);
+        }
+      } catch (eBelaPed) {
+        console.warn('[BelaPed] Aviso ao salvar em belaped_pedidos:', eBelaPed.message);
+      }
 
       const insertBoleto = db.prepare(`
         INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)

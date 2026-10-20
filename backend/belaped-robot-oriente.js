@@ -594,6 +594,52 @@ class OrienteRobot {
     }
   }
 
+  /**
+   * Consulta a lista de pedidos no Gerenciador de Pedidos da Oriente Farma
+   * URL: https://pedidoweb.orientefarma.com.br/gerenciar-pedidos
+   */
+  async consultarPedidosGerenciador(limite = 20) {
+    if (!this.page) throw new Error('Robô Oriente Farma não iniciado.');
+
+    try {
+      console.log(`[OrienteRobot] Consultando pedidos em /gerenciar-pedidos (limite: ${limite})...`);
+      const pedidos = await this.page.evaluate(async (take) => {
+        const clienteId = 299103;
+        const res = await fetch(`/api/pedidos?clienteId=${clienteId}&skip=0&take=${take}`);
+        if (!res.ok) throw new Error(`Falha ao buscar pedidos da Oriente (HTTP ${res.status})`);
+        const json = await res.json();
+        return json.items || [];
+      }, limite);
+
+      return pedidos;
+    } catch (err) {
+      console.error('[OrienteRobot] Erro ao consultar pedidos no gerenciador:', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Consulta os detalhes completos (incluindo produtos, quantidades atendidas e cortes) de um pedido na Oriente
+   */
+  async consultarDetalhesPedido(codigoPedido) {
+    if (!this.page) throw new Error('Robô Oriente Farma não iniciado.');
+
+    try {
+      const cod = parseInt(String(codigoPedido).replace(/\D/g, ''), 10);
+      console.log(`[OrienteRobot] Consultando detalhes do pedido #${cod} na Oriente Farma...`);
+      const detalhes = await this.page.evaluate(async (num) => {
+        const res = await fetch(`/api/pedidos/${num}`);
+        if (!res.ok) throw new Error(`Pedido #${num} não encontrado na Oriente (HTTP ${res.status})`);
+        return await res.json();
+      }, cod);
+
+      return detalhes;
+    } catch (err) {
+      console.error(`[OrienteRobot] Erro ao consultar detalhes do pedido #${codigoPedido}:`, err.message);
+      throw err;
+    }
+  }
+
   async fechar() {
     if (this.browser) {
       console.log('[OrienteRobot] Encerrando navegador Oriente Farma...');

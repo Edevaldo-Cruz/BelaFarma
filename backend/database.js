@@ -41,6 +41,7 @@ try {
         receiptDate TEXT,
         notes TEXT,
         installments TEXT, -- Armazenado como JSON
+        items TEXT, -- Itens do pedido (produtos, qtds, precos, cortes) armazenados como JSON
         isFogueteAmarelo INTEGER DEFAULT 0,
         boletoPath TEXT
       );
@@ -1108,6 +1109,14 @@ try {
     } catch (e) {
       db.exec('ALTER TABLE orders ADD COLUMN isFogueteAmarelo INTEGER DEFAULT 0');
       console.log('Added isFogueteAmarelo column to orders table.');
+    }
+
+    // Add items column to orders table if it doesn't exist
+    try {
+      db.prepare('SELECT items FROM orders LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE orders ADD COLUMN items TEXT');
+      console.log('Added items column to orders table.');
     }
 
 

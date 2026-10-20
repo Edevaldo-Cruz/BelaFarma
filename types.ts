@@ -32,6 +32,24 @@ export interface Installment {
   dueDate: string;
 }
 
+export interface OrderItem {
+  id?: string | number;
+  codigo?: string | number;
+  codigoProduto?: string | number;
+  ean?: string;
+  codigoBarras?: string;
+  descricao: string;
+  quantidade: number;
+  quantidadeSolicitada?: number;
+  quantidadeAtendida?: number;
+  quantidadeCorte?: number;
+  precoUnitario: number;
+  valorST?: number;
+  desconto?: number;
+  subtotal: number;
+  status?: string; // 'Atendido', 'Corte', 'Não Atendido', 'Pendente'
+}
+
 export interface Order {
   id: string;
   orderDate: string;
@@ -46,6 +64,7 @@ export interface Order {
   receiptDate?: string;
   notes?: string;
   installments?: Installment[];
+  items?: OrderItem[];
   boletoFile?: File;
   isFogueteAmarelo?: boolean; // Flag para identificar pedidos Foguete Amarelo
 }

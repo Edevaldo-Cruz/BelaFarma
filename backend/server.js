@@ -350,6 +350,7 @@ app.get('/api/all-data', async (req, res) => {
     const orders = ordersRaw.map(order => ({
       ...order,
       installments: safelyParseJSON(order.installments),
+      items: safelyParseJSON(order.items) || [],
       isFogueteAmarelo: !!order.isFogueteAmarelo,
     }));
 
@@ -816,8 +817,8 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, isFogueteAmarelo, boletoPath)
-      VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
+      INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, items, isFogueteAmarelo, boletoPath)
+      VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @items, @isFogueteAmarelo, @boletoPath)
     `);
     
     db.transaction(() => {
@@ -835,6 +836,7 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
         receiptDate: order.receiptDate || null,
         notes: order.notes || null,
         installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+        items: typeof order.items === 'string' ? order.items : JSON.stringify(order.items || []),
         isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
         boletoPath: order.boletoPath || null
       });
@@ -898,7 +900,7 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
 
     const stmt = db.prepare(`
       UPDATE orders 
-      SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, isFogueteAmarelo = @isFogueteAmarelo, boletoPath = @boletoPath
+      SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, items = @items, isFogueteAmarelo = @isFogueteAmarelo, boletoPath = @boletoPath
       WHERE id = @id
     `);
 
@@ -918,6 +920,7 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
         receiptDate: order.receiptDate || null,
         notes: order.notes || null,
         installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+        items: typeof order.items === 'string' ? order.items : JSON.stringify(order.items || []),
         isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
         boletoPath: order.boletoPath || null
       });
