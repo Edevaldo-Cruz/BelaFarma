@@ -1020,6 +1020,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Cotação ao Vivo com Robô
   const [cotandoAoVivo, setCotandoAoVivo] = useState(false);
+  const [reiniciandoCotacao, setReiniciandoCotacao] = useState(false);
   const [statusCotacao, setStatusCotacao] = useState<{
     emAndamento: boolean;
     fornecedor: string;
@@ -1385,7 +1386,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'DIVIMED': 400,
       'MARTINS ATACADO': 200,
       'MARTINS': 200,
-      'ORIENTE FARMA': 400
+      'ORIENTE FARMA': 150,
+      'ORIENTE': 150
     };
     portais.forEach(p => {
       if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
@@ -2546,6 +2548,38 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       addToast('Erro na cotação: ' + err.message, 'error');
       setCotandoAoVivo(false);
       setStatusCotacao(null);
+    }
+  };
+
+  // Reiniciar a Cotação (Interrompe qualquer robô travado, limpa o status e inicia do zero)
+  const handleReiniciarCotacao = async () => {
+    try {
+      setReiniciandoCotacao(true);
+      addToast('Reiniciando a cotação nos 7 portais...', 'info');
+
+      // 1. Chama a rota de reinicialização no backend para destravar qualquer processo e resetar flags
+      const res = await fetch('/api/belaped/reiniciar-cotacao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fornecedor: 'TODOS',
+          limite: 40,
+          prioridade: 'TODAS_PRIORITARIAS',
+          dispararImediato: false
+        })
+      });
+      const data = await res.json();
+      if (data?.status) {
+        setStatusCotacao(data.status);
+      }
+
+      // 2. Dispara imediatamente um novo ciclo limpo através do controlador principal
+      await handleIniciarCotacaoAoVivo('TODOS', 40, 'TODAS_PRIORITARIAS');
+    } catch (err: any) {
+      addToast('Erro ao reiniciar cotação: ' + (err?.message || err), 'error');
+      setCotandoAoVivo(false);
+    } finally {
+      setTimeout(() => setReiniciandoCotacao(false), 1500);
     }
   };
 
@@ -5148,6 +5182,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         <span>Cotar 7 Portais (Robôs)</span>
                       </>
                     )}
+                  </button>
+
+                  {/* BOTÃO: REINICIAR COTAÇÃO (INTERROMPE, DESTRAVA E RECOMEÇA A COTAÇÃO) */}
+                  <button
+                    onClick={handleReiniciarCotacao}
+                    disabled={reiniciandoCotacao}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-xl bg-amber-950/80 hover:bg-amber-900/90 text-amber-200 border border-amber-600/70 text-xs font-black shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
+                    title="Reiniciar a cotação: interrompe e destrava qualquer robô ou processo anterior e reinicia uma nova cotação limpa nos 7 portais"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 text-amber-400 ${reiniciandoCotacao ? 'animate-spin' : ''}`} />
+                    <span>{reiniciandoCotacao ? 'Reiniciando...' : 'Reiniciar Cotação'}</span>
                   </button>
 
                   {/* BOTÃO: OTIMIZAR CARRINHOS (DISSOLVE EMPRESAS ABAIXO DO MÍNIMO E REPASSA PRODUTOS) */}

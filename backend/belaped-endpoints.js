@@ -3222,6 +3222,61 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * POST /api/belaped/reiniciar-cotacao
+   * Destrava e reinicia a cotação imediatamente, interrompendo qualquer ciclo pendente
+   */
+  router.post('/reiniciar-cotacao', async (req, res) => {
+    try {
+      const { fornecedor = 'TODOS', limite = 40, eans, prioridade, dispararImediato = false } = req.body || {};
+
+      console.log('[BelaPed Cotação] 🔄 Reinicialização solicitada pelo usuário...');
+
+      // 1. Sinaliza parada para qualquer robô que esteja em loop
+      cotacaoStatus.solicitouParar = true;
+
+      // 2. Aguarda um breve momento para os robôs lerem o flag de parada caso estejam ativos
+      if (cotacaoStatus.emAndamento) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // 3. Força reset completo do status
+      cotacaoStatus.emAndamento = false;
+      cotacaoStatus.solicitouParar = false;
+      cotacaoStatus.atual = 0;
+      cotacaoStatus.encontrados = 0;
+      cotacaoStatus.total = 0;
+      cotacaoStatus.iniciadoEm = null;
+      cotacaoStatus.finalizadoEm = null;
+      cotacaoStatus.ultimoItem = '🔄 Cotação reiniciada. Pronto para novo ciclo.';
+      if (cotacaoStatus.workers) {
+        Object.keys(cotacaoStatus.workers).forEach(w => {
+          cotacaoStatus.workers[w] = { status: 'AGUARDANDO', itemAtual: 'Pronto para iniciar', avaliados: 0, encontrados: 0, semEstoque: 0 };
+        });
+      }
+
+      // 4. Se dispararImediato for true, aciona novo lote
+      let iniciado = false;
+      if (dispararImediato) {
+        iniciado = await executarCotacaoAoVivoInternal(fornecedor, limite, eans, prioridade);
+      }
+
+      res.json({
+        success: true,
+        iniciado,
+        message: iniciado 
+          ? `Cotação reiniciada com sucesso para ${fornecedor}!` 
+          : 'Cotação reiniciada e status zerado com sucesso.',
+        status: cotacaoStatus
+      });
+    } catch (err) {
+      cotacaoStatus.emAndamento = false;
+      cotacaoStatus.solicitouParar = false;
+      console.error('[BelaPed] Erro no endpoint reiniciar-cotacao:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/belaped/cotar-ao-vivo
    * Dispara cotação ao vivo imediatamente via interface
    */

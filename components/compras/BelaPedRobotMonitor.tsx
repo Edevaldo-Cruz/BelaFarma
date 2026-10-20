@@ -18,7 +18,8 @@ import {
   ShieldAlert,
   Briefcase,
   Clock,
-  Square
+  Square,
+  RotateCcw
 } from 'lucide-react';
 
 interface WorkerStatus {
@@ -66,6 +67,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   const [minimizado, setMinimizado] = useState(true);
   const [liveStatus, setLiveStatus] = useState<any>(statusCotacao);
   const [parando, setParando] = useState(false);
+  const [reiniciando, setReiniciando] = useState(false);
 
   // Modo contínuo desativado por padrão (evita loops infinitos ou cotações indesejadas)
   const [modoContinuo, setModoContinuo] = useState<boolean>(() => {
@@ -130,6 +132,31 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
       setTimeout(() => setParando(false), 2000);
     } catch (e) {
       setParando(false);
+    }
+  };
+
+  const handleReiniciarRobo = async () => {
+    try {
+      setReiniciando(true);
+      setCountdownProximoLote(null);
+      setSessaoUsuarioAtiva(true);
+      await fetch('/api/belaped/reiniciar-cotacao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fornecedor: 'TODOS',
+          limite: tamanhoLote,
+          prioridade: filtroPrioridade,
+          dispararImediato: false
+        })
+      });
+      // Dispara imediatamente o novo ciclo através da interface
+      onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
+      if (onDadosAtualizados) onDadosAtualizados();
+    } catch (e) {
+      console.error('Erro ao reiniciar robô:', e);
+    } finally {
+      setTimeout(() => setReiniciando(false), 1500);
     }
   };
 
@@ -458,6 +485,18 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
                   <span>{parando ? 'Parando...' : 'Parar Robô'}</span>
                 </button>
               )}
+
+              {/* Botão de Reiniciar Cotação */}
+              <button
+                type="button"
+                disabled={reiniciando}
+                onClick={handleReiniciarRobo}
+                className="px-2.5 py-2 rounded-xl bg-amber-950/70 hover:bg-amber-900/90 text-amber-300 border border-amber-600/70 text-[10px] font-black uppercase shadow-sm transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                title="Reiniciar a cotação: cancela qualquer robô travado e reinicia um novo ciclo de pesquisa do zero"
+              >
+                <RotateCcw className={`w-3 h-3 text-amber-400 ${reiniciando ? 'animate-spin' : ''}`} />
+                <span>{reiniciando ? 'Reiniciando...' : 'Reiniciar'}</span>
+              </button>
 
               {/* Toggle Auto-Fila Contínua */}
               <button
