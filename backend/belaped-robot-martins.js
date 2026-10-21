@@ -275,7 +275,10 @@ class MartinsRobot {
     const cotarPorEssencia = opts.cotarPorEssencia !== false && Boolean(descricaoProduto);
     let todosCandidatos = [...itensCorrespondentes];
 
-    if (cotarPorEssencia) {
+    // Se já achou pelo EAN original, ou se o item é um medicamento tarjado que atacado geral não vende, não precisa de 2ª busca
+    const isMedicamentoTarjado = /\b(\d+\s*(?:MG|MCG|G|ML)|CPR|COMP|CAPS|XPE|INJ|GOTAS|AMPOLA|SOL(?:UCAO)?)\b/i.test(descricaoProduto);
+
+    if (cotarPorEssencia && !isMedicamentoTarjado && (!melhorEanOriginal || melhorEanOriginal.preco > 50)) {
       try {
         const prep = motorEssencia.prepararBuscaEssencia(eanLimpo, descricaoProduto);
         if (prep.termoBusca && prep.termoBusca.length >= 3) {
@@ -354,23 +357,9 @@ class MartinsRobot {
 
   async _executarBuscaMartins(termo) {
     try {
-      await this.page.goto('https://www.martinsatacado.com.br/', { waitUntil: 'domcontentloaded', timeout: 35000 });
-      await new Promise(r => setTimeout(r, 1500));
-
-      const inputBusca = await this.page.$('input[placeholder*="busc"], input[type="search"], input[name="q"], #search-input');
-      if (inputBusca) {
-        await inputBusca.click({ clickCount: 3 });
-        await inputBusca.type(termo, { delay: 25 });
-        await Promise.all([
-          this.page.keyboard.press('Enter'),
-          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-        ]);
-        await new Promise(r => setTimeout(r, 3000));
-      } else {
-        const urlBusca = `https://www.martinsatacado.com.br/busca?q=${encodeURIComponent(termo)}`;
-        await this.page.goto(urlBusca, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await new Promise(r => setTimeout(r, 2500));
-      }
+      const urlBusca = `https://www.martinsatacado.com.br/busca?q=${encodeURIComponent(termo)}`;
+      await this.page.goto(urlBusca, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1200));
 
       return await this.page.evaluate(() => {
         const bodyText = document.body.innerText || '';

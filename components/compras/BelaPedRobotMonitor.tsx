@@ -222,17 +222,21 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
 
           const totalNaFila = Number(data.status.fila?.aguardandoRobo ?? aguardandoRoboCountRef.current);
 
-          // A Auto-Fila SÓ emenda próximo lote se o usuário tiver iniciado uma sessão voluntária!
-          // Nunca dispara sozinho ao simplesmente abrir a página para consultar!
+          // Se o backend estava cotando ou se o usuário ativou modo contínuo, mantém a sessão ativa para emendar os lotes
+          if (emAndamentoBackend && modoContinuo && !sessaoUsuarioAtiva) {
+            setSessaoUsuarioAtiva(true);
+          }
+
+          // A Auto-Fila emenda próximo lote se o usuário tiver sessão ativa (ou modo contínuo ativo)
           if (
-            sessaoUsuarioAtiva &&
+            (sessaoUsuarioAtiva || modoContinuo) &&
             modoContinuo &&
             !emAndamentoBackend &&
             !disparandoRef.current &&
             totalNaFila > 0
           ) {
             setCountdownProximoLote(prev => (prev === null ? 3 : prev));
-          } else if (emAndamentoBackend || totalNaFila === 0 || !sessaoUsuarioAtiva) {
+          } else if (emAndamentoBackend || totalNaFila === 0 || (!sessaoUsuarioAtiva && !modoContinuo)) {
             setCountdownProximoLote(null);
           }
         }

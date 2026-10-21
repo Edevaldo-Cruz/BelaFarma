@@ -3323,7 +3323,10 @@ function belapedEndpoints(db) {
 
             let resultado;
             try {
-              resultado = await robot.cotarEAN(eanAtual, descAtual);
+              resultado = await Promise.race([
+                robot.cotarEAN(eanAtual, descAtual),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout de 10s excedido ao cotar produto')), 10000))
+              ]);
             } catch (itemErr) {
               console.warn(`[BelaPed Cotação] ⚠️ Erro ao cotar item ${eanAtual} em ${nomeFornecedor}: ${itemErr.message}`);
               resultado = { disponivel: false, preco: null, mensagem: `Falha temporária: ${itemErr.message}` };
