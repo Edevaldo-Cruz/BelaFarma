@@ -96,6 +96,15 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   // Contador regressivo para o próximo lote
   const [countdownProximoLote, setCountdownProximoLote] = useState<number | null>(null);
   const disparandoRef = useRef(false);
+  const ultimoEncontradosRef = useRef(0);
+  const ultimoJaCotadosRef = useRef(0);
+  const ultimoAtualRef = useRef(0);
+  const estavaEmAndamentoRef = useRef(false);
+  const ultimaAtualizacaoTabelaRef = useRef(0);
+  const aguardandoRoboCountRef = useRef(aguardandoRoboCount);
+  aguardandoRoboCountRef.current = aguardandoRoboCount;
+  const onDadosAtualizadosRef = useRef(onDadosAtualizados);
+  onDadosAtualizadosRef.current = onDadosAtualizados;
 
   // Controle de Auto-Fila voluntária
   const handleToggleModoContinuo = () => {
@@ -169,8 +178,6 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
 
   // Polling dedicado para manter o mini-monitor sempre atualizado (SEM auto-disparo ao abrir a página)
   useEffect(() => {
-    let ultimoEncontrados = 0;
-
     const fetchStatus = async () => {
       try {
         const res = await fetch('/api/belaped/status-cotacao');
@@ -179,13 +186,41 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
         if (data.success && data.status) {
           setLiveStatus(data.status);
 
-          if (data.status.encontrados > ultimoEncontrados) {
-            ultimoEncontrados = data.status.encontrados;
-            if (onDadosAtualizados) onDadosAtualizados();
+          const emAndamentoBackend = Boolean(data.status.emAndamento);
+          const jaCotadosAtual = Number(data.status.fila?.jaCotados || 0);
+          const encontradosAtual = Number(data.status.encontrados || 0);
+          const atualNoLote = Number(data.status.atual || 0);
+          const agora = Date.now();
+
+          // 1. Cotação acabou de finalizar este lote: sincroniza tabela imediatamente!
+          if (estavaEmAndamentoRef.current && !emAndamentoBackend) {
+            estavaEmAndamentoRef.current = false;
+            ultimoEncontradosRef.current = 0;
+            ultimoJaCotadosRef.current = jaCotadosAtual;
+            ultimoAtualRef.current = 0;
+            ultimaAtualizacaoTabelaRef.current = agora;
+            if (onDadosAtualizadosRef.current) onDadosAtualizadosRef.current();
+          }
+          // 2. Cotação está em andamento no backend:
+          else if (emAndamentoBackend) {
+            estavaEmAndamentoRef.current = true;
+
+            // Houve novos itens cotados, novos preços encontrados ou avanço no lote
+            const houveNovosCotados = jaCotadosAtual !== ultimoJaCotadosRef.current;
+            const houveNovosEncontrados = encontradosAtual !== ultimoEncontradosRef.current;
+            const loteAvancou = atualNoLote >= ultimoAtualRef.current + 2;
+
+            // Atualiza a tabela com debounce de segurança (a cada ~4s para fluidez sem sobrecarga)
+            if ((houveNovosCotados || houveNovosEncontrados || loteAvancou) && (agora - ultimaAtualizacaoTabelaRef.current > 4000)) {
+              ultimoJaCotadosRef.current = jaCotadosAtual;
+              ultimoEncontradosRef.current = encontradosAtual;
+              ultimoAtualRef.current = atualNoLote;
+              ultimaAtualizacaoTabelaRef.current = agora;
+              if (onDadosAtualizadosRef.current) onDadosAtualizadosRef.current();
+            }
           }
 
-          const emAndamentoBackend = Boolean(data.status.emAndamento);
-          const totalNaFila = Number(data.status.fila?.aguardandoRobo ?? aguardandoRoboCount);
+          const totalNaFila = Number(data.status.fila?.aguardandoRobo ?? aguardandoRoboCountRef.current);
 
           // A Auto-Fila SÓ emenda próximo lote se o usuário tiver iniciado uma sessão voluntária!
           // Nunca dispara sozinho ao simplesmente abrir a página para consultar!
@@ -196,9 +231,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
             !disparandoRef.current &&
             totalNaFila > 0
           ) {
-            if (countdownProximoLote === null) {
-              setCountdownProximoLote(3); // Aguarda 3s para respirar antes do próximo lote
-            }
+            setCountdownProximoLote(prev => (prev === null ? 3 : prev));
           } else if (emAndamentoBackend || totalNaFila === 0 || !sessaoUsuarioAtiva) {
             setCountdownProximoLote(null);
           }
@@ -209,7 +242,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     fetchStatus();
     const interval = setInterval(fetchStatus, 2500);
     return () => clearInterval(interval);
-  }, [modoContinuo, aguardandoRoboCount, countdownProximoLote, sessaoUsuarioAtiva]);
+  }, [modoContinuo, sessaoUsuarioAtiva]);
 
   // Efeito do contador regressivo para disparo contínuo automático
   useEffect(() => {

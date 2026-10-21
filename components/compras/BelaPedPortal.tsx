@@ -1157,24 +1157,46 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Registro de horário da última sincronização para feedback visual
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string>('');
 
-  // Carrega todos os dados iniciais
-  const carregarDados = async () => {
+  // Carrega todos os dados iniciais (ou apenas dados de cotações de forma leve em background)
+  const carregarDados = async (apenasCotacoes: boolean = false) => {
     try {
-      setRefreshing(true);
-
-      const [resOrc, resFaltas, resPortais, resRel] = await Promise.all([
-        fetch('/api/belaped/orcamento-boletos'),
-        fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}`),
-        fetch('/api/belaped/portais'),
-        fetch('/api/belaped/relatorio-precos')
-      ]);
-
-      if (resOrc.ok) {
-        const dataOrc = await resOrc.json();
-        setOrcamentoInfo(dataOrc);
+      if (!apenasCotacoes) {
+        setRefreshing(true);
       }
 
-      if (resFaltas.ok) {
+      // Se for apenas atualização dinâmica de cotação, consulta apenas faltas-7d e relatorio-precos (rápido, ~50ms)
+      const requisicoes = apenasCotacoes
+        ? [
+            fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}`),
+            fetch('/api/belaped/relatorio-precos')
+          ]
+        : [
+            fetch('/api/belaped/orcamento-boletos'),
+            fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}`),
+            fetch('/api/belaped/portais'),
+            fetch('/api/belaped/relatorio-precos')
+          ];
+
+      const respostas = await Promise.all(requisicoes);
+      const resFaltas = apenasCotacoes ? respostas[0] : respostas[1];
+      const resRel = apenasCotacoes ? respostas[1] : respostas[3];
+
+      if (!apenasCotacoes) {
+        const resOrc = respostas[0];
+        const resPortais = respostas[2];
+        if (resOrc && resOrc.ok) {
+          const dataOrc = await resOrc.json();
+          setOrcamentoInfo(dataOrc);
+        }
+        if (resPortais && resPortais.ok) {
+          const dataPortais = await resPortais.json();
+          setPortais(dataPortais.portais || []);
+        }
+        carregarAuditoriaPrazos();
+        carregarCampanhasDistrimed();
+      }
+
+      if (resFaltas && resFaltas.ok) {
         const dataFaltas = await resFaltas.json();
         setFaltasRaw(dataFaltas.items || []);
         setItensAvulsos(dataFaltas.itens_avulsos || []);
@@ -1200,26 +1222,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         });
       }
 
-      if (resPortais.ok) {
-        const dataPortais = await resPortais.json();
-        setPortais(dataPortais.portais || []);
-      }
-
-      if (resRel.ok) {
+      if (resRel && resRel.ok) {
         const dataRel = await resRel.json();
         setRelatorioPrecos(dataRel.produtos || []);
       }
 
-      carregarAuditoriaPrazos();
-      carregarCampanhasDistrimed();
-
       setUltimaAtualizacao(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
     } catch (e: any) {
-      addToast('Erro ao sincronizar dados do BelaPed: ' + e.message, 'error');
+      if (!apenasCotacoes) {
+        addToast('Erro ao sincronizar dados do BelaPed: ' + e.message, 'error');
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!apenasCotacoes) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
@@ -2516,18 +2534,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       addToast(data.message || `Robô pesquisando preços nos portais!`, 'success');
 
       let ultimoEncontrados = 0;
+      let ultimoJaCotados = 0;
+      let ultimaAtualizacao = 0;
 
-      // Monitora o progresso em segundo plano a cada 2s e atualiza a tabela ao vivo conforme preços chegam
+      // Monitora o progresso em segundo plano a cada 2.5s e atualiza a tabela ao vivo de forma leve
       const verificarProgresso = async () => {
         try {
           const stRes = await fetch('/api/belaped/status-cotacao');
           const stData = await stRes.json();
           if (stData.success && stData.status) {
             setStatusCotacao(stData.status);
-            if (stData.status.encontrados > ultimoEncontrados) {
-              ultimoEncontrados = stData.status.encontrados;
-              carregarDados();
+            const jaCotados = Number(stData.status.fila?.jaCotados || 0);
+            const encontrados = Number(stData.status.encontrados || 0);
+            const agora = Date.now();
+
+            const mudou = jaCotados !== ultimoJaCotados || encontrados !== ultimoEncontrados;
+            if (mudou && (agora - ultimaAtualizacao > 4000)) {
+              ultimoJaCotados = jaCotados;
+              ultimoEncontrados = encontrados;
+              ultimaAtualizacao = agora;
+              carregarDados(true);
             }
+
             if (!stData.status.emAndamento) {
               clearInterval(timer);
               setCotandoAoVivo(false);
@@ -9434,7 +9462,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             cotandoAoVivo={cotandoAoVivo}
             statusCotacao={statusCotacao}
             onDispararRobo={(fornecedor = 'TODOS', lote = 40, prio = 'TODAS_PRIORITARIAS') => handleIniciarCotacaoAoVivo(fornecedor, lote, prio)}
-            onDadosAtualizados={() => carregarDados()}
+            onDadosAtualizados={() => carregarDados(true)}
             modoDiscreto={activeTab === 'decisao'}
           />
         );
