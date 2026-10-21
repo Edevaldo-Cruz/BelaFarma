@@ -100,9 +100,14 @@ class ProfarmaRobot {
 
     console.log('[ProfarmaRobot] Efetuando login com CNPJ ' + this.usuario + '...');
     await this.page.waitForSelector('input#email', { timeout: 15000 });
+    await this.page.focus('input#email').catch(() => {});
     await this.page.type('input#email', this.usuario, { delay: 10 });
+    await this.page.focus('input#password').catch(() => {});
     await this.page.type('input#password', this.senha, { delay: 10 });
-    await this.page.click('button[type="submit"]');
+    await this.page.evaluate(() => {
+      const btn = document.querySelector('button[type="submit"]');
+      if (btn) btn.click();
+    });
 
     // Aguarda o painel carregar a barra de busca
     const searchInputSel = 'input[placeholder="O que você está buscando?"]';
@@ -114,9 +119,15 @@ class ProfarmaRobot {
     const searchInputSel = 'input[placeholder="O que você está buscando?"]';
     await this.page.waitForSelector(searchInputSel, { timeout: 10000 });
 
-    // Limpa o input com clique triplo + Backspace + Ctrl+A
-    await this.page.click(searchInputSel, { clickCount: 3 });
-    await this.page.keyboard.press('Backspace');
+    // Limpa e foca o input sem depender de page.click
+    await this.page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) {
+        el.focus();
+        if (typeof el.select === 'function') el.select();
+      }
+    }, searchInputSel).catch(() => {});
+    await this.page.focus(searchInputSel).catch(() => {});
     await this.page.keyboard.down('Control');
     await this.page.keyboard.press('A');
     await this.page.keyboard.up('Control');

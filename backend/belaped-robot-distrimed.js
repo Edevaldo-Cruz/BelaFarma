@@ -81,9 +81,29 @@ class DistrimedRobot {
     }
     await this.page.setViewport({ width: 1440, height: 900 });
 
+    this.apiParams = { codCliente: '022132', tabelaPreco: '1', idCarrinho: '022132-1' };
+    this.apiHeaders = {};
+
     // Otimização de Performance: Bloqueia imagens, mídias e fontes para cotações ultra-rápidas
+    // e captura parâmetros e headers dinâmicos da API (codCliente, tabelaPreco, idCarrinho, authorization)
     await this.page.setRequestInterception(true);
     this.page.on('request', (req) => {
+      const url = req.url();
+      if (url.includes('/api/geral/produtos') || url.includes('/api/')) {
+        try {
+          const h = req.headers();
+          if (h['authorization']) this.apiHeaders['authorization'] = h['authorization'];
+          if (h['x-access-token']) this.apiHeaders['x-access-token'] = h['x-access-token'];
+          if (h['token']) this.apiHeaders['token'] = h['token'];
+          if (url.includes('/api/geral/produtos')) {
+            const u = new URL(url);
+            if (u.searchParams.get('codCliente')) this.apiParams.codCliente = u.searchParams.get('codCliente');
+            if (u.searchParams.get('tabelaPreco')) this.apiParams.tabelaPreco = u.searchParams.get('tabelaPreco');
+            if (u.searchParams.get('idCarrinho')) this.apiParams.idCarrinho = u.searchParams.get('idCarrinho');
+            this.apiHeaders = { ...h };
+          }
+        } catch (_) {}
+      }
       const type = req.resourceType();
       if (type === 'image' || type === 'media' || type === 'font') {
         req.abort();
@@ -205,6 +225,87 @@ class DistrimedRobot {
   }
 
   async _buscarNoCatalogo(termo) {
+    if (!this.page || !termo) return [];
+
+    // 1. MODO TURBO: Requisição direta na API JSON da Distrimed (~300ms)
+    const params = this.apiParams || { codCliente: '022132', tabelaPreco: '1', idCarrinho: '022132-1' };
+    const headers = this.apiHeaders || {};
+    try {
+      const resApi = await this.page.evaluate(async (termoBusca, p, h) => {
+        try {
+          const fetchHeaders = { accept: 'application/json, text/plain, */*' };
+          if (h && h.authorization) fetchHeaders.authorization = h.authorization;
+          if (h && h['x-access-token']) fetchHeaders['x-access-token'] = h['x-access-token'];
+          if (h && h.token) fetchHeaders.token = h.token;
+
+          // Tenta também recuperar token do localStorage/sessionStorage caso não tenha sido interceptado ainda
+          if (!fetchHeaders.authorization) {
+            for (const st of [localStorage, sessionStorage]) {
+              for (let i = 0; i < st.length; i++) {
+                const k = st.key(i);
+                const val = st.getItem(k) || '';
+                if (val.startsWith('eyJ')) {
+                  fetchHeaders.authorization = `Bearer ${val}`;
+                  break;
+                }
+                if (val.includes('"token"') || val.includes('"accessToken"')) {
+                  try {
+                    const parsed = JSON.parse(val);
+                    const tk = parsed.token || parsed.accessToken || parsed.jwt;
+                    if (tk) {
+                      fetchHeaders.authorization = tk.startsWith('Bearer') ? tk : `Bearer ${tk}`;
+                      break;
+                    }
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+
+          const url = `/api/geral/produtos?pagina=0&mostrarCarrinho=false&pesquisa=${encodeURIComponent(termoBusca)}&ordenacao=vendidos&codCliente=${p.codCliente}&tabelaPreco=${p.tabelaPreco}&idCarrinho=${p.idCarrinho}`;
+          const resp = await fetch(url, { method: 'GET', headers: fetchHeaders, credentials: 'include' });
+          if (!resp.ok) return { ok: false, status: resp.status };
+          const data = await resp.json();
+          if (!data || data.erro || !Array.isArray(data.dados)) return { ok: false };
+
+          const encontrados = [];
+          for (const item of data.dados) {
+            const estUpper = String(item.estoque || '').toUpperCase();
+            if (
+              item.semEstoque === true ||
+              estUpper.includes('SEM ESTOQUE') ||
+              estUpper.includes('INDISPON') ||
+              estUpper.includes('ESGOTADO')
+            ) {
+              continue;
+            }
+            const precoUnit = Number(item.preco || 0);
+            if (precoUnit > 0) {
+              encontrados.push({
+                ean: item.ean ? String(item.ean).trim() : '',
+                descricao: item.descricao || '',
+                laboratorio: item.grupo ? String(item.grupo).replace(/\s*GEN\.?$/i, '').trim() : undefined,
+                preco: precoUnit,
+                pmc: item.pmc ? Number(item.pmc) : null,
+                desconto: item.desconto ? Number(item.desconto) : null,
+                codigo: item.codProduto ? String(item.codProduto) : null
+              });
+            }
+          }
+          return { ok: true, encontrados };
+        } catch (err) {
+          return { ok: false, error: err.message };
+        }
+      }, String(termo).trim(), params, headers);
+
+      if (resApi && resApi.ok && Array.isArray(resApi.encontrados)) {
+        return resApi.encontrados;
+      }
+    } catch (apiErr) {
+      console.warn('[DistrimedRobot] Fallback para DOM após aviso na API direta:', apiErr.message);
+    }
+
+    // 2. FALLBACK DOM: Caso a chamada direta falhe
     const searchSel = 'input[placeholder*="Pesquise por: produtos"]';
     await this.page.waitForSelector(searchSel, { timeout: 15000 });
 

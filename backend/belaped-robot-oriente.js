@@ -134,23 +134,39 @@ class OrienteRobot {
     console.log(`[OrienteRobot] Selecionando Condição Comercial: ${this.condicaoComercial}...`);
     await new Promise(r => setTimeout(r, 2500));
     await this.page.evaluate((cond) => {
-      const allDivs = Array.from(document.querySelectorAll('div, label, li, button'));
+      const allEls = Array.from(document.querySelectorAll('div, label, li, button')).filter(
+        el => (el.innerText || '').trim().length > 0 && (el.innerText || '').trim().length < 90
+      );
       let opt = null;
       if (cond === 'VERAO') {
-        opt = allDivs.find(d => (d.innerText || '').includes('VERAO') || (d.innerText || '').includes('4774'));
+        opt = allEls.find(d => (d.innerText || '').includes('VERAO') || (d.innerText || '').includes('4774'));
       } else if (cond === 'UNILEVER') {
-        opt = allDivs.find(d => (d.innerText || '').includes('UNILEVER') || (d.innerText || '').includes('18'));
+        opt = allEls.find(d => (d.innerText || '').includes('UNILEVER') && (d.innerText || '').includes('18'));
       } else {
-        opt = allDivs.find(d => (d.innerText || '').includes('PE ORIENTE FARMA') && (d.innerText || '').includes('96'));
+        opt = allEls.find(d => (d.innerText || '').includes('PE ORIENTE FARMA') && (d.innerText || '').includes('96'));
       }
       if (opt) opt.click();
     }, this.condicaoComercial);
 
     await new Promise(r => setTimeout(r, 600));
-    await this.page.evaluate(() => {
+    await this.page.evaluate((cond) => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').toLowerCase().includes('confirmar'));
       if (btn) btn.click();
-    });
+      // Garante também no localStorage a condição selecionada
+      if (cond !== 'VERAO' && cond !== 'UNILEVER') {
+        try {
+          localStorage.setItem('oriente-condicao-mae', JSON.stringify({
+            codigo: 96,
+            descricao: 'PE ORIENTE FARMA',
+            categoria: 'S',
+            minValor: 450,
+            skuMinimo: 0,
+            qtdMinima: 0,
+            parcelaMinima: 150
+          }));
+        } catch (_) {}
+      }
+    }, this.condicaoComercial);
 
     await new Promise(r => setTimeout(r, 3000));
 
@@ -176,10 +192,75 @@ class OrienteRobot {
   }
 
   /**
-   * Filtra e extrai os produtos da tabela da Oriente Farma
+   * Obtém o código numérico da condição comercial ativa na Oriente Farma
+   */
+  _obterCodigoCondicao() {
+    if (this.condicaoComercial === 'VERAO') return 4774;
+    if (this.condicaoComercial === 'UNILEVER') return 18;
+    return 96; // PE ORIENTE FARMA (GERAL)
+  }
+
+  /**
+   * Filtra e extrai os produtos da Oriente Farma (Modo Turbo via API REST Direta + Fallback DOM)
    */
   async _filtrarTabelaOriente(termo) {
-    if (!this.page) return [];
+    if (!this.page || !termo) return [];
+
+    // 1. MODO TURBO: Requisição direta na API JSON da Oriente Farma (~250ms)
+    const codCondicao = this._obterCodigoCondicao();
+    try {
+      const resApi = await this.page.evaluate(async (termoBusca, condicao) => {
+        try {
+          let codCliente = 299103;
+          try {
+            const authUser = JSON.parse(localStorage.getItem('oriente-auth-user') || '{}');
+            if (authUser?.state?.clienteSelecionado) {
+              codCliente = authUser.state.clienteSelecionado;
+            }
+          } catch (_) {}
+
+          const url = `/api/produtos/condicao/${condicao}?codigoCliente=${codCliente}&termo=${encodeURIComponent(termoBusca)}&pagina=1&tamanhoPagina=50&apenasComEstoque=true&ordenarPor=5&diasRetroativos=100`;
+          const resp = await fetch(url, { method: 'GET', credentials: 'include' });
+          if (!resp.ok) return { ok: false, status: resp.status };
+          const data = await resp.json();
+          if (!data || !Array.isArray(data.produtos)) return { ok: false };
+
+          const itens = [];
+          for (const p of data.produtos) {
+            const qtdEstoque = p.estoque && typeof p.estoque.quantidade === 'number' ? p.estoque.quantidade : 1;
+            const nivel = String(p.nivelEstoque || '').toUpperCase();
+            if (p.ativo === false || qtdEstoque <= 0 || nivel.includes('INDISPON') || nivel.includes('ESGOTADO') || nivel.includes('ZERO')) {
+              continue;
+            }
+            const precoLiq = Number(p.precoFinal || p.valor || (p.melhorPreco && p.melhorPreco.precoFinal) || 0);
+            if (precoLiq > 0) {
+              itens.push({
+                ean: p.codigoBarras ? String(p.codigoBarras).trim() : null,
+                codigo: p.codigoProduto ? String(p.codigoProduto) : null,
+                descricao: p.descricao || '',
+                laboratorio: p.nomeFantasiaFornecedor ? String(p.nomeFantasiaFornecedor).trim() : null,
+                preco: precoLiq,
+                pmc: p.pmc ? Number(p.pmc) : null,
+                desconto: p.desconto ? Number(p.desconto) : null,
+                estoque: p.nivelEstoque || 'Disponível',
+                embalagem: Number(p.embalagem) || 1
+              });
+            }
+          }
+          return { ok: true, itens };
+        } catch (err) {
+          return { ok: false, error: err.message };
+        }
+      }, String(termo).trim(), codCondicao);
+
+      if (resApi && resApi.ok && Array.isArray(resApi.itens)) {
+        return resApi.itens;
+      }
+    } catch (apiErr) {
+      console.warn('[OrienteRobot] Fallback para DOM após aviso na API direta:', apiErr.message);
+    }
+
+    // 2. FALLBACK DOM: Caso a chamada direta falhe
     try {
       if (!this.page.url().includes('/pedidos')) {
         await this.page.goto('https://pedidoweb.orientefarma.com.br/pedidos', {
@@ -384,7 +465,70 @@ class OrienteRobot {
 
       console.log(`[OrienteRobot] Adicionando EAN ${eanLimpo} (Qtd: ${qtdDesejada}) ao carrinho...`);
 
-      // Garante que está na grade de pedidos
+      // 1. MODO TURBO: Inserção direta no carrinho via POST /api/carrinho/<id>/itens (~300ms)
+      const codCondicao = this._obterCodigoCondicao();
+      try {
+        const resApiAdd = await this.page.evaluate(async (eanAlvo, qtd, condicao) => {
+          try {
+            let codCliente = 299103;
+            try {
+              const authUser = JSON.parse(localStorage.getItem('oriente-auth-user') || '{}');
+              if (authUser?.state?.clienteSelecionado) {
+                codCliente = authUser.state.clienteSelecionado;
+              }
+            } catch (_) {}
+
+            // 1a. Obtém o codigoProduto a partir do EAN na condição ativa
+            const urlProd = `/api/produtos/condicao/${condicao}?codigoCliente=${codCliente}&termo=${encodeURIComponent(eanAlvo)}&pagina=1&tamanhoPagina=20&apenasComEstoque=true&ordenarPor=5&diasRetroativos=100`;
+            const rProd = await fetch(urlProd, { method: 'GET', credentials: 'include' });
+            if (!rProd.ok) return { ok: false };
+            const dProd = await rProd.json();
+            const prod = (dProd.produtos || []).find(p => String(p.codigoBarras || '').trim() === eanAlvo) || (dProd.produtos || [])[0];
+            if (!prod || !prod.codigoProduto) return { ok: false };
+
+            // 1b. Obtém o ID do carrinho ativo para o cliente e condição comercial
+            const urlCart = `/api/carrinho/cliente/${codCliente}?codigoCondicaoComercial=${condicao}`;
+            const rCart = await fetch(urlCart, { method: 'GET', credentials: 'include' });
+            if (!rCart.ok) return { ok: false };
+            const dCart = await rCart.json();
+            const idCarrinho = dCart.codigoCarrinho || dCart.id || (dCart.carrinho && (dCart.carrinho.codigoCarrinho || dCart.carrinho.id));
+            if (!idCarrinho) return { ok: false };
+
+            // 1c. Envia POST direto de inclusão/atualização do item no carrinho
+            const rPost = await fetch(`/api/carrinho/${idCarrinho}/itens`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                codigoProduto: Number(prod.codigoProduto),
+                codigoCondicaoComercial: Number(condicao),
+                quantidade: Number(qtd)
+              })
+            });
+
+            if (rPost.ok) {
+              return { ok: true, idCarrinho, codigoProduto: prod.codigoProduto };
+            }
+            return { ok: false, status: rPost.status };
+          } catch (e) {
+            return { ok: false, error: e.message };
+          }
+        }, eanLimpo, qtdDesejada, codCondicao);
+
+        if (resApiAdd && resApiAdd.ok) {
+          console.log(`[OrienteRobot] ⚡ EAN ${eanLimpo} adicionado via API direta (Carrinho #${resApiAdd.idCarrinho}, Qtd: ${qtdDesejada}).`);
+          return {
+            sucesso: true,
+            ean: eanLimpo,
+            quantidadeAdicionada: qtdDesejada,
+            viaApi: true
+          };
+        }
+      } catch (eApi) {
+        console.warn('[OrienteRobot] Fallback para teclado DOM ao adicionar item:', eApi.message);
+      }
+
+      // 2. FALLBACK DOM: Garante que está na grade de pedidos e digita via teclado real
       if (!this.page.url().includes('/pedidos')) {
         await this.page.goto('https://pedidoweb.orientefarma.com.br/pedidos', {
           waitUntil: 'networkidle2',

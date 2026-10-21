@@ -87,7 +87,10 @@ class DpcRobot {
 
     try {
       await Promise.all([
-        this.page.click('button[type="submit"]'),
+        this.page.evaluate(() => {
+          const btn = document.querySelector('button[type="submit"]');
+          if (btn) btn.click();
+        }),
         this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 })
       ]);
     } catch (navErr) {

@@ -100,16 +100,19 @@ class DivimedRobot {
     });
 
     console.log('[DivimedRobot] Abrindo modal de login...');
-    const btnTopo = await this.page.waitForSelector('button.btn-brand', { timeout: 15000 });
-    await btnTopo.click();
+    await this.page.waitForSelector('button.btn-brand', { timeout: 15000 });
+    await this.page.evaluate(() => {
+      const btn = document.querySelector('button.btn-brand');
+      if (btn) btn.click();
+    });
 
     console.log('[DivimedRobot] Efetuando login...');
     await this.page.waitForSelector('#login-email', { timeout: 10000 });
-    await this.page.click('#login-email');
+    await this.page.focus('#login-email').catch(() => {});
     await this.page.type('#login-email', this.usuario, { delay: 10 });
 
     await this.page.waitForSelector('#login-senha', { timeout: 10000 });
-    await this.page.click('#login-senha');
+    await this.page.focus('#login-senha').catch(() => {});
     await this.page.type('#login-senha', this.senha, { delay: 10 });
 
     await this.page.evaluate(() => {
@@ -145,7 +148,14 @@ class DivimedRobot {
         { timeout: 12000 }
       ).catch(() => null);
 
-      await this.page.click('input.filtro-search-input');
+      await this.page.evaluate(() => {
+        const el = document.querySelector('input.filtro-search-input');
+        if (el) {
+          el.focus();
+          if (typeof el.select === 'function') el.select();
+        }
+      }).catch(() => {});
+      await this.page.focus('input.filtro-search-input').catch(() => {});
       await this.page.keyboard.down('Control');
       await this.page.keyboard.press('KeyA');
       await this.page.keyboard.up('Control');
