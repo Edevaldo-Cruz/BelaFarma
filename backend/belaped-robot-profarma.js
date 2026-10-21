@@ -92,6 +92,26 @@ class ProfarmaRobot {
       }
     });
 
+    // MODO TURBO: captura o catálogo completo (/api/salesforce/products?orderCode=...) quando o portal o carrega
+    this.catalogo = null;
+    this.catalogoUrl = null;
+    this.catalogoCarregadoEm = 0;
+    this.page.on('response', async (res) => {
+      const url = res.url();
+      if (url.includes('/api/salesforce/products?orderCode=') && res.status() === 200) {
+        this.catalogoUrl = url;
+        try {
+          const json = await res.json();
+          const prods = json?.dados?.products;
+          if (Array.isArray(prods) && prods.length > 0) {
+            this.catalogo = prods;
+            this.catalogoCarregadoEm = Date.now();
+            console.log(`[ProfarmaRobot] ⚡ Catálogo completo capturado (${prods.length} produtos).`);
+          }
+        } catch (_) {}
+      }
+    });
+
     console.log('[ProfarmaRobot] Acessando tela de autenticação...');
     await this.page.goto('https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', {
       waitUntil: 'domcontentloaded',
@@ -115,7 +135,101 @@ class ProfarmaRobot {
     console.log('[ProfarmaRobot] Login realizado com sucesso no portal Profarma!');
   }
 
+  /**
+   * Garante o catálogo completo da Profarma em memória (validade de 10 minutos).
+   * Se o portal ainda não o carregou, dispara uma busca na tela uma única vez para obter o orderCode.
+   */
+  async _garantirCatalogo() {
+    const VALIDADE_MS = 10 * 60 * 1000;
+    if (this.catalogo && (Date.now() - this.catalogoCarregadoEm) < VALIDADE_MS) return true;
+
+    // Já conhecemos a URL: recarrega direto via fetch na sessão logada
+    if (this.catalogoUrl) {
+      try {
+        const prods = await this.page.evaluate(async (url) => {
+          const r = await fetch(url, { credentials: 'include' });
+          if (!r.ok) return null;
+          const j = await r.json();
+          return j?.dados?.products || null;
+        }, this.catalogoUrl);
+        if (Array.isArray(prods) && prods.length > 0) {
+          this.catalogo = prods;
+          this.catalogoCarregadoEm = Date.now();
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    // Primeira vez: uma busca pela tela faz o portal carregar o catálogo (capturado pelo listener)
+    await this._executarBuscaNoPortalDom('7896004713038').catch(() => {});
+    const limite = Date.now() + 15000;
+    while (!this.catalogo && Date.now() < limite) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    return Boolean(this.catalogo);
+  }
+
+  /**
+   * Busca no catálogo em memória (por EAN ou por termos de essência)
+   */
+  _buscarNoCatalogoMemoria(termo) {
+    const normalizar = (s) => String(s || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+
+    const termoLimpo = String(termo || '').trim();
+    const digitos = termoLimpo.replace(/\D/g, '');
+    const ehEan = /^\d{8,14}$/.test(termoLimpo);
+    const tokens = normalizar(termoLimpo).split(/\s+/).filter(t => t.length >= 2);
+
+    const resultados = [];
+    for (const p of this.catalogo || []) {
+      const preco = Number(p.price || 0);
+      const estoque = Number(p.stockBalance || 0);
+      if (preco <= 0 || estoque <= 0) continue;
+
+      if (ehEan) {
+        const ed = String(p.ean || '').replace(/\D/g, '');
+        if (!ed) continue;
+        const bate = ed === digitos || (ed.length >= 8 && (ed.endsWith(digitos) || digitos.endsWith(ed)));
+        if (!bate) continue;
+      } else {
+        const alvo = normalizar(`${p.title || ''} ${p.description || ''} ${p.substance || ''}`);
+        if (!tokens.every(t => alvo.includes(t))) continue;
+      }
+
+      resultados.push({
+        ean: p.ean ? String(p.ean).trim() : null,
+        descricao: p.title || p.description || '',
+        laboratorio: p.laboratoryName ? String(p.laboratoryName).replace(/\s*GENERICO$/i, '').trim() : undefined,
+        preco,
+        descPct: Number(p.discount || 0),
+        pmc: p.pmc ? Number(p.pmc) : null,
+        estoque,
+        codigo: p.code ? String(p.code) : null
+      });
+    }
+
+    resultados.sort((a, b) => a.preco - b.preco);
+    return resultados.slice(0, 60);
+  }
+
+  /**
+   * Busca produtos na Profarma: MODO TURBO (catálogo em memória) com fallback para a busca na tela
+   */
   async _executarBuscaNoPortal(termo) {
+    try {
+      const ok = await this._garantirCatalogo();
+      if (ok) {
+        return this._buscarNoCatalogoMemoria(termo);
+      }
+    } catch (e) {
+      console.warn('[ProfarmaRobot] Fallback para busca na tela:', e.message);
+    }
+    return this._executarBuscaNoPortalDom(termo);
+  }
+
+  async _executarBuscaNoPortalDom(termo) {
     const searchInputSel = 'input[placeholder="O que você está buscando?"]';
     await this.page.waitForSelector(searchInputSel, { timeout: 10000 });
 
@@ -316,7 +430,8 @@ class ProfarmaRobot {
 
     try {
       const eanLimpo = String(ean || '').trim();
-      const itens = await this._executarBuscaNoPortal(eanLimpo);
+      // A inclusão no carrinho precisa da linha do produto renderizada na tela -> usa a busca visual
+      const itens = await this._executarBuscaNoPortalDom(eanLimpo);
       if (!itens || itens.length === 0) {
         return {
           sucesso: false,
@@ -351,9 +466,12 @@ class ProfarmaRobot {
       }
 
       // Foca, limpa e digita a quantidade desejada + Enter para submeter imediatamente
-      await inputElement.click({ clickCount: 3 });
+      await inputElement.evaluate(el => {
+        el.focus();
+        if (typeof el.select === 'function') el.select();
+      });
       await this.page.keyboard.press('Backspace');
-      await inputElement.type(String(qtdNum));
+      await this.page.keyboard.type(String(qtdNum), { delay: 30 });
       await this.page.keyboard.press('Enter');
 
       await new Promise(r => setTimeout(r, 1800));
