@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "fb7ffcd",
-  "commitMessage": "feat(financeiro): adiciona nova guia de scanner de boletos com memoria inteligente e anti-duplicidade",
-  "buildTime": "22/10/2026, 11:57:21"
+  "commitHash": "0eaa2cd",
+  "commitMessage": "feat(belaped): integrate Panpharma (8th distributor) with robot, direct API quotes, and cart injection",
+  "buildTime": "22/10/2026, 12:44:59"
 }
