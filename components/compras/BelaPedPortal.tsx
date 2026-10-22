@@ -2457,7 +2457,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleIniciarCotacaoAoVivo = async (
     fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'PANPHARMA' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
-    prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS',
+    prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'P4' | 'TODAS_PRIORITARIAS' | 'TODOS',
     eansEspecificos?: string[]
   ) => {
     try {
@@ -2469,23 +2469,23 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       if (Array.isArray(eansEspecificos) && eansEspecificos.length > 0) {
         eansParaCotar = eansEspecificos;
       } else {
-        // Ordenação estrita por Matriz de Gravidade Operacional (P1 Ruptura -> P2 Risco -> P3 Orçamento -> P4 Regular)
+        // Ordenação estrita: 1º itens ainda não cotados, 2º Matriz de Gravidade Operacional (P1 Ruptura -> P2 Risco -> P3 Orçamento -> P4 Regular)
         const pesoPrio: Record<string, number> = { P1: 1, P2: 2, P3: 3, P4: 4 };
         const itensOrdenadosPorPrio = [...faltasFiltradas]
           .filter(s => s.ean && s.ean.length >= 7)
           .filter(s => {
-            if (prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS') {
+            if (prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' && prioridadeFiltro !== 'TODOS') {
               return s.prioridade === prioridadeFiltro;
             }
             return true;
           })
           .sort((a, b) => {
-            const pa = pesoPrio[a.prioridade || 'P4'] || 4;
-            const pb = pesoPrio[b.prioridade || 'P4'] || 4;
-            if (pa !== pb) return pa - pb;
             const aNaoCotado = (!a.fornecedor_1 || a.fornecedor_1 === 'Não Cotado') ? 0 : 1;
             const bNaoCotado = (!b.fornecedor_1 || b.fornecedor_1 === 'Não Cotado') ? 0 : 1;
-            return aNaoCotado - bNaoCotado;
+            if (aNaoCotado !== bNaoCotado) return aNaoCotado - bNaoCotado;
+            const pa = pesoPrio[a.prioridade || 'P4'] || 4;
+            const pb = pesoPrio[b.prioridade || 'P4'] || 4;
+            return pa - pb;
           });
 
         // Prioriza os itens pendentes de cotação dentro da ordem de gravidade
@@ -2500,7 +2500,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         eansParaCotar = [...naoCotados, ...demaisEans].slice(0, limiteReal);
       }
 
-      const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? `[${prioridadeFiltro}] ` : '';
+      const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' && prioridadeFiltro !== 'TODOS' ? `[${prioridadeFiltro}] ` : '';
       const nomeExibicao = fornecedor === 'TODOS' ? '9 Portais (Profarma, DPC, Soton, Distrimed, Divimed, Martins, Oriente, Panpharma e MG)' : fornecedor;
 
       // Resposta visual IMEDIATA (0ms): Mostra o banner e status instantaneamente
@@ -2522,7 +2522,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           fornecedor,
           limite: limiteReal,
           eans: eansParaCotar.length > 0 ? eansParaCotar : undefined,
-          prioridade: prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? prioridadeFiltro : undefined,
+          prioridade: (prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' && prioridadeFiltro !== 'TODOS') ? prioridadeFiltro : undefined,
           por_essencia: cotarEssenciaAtivo
         })
       });
@@ -9513,7 +9513,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             aguardandoRoboValor={aguardandoValor}
             cotandoAoVivo={cotandoAoVivo}
             statusCotacao={statusCotacao}
-            onDispararRobo={(fornecedor = 'TODOS', lote = 40, prio = 'TODAS_PRIORITARIAS') => handleIniciarCotacaoAoVivo(fornecedor, lote, prio)}
+            onDispararRobo={(fornecedor = 'TODOS', lote = 40, prio = 'TODOS') => handleIniciarCotacaoAoVivo(fornecedor, lote, prio)}
             onDadosAtualizados={() => carregarDados(true)}
             modoDiscreto={activeTab === 'decisao'}
           />

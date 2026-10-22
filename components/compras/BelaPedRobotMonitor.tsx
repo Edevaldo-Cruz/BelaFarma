@@ -90,8 +90,8 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
     }
   });
 
-  // Filtro de prioridade da cotação ('TODAS_PRIORITARIAS', 'P1', 'P2', 'P3')
-  const [filtroPrioridade, setFiltroPrioridade] = useState<'TODAS_PRIORITARIAS' | 'P1' | 'P2' | 'P3'>('TODAS_PRIORITARIAS');
+  // Filtro de prioridade da cotação ('TODOS', 'TODAS_PRIORITARIAS', 'P1', 'P2', 'P3', 'P4')
+  const [filtroPrioridade, setFiltroPrioridade] = useState<'TODOS' | 'TODAS_PRIORITARIAS' | 'P1' | 'P2' | 'P3' | 'P4'>('TODOS');
 
   // Contador regressivo para o próximo lote
   const [countdownProximoLote, setCountdownProximoLote] = useState<number | null>(null);
@@ -333,7 +333,7 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[80] w-[375px] sm:w-[435px] rounded-2xl bg-[#09101e]/95 backdrop-blur-md border-2 border-cyan-500/50 shadow-2xl shadow-cyan-950/80 text-slate-100 overflow-hidden transition-all duration-300">
+    <div className="fixed bottom-4 right-4 z-[80] w-[385px] sm:w-[475px] max-w-[calc(100vw-20px)] rounded-2xl bg-[#09101e]/95 backdrop-blur-md border-2 border-cyan-500/50 shadow-2xl shadow-cyan-950/80 text-slate-100 overflow-hidden transition-all duration-300">
       {/* Barra de Título do Mini-Monitor */}
       <div
         onClick={() => setMinimizado(!minimizado)}
@@ -414,46 +414,78 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
 
             <div className="grid grid-cols-4 gap-1.5 text-center">
               {/* P1 */}
-              <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-between ${
-                p1Aguardando > 0
-                  ? 'bg-rose-950/40 border-rose-500/60 text-rose-200'
-                  : 'bg-slate-900/40 border-slate-800 text-slate-500'
-              }`}>
+              <button
+                type="button"
+                onClick={() => setFiltroPrioridade(filtroPrioridade === 'P1' ? 'TODOS' : 'P1')}
+                className={`p-1.5 rounded-lg border flex flex-col items-center justify-between transition-all cursor-pointer ${
+                  filtroPrioridade === 'P1'
+                    ? 'ring-2 ring-rose-400 bg-rose-950/80 border-rose-400'
+                    : p1Aguardando > 0
+                      ? 'bg-rose-950/40 border-rose-500/60 text-rose-200 hover:border-rose-400'
+                      : 'bg-slate-900/40 border-slate-800 text-slate-500'
+                }`}
+                title="Filtrar ou focar no estoque zerado (Curva A/B)"
+              >
                 <div className="text-[9px] font-black uppercase">P1 Crítico</div>
                 <div className="text-xs font-black my-0.5">{p1Aguardando}</div>
                 <div className="text-[8px] opacity-80 leading-tight">Estoque 0</div>
-              </div>
+              </button>
 
               {/* P2 */}
-              <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-between ${
-                p2Aguardando > 0
-                  ? 'bg-amber-950/40 border-amber-500/60 text-amber-200'
-                  : 'bg-slate-900/40 border-slate-800 text-slate-500'
-              }`}>
+              <button
+                type="button"
+                onClick={() => setFiltroPrioridade(filtroPrioridade === 'P2' ? 'TODOS' : 'P2')}
+                className={`p-1.5 rounded-lg border flex flex-col items-center justify-between transition-all cursor-pointer ${
+                  filtroPrioridade === 'P2'
+                    ? 'ring-2 ring-amber-400 bg-amber-950/80 border-amber-400'
+                    : p2Aguardando > 0
+                      ? 'bg-amber-950/40 border-amber-500/60 text-amber-200 hover:border-amber-400'
+                      : 'bg-slate-900/40 border-slate-800 text-slate-500'
+                }`}
+                title="Filtrar ou focar em itens com menos de 3 dias de cobertura"
+              >
                 <div className="text-[9px] font-black uppercase">P2 Risco</div>
                 <div className="text-xs font-black my-0.5">{p2Aguardando}</div>
                 <div className="text-[8px] opacity-80 leading-tight">&lt; 3 dias</div>
-              </div>
+              </button>
 
               {/* P3 */}
-              <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-between ${
-                p3Aguardando > 0
-                  ? 'bg-blue-950/40 border-blue-500/60 text-blue-200'
-                  : 'bg-slate-900/40 border-slate-800 text-slate-500'
-              }`}>
+              <button
+                type="button"
+                onClick={() => setFiltroPrioridade(filtroPrioridade === 'P3' ? 'TODOS' : 'P3')}
+                className={`p-1.5 rounded-lg border flex flex-col items-center justify-between transition-all cursor-pointer ${
+                  filtroPrioridade === 'P3'
+                    ? 'ring-2 ring-blue-400 bg-blue-950/80 border-blue-400'
+                    : p3Aguardando > 0
+                      ? 'bg-blue-950/40 border-blue-500/60 text-blue-200 hover:border-blue-400'
+                      : 'bg-slate-900/40 border-slate-800 text-slate-500'
+                }`}
+                title="Filtrar ou focar no orçamento semanal abaixo do mínimo"
+              >
                 <div className="text-[9px] font-black uppercase">P3 Orçam.</div>
                 <div className="text-xs font-black my-0.5">{p3Aguardando}</div>
                 <div className="text-[8px] opacity-80 leading-tight">Semanal</div>
-              </div>
+              </button>
 
               {/* P4 */}
-              <div className="p-1.5 rounded-lg border bg-slate-950/60 border-slate-800/80 text-slate-500 flex flex-col items-center justify-between" title="P4 é cortado automaticamente até que P1, P2 e P3 estejam cotados">
+              <button
+                type="button"
+                onClick={() => setFiltroPrioridade(filtroPrioridade === 'P4' ? 'TODOS' : 'P4')}
+                className={`p-1.5 rounded-lg border flex flex-col items-center justify-between transition-all cursor-pointer ${
+                  filtroPrioridade === 'P4'
+                    ? 'ring-2 ring-slate-300 bg-slate-900 border-slate-300'
+                    : p4Aguardando > 0
+                      ? 'bg-slate-900/70 border-slate-700 text-slate-300 hover:border-slate-500'
+                      : 'bg-slate-950/60 border-slate-800/80 text-slate-500'
+                }`}
+                title="Itens regulares em falta. Cotados em sequência ou ao selecionar Cotar Tudo."
+              >
                 <div className="text-[9px] font-black uppercase">P4 Regular</div>
                 <div className="text-xs font-black my-0.5">{p4Aguardando}</div>
-                <div className="text-[8px] text-slate-500 leading-tight">
-                  {totalUrgentes > 0 ? 'Pausado' : 'Fila Ativa'}
+                <div className="text-[8px] text-slate-400 leading-tight">
+                  {totalUrgentes > 0 ? 'Na Fila' : 'Fila Ativa 🔥'}
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -493,98 +525,110 @@ export const BelaPedRobotMonitor: React.FC<RobotLiveMonitorProps> = ({
           </div>
 
           {/* Resumo da Fila e Controles de Ação do Robô */}
-          <div className="p-2.5 rounded-xl bg-[#060b14] border border-slate-800 flex items-center justify-between gap-2">
-            <div>
-              <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                Total da Fila
-              </span>
-              <div className="flex items-baseline gap-1.5 mt-0.5">
-                <span className="text-sm font-black text-white">
-                  {aguardandoRoboCount} produtos
+          <div className="p-3 rounded-xl bg-[#060b14] border border-slate-800 space-y-2.5">
+            {/* Linha Superior: Resumo da Fila + Ações Utilitárias */}
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Aguardando Cotação
                 </span>
-                <span className="text-[11px] font-bold text-amber-400">
-                  (R$ {aguardandoRoboValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
-                </span>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="text-sm font-black text-white">
+                    {aguardandoRoboCount} produtos
+                  </span>
+                  <span className="text-[11px] font-bold text-amber-400">
+                    (R$ {aguardandoRoboValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
+                  </span>
+                </div>
+              </div>
+
+              {/* Botões Secundários: Parar / Reiniciar / Auto-Fila */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {emAndamento && (
+                  <button
+                    type="button"
+                    disabled={parando}
+                    onClick={handlePararRobo}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black uppercase shadow-md transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-rose-400 animate-pulse whitespace-nowrap"
+                    title="Interromper imediatamente os robôs de cotação"
+                  >
+                    <Square className="w-3 h-3 fill-current" />
+                    <span>{parando ? 'Parando...' : 'Parar'}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={reiniciando}
+                  onClick={handleReiniciarRobo}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-950/70 hover:bg-amber-900/90 text-amber-300 border border-amber-600/70 text-[10px] font-black uppercase shadow-sm transition-all cursor-pointer flex items-center gap-1 active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                  title="Reiniciar a cotação: cancela qualquer robô travado e reinicia um novo ciclo de pesquisa do zero"
+                >
+                  <RotateCcw className={`w-3 h-3 text-amber-400 ${reiniciando ? 'animate-spin' : ''}`} />
+                  <span>{reiniciando ? 'Limpando...' : 'Reiniciar'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleToggleModoContinuo}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-all cursor-pointer flex items-center gap-1 shadow-sm whitespace-nowrap ${
+                    modoContinuo
+                      ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-900/30 font-black'
+                      : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500'
+                  }`}
+                  title="Quando ativado, o robô emenda lotes automaticamente até zerar a fila toda."
+                >
+                  <Zap className={`w-3 h-3 ${modoContinuo ? 'fill-current' : ''}`} />
+                  <span>{modoContinuo ? 'Auto-Fila ON' : 'Auto-Fila OFF'}</span>
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              {/* Botão de Interrupção Imediata (quando o robô estiver cotando) */}
-              {emAndamento && (
-                <button
-                  type="button"
-                  disabled={parando}
-                  onClick={handlePararRobo}
-                  className="px-2.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black uppercase shadow-md transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 border border-rose-400 animate-pulse"
-                  title="Interromper imediatamente os robôs de cotação"
-                >
-                  <Square className="w-3 h-3 fill-current" />
-                  <span>{parando ? 'Parando...' : 'Parar Robô'}</span>
-                </button>
+            {/* Linha Principal: Botão de Disparo Full-Width (100% visível, nunca corta na lateral) */}
+            <button
+              type="button"
+              disabled={emAndamento}
+              onClick={() => {
+                setCountdownProximoLote(null);
+                setSessaoUsuarioAtiva(true);
+                onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
+              }}
+              className={`w-full py-2.5 px-3 rounded-xl text-white text-xs font-black uppercase shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                emAndamento
+                  ? 'bg-slate-800 text-cyan-300 border border-cyan-500/40 cursor-wait'
+                  : countdownProximoLote !== null
+                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black animate-pulse shadow-amber-900/50'
+                    : aguardandoRoboCount === 0
+                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 cursor-default'
+                      : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 hover:shadow-cyan-900/50 active:scale-[0.99]'
+              }`}
+            >
+              {emAndamento ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400 shrink-0" />
+                  <span>Cotando nos 9 Portais... {pct}% ({atualLote}/{totalLote})</span>
+                </>
+              ) : countdownProximoLote !== null ? (
+                <>
+                  <FastForward className="w-3.5 h-3.5 shrink-0" />
+                  <span>Auto-Fila: Próximo lote em {countdownProximoLote}s... (Clique p/ Cotar Agora)</span>
+                </>
+              ) : aguardandoRoboCount === 0 ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>Fila 100% Cotada (Todos os Itens Pesquisados)</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current shrink-0 text-white" />
+                  <span>
+                    {filtroPrioridade === 'TODOS'
+                      ? `Cotar Tudo (${aguardandoRoboCount} Itens nos 9 Portais)`
+                      : `Cotar Foco [${filtroPrioridade}] (${aguardandoRoboCount} Itens)`}
+                  </span>
+                </>
               )}
-
-              {/* Botão de Reiniciar Cotação */}
-              <button
-                type="button"
-                disabled={reiniciando}
-                onClick={handleReiniciarRobo}
-                className="px-2.5 py-2 rounded-xl bg-amber-950/70 hover:bg-amber-900/90 text-amber-300 border border-amber-600/70 text-[10px] font-black uppercase shadow-sm transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
-                title="Reiniciar a cotação: cancela qualquer robô travado e reinicia um novo ciclo de pesquisa do zero"
-              >
-                <RotateCcw className={`w-3 h-3 text-amber-400 ${reiniciando ? 'animate-spin' : ''}`} />
-                <span>{reiniciando ? 'Reiniciando...' : 'Reiniciar'}</span>
-              </button>
-
-              {/* Toggle Auto-Fila Contínua */}
-              <button
-                type="button"
-                onClick={handleToggleModoContinuo}
-                className={`px-2.5 py-2 rounded-xl text-[10px] font-black uppercase border transition-all cursor-pointer flex items-center gap-1.5 shadow-sm ${
-                  modoContinuo
-                    ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-900/30 font-black'
-                    : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500'
-                }`}
-                title="Quando ativado, o robô emenda lotes automaticamente até zerar a fila. Por padrão fica desativado para não sobrecarregar o sistema."
-              >
-                <Zap className={`w-3.5 h-3.5 ${modoContinuo ? 'fill-current' : ''}`} />
-                <span>{modoContinuo ? 'Auto-Fila ON' : 'Auto-Fila OFF'}</span>
-              </button>
-
-              {/* Botão de Disparo / Continuação */}
-              <button
-                type="button"
-                disabled={emAndamento}
-                onClick={() => {
-                  setCountdownProximoLote(null);
-                  setSessaoUsuarioAtiva(true);
-                  onDispararRobo('TODOS', tamanhoLote, filtroPrioridade);
-                }}
-                className={`px-3 py-2 rounded-xl text-white text-[10px] font-black uppercase shadow-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                  emAndamento
-                    ? 'bg-slate-800 text-cyan-300 border border-cyan-500/30'
-                    : countdownProximoLote !== null
-                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black animate-pulse'
-                      : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 hover:shadow-cyan-900/50'
-                }`}
-              >
-                {emAndamento ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                    <span>{pct}% ({atualLote}/{totalLote})</span>
-                  </>
-                ) : countdownProximoLote !== null ? (
-                  <>
-                    <FastForward className="w-3.5 h-3.5" />
-                    <span>Em {countdownProximoLote}s...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Cotar Prioritários</span>
-                  </>
-                )}
-              </button>
-            </div>
+            </button>
           </div>
 
           {/* Horários Estratégicos Inteligentes */}

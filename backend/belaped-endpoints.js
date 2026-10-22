@@ -3097,12 +3097,11 @@ function belapedEndpoints(db) {
       }
     }
 
-    // EANs que já possuem preço válido cotado nas últimas 24 horas (Validade Diária Dinâmica)
-    const eansComPrecoHoje = new Set(
+    // EANs que já possuem cotação recente nas últimas 24 horas (tanto com preço válido quanto verificado sem estoque)
+    const eansCotadosHoje = new Set(
       db.prepare(`
         SELECT DISTINCT ean FROM belaped_cotacoes_reais 
-        WHERE disponivel = 1 AND preco > 0 
-          AND updated_at >= datetime('now', '-24 hours')
+        WHERE updated_at >= datetime('now', '-24 hours')
       `).all().map(r => r.ean)
     );
 
@@ -3134,7 +3133,7 @@ function belapedEndpoints(db) {
         if (!mapaDescricoes[eanAv] && av.descricao) mapaDescricoes[eanAv] = av.descricao;
         if (!mapaUltimoCusto[eanAv] && Number(av.preco_referencia) > 0) mapaUltimoCusto[eanAv] = Number(av.preco_referencia);
         mapaPrioridadeEan[eanAv] = 'P1';
-        if (!eansComPrecoHoje.has(eanAv) && !setDesejadosP1.has(eanAv)) {
+        if (!eansCotadosHoje.has(eanAv) && !setDesejadosP1.has(eanAv)) {
           p1List.push(eanAv);
           setDesejadosP1.add(eanAv);
         }
@@ -3168,7 +3167,7 @@ function belapedEndpoints(db) {
       mapaPrioridadeEan[ean] = prio;
 
       // Só entra na fila pendente se estiver em falta/ruptura E NÃO tiver sido cotado nas últimas 24h E NÃO estiver marcado para não cotar
-      if (!setDesejadosP1.has(ean) && (saldo <= 0 || saldo < estMin) && !eansComPrecoHoje.has(ean) && !eansNaoCotar.has(ean)) {
+      if (!setDesejadosP1.has(ean) && (saldo <= 0 || saldo < estMin) && !eansCotadosHoje.has(ean) && !eansNaoCotar.has(ean)) {
         if (prio === 'P1') p1List.push(ean);
         else if (prio === 'P2') p2List.push(ean);
         else if (prio === 'P3') p3List.push(ean);
@@ -3178,17 +3177,16 @@ function belapedEndpoints(db) {
 
     if (Array.isArray(eans) && eans.length > 0) {
       const filtrados = eans.map(e => String(e || '').trim()).filter(e => e.length >= 7 && !eansNaoCotar.has(e));
-      // Prioriza os que ainda não têm preço cotado hoje, mantendo a ordem estrita da página
-      const semPrecoHoje = filtrados.filter(e => !eansComPrecoHoje.has(e));
-      const comPrecoHoje = filtrados.filter(e => eansComPrecoHoje.has(e));
+      // Prioriza os que ainda não têm cotação nas últimas 24h
+      const semCotacaoHoje = filtrados.filter(e => !eansCotadosHoje.has(e));
+      const comCotacaoHoje = filtrados.filter(e => eansCotadosHoje.has(e));
 
-      // Ordena os sem preço pela Matriz de Gravidade Operacional
+      // Ordena os sem cotação pela Matriz de Gravidade Operacional (P1 -> P2 -> P3 -> P4)
       const pesoPrio = { P1: 1, P2: 2, P3: 3, P4: 4 };
-      semPrecoHoje.sort((a, b) => (pesoPrio[mapaPrioridadeEan[a] || 'P4'] - pesoPrio[mapaPrioridadeEan[b] || 'P4']));
+      semCotacaoHoje.sort((a, b) => (pesoPrio[mapaPrioridadeEan[a] || 'P4'] - pesoPrio[mapaPrioridadeEan[b] || 'P4']));
 
-      listaEans = [...semPrecoHoje, ...comPrecoHoje].slice(0, limiteEfetivo);
+      listaEans = (semCotacaoHoje.length > 0 ? semCotacaoHoje : comCotacaoHoje).slice(0, limiteEfetivo);
     } else {
-      // Corte Inteligente: Se houver produtos em P1, P2 ou P3, não gasta esforço do robô com P4!
       let filaPrioritaria = [];
       if (prioridadeFiltro === 'P1') {
         filaPrioritaria = p1List;
@@ -3196,17 +3194,20 @@ function belapedEndpoints(db) {
         filaPrioritaria = p2List;
       } else if (prioridadeFiltro === 'P3') {
         filaPrioritaria = p3List;
-      } else {
+      } else if (prioridadeFiltro === 'P4') {
+        filaPrioritaria = p4List;
+      } else if (prioridadeFiltro === 'TODAS_PRIORITARIAS') {
         filaPrioritaria = [...p1List, ...p2List, ...p3List];
-        if (filaPrioritaria.length === 0) {
-          filaPrioritaria = p4List; // P4 só é cotado quando a prioridade crítica estiver 100% zerada!
-        }
+        if (filaPrioritaria.length === 0) filaPrioritaria = p4List;
+      } else {
+        // Cota toda a fila pendente em ordem natural de gravidade: P1 -> P2 -> P3 -> P4 (Cotar Tudo)
+        filaPrioritaria = [...p1List, ...p2List, ...p3List, ...p4List];
       }
       listaEans = filaPrioritaria.slice(0, limiteEfetivo);
     }
 
     if (listaEans.length === 0) {
-      console.log('[BelaPed Cotação] Todos os produtos prioritários já possuem cotação válida das últimas 24h.');
+      console.log('[BelaPed Cotação] Todos os produtos da fila já possuem cotação válida das últimas 24h.');
       return false;
     }
 
@@ -3335,7 +3336,7 @@ function belapedEndpoints(db) {
             try {
               resultado = await Promise.race([
                 robot.cotarEAN(eanAtual, descAtual),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout de 10s excedido ao cotar produto')), 10000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout de 7.5s excedido ao cotar produto')), 7500))
               ]);
             } catch (itemErr) {
               console.warn(`[BelaPed Cotação] ⚠️ Erro ao cotar item ${eanAtual} em ${nomeFornecedor}: ${itemErr.message}`);
@@ -4028,12 +4029,11 @@ function belapedEndpoints(db) {
       prioridadeSugerida: 'P1'
     };
     try {
-      // EANs com cotação válida nas últimas 24 horas (Validade Diária Dinâmica)
+      // EANs com cotação realizada nas últimas 24 horas (tanto com preço válido quanto verificado sem estoque nos portais)
       const eansCotadosHojeSet = new Set(
         db.prepare(`
           SELECT DISTINCT ean FROM belaped_cotacoes_reais
-          WHERE disponivel = 1 AND preco > 0
-            AND updated_at >= datetime('now', '-24 hours')
+          WHERE updated_at >= datetime('now', '-24 hours')
         `).all().map(r => r.ean)
       );
 
@@ -4042,6 +4042,18 @@ function belapedEndpoints(db) {
         FROM compras_estoque_cache
         WHERE ean IS NOT NULL AND length(ean) >= 7
           AND (saldo <= 0 OR saldo < est_minimo_calculado)
+          AND (
+            curva_abc IN ('A', 'B')
+            OR (
+              curva_abc = 'C'
+              AND (
+                COALESCE(vendas_10m, 0) > 0
+                OR COALESCE(vendas_61_90d, 0) > 0
+                OR COALESCE(vendas_31_60d, 0) > 0
+                OR COALESCE(vendas_30d, 0) > 0
+              )
+            )
+          )
       `).all();
 
       let p1 = 0;
