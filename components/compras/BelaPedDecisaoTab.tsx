@@ -152,6 +152,7 @@ function obterEndpointsCarrinhoPortal(distribuidora: string): { postUrl: string;
   if (u.includes('MARTINS')) return { postUrl: '/api/belaped/montar-carrinho-martins', statusUrl: '/api/belaped/status-carrinho-martins' };
   if (u.includes('ORIENTE')) return { postUrl: '/api/belaped/montar-carrinho-oriente', statusUrl: '/api/belaped/status-carrinho-oriente' };
   if (u.includes('PANPHARMA') || u.includes('PANFARMA')) return { postUrl: '/api/belaped/montar-carrinho-panpharma', statusUrl: '/api/belaped/status-carrinho-panpharma' };
+  if (u.includes('MG MEDICAMENTOS') || u.includes('MGMEDICAMENTOS') || u.startsWith('MG')) return { postUrl: '/api/belaped/montar-carrinho-mgmedicamentos', statusUrl: '/api/belaped/status-carrinho-mgmedicamentos' };
   return null;
 }
 

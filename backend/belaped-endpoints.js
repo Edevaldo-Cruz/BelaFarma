@@ -25,6 +25,7 @@ const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
 const { PanpharmaRobot } = require('./belaped-robot-panpharma');
+const MgMedicamentosRobot = require('./belaped-robot-mgmedicamentos');
 const { validarCorrespondenciaProduto } = require('./belaped-validador');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
 const motorEssencia = require('./belaped-motor-essencia');
@@ -58,6 +59,9 @@ function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   }
   if (f.includes('PANPHARMA') || f.includes('PANFARMA')) {
     return `https://www.panpharma.com.br/`;
+  }
+  if (f.includes('MG MEDICAMENTOS') || f.includes('MGMEDICAMENTOS') || f.startsWith('MG')) {
+    return `http://www.mgmedicamentos.com.br/pedido/criar/az/00`;
   }
   return null;
 }
@@ -429,7 +433,7 @@ function belapedEndpoints(db) {
       // Coluna já existe
     }
 
-    // Cadastra e sincroniza EXCLUSIVAMENTE as 4 distribuidoras reais configuradas
+    // Cadastra e sincroniza as 9 distribuidoras oficiais configuradas
     const portaisReais = [
       { id: 'profarma', nome: 'PROFARMA', url: 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', usuario: '47378578000140', min: 150.0, prazo: 35, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
       { id: 'dpc', nome: 'DPC DISTRIBUIDORA', url: 'https://cliente.dpcnet.com.br/?redirect=https%3A%2F%2Fdpcnet.com.br%2F', usuario: '47378578000140', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
@@ -437,7 +441,9 @@ function belapedEndpoints(db) {
       { id: 'distrimed', nome: 'DISTRIMED', url: 'https://inovacao.distrimed.com.br/login?referencia=/solicitacaoSac', usuario: 'bela farma sul', min: 350.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação automática via modal' },
       { id: 'divimed', nome: 'DIVIMED', url: 'https://divimed.artpedidoweb.com.br/#/', usuario: 'belafarmasul@gmail.com', min: 400.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Montagem robótica produto por produto por nome' },
       { id: 'martins', nome: 'MARTINS ATACADO', url: 'https://www.martinsatacado.com.br/login/pessoa-juridica?pathName=%2F', usuario: '47.378.578/0001-40', min: 200.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Pedido mínimo R$ 200,00 - Filtro estrito: apenas produtos faturados em MG' },
-      { id: 'oriente', nome: 'ORIENTE FARMA', url: 'https://pedidoweb.orientefarma.com.br/auth/login', usuario: 'belafarmasul@gmail.com', min: 150.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Condições: Geral (96), Verão (4774) e Unilever (18)' }
+      { id: 'oriente', nome: 'ORIENTE FARMA', url: 'https://pedidoweb.orientefarma.com.br/auth/login', usuario: 'belafarmasul@gmail.com', min: 150.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Condições: Geral (96), Verão (4774) e Unilever (18)' },
+      { id: 'panpharma', nome: 'PANPHARMA', url: 'http://digitadorpan.stcruz.com.br', usuario: '528854', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - ePan Pedido Eletrônico e cotação via API direta' },
+      { id: 'mgmedicamentos', nome: 'MG MEDICAMENTOS', url: 'http://www.mgmedicamentos.com.br/pedido/criar/az/00', usuario: 'DSAPPWJ', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo instantâneo em memória e pedido online' }
     ];
 
     const stmtUpsert = db.prepare(`
@@ -456,8 +462,8 @@ function belapedEndpoints(db) {
       stmtUpsert.run(p.id, p.nome, p.url, p.usuario, p.min, p.prazo, p.uf, p.is_mg, p.obs);
     }
 
-    // Remove qualquer distribuidora não configurada (garante apenas as 7 oficiais)
-    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente')`).run();
+    // Remove qualquer distribuidora não configurada (garante apenas as 9 oficiais)
+    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente', 'panpharma', 'mgmedicamentos')`).run();
 
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
@@ -3530,6 +3536,8 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot);
         } else if (fornecedor === 'PANPHARMA' || fornecedor === 'PANFARMA') {
           await executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot);
+        } else if (fornecedor === 'MGMEDICAMENTOS' || fornecedor === 'MG' || fornecedor === 'MG MEDICAMENTOS') {
+          await executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
             executarRoboParaFornecedor('PROFARMA', ProfarmaRobot, 0),
@@ -3539,7 +3547,8 @@ function belapedEndpoints(db) {
             executarRoboParaFornecedor('DIVIMED', DivimedRobot, 4800),
             executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot, 6000),
             executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200),
-            executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot, 8400)
+            executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot, 8400),
+            executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot, 9600)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -3836,13 +3845,16 @@ function belapedEndpoints(db) {
         'ORIENTE FARMA': OrienteRobot,
         'ORIENTE': OrienteRobot,
         'PANPHARMA': PanpharmaRobot,
-        'PANFARMA': PanpharmaRobot
+        'PANFARMA': PanpharmaRobot,
+        'MG MEDICAMENTOS': MgMedicamentosRobot,
+        'MGMEDICAMENTOS': MgMedicamentosRobot,
+        'MG': MgMedicamentosRobot
       };
 
       // Determina quais distribuidoras rodar
       let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : 'TODOS';
       const portaisParaCotar = (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo])
-        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA', 'PANPHARMA']
+        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA', 'PANPHARMA', 'MG MEDICAMENTOS']
         : [fornecedorAlvo];
 
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descFinal || ''}) em [${portaisParaCotar.join(', ')}]...`);
@@ -4488,7 +4500,7 @@ function belapedEndpoints(db) {
   /**
    * Garante que múltiplos portais estejam confirmados com 0 itens antes da criação de pedidos.
    */
-  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma']) {
+  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma', 'mgmedicamentos']) {
     console.log(`[BelaPed Segurança] 🛡️ Verificando e garantindo carrinhos limpos para: ${portaisAlvo.join(', ')}...`);
     const resultados = [];
 
@@ -4503,6 +4515,8 @@ function belapedEndpoints(db) {
         case 'oriente': return new OrienteRobot({ headless: true });
         case 'panpharma':
         case 'panfarma': return new PanpharmaRobot();
+        case 'mgmedicamentos':
+        case 'mg': return new MgMedicamentosRobot();
         default: return null;
       }
     };
@@ -6436,6 +6450,140 @@ function belapedEndpoints(db) {
     res.json({ success: true, status: panpharmaCarrinhoStatus });
   });
 
+  // Estado de montagem do carrinho na MG Medicamentos
+  const mgmedicamentosCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-mgmedicamentos
+   * Inicia o robô para adicionar os itens no carrinho da MG Medicamentos
+   */
+  router.post('/montar-carrinho-mgmedicamentos', async (req, res) => {
+    try {
+      if (mgmedicamentosCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na MG Medicamentos já está em andamento.' });
+      }
+
+      const itens = req.body.itens;
+      let itensParaAdicionar = [];
+
+      if (itens && Array.isArray(itens) && itens.length > 0) {
+        itensParaAdicionar = itens;
+      } else {
+        const itensDB = db.prepare(`
+          SELECT 
+            cr.ean,
+            cr.descricao,
+            cr.preco as preco_unitario,
+            COALESCE(fa.qtd_sugerida_7d, 1) as quantidade
+          FROM belaped_cotacoes_reais cr
+          LEFT JOIN belaped_faltas_analise fa ON fa.ean = cr.ean
+          WHERE UPPER(cr.fornecedor) LIKE '%MG MEDICAMENTOS%' OR UPPER(cr.fornecedor) LIKE '%MGMEDICAMENTOS%'
+          ORDER BY cr.descricao ASC
+        `).all();
+        itensParaAdicionar = itensDB;
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto da MG Medicamentos elegível para montagem do carrinho.' });
+      }
+
+      mgmedicamentosCarrinhoStatus.emAndamento = true;
+      mgmedicamentosCarrinhoStatus.total = itensParaAdicionar.length;
+      mgmedicamentosCarrinhoStatus.atual = 0;
+      mgmedicamentosCarrinhoStatus.sucessos = 0;
+      mgmedicamentosCarrinhoStatus.erros = 0;
+      mgmedicamentosCarrinhoStatus.ultimoItem = '';
+      mgmedicamentosCarrinhoStatus.itens = [];
+      mgmedicamentosCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na MG Medicamentos com ${itensParaAdicionar.length} produtos.`,
+        status: mgmedicamentosCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô MG Medicamentos para montagem de carrinho...');
+          robot = new MgMedicamentosRobot();
+          await robot.iniciar();
+
+          mgmedicamentosCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'mgmedicamentos');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            mgmedicamentosCarrinhoStatus.atual = i + 1;
+            mgmedicamentosCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            try {
+              const resAdd = await robot.adicionarAoCarrinho(item.ean, item.quantidade || 1, item.descricao);
+              if (resAdd && resAdd.sucesso) {
+                mgmedicamentosCarrinhoStatus.sucessos++;
+                mgmedicamentosCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  preco: resAdd.preco,
+                  status: 'ADICIONADO'
+                });
+              } else {
+                mgmedicamentosCarrinhoStatus.erros++;
+                mgmedicamentosCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  motivo: resAdd?.erro || 'Erro ao adicionar item na MG Medicamentos',
+                  status: 'ERRO'
+                });
+              }
+            } catch (itemErr) {
+              mgmedicamentosCarrinhoStatus.erros++;
+              mgmedicamentosCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                motivo: itemErr.message,
+                status: 'ERRO'
+              });
+            }
+          }
+
+          mgmedicamentosCarrinhoStatus.relatorio = {
+            distribuidora: 'MG MEDICAMENTOS',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: mgmedicamentosCarrinhoStatus.sucessos,
+            erros: mgmedicamentosCarrinhoStatus.erros
+          };
+        } catch (botErr) {
+          console.error('[BelaPed] Erro durante a montagem na MG Medicamentos:', botErr.message);
+          mgmedicamentosCarrinhoStatus.erros++;
+        } finally {
+          mgmedicamentosCarrinhoStatus.emAndamento = false;
+          if (robot) await robot.fechar().catch(() => {});
+        }
+      })();
+    } catch (err) {
+      mgmedicamentosCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-mgmedicamentos:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-mgmedicamentos', (req, res) => {
+    res.json({ success: true, status: mgmedicamentosCarrinhoStatus });
+  });
+
   /**
    * GET /api/belaped/oriente/pedidos-recentes
    * Consulta os pedidos gerados recentemente no portal da Oriente Farma (gerenciar-pedidos)
@@ -6569,6 +6717,7 @@ function belapedEndpoints(db) {
     if (p.includes('DIVIMED')) return new DivimedRobot(options);
     if (p.includes('ORIENTE')) return new OrienteRobot(options);
     if (p.includes('PANPHARMA') || p.includes('PANFARMA')) return new PanpharmaRobot(options);
+    if (p.includes('MG MEDICAMENTOS') || p.includes('MGMEDICAMENTOS') || p.startsWith('MG')) return new MgMedicamentosRobot(options);
     return null;
   }
 
