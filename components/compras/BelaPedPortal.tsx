@@ -72,6 +72,7 @@ import { BelaPedPrecoHistoricoModal } from './BelaPedPrecoHistoricoModal';
 import { BelaPedOrcamentoSemanalModal } from './BelaPedOrcamentoSemanalModal';
 import { BelaPedConcorrentesModal } from './BelaPedConcorrentesModal';
 import BelaPedDecisaoTab from './BelaPedDecisaoTab';
+import BelaPedCotacoesMatrizTab from './BelaPedCotacoesMatrizTab';
 
 interface BelaPedPortalProps {
   user: User;
@@ -195,7 +196,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const { addToast } = useToast();
   
   // Abas de Navegação do BelaPed (Decisão de Compras como aba inicial prioritária)
-  const [activeTab, setActiveTab] = useState<'decisao' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
+  const [activeTab, setActiveTab] = useState<'decisao' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
   const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
 
   // Estados de Dados
@@ -3673,6 +3674,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Lista unificada de Módulos para Navegação Desktop e Mobile
   const modulosNav = useMemo(() => [
     { id: 'decisao' as const, label: '🎯 Decisão de Compras', shortLabel: 'Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
+    { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'faltas' as const, label: '1. Reposição 1 Semana', shortLabel: 'Reposição', icon: <Layers className="w-4 h-4 text-cyan-300" />, badge: faltas.length },
     { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
     { id: 'pedidos' as const, label: '3. Meus Pedidos & NF', shortLabel: 'Pedidos', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
@@ -4197,6 +4199,40 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             onAbrirVerCarrinhos={handleAbrirModalVerCarrinhos}
             onNavegarTab={setActiveTab}
             onRecarregarDados={carregarDados}
+          />
+        )}
+
+        {/* ─── ABA: TABELA & MATRIZ GERAL DE COTAÇÕES (TODOS OS PORTAIS) ────── */}
+        {activeTab === 'cotacoes_matriz' && (
+          <BelaPedCotacoesMatrizTab
+            onVerHistoricoPrecos={(ean, prodId, desc) => {
+              const achado = faltas.find(f => (ean && f.ean === ean) || f.produto_id === prodId);
+              setModalHistoricoPreco({
+                isOpen: true,
+                produto: achado || ({
+                  produto_id: prodId,
+                  descricao: desc,
+                  apresentacao: '',
+                  ean: ean || '',
+                  curva_abc: 'A',
+                  saldo: 0,
+                  vmd_ponderado: 0,
+                  vendas_30d: 0,
+                  dias_estoque_restante: 0,
+                  status_ruptura: 'RUPTURA',
+                  custo_unitario: 0,
+                  preco_venda_vigente: 0,
+                  margem_lucro_percentual: 0,
+                  fornecedor_ult_compra: '',
+                  data_ult_compra: '',
+                  nf_ult_compra: '',
+                  qtd_sugerida_7d: 1,
+                  subtotal_7d: 0,
+                  tipo_categoria: 'MEDICAMENTO'
+                } as FaltaItem7d)
+              });
+            }}
+            onNavegarTab={setActiveTab}
           />
         )}
 

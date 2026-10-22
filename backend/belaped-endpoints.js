@@ -4108,6 +4108,302 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/matriz-cotacoes
+   * Retorna a matriz comparativa de cotações de todos os produtos:
+   * Dados do produto, último preço e fornecedor de compra no ERP Digifarma,
+   * e os valores encontrados em cada uma das 9 distribuidoras integradas.
+   */
+  router.get('/matriz-cotacoes', (req, res) => {
+    try {
+      const { busca, curva, apenas_com_preco, apenas_com_economia, fornecedor_filtro } = req.query;
+
+      // 1. Portais ativos cadastrados
+      const portaisDb = db.prepare(`SELECT id, nome, pedido_minimo FROM belaped_portais ORDER BY id ASC`).all();
+      const portais = [
+        'PROFARMA',
+        'DISTRIMED',
+        'DPC DISTRIBUIDORA',
+        'SOTON FARMA',
+        'DIVIMED',
+        'MARTINS ATACADO',
+        'ORIENTE FARMA',
+        'PANPHARMA',
+        'MG MEDICAMENTOS'
+      ];
+
+      // 2. Cotações reais capturadas pelos robôs
+      const cotacoesReais = db.prepare(`
+        SELECT ean, fornecedor, preco, disponivel, descricao, laboratorio, desc_pct, url_produto, condicao_comercial, updated_at
+        FROM belaped_cotacoes_reais
+      `).all();
+
+      const cotacoesPorEan = new Map();
+      for (const cot of cotacoesReais) {
+        if (!cot.ean) continue;
+        const eanNorm = String(cot.ean).trim();
+        if (!cotacoesPorEan.has(eanNorm)) {
+          cotacoesPorEan.set(eanNorm, []);
+        }
+        cotacoesPorEan.get(eanNorm).push(cot);
+      }
+
+      // 3. Cache de Últimas Compras do ERP Digifarma (Notas Fiscais de Entrada)
+      const ultCompraByIdMap = new Map();
+      const ultCompraByEanMap = new Map();
+      try {
+        const rowsUltCompra = db.prepare(`
+          SELECT produto_id, ean, preco_unitario_ult_compra, preco_total_nota, quantidade,
+                 embalagem, embalagem_detalhe, data_compra, fornecedor_nome, numero_nota_fiscal
+          FROM digifarma_ultimas_compras_cache
+        `).all();
+        for (const uc of rowsUltCompra) {
+          if (uc.produto_id) ultCompraByIdMap.set(Number(uc.produto_id), uc);
+          if (uc.ean) ultCompraByEanMap.set(String(uc.ean).trim(), uc);
+        }
+      } catch (eUc) {}
+
+      // 4. Produtos candidatos (produtos com cotação existente OU produtos em reposição ativa A/B, ou busca)
+      let queryProdutos = `
+        SELECT 
+          c.produto_id,
+          c.descricao,
+          c.apresentacao,
+          c.ean,
+          c.curva_abc,
+          c.saldo,
+          c.est_minimo_calculado,
+          c.vmd_ponderado,
+          c.vendas_30d,
+          c.custo_unitario,
+          c.preco_venda_vigente,
+          c.preco_unitario_ult_compra,
+          c.ultima_compra_fornecedor,
+          c.ultima_compra_data,
+          c.ultima_compra_nf
+        FROM compras_estoque_cache c
+        WHERE (
+          c.ean IN (SELECT DISTINCT ean FROM belaped_cotacoes_reais)
+          OR (
+            (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
+            AND c.curva_abc IN ('A', 'B')
+          )
+        )
+      `;
+      const queryParams = [];
+
+      if (busca) {
+        queryProdutos = `
+          SELECT 
+            c.produto_id,
+            c.descricao,
+            c.apresentacao,
+            c.ean,
+            c.curva_abc,
+            c.saldo,
+            c.est_minimo_calculado,
+            c.vmd_ponderado,
+            c.vendas_30d,
+            c.custo_unitario,
+            c.preco_venda_vigente,
+            c.preco_unitario_ult_compra,
+            c.ultima_compra_fornecedor,
+            c.ultima_compra_data,
+            c.ultima_compra_nf
+          FROM compras_estoque_cache c
+          WHERE (c.descricao LIKE ? OR c.ean LIKE ?)
+        `;
+        queryParams.push(`%${busca}%`, `%${busca}%`);
+      }
+
+      if (curva && ['A', 'B', 'C'].includes(String(curva).toUpperCase())) {
+        queryProdutos += ` AND c.curva_abc = ?`;
+        queryParams.push(String(curva).toUpperCase());
+      }
+
+      queryProdutos += ` ORDER BY 
+        CASE WHEN c.ean IN (SELECT DISTINCT ean FROM belaped_cotacoes_reais WHERE disponivel = 1 AND preco > 0) THEN 0 ELSE 1 END,
+        CASE c.curva_abc WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END ASC,
+        c.vmd_ponderado DESC
+      `;
+
+      const produtosDb = db.prepare(queryProdutos).all(...queryParams);
+
+      // Normalizador de nome de fornecedor para casar as colunas
+      const normalizarNomeFornecedor = (nome) => {
+        if (!nome) return '';
+        const n = String(nome).toUpperCase().trim();
+        if (n.includes('PROFARMA')) return 'PROFARMA';
+        if (n.includes('DISTRIMED')) return 'DISTRIMED';
+        if (n.includes('DPC')) return 'DPC DISTRIBUIDORA';
+        if (n.includes('SOTON')) return 'SOTON FARMA';
+        if (n.includes('DIVIMED')) return 'DIVIMED';
+        if (n.includes('MARTINS')) return 'MARTINS ATACADO';
+        if (n.includes('ORIENTE')) return 'ORIENTE FARMA';
+        if (n.includes('PANPHARMA') || n.includes('EPAN')) return 'PANPHARMA';
+        if (n.includes('MG MEDICAMENTOS') || n.includes('MG MEDIC')) return 'MG MEDICAMENTOS';
+        return n;
+      };
+
+      let totalComPrecoGeral = 0;
+      let totalComEconomiaGeral = 0;
+      const vitoriasPorDistribuidora = {};
+      let economiaPotencialTotal = 0;
+
+      const itens = [];
+
+      for (const p of produtosDb) {
+        const eanNorm = String(p.ean || '').trim();
+        const ultCache = (p.produto_id && ultCompraByIdMap.get(Number(p.produto_id))) ||
+          (eanNorm && ultCompraByEanMap.get(eanNorm)) ||
+          null;
+
+        const precoUltCompra = Number(
+          ultCache?.preco_unitario_ult_compra ||
+          p.preco_unitario_ult_compra ||
+          p.custo_unitario ||
+          0
+        );
+
+        const fornecedorUltCompra = (ultCache?.fornecedor_nome && String(ultCache.fornecedor_nome).trim()) ||
+          (p.ultima_compra_fornecedor && String(p.ultima_compra_fornecedor).trim()) ||
+          'Não registrado';
+
+        const dataUltCompra = ultCache?.data_compra || p.ultima_compra_data || '';
+        const nfUltCompra = ultCache?.numero_nota_fiscal || p.ultima_compra_nf || '';
+
+        // Mapa de cotações por distribuidora
+        const cotacoesLista = eanNorm ? (cotacoesPorEan.get(eanNorm) || []) : [];
+        const cotacoesMap = {};
+
+        let menorPreco = Infinity;
+        let melhorDistribuidora = null;
+        let menorLaboratorio = null;
+        let menorUrl = null;
+        let totalDisponiveis = 0;
+
+        for (const c of cotacoesLista) {
+          const nomeDistNorm = normalizarNomeFornecedor(c.fornecedor);
+          const precoNum = Number(c.preco) || 0;
+          const disponivel = Number(c.disponivel) === 1;
+
+          cotacoesMap[nomeDistNorm] = {
+            fornecedor: nomeDistNorm,
+            preco: precoNum > 0 ? Number(precoNum.toFixed(2)) : null,
+            disponivel: disponivel,
+            descricao: c.descricao || null,
+            laboratorio: c.laboratorio || null,
+            desc_pct: c.desc_pct || 0,
+            url_produto: c.url_produto || null,
+            condicao_comercial: c.condicao_comercial || null,
+            updated_at: c.updated_at || null
+          };
+
+          if (disponivel && precoNum > 0) {
+            totalDisponiveis++;
+            if (precoNum < menorPreco) {
+              menorPreco = precoNum;
+              melhorDistribuidora = nomeDistNorm;
+              menorLaboratorio = c.laboratorio;
+              menorUrl = c.url_produto;
+            }
+          }
+        }
+
+        const temPreco = menorPreco < Infinity && menorPreco > 0;
+        const menorPrecoFinal = temPreco ? Number(menorPreco.toFixed(2)) : null;
+
+        // Variação vs Última Compra
+        let variacaoUltCompraPct = 0;
+        let economiaUnitaria = 0;
+        let isMaisBarato = false;
+
+        if (temPreco && precoUltCompra > 0) {
+          variacaoUltCompraPct = Number((((menorPrecoFinal - precoUltCompra) / precoUltCompra) * 100).toFixed(1));
+          economiaUnitaria = Number((precoUltCompra - menorPrecoFinal).toFixed(2));
+          isMaisBarato = economiaUnitaria > 0.01;
+        }
+
+        if (temPreco) {
+          totalComPrecoGeral++;
+          if (melhorDistribuidora) {
+            vitoriasPorDistribuidora[melhorDistribuidora] = (vitoriasPorDistribuidora[melhorDistribuidora] || 0) + 1;
+          }
+          if (isMaisBarato) {
+            totalComEconomiaGeral++;
+            const vmd = Number(p.vmd_ponderado) || 0;
+            const qtdEst = Math.max(1, Math.ceil(vmd * 7));
+            economiaPotencialTotal += economiaUnitaria * qtdEst;
+          }
+        }
+
+        // Filtro "apenas_com_preco"
+        if ((apenas_com_preco === 'true' || apenas_com_preco === '1') && !temPreco) {
+          continue;
+        }
+
+        // Filtro "apenas_com_economia"
+        if ((apenas_com_economia === 'true' || apenas_com_economia === '1') && !isMaisBarato) {
+          continue;
+        }
+
+        // Filtro por fornecedor
+        if (fornecedor_filtro && fornecedor_filtro !== 'TODAS') {
+          const fnNorm = normalizarNomeFornecedor(fornecedor_filtro);
+          const temNoForn = cotacoesMap[fnNorm]?.preco > 0;
+          const venceuNoForn = melhorDistribuidora === fnNorm;
+          if (!temNoForn && !venceuNoForn) {
+            continue;
+          }
+        }
+
+        itens.push({
+          produto_id: p.produto_id,
+          descricao: p.descricao,
+          apresentacao: p.apresentacao || '',
+          ean: eanNorm,
+          curva_abc: p.curva_abc || 'C',
+          saldo: Number(p.saldo) || 0,
+          vmd_ponderado: Number((Number(p.vmd_ponderado) || 0).toFixed(2)),
+          custo_unitario: Number(p.custo_unitario) || 0,
+          preco_venda_vigente: Number(p.preco_venda_vigente) || 0,
+          preco_ult_compra: Number(precoUltCompra.toFixed(2)),
+          fornecedor_ult_compra: fornecedorUltCompra,
+          data_ult_compra: dataUltCompra,
+          nf_ult_compra: nfUltCompra,
+          cotacoes: cotacoesMap,
+          menor_preco: menorPrecoFinal,
+          melhor_distribuidora: melhorDistribuidora,
+          laboratorio_vencedor: menorLaboratorio,
+          url_vencedor: menorUrl,
+          variacao_ult_compra_pct: variacaoUltCompraPct,
+          economia_unitaria: economiaUnitaria,
+          is_mais_barato: isMaisBarato,
+          total_disponiveis: totalDisponiveis,
+          total_cotacoes: cotacoesLista.length,
+          status: temPreco ? 'COM_PRECO' : (cotacoesLista.length > 0 ? 'SEM_ESTOQUE' : 'NAO_COTADO')
+        });
+      }
+
+      res.json({
+        success: true,
+        portais: portais,
+        total: itens.length,
+        resumo: {
+          total_exibidos: itens.length,
+          total_com_preco: totalComPrecoGeral,
+          total_com_economia: totalComEconomiaGeral,
+          economia_potencial_total: Number(economiaPotencialTotal.toFixed(2)),
+          vitorias_por_distribuidora: vitoriasPorDistribuidora
+        },
+        produtos: itens
+      });
+    } catch (err) {
+      console.error('[BelaPed] Erro em matriz-cotacoes:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/belaped/historico-precos-produto?ean=...&produto_id=...
    * Retorna os pontos do gráfico temporal de preços capturados pelos robôs
    * e pelas notas fiscais reais do Digifarma.
