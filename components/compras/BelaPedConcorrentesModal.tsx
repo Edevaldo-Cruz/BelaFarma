@@ -270,7 +270,7 @@ export const BelaPedConcorrentesModal: React.FC<BelaPedConcorrentesModalProps> =
                     </>
                   ) : (
                     <div className="text-xs text-slate-400 italic py-3">
-                      Nenhuma cotação com estoque ativo encontrada no momento nos 7 portais.
+                      Nenhuma cotação com estoque ativo encontrada no momento nos 8 portais.
                     </div>
                   )}
                 </div>

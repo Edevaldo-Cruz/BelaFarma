@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "d57a5ae",
-  "commitMessage": "fix(belaped): redesign toolbar to prevent button tower stacking and text clipping",
-  "buildTime": "22/10/2026, 09:32:10"
+  "commitHash": "fb7ffcd",
+  "commitMessage": "feat(financeiro): adiciona nova guia de scanner de boletos com memoria inteligente e anti-duplicidade",
+  "buildTime": "22/10/2026, 11:57:21"
 }

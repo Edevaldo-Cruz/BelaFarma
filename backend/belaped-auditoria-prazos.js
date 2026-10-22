@@ -15,6 +15,7 @@ const { DpcRobot } = require('./belaped-robot-dpc');
 const { ProfarmaRobot } = require('./belaped-robot-profarma');
 const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot } = require('./belaped-robot-oriente');
+const { PanpharmaRobot } = require('./belaped-robot-panpharma');
 
 // Item semente seguro de alto giro para completar valor mínimo caso o carrinho esteja vazio
 const EAN_SEMENTE_TESTE = '7896004702117'; // Dipirona 500mg 10 cpr EMS ou similar
@@ -48,6 +49,7 @@ async function auditarPortalSeguro(portalId, credenciais, db) {
     else if (portalNorm === 'profarma') robot = new ProfarmaRobot();
     else if (portalNorm === 'martins') robot = new MartinsRobot();
     else if (portalNorm === 'oriente') robot = new OrienteRobot();
+    else if (portalNorm === 'panpharma' || portalNorm === 'panfarma') robot = new PanpharmaRobot();
     else throw new Error(`Portal ${portalId} não suportado para auditoria.`);
 
     // 2. Inicia sessão
@@ -197,6 +199,11 @@ async function extrairPrazosEMinimoPortal(robot, portalNorm) {
     prazosBoleto = ['14 DDL', '21 DDL', '28 DDL', '35 DDL', '42 DDL', '28/35/42 DDL', '35/42/49 DDL', '30/45/60 DDL'];
     melhorPrazo = '30/45/60 DDL';
     observacao = `Oriente Farma: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
+  } else if (portalNorm === 'panpharma' || portalNorm === 'panfarma') {
+    pedidoMinimo = 300.00;
+    prazosBoleto = ['14 DDL', '21 DDL', '28 DDL', '28/35 DDL', '28/35/42 DDL', '30/60 DDL'];
+    melhorPrazo = '30/60 DDL';
+    observacao = `Panpharma: Pedido mínimo R$ ${pedidoMinimo.toFixed(2)}`;
   }
 
   return { pedidoMinimo, prazosBoleto, melhorPrazo, observacao };
@@ -252,7 +259,7 @@ function salvarResultadoAuditoria(db, resultado) {
  * Audita todas as distribuidoras ativas cadastradas
  */
 async function auditarTodasDistribuidoras(db) {
-  const portais = ['distrimed', 'soton', 'divimed', 'dpc', 'profarma', 'martins', 'oriente'];
+  const portais = ['distrimed', 'soton', 'divimed', 'dpc', 'profarma', 'martins', 'oriente', 'panpharma'];
   const resultados = [];
 
   for (const portal of portais) {

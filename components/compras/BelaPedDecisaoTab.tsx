@@ -151,6 +151,7 @@ function obterEndpointsCarrinhoPortal(distribuidora: string): { postUrl: string;
   if (u.includes('PROFARMA')) return { postUrl: '/api/belaped/montar-carrinho-profarma', statusUrl: '/api/belaped/status-carrinho-profarma' };
   if (u.includes('MARTINS')) return { postUrl: '/api/belaped/montar-carrinho-martins', statusUrl: '/api/belaped/status-carrinho-martins' };
   if (u.includes('ORIENTE')) return { postUrl: '/api/belaped/montar-carrinho-oriente', statusUrl: '/api/belaped/status-carrinho-oriente' };
+  if (u.includes('PANPHARMA') || u.includes('PANFARMA')) return { postUrl: '/api/belaped/montar-carrinho-panpharma', statusUrl: '/api/belaped/status-carrinho-panpharma' };
   return null;
 }
 

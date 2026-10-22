@@ -1405,7 +1405,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'MARTINS ATACADO': 200,
       'MARTINS': 200,
       'ORIENTE FARMA': 150,
-      'ORIENTE': 150
+      'ORIENTE': 150,
+      'PANPHARMA': 300,
+      'PANFARMA': 300
     };
     portais.forEach(p => {
       if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
@@ -1428,7 +1430,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     faltasBaseFiltradas.forEach(item => {
       const f1 = item.fornecedor_1 || 'Não Cotado';
       const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
-      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (7 PORTAIS)' : 'AGUARDANDO ROBÔ');
+      const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (8 PORTAIS)' : 'AGUARDANDO ROBÔ');
 
       if (!grupos[chave]) {
         const min = isReal ? (minimosPadrao[chave] || 300) : 0;
@@ -1516,7 +1518,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       : faltasBaseFiltradas.filter(item => {
           const f1 = item.fornecedor_1 || 'Não Cotado';
           const isReal = f1 !== 'Não Cotado' && f1 !== 'Sem Estoque (Portais)';
-          const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (7 PORTAIS)' : 'AGUARDANDO ROBÔ');
+          const chave = isReal ? f1.toUpperCase() : (f1 === 'Sem Estoque (Portais)' ? 'SEM ESTOQUE (8 PORTAIS)' : 'AGUARDANDO ROBÔ');
           return chave === filtroDistribuidora;
         });
     return ordenarListaFaltas(base);
@@ -2216,6 +2218,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     else if (dist.includes('DIVIMED')) endpoint = '/api/belaped/montar-carrinho-divimed';
     else if (dist.includes('MARTINS')) endpoint = '/api/belaped/montar-carrinho-martins';
     else if (dist.includes('ORIENTE')) endpoint = '/api/belaped/montar-carrinho-oriente';
+    else if (dist.includes('PANPHARMA') || dist.includes('PANFARMA')) endpoint = '/api/belaped/montar-carrinho-panpharma';
 
     if (!endpoint) {
       addToast(`Portal ${dist} não possui robô de montagem individual mapeado.`, 'warning');
@@ -2445,9 +2448,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     setWizardComprarTodosAberto(true);
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer (7 Portais)
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (8 Portais)
   const handleIniciarCotacaoAoVivo = async (
-    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'TODOS' = 'TODOS',
+    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'PANPHARMA' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
     prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'TODAS_PRIORITARIAS',
     eansEspecificos?: string[]
@@ -2493,7 +2496,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
 
       const rotuloPrioridade = prioridadeFiltro && prioridadeFiltro !== 'TODAS_PRIORITARIAS' ? `[${prioridadeFiltro}] ` : '';
-      const nomeExibicao = fornecedor === 'TODOS' ? '7 Portais (Profarma, DPC, Soton, Distrimed, Divimed, Martins e Oriente)' : fornecedor;
+      const nomeExibicao = fornecedor === 'TODOS' ? '8 Portais (Profarma, DPC, Soton, Distrimed, Divimed, Martins, Oriente e Panpharma)' : fornecedor;
 
       // Resposta visual IMEDIATA (0ms): Mostra o banner e status instantaneamente
       setStatusCotacao({
@@ -2583,7 +2586,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleReiniciarCotacao = async () => {
     try {
       setReiniciandoCotacao(true);
-      addToast('Reiniciando a cotação nos 7 portais...', 'info');
+      addToast('Reiniciando a cotação nos 8 portais...', 'info');
 
       // 1. Chama a rota de reinicialização no backend para destravar qualquer processo e resetar flags
       const res = await fetch('/api/belaped/reiniciar-cotacao', {
@@ -5062,22 +5065,22 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     </button>
                   )}
 
-                  {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO NOS 7 PORTAIS) */}
+                  {/* BOTÃO PRINCIPAL: RECARREGAR COTAÇÃO (ROBÔS AO VIVO NOS 8 PORTAIS) */}
                   <button
                     onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                     disabled={cotandoAoVivo}
                     className="flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
-                    title="Disparar os robôs agora para consultar preços ao vivo nos 7 portais (Profarma, DPC, Soton Farma, Distrimed, Divimed, Martins Atacado e Oriente Farma)"
+                    title="Disparar os robôs agora para consultar preços ao vivo nos 8 portais (Profarma, DPC, Soton Farma, Distrimed, Divimed, Martins Atacado, Oriente Farma e Panpharma)"
                   >
                     {cotandoAoVivo ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                        <span>Cotando nos 7 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
+                        <span>Cotando nos 8 Portais ({statusCotacao?.atual || 0}/{statusCotacao?.total || 0})...</span>
                       </>
                     ) : (
                       <>
                         <Bot className="w-4 h-4 text-emerald-200" />
-                        <span>Cotar 7 Portais (Robôs)</span>
+                        <span>Cotar 8 Portais (Robôs)</span>
                       </>
                     )}
                   </button>
@@ -5087,7 +5090,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     onClick={handleReiniciarCotacao}
                     disabled={reiniciandoCotacao}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-950/80 hover:bg-amber-900/90 text-amber-200 border border-amber-600/70 text-xs font-black shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
-                    title="Reiniciar a cotação: interrompe e destrava qualquer robô ou processo anterior e reinicia uma nova cotação limpa nos 7 portais"
+                    title="Reiniciar a cotação: interrompe e destrava qualquer robô ou processo anterior e reinicia uma nova cotação limpa nos 8 portais"
                   >
                     <RotateCcw className={`w-3.5 h-3.5 text-amber-400 ${reiniciandoCotacao ? 'animate-spin' : ''}`} />
                     <span>{reiniciandoCotacao ? 'Reiniciando...' : 'Reiniciar Cotação'}</span>
@@ -5119,7 +5122,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={() => setModalDesejadosAberto(true)}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-950/50 border border-amber-400/50 transition-all cursor-pointer active:scale-95 whitespace-nowrap"
-                    title="Espaço de Produtos Desejados: lista de produtos gravados para cotação prioritária nos 7 portais e compra"
+                    title="Espaço de Produtos Desejados: lista de produtos gravados para cotação prioritária nos 8 portais e compra"
                   >
                     <Tag className="w-3.5 h-3.5 text-amber-200" />
                     <span>⭐ Desejados ({itensAvulsos.length})</span>
@@ -5130,7 +5133,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     onClick={() => setModalAuditoriaAberta(true)}
                     disabled={auditandoPrazos}
                     className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-indigo-950 text-indigo-200 border border-indigo-800/70 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
-                    title="Ver e auditar prazos de boletos e pedidos mínimos dos 7 portais"
+                    title="Ver e auditar prazos de boletos e pedidos mínimos dos 8 portais"
                   >
                     <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
                     <span>💳 Prazos</span>
@@ -5800,7 +5803,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-black shadow-md transition-all cursor-pointer disabled:opacity-50"
                         >
                           <Bot className="w-4 h-4 text-emerald-200" />
-                          <span>🤖 Cotar Desejados nos 7 Portais ({itensAvulsos.length})</span>
+                          <span>🤖 Cotar Desejados nos 8 Portais ({itensAvulsos.length})</span>
                         </button>
                       </div>
                     </div>
@@ -6538,7 +6541,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                                         <div className="flex items-center gap-1.5">
                                           <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
                                           <span className="font-semibold text-amber-400/90 text-xs">
-                                            Sem Estoque (7 Portais)
+                                            Sem Estoque (8 Portais)
                                           </span>
                                         </div>
                                       ) : (
@@ -6951,8 +6954,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                               ) : semEstoquePortais ? (
                                 <div className="flex items-center gap-1.5">
                                   <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-                                  <span className="font-semibold text-amber-400/90 text-xs" title="Consultado nos 7 portais sem estoque disponível">
-                                    Sem Estoque (7 Portais)
+                                  <span className="font-semibold text-amber-400/90 text-xs" title="Consultado nos 8 portais sem estoque disponível">
+                                    Sem Estoque (8 Portais)
                                   </span>
                                 </div>
                               ) : (

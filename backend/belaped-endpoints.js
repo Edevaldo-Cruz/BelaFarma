@@ -24,6 +24,7 @@ const { DistrimedRobot } = require('./belaped-robot-distrimed');
 const { DivimedRobot } = require('./belaped-robot-divimed');
 const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
+const { PanpharmaRobot } = require('./belaped-robot-panpharma');
 const { validarCorrespondenciaProduto } = require('./belaped-validador');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
 const motorEssencia = require('./belaped-motor-essencia');
@@ -54,6 +55,9 @@ function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   }
   if (f.includes('ORIENTE')) {
     return `https://pedidoweb.orientefarma.com.br/pedidos?busca=${termo}`;
+  }
+  if (f.includes('PANPHARMA') || f.includes('PANFARMA')) {
+    return `https://www.panpharma.com.br/`;
   }
   return null;
 }
@@ -3524,6 +3528,8 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot);
         } else if (fornecedor === 'ORIENTE') {
           await executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot);
+        } else if (fornecedor === 'PANPHARMA' || fornecedor === 'PANFARMA') {
+          await executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
             executarRoboParaFornecedor('PROFARMA', ProfarmaRobot, 0),
@@ -3532,7 +3538,8 @@ function belapedEndpoints(db) {
             executarRoboParaFornecedor('DISTRIMED', DistrimedRobot, 3600),
             executarRoboParaFornecedor('DIVIMED', DivimedRobot, 4800),
             executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot, 6000),
-            executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200)
+            executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200),
+            executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot, 8400)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -3827,13 +3834,15 @@ function belapedEndpoints(db) {
         'MARTINS ATACADO': MartinsRobot,
         'MARTINS': MartinsRobot,
         'ORIENTE FARMA': OrienteRobot,
-        'ORIENTE': OrienteRobot
+        'ORIENTE': OrienteRobot,
+        'PANPHARMA': PanpharmaRobot,
+        'PANFARMA': PanpharmaRobot
       };
 
       // Determina quais distribuidoras rodar
       let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : 'TODOS';
       const portaisParaCotar = (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo])
-        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA']
+        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA', 'PANPHARMA']
         : [fornecedorAlvo];
 
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descFinal || ''}) em [${portaisParaCotar.join(', ')}]...`);
@@ -4479,7 +4488,7 @@ function belapedEndpoints(db) {
   /**
    * Garante que múltiplos portais estejam confirmados com 0 itens antes da criação de pedidos.
    */
-  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente']) {
+  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma']) {
     console.log(`[BelaPed Segurança] 🛡️ Verificando e garantindo carrinhos limpos para: ${portaisAlvo.join(', ')}...`);
     const resultados = [];
 
@@ -4492,6 +4501,8 @@ function belapedEndpoints(db) {
         case 'dpc': return new DpcRobot({ headless: true });
         case 'martins': return new MartinsRobot({ headless: true });
         case 'oriente': return new OrienteRobot({ headless: true });
+        case 'panpharma':
+        case 'panfarma': return new PanpharmaRobot();
         default: return null;
       }
     };
@@ -6297,6 +6308,134 @@ function belapedEndpoints(db) {
     res.json({ success: true, status: orienteCarrinhoStatus });
   });
 
+  // Estado de montagem do carrinho na Panpharma
+  const panpharmaCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  /**
+   * POST /api/belaped/montar-carrinho-panpharma
+   * Inicia o robô para adicionar os itens no carrinho da Panpharma e gerar lote ePan
+   */
+  router.post('/montar-carrinho-panpharma', async (req, res) => {
+    try {
+      if (panpharmaCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na Panpharma já está em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body.itens || [];
+
+      // Filtra produtos bloqueados nas regras
+      const eansNaoCarrinho = obterEansBloqueadosCarrinho();
+      itensParaAdicionar = itensParaAdicionar.filter(it => !eansNaoCarrinho.has(it.ean) && !it.nao_carrinho);
+
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const produtosGanhadores = db.prepare(`
+          SELECT 
+            c.ean, 
+            COALESCE(cr.ean_substituto, c.ean) AS ean_substituto,
+            c.descricao, 
+            c.quantidade_sugerida AS quantidade,
+            cr.preco
+          FROM compras_estoque_cache c
+          INNER JOIN belaped_cotacoes_reais cr ON cr.ean = c.ean
+          WHERE UPPER(cr.fornecedor) LIKE '%PANPHARMA%' OR UPPER(cr.fornecedor) LIKE '%PANFARMA%'
+        `).all();
+
+        itensParaAdicionar = (produtosGanhadores || []).filter(it => !eansNaoCarrinho.has(it.ean));
+      }
+
+      if (itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto da Panpharma elegível para montagem do carrinho.' });
+      }
+
+      panpharmaCarrinhoStatus.emAndamento = true;
+      panpharmaCarrinhoStatus.total = itensParaAdicionar.length;
+      panpharmaCarrinhoStatus.atual = 0;
+      panpharmaCarrinhoStatus.sucessos = 0;
+      panpharmaCarrinhoStatus.erros = 0;
+      panpharmaCarrinhoStatus.ultimoItem = '';
+      panpharmaCarrinhoStatus.itens = [];
+      panpharmaCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Panpharma com ${itensParaAdicionar.length} produtos.`,
+        status: panpharmaCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Panpharma para montagem de carrinho...');
+          robot = new PanpharmaRobot();
+          await robot.iniciar();
+
+          // 🛡️ REGRA CRÍTICA: Validação e esvaziamento prévio obrigatório
+          panpharmaCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'panpharma');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            panpharmaCarrinhoStatus.atual = i + 1;
+            panpharmaCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            const eanParaUsar = item.ean_substituto || item.ean;
+            const resItem = await robot.adicionarAoCarrinho(eanParaUsar, item.quantidade, item.descricao);
+
+            if (resItem.sucesso) {
+              panpharmaCarrinhoStatus.sucessos++;
+              panpharmaCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                status: 'SUCESSO',
+                motivo: resItem.motivo || 'Adicionado com sucesso'
+              });
+            } else {
+              panpharmaCarrinhoStatus.erros++;
+              panpharmaCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                status: 'FALHA',
+                motivo: resItem.motivo || 'Erro ao adicionar'
+              });
+            }
+          }
+
+          panpharmaCarrinhoStatus.relatorio = {
+            finalizadoEm: new Date().toISOString(),
+            totalProcessados: itensParaAdicionar.length,
+            sucessos: panpharmaCarrinhoStatus.sucessos,
+            erros: panpharmaCarrinhoStatus.erros
+          };
+        } catch (botErr) {
+          console.error('[BelaPed] Erro durante a montagem na Panpharma:', botErr.message);
+          panpharmaCarrinhoStatus.erros++;
+        } finally {
+          panpharmaCarrinhoStatus.emAndamento = false;
+          if (robot) await robot.fechar().catch(() => {});
+        }
+      })();
+    } catch (err) {
+      panpharmaCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-panpharma:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-panpharma', (req, res) => {
+    res.json({ success: true, status: panpharmaCarrinhoStatus });
+  });
+
   /**
    * GET /api/belaped/oriente/pedidos-recentes
    * Consulta os pedidos gerados recentemente no portal da Oriente Farma (gerenciar-pedidos)
@@ -6429,6 +6568,7 @@ function belapedEndpoints(db) {
     if (p.includes('DISTRIMED')) return new DistrimedRobot(options);
     if (p.includes('DIVIMED')) return new DivimedRobot(options);
     if (p.includes('ORIENTE')) return new OrienteRobot(options);
+    if (p.includes('PANPHARMA') || p.includes('PANFARMA')) return new PanpharmaRobot(options);
     return null;
   }
 
